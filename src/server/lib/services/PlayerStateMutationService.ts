@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { db, getPoolMetrics, type DbTransaction } from '@server/lib/drizzle/db';
+import { db, type DbTransaction } from '@server/lib/drizzle/db';
 import {
   redisLockKeys,
   withRedisLock,
@@ -114,7 +114,7 @@ async function commitPlayerStateMutationTransaction<T>(
     const startedAt = Date.now();
 
     try {
-      const result = await db().transaction(async (tx) => {
+      const result = await db.transaction(async (tx) => {
         await lockCultivatorForStateMutation(tx, args.cultivatorId);
 
         if (idempotency) {
@@ -329,7 +329,6 @@ function logTransaction(
   error?: unknown,
 ): void {
   const durationMs = Date.now() - startedAt;
-  const pool = getPoolMetrics();
   const details = {
     outcome,
     source: args.source,
@@ -338,14 +337,13 @@ function logTransaction(
     durationMs,
     retryAttempt,
     postgresCode: getPostgresErrorCode(error),
-    ...pool,
   };
 
   if (outcome === 'failed') {
     console.error('[player-state-transaction]', details);
     return;
   }
-  if (durationMs >= SLOW_TRANSACTION_THRESHOLD_MS || pool.poolWaiting > 0) {
+  if (durationMs >= SLOW_TRANSACTION_THRESHOLD_MS) {
     console.info('[player-state-transaction]', details);
   }
 }

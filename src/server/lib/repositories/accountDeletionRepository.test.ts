@@ -1,4 +1,4 @@
-import { db, getExecutor } from '@server/lib/drizzle/db';
+import { getExecutor } from '@server/lib/drizzle/db';
 import {
   accountDeletionRecords,
   cultivators,
@@ -9,8 +9,14 @@ import {
   recordPendingAccountDeletion,
 } from './accountDeletionRepository';
 
+const { dbMock } = vi.hoisted(() => ({
+  dbMock: {
+    transaction: vi.fn(),
+  },
+}));
+
 vi.mock('@server/lib/drizzle/db', () => ({
-  db: vi.fn(),
+  db: dbMock,
   getExecutor: vi.fn(),
 }));
 
@@ -38,7 +44,7 @@ describe('accountDeletionRepository', () => {
     const values = vi.fn(() => ({ onConflictDoUpdate }));
     const insert = vi.fn(() => ({ values }));
     const transaction = vi.fn(async (callback) => callback({ select, insert }));
-    vi.mocked(db).mockReturnValue({ transaction } as never);
+    dbMock.transaction.mockImplementation(transaction);
 
     await recordPendingAccountDeletion('11111111-1111-4111-8111-111111111111');
 
@@ -65,7 +71,7 @@ describe('accountDeletionRepository', () => {
   it('propagates capture failures so Better Auth can abort deletion', async () => {
     const error = new Error('database unavailable');
     const transaction = vi.fn().mockRejectedValue(error);
-    vi.mocked(db).mockReturnValue({ transaction } as never);
+    dbMock.transaction.mockImplementation(transaction);
 
     await expect(
       recordPendingAccountDeletion('11111111-1111-4111-8111-111111111111'),

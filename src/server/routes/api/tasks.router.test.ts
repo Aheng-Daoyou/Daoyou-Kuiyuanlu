@@ -13,7 +13,7 @@ const {
 }));
 
 vi.mock('@server/lib/drizzle/db', () => ({
-  db: vi.fn(),
+  db: { transaction: vi.fn() },
   getExecutor: vi.fn(),
 }));
 
@@ -53,7 +53,9 @@ vi.mock('@server/lib/services/TaskService', () => ({
 import { db } from '@server/lib/drizzle/db';
 import taskRouter from './tasks.router';
 
-const dbMock = db as unknown as ReturnType<typeof vi.fn>;
+const dbMock = db as unknown as {
+  transaction: ReturnType<typeof vi.fn>;
+};
 
 function createApp() {
   return new Hono().route('/api/tasks', taskRouter);
@@ -109,10 +111,10 @@ function mockTaskClaimTransaction(unreadMailCount: number) {
   const insert = vi.fn(() => ({ values }));
   const txMock = { select, insert };
 
-  dbMock.mockReturnValue({
-    transaction: async (callback: (tx: typeof txMock) => Promise<unknown>) =>
+  dbMock.transaction.mockImplementation(
+    async (callback: (tx: typeof txMock) => Promise<unknown>) =>
       callback(txMock),
-  });
+  );
 
   return txMock;
 }

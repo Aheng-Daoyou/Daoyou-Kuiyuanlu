@@ -17,7 +17,7 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
-    "types": ["node", "vite/client", "vitest/globals"],
+    "types": ["bun", "node", "vite/client", "vitest/globals"],
     "paths": {
       "@app/*": ["./src/react-app/*"],
       "@server/*": ["./src/server/*"],
@@ -27,6 +27,7 @@
   "include": [
     "vite.config.ts",
     "vitest.config.ts",
+    "drizzle.auth.config.ts",
     "./src/index.ts",
     "./src/server",
     "./scripts"

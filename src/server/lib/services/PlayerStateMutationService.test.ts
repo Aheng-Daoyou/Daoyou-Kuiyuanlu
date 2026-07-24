@@ -12,9 +12,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@server/lib/drizzle/db', () => ({
-  db: () => ({
+  db: {
     transaction: mocks.transaction,
-  }),
+  },
 }));
 
 vi.mock('@server/lib/repositories/playerStateRepository', () => ({

@@ -86,7 +86,7 @@ async function validateOtpSignUpName(context: Context): Promise<Response | null>
     return authError('缺少邮箱地址');
   }
 
-  const existingUser = await db()
+  const existingUser = await db
     .select({ id: authUsers.id })
     .from(authUsers)
     .where(eq(authUsers.email, email))

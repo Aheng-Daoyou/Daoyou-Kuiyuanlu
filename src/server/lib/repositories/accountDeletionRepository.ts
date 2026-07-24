@@ -10,7 +10,7 @@ export async function recordPendingAccountDeletion(
 ): Promise<void> {
   const requestedAt = new Date();
 
-  await db().transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     const rows = await tx
       .select({ id: cultivators.id })
       .from(cultivators)

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 vi.mock('@server/lib/drizzle/db', () => ({
-  db: vi.fn(),
+  db: { transaction: vi.fn() },
 }));
 
 vi.mock('@server/lib/hono/middleware', () => ({
@@ -41,7 +41,7 @@ import { db } from '@server/lib/drizzle/db';
 import { DEFAULT_MAX_ACTIVE_SKILLS } from '@shared/config/skillLimits';
 import productsRouter from './products.router';
 
-const dbMock = db as unknown as Mock;
+const dbMock = db as unknown as { transaction: Mock };
 const findByIdMock = creationProductRepository.findById as unknown as Mock;
 const countByTypeMock = creationProductRepository.countByType as unknown as Mock;
 const findByTypeAndCultivatorPageMock =
@@ -106,10 +106,10 @@ function mockProductTransaction(eventType = 'loadout.equipped') {
   const select = vi.fn(() => ({ from: selectFrom }));
   const txMock = { insert, select };
 
-  dbMock.mockReturnValue({
-    transaction: async (callback: (tx: typeof txMock) => Promise<unknown>) =>
+  dbMock.transaction.mockImplementation(
+    async (callback: (tx: typeof txMock) => Promise<unknown>) =>
       callback(txMock),
-  } as any);
+  );
 
   return txMock;
 }

@@ -11,7 +11,7 @@ if (import.meta.env.PROD) {
 }
 
 const originalFetch = window.fetch;
-window.fetch = async (input, init) => {
+window.fetch = (async (input, init) => {
   if (typeof input === 'string' && input.startsWith('/api/')) {
     init = { ...init, credentials: init?.credentials ?? 'include' };
     const raw = localStorage.getItem('daoyou_llm_config');
@@ -33,7 +33,7 @@ window.fetch = async (input, init) => {
     input = resolveApiUrl(input);
   }
   return originalFetch(input, init);
-};
+}) as typeof window.fetch;
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

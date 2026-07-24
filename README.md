@@ -61,7 +61,9 @@
 ├── src/server/                  # Hono API、认证、服务层、数据库访问
 ├── src/react-app/               # React SPA
 ├── src/shared/                  # 共享引擎、配置、类型、契约
-├── drizzle/                     # Drizzle SQL migrations
+├── drizzle/                     # 业务表 Drizzle migrations
+├── drizzle-auth/                # Better Auth Drizzle migrations
+├── drizzle.auth.config.ts       # Better Auth 独立迁移配置
 ├── scripts/                     # Docker 启停脚本
 ├── Dockerfile
 ├── docker-compose.yml
@@ -123,7 +125,6 @@ cp .env.example .env.local
 | `REDIS_URL` | Redis 连接串；缺失时相关功能会在运行时失败 |
 | `API_IP_RATE_LIMIT_WINDOW_SECONDS` | `/api/*` 全局 IP 令牌桶补充周期秒数；默认 `60` |
 | `API_IP_RATE_LIMIT_MAX_REQUESTS` | `/api/*` 同 IP 令牌桶容量和每周期补充 token 数；默认 `300` |
-| `BETTER_AUTH_DB_SCHEMA` | Better Auth schema 名；默认值为 `better_auth` |
 | `PUBLIC_WEB_ORIGINS` | 允许访问 API 的前端 origin，逗号分隔，如 `https://app.example.com,http://localhost:5173` |
 | `BETTER_AUTH_COOKIE_DOMAIN` | 可选；同站子域部署时可填 `.example.com` 启用跨子域 cookie |
 | `ADMIN_EMAILS` | 管理员邮箱白名单，逗号分隔 |
@@ -190,8 +191,11 @@ bun run auth:migrate
 
 - 运行这些命令前，请先确保 `DATABASE_URL`、`BETTER_AUTH_SECRET`、`BETTER_AUTH_URL` 已在当前进程环境中可见
 - `drizzle/` 目录下已经存在业务表迁移文件
-- `bun run auth:migrate` 使用 `src/server/lib/auth/auth.ts` 中的 Better Auth 配置执行迁移
-- `bun run auth:generate` 用于在认证 schema 变更后重新生成 `better-auth.schema.sql`，不是每次启动都要执行
+- `drizzle/` 只管理 `wanjiedaoyou_*` 业务表
+- `drizzle-auth/` 只管理固定 `better_auth` schema，并使用独立迁移历史表
+- `bun run auth:migrate` 使用 `drizzle.auth.config.ts` 执行认证迁移
+- `bun run auth:generate` 用于认证 Drizzle schema 变更后生成迁移，不是每次启动都要执行
+- 升级部署时先执行 `bun run auth:migrate` 建立认证基线，再部署使用共享 Bun SQL 连接池的新版本
 
 ## 本地开发
 
@@ -223,8 +227,8 @@ bun run dev
 | `bun run start` | 直接运行已构建产物 |
 | `bun run lint` | ESLint 检查 |
 | `bun run test` | Vitest |
-| `bun run auth:generate` | 重新生成 Better Auth schema SQL |
-| `bun run auth:migrate` | 执行 Better Auth 迁移 |
+| `bun run auth:generate` | 生成 `better_auth` Drizzle 迁移 |
+| `bun run auth:migrate` | 执行 `better_auth` 独立迁移流 |
 
 构建产物：
 

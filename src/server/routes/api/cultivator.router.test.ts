@@ -21,7 +21,7 @@ const {
   }));
 
 vi.mock('@server/lib/drizzle/db', () => ({
-  db: vi.fn(),
+  db: { transaction: vi.fn() },
   getExecutor: vi.fn(),
 }));
 
@@ -300,7 +300,7 @@ import { YieldCalculator } from '@shared/engine/yield/YieldCalculator';
 import cultivatorRouter from './cultivator.router';
 
 const getExecutorMock = getExecutor as unknown as Mock;
-const dbMock = db as unknown as Mock;
+const dbMock = db as unknown as { transaction: Mock };
 const runDetachedMock = runDetached as unknown as Mock;
 const consumeLifespanAndHandleDepletionMock =
   consumeLifespanAndHandleDepletion as unknown as Mock;
@@ -482,10 +482,10 @@ function mockStateOnlyTransaction(args: {
   const insert = vi.fn(() => ({ values }));
   const txMock = { insert };
 
-  dbMock.mockReturnValue({
-    transaction: async (callback: (tx: typeof txMock) => Promise<unknown>) =>
+  dbMock.transaction.mockImplementation(
+    async (callback: (tx: typeof txMock) => Promise<unknown>) =>
       callback(txMock),
-  } as any);
+  );
 
   return txMock;
 }
@@ -545,10 +545,10 @@ function mockAttributeAllocationTransaction(args: {
   const insert = vi.fn(() => ({ values }));
   const txMock = { select, update, insert };
 
-  dbMock.mockReturnValue({
-    transaction: async (callback: (tx: typeof txMock) => Promise<unknown>) =>
+  dbMock.transaction.mockImplementation(
+    async (callback: (tx: typeof txMock) => Promise<unknown>) =>
       callback(txMock),
-  } as any);
+  );
 
   return { select, update, set, updateWhere, updateReturning };
 }
@@ -602,10 +602,10 @@ function mockTransactionReturning(rows: unknown[]) {
       callback: (tx: { update: typeof update }) => Promise<unknown>,
     ) => callback({ update }),
   } as any);
-  dbMock.mockReturnValue({
-    transaction: async (callback: (tx: typeof txMock) => Promise<unknown>) =>
+  dbMock.transaction.mockImplementation(
+    async (callback: (tx: typeof txMock) => Promise<unknown>) =>
       callback(txMock),
-  } as any);
+  );
 
   return { update, set, where, returning, insert, values, insertReturning };
 }
@@ -659,10 +659,10 @@ function mockMailReadTransaction(unreadCount: number) {
   const insert = vi.fn(() => ({ values }));
   const txMock = { update, select, insert };
 
-  dbMock.mockReturnValue({
-    transaction: async (callback: (tx: typeof txMock) => Promise<unknown>) =>
+  dbMock.transaction.mockImplementation(
+    async (callback: (tx: typeof txMock) => Promise<unknown>) =>
       callback(txMock),
-  } as any);
+  );
 
   return { update, set, updateWhere, select, from, selectWhere, insert };
 }
@@ -766,10 +766,10 @@ function mockConsumeTransaction(
   const insert = vi.fn(() => ({ values }));
   const txMock = { select, insert };
 
-  dbMock.mockReturnValue({
-    transaction: async (callback: (tx: typeof txMock) => Promise<unknown>) =>
+  dbMock.transaction.mockImplementation(
+    async (callback: (tx: typeof txMock) => Promise<unknown>) =>
       callback(txMock),
-  } as any);
+  );
 
   return txMock;
 }
@@ -804,10 +804,10 @@ function mockBodyCultivationBreakthroughTransaction() {
   const insert = vi.fn(() => ({ values }));
   const txMock = { insert };
 
-  dbMock.mockReturnValue({
-    transaction: async (callback: (tx: typeof txMock) => Promise<unknown>) =>
+  dbMock.transaction.mockImplementation(
+    async (callback: (tx: typeof txMock) => Promise<unknown>) =>
       callback(txMock),
-  } as any);
+  );
 
   return txMock;
 }
@@ -1016,7 +1016,7 @@ describe('cultivator attribute allocation route', () => {
     await expect(response.json()).resolves.toEqual({
       error: '属性分配正在处理中，请稍后',
     });
-    expect(dbMock).not.toHaveBeenCalled();
+    expect(dbMock.transaction).not.toHaveBeenCalled();
     expect(releaseRedisLockMock).not.toHaveBeenCalled();
   });
 });
@@ -1208,10 +1208,10 @@ describe('cultivator redeem route', () => {
       }),
     };
 
-    dbMock.mockReturnValue({
-      transaction: async (callback: (innerTx: typeof tx) => Promise<unknown>) =>
+    dbMock.transaction.mockImplementation(
+      async (callback: (innerTx: typeof tx) => Promise<unknown>) =>
         callback(tx),
-    } as any);
+    );
     sendMailMock.mockResolvedValue({ id: 'mail-1' });
 
     const response = await createApp().request('/api/cultivator/redeem-code/claim', {
@@ -1273,10 +1273,10 @@ describe('cultivator redeem route', () => {
       insert: vi.fn(),
     };
 
-    dbMock.mockReturnValue({
-      transaction: async (callback: (innerTx: typeof tx) => Promise<unknown>) =>
+    dbMock.transaction.mockImplementation(
+      async (callback: (innerTx: typeof tx) => Promise<unknown>) =>
         callback(tx),
-    } as any);
+    );
 
     const response = await createApp().request('/api/cultivator/redeem-code/claim', {
       method: 'POST',
@@ -1598,10 +1598,10 @@ describe('cultivator yield route', () => {
         })),
       })),
     };
-    dbMock.mockReturnValue({
-      transaction: async (callback: (innerTx: typeof tx) => Promise<unknown>) =>
+    dbMock.transaction.mockImplementation(
+      async (callback: (innerTx: typeof tx) => Promise<unknown>) =>
         callback(tx),
-    } as any);
+    );
   });
 
   it('passes realm-based quality chances to material generation', async () => {
@@ -2154,7 +2154,7 @@ describe('cultivator body cultivation routes', () => {
       error: expect.stringContaining('皮肤方向炼体丹（玄品以上） 0/1'),
     });
     expect(updateCultivatorMock).not.toHaveBeenCalled();
-    expect(dbMock).not.toHaveBeenCalled();
+    expect(dbMock.transaction).not.toHaveBeenCalled();
   });
 });
 

@@ -9,7 +9,7 @@ import type { ElementType } from '@shared/types/constants';
 
 export class AbilityDataLoader {
   static async loadForCultivatorV2(cultivatorId: string): Promise<Ability[]> {
-    const database = db();
+    const database = db;
 
     const rows = await database
       .select()

@@ -17,6 +17,7 @@ AI agents should read this first. Keep changes small, project-specific, and back
 - `src/shared`: shared contracts, game engines, config, pure logic, domain types.
 - `src/server/lib/drizzle/schema.ts`: Drizzle schema for `wanjiedaoyou_*` business tables.
 - `drizzle/`: Drizzle SQL migrations and snapshots.
+- `drizzle-auth/`: independent Drizzle migrations and snapshots for the fixed `better_auth` schema.
 - `docs/`: design and architecture notes; verify against current code before treating old docs as current truth.
 - `.agents/skills/`: project-specific AI skills. Use the matching skill before editing that area.
 
@@ -74,7 +75,7 @@ bun run auth:migrate
 ## Data And Domain Rules
 
 - Do not create parallel `src/db` or `src/server/db`; DB entrypoints are `src/server/lib/drizzle/db.ts` and `schema.ts`.
-- Drizzle Kit manages only `wanjiedaoyou_*` business tables. Better Auth tables are migrated by Better Auth, schema default `better_auth`.
+- The main Drizzle Kit flow manages only `wanjiedaoyou_*` business tables. `drizzle.auth.config.ts` independently manages the fixed `better_auth` schema.
 - Pass `DbExecutor` / `DbTransaction` through write paths; do not open a fresh executor inside a transaction.
 - v2 products (`skill`, `artifact`, `gongfa`) use `wanjiedaoyou_creation_products`; equipment state is `creation_products.is_equipped`.
 - `battleProjection` is runtime data rebuilt during rehydrate; do not persist it directly.
