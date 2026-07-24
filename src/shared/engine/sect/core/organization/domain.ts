@@ -7,21 +7,57 @@ import type {
   SectDonationDemandDefinition,
   SectRewardGrantDefinition,
 } from './contracts';
+import type { SectTaskRewardSnapshot } from './taskRewards';
 
 export type SectDomainEvent =
   | {
-      type: 'SectTaskCompleted';
+      type: 'SectTaskFulfilled';
       taskId: string;
       taskRecordId: string;
       membershipId: string;
       kind: 'daily' | 'weekly' | 'promotion';
     }
-  | { type: 'SectTaskProgressSignaled'; membershipId: string; source: string; amount: number }
-  | { type: 'SectContributionGranted'; membershipId: string; amount: number; reason: string; referenceId: string }
-  | { type: 'SectContributionSpent'; membershipId: string; amount: number; reason: string; referenceId: string }
+  | {
+      type: 'SectTaskRewardClaimed';
+      taskId: string;
+      taskRecordId: string;
+      membershipId: string;
+      userId: string;
+      cultivatorId: string;
+      reward?: SectTaskRewardSnapshot;
+    }
+  | {
+      type: 'SectTaskProgressSignaled';
+      membershipId: string;
+      source: string;
+      amount: number;
+    }
+  | {
+      type: 'SectContributionGranted';
+      membershipId: string;
+      amount: number;
+      reason: string;
+      referenceId: string;
+    }
+  | {
+      type: 'SectContributionSpent';
+      membershipId: string;
+      amount: number;
+      reason: string;
+      referenceId: string;
+    }
   | { type: 'SectSpiritStonesGranted'; cultivatorId: string; amount: number }
-  | { type: 'SectCultivationExpGranted'; userId: string; cultivatorId: string; amount: number }
-  | { type: 'SectMembershipPromoted'; membershipId: string; rank: SectDiscipleRank }
+  | {
+      type: 'SectCultivationExpGranted';
+      userId: string;
+      cultivatorId: string;
+      amount: number;
+    }
+  | {
+      type: 'SectMembershipPromoted';
+      membershipId: string;
+      rank: SectDiscipleRank;
+    }
   | {
       type: 'SectDonationAccepted';
       donationId: string;
@@ -34,8 +70,18 @@ export type SectDomainEvent =
       constructionPoints: number;
       projectProgress: number;
     }
-  | { type: 'SectProjectCompleted'; projectId: string; facilityKey: string; targetLevel: number }
-  | { type: 'SectFacilityUpgraded'; sectId: string; facilityKey: string; level: number }
+  | {
+      type: 'SectProjectCompleted';
+      projectId: string;
+      facilityKey: string;
+      targetLevel: number;
+    }
+  | {
+      type: 'SectFacilityUpgraded';
+      sectId: string;
+      facilityKey: string;
+      level: number;
+    }
   | {
       type: 'SectStipendClaimed';
       membershipId: string;
@@ -157,7 +203,12 @@ export class SectMembership {
     rank: SectDiscipleRank;
     contribution: number;
   }): SectMembership {
-    return new SectMembership(input.id, input.sectId, input.rank, input.contribution);
+    return new SectMembership(
+      input.id,
+      input.sectId,
+      input.rank,
+      input.contribution,
+    );
   }
 
   discipleRank(): SectDiscipleRank {
@@ -168,7 +219,11 @@ export class SectMembership {
     return this.contribution.amount();
   }
 
-  creditContribution(amount: number, reason: string, referenceId: string): void {
+  creditContribution(
+    amount: number,
+    reason: string,
+    referenceId: string,
+  ): void {
     this.contribution.credit(amount);
     this.events.push({
       type: 'SectContributionGranted',
@@ -190,15 +245,23 @@ export class SectMembership {
     });
   }
 
-  evaluatePromotion(violations: readonly PromotionViolation[]): PromotionEvaluation {
+  evaluatePromotion(
+    violations: readonly PromotionViolation[],
+  ): PromotionEvaluation {
     return { allowed: violations.length === 0, violations };
   }
 
   promote(target: SectDiscipleRank, evaluation: PromotionEvaluation): void {
     if (!evaluation.allowed)
-      throw new SectDomainError(evaluation.violations.map((item) => item.message).join('、'));
+      throw new SectDomainError(
+        evaluation.violations.map((item) => item.message).join('、'),
+      );
     this.rank = this.rank.promoteTo(target);
-    this.events.push({ type: 'SectMembershipPromoted', membershipId: this.id, rank: target });
+    this.events.push({
+      type: 'SectMembershipPromoted',
+      membershipId: this.id,
+      rank: target,
+    });
   }
 
   pullEvents(): SectDomainEvent[] {
@@ -208,7 +271,7 @@ export class SectMembership {
   }
 }
 
-export type SectTaskState = 'offered' | 'active' | 'completed';
+export type SectTaskState = 'offered' | 'active' | 'claimable' | 'claimed';
 
 export class SectTask {
   private events: SectDomainEvent[] = [];
@@ -300,18 +363,39 @@ export class SectTask {
   }
 
   complete(): boolean {
-    if (this.state === 'completed') return false;
+    if (this.state === 'claimable' || this.state === 'claimed') return false;
     if (this.state !== 'active') throw new SectDomainError('任务尚未领取');
     this.progressValue = this.target;
-    this.state = 'completed';
+    this.state = 'claimable';
     this.events.push({
-      type: 'SectTaskCompleted',
+      type: 'SectTaskFulfilled',
       taskId: this.definitionId,
       taskRecordId: this.id,
       membershipId: this.membershipId,
       kind: this.kind,
     });
     return true;
+  }
+
+  claim(input: {
+    userId: string;
+    cultivatorId: string;
+    reward?: SectTaskRewardSnapshot;
+  }): void {
+    if (this.state === 'claimed')
+      throw new SectDomainError('该宗门任务奖励已经领取');
+    if (this.state !== 'claimable')
+      throw new SectDomainError('该宗门任务尚未达成');
+    this.state = 'claimed';
+    this.events.push({
+      type: 'SectTaskRewardClaimed',
+      taskId: this.definitionId,
+      taskRecordId: this.id,
+      membershipId: this.membershipId,
+      userId: input.userId,
+      cultivatorId: input.cultivatorId,
+      reward: input.reward,
+    });
   }
 
   pullEvents(): SectDomainEvent[] {
@@ -439,7 +523,11 @@ export class SectStipendClaim {
     weekKey: string;
     claimed: boolean;
   }): SectStipendClaim {
-    return new SectStipendClaim(input.membershipId, input.weekKey, input.claimed);
+    return new SectStipendClaim(
+      input.membershipId,
+      input.weekKey,
+      input.claimed,
+    );
   }
 
   claim(

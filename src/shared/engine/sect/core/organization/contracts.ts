@@ -1,5 +1,5 @@
-import type { PillSpec } from '@shared/types/consumable';
 import type { Quality } from '@shared/types/constants';
+import type { PillSpec } from '@shared/types/consumable';
 import type { Cultivator } from '@shared/types/cultivator';
 import type {
   SectDiscipleRank,
@@ -21,7 +21,9 @@ export interface SectCapabilityPolicy {
   keys(): readonly SectCapabilityKey[];
   minimumRank(permission: SectCapabilityKey): SectDiscipleRank | undefined;
   allows(rank: SectDiscipleRank, permission: SectCapabilityKey): boolean;
-  snapshot(rank: SectDiscipleRank): Record<SectCapabilityKey, SectPermissionState>;
+  snapshot(
+    rank: SectDiscipleRank,
+  ): Record<SectCapabilityKey, SectPermissionState>;
 }
 
 /** Opaque content identifier owned by each concrete sect module. */
@@ -39,7 +41,6 @@ export type SectCraftContextKey =
 export interface SectTaskPresentationDefinition {
   title: string;
   description: string;
-  rewardSummary: string;
   actionLabel: string;
 }
 
@@ -49,19 +50,30 @@ export interface SectTaskAvailabilityContext {
 }
 
 export interface SectTaskAvailabilityDecision {
+  key: string;
   executorKey: SectTaskExecutorKey;
-  parameters?: Record<string, unknown>;
+  offer?: SectTaskOfferPolicyDefinition;
 }
 
 export interface SectTaskAvailabilityPolicy {
-  /** Every executor this policy may resolve to; used for fail-fast plugin validation. */
-  readonly executorKeys: readonly SectTaskExecutorKey[];
-  resolve(context: SectTaskAvailabilityContext): SectTaskAvailabilityDecision;
+  /** Exhaustive variants used for fail-fast executor and offer validation. */
+  readonly variants: readonly SectTaskAvailabilityDecision[];
+  resolve(context: SectTaskAvailabilityContext): string;
 }
 
-export interface SectTaskCompletionRule {
+export interface SectTaskFulfillmentRule {
   /** Open strategy key implemented by an application plugin. */
   strategy: string;
+  input?: Record<string, unknown>;
+}
+
+export interface SectTaskOfferPolicyDefinition {
+  policy: string;
+  input?: Record<string, unknown>;
+}
+
+export interface SectTaskRewardPolicyDefinition {
+  policy: string;
   input?: Record<string, unknown>;
 }
 
@@ -75,12 +87,14 @@ export interface SectTaskProgressDefinition {
 export interface SectTaskDefinition {
   id: SectOrganizationTaskId;
   kind: 'daily' | 'weekly' | 'promotion';
+  enrollment: 'manual' | 'automatic';
   requiredCapability: SectCapabilityKey;
-  contributionReward: number;
   executorKey: SectTaskExecutorKey;
   presentation: SectTaskPresentationDefinition;
   availability?: SectTaskAvailabilityPolicy;
-  completion: readonly SectTaskCompletionRule[];
+  offer?: SectTaskOfferPolicyDefinition;
+  reward?: SectTaskRewardPolicyDefinition;
+  fulfillment: readonly SectTaskFulfillmentRule[];
   completionTags?: readonly string[];
   progress?: SectTaskProgressDefinition;
   target: number;

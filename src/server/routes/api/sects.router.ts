@@ -1,23 +1,23 @@
 import type { DbTransaction } from '@server/lib/drizzle/db';
-import { createHash } from 'node:crypto';
 import { getExecutor } from '@server/lib/drizzle/db';
 import {
   getValidatedJson,
   getValidatedQuery,
+  redisLockErrorResponse,
   requireActiveCultivator,
   validateJson,
   validateQuery,
 } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
 import {
-  commitPlayerStateMutation,
+  commitPlayerStateMutationWithLock,
   PlayerStateIdempotencyError,
   toPlayerStateMutationResponse,
 } from '@server/lib/services/PlayerStateMutationService';
 import { sectOrganizationFacade } from '@server/lib/services/sect-organization';
 import {
-  createPostgresSectConstructionContext,
   createPostgresSectCommandContext,
+  createPostgresSectConstructionContext,
   createPostgresSectEconomyContext,
   createPostgresSectMembershipContext,
   createPostgresSectQueryContext,
@@ -26,13 +26,14 @@ import { SectError } from '@server/lib/services/SectError';
 import {
   SectAbilityLoadoutRequestSchema,
   SectDonationRequestSchema,
-  SectMembersQuerySchema,
   SectIdempotencyKeySchema,
+  SectMembersQuerySchema,
   SectMeridianLoadoutRequestSchema,
   SectMethodTrainRequestSchema,
   SectShopPurchaseRequestSchema,
-  SectTaskActionRequestSchema,
+  SectSubmissionCandidatesQuerySchema,
   SectTacticRequestSchema,
+  SectTaskActionRequestSchema,
 } from '@shared/contracts/sect';
 import {
   listUnlockedAbilityIds,
@@ -42,6 +43,7 @@ import {
 import { productionSectRuntime } from '@shared/engine/sect/content';
 import type { RealmStage, RealmType } from '@shared/types/constants';
 import { Hono, type Context } from 'hono';
+import { createHash } from 'node:crypto';
 
 function canonicalize(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
@@ -53,7 +55,11 @@ function canonicalize(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function requireIdempotency(c: Context<AppEnv>, source: string, payload: unknown) {
+function requireIdempotency(
+  c: Context<AppEnv>,
+  source: string,
+  payload: unknown,
+) {
   const parsed = SectIdempotencyKeySchema.safeParse(
     c.req.header('Idempotency-Key'),
   );
@@ -66,12 +72,16 @@ function requireIdempotency(c: Context<AppEnv>, source: string, payload: unknown
   return {
     key: parsed.data,
     fingerprint: createHash('sha256')
-      .update(`${source}:${c.req.method}:${c.req.path}:${canonicalize(payload)}`)
+      .update(
+        `${source}:${c.req.method}:${c.req.path}:${canonicalize(payload)}`,
+      )
       .digest('hex'),
   };
 }
 
 function failure(c: Context<AppEnv>, error: unknown) {
+  const lockErrorResponse = redisLockErrorResponse(error);
+  if (lockErrorResponse) return lockErrorResponse;
   if (error instanceof PlayerStateIdempotencyError)
     return c.json(
       { success: false as const, error: error.message, code: error.code },
@@ -96,7 +106,8 @@ export function createSectsRouter(
   } = {},
 ) {
   const router = new Hono<AppEnv>();
-  const organizationFacade = dependencies.organizationFacade ?? sectOrganizationFacade;
+  const organizationFacade =
+    dependencies.organizationFacade ?? sectOrganizationFacade;
   const runtime = dependencies.runtime ?? productionSectRuntime;
   const admission = (q: Parameters<typeof organizationFacade.admission>[0]) =>
     organizationFacade.admission(q, runtime);
@@ -204,7 +215,11 @@ export function createSectsRouter(
       return c.json({
         success: true,
         data: await sectOrganizationFacade.tasks.queries.execute(
-          cultivator.id,
+          {
+            cultivatorId: cultivator.id,
+            realm: cultivator.realm as RealmType,
+            realmStage: cultivator.realm_stage as RealmStage,
+          },
           createPostgresSectQueryContext({
             q: getExecutor(),
             runtime,
@@ -215,6 +230,43 @@ export function createSectsRouter(
       return failure(c, error);
     }
   });
+
+  router.get(
+    '/current/tasks/:taskId/submission-candidates',
+    requireActiveCultivator(),
+    validateQuery(SectSubmissionCandidatesQuerySchema),
+    async (c) => {
+      const cultivator = c.get('cultivator');
+      if (!cultivator?.id)
+        return c.json({ success: false, error: '当前没有活跃角色' }, 404);
+      const taskId = c.req.param('taskId');
+      if (!taskId || taskId.length > 64)
+        return c.json({ success: false, error: '任务编号无效' }, 400);
+      try {
+        const query = getValidatedQuery<{
+          page: number;
+          pageSize: number;
+          eligible: 'all' | 'yes' | 'no';
+        }>(c);
+        return c.json({
+          success: true,
+          data: await sectOrganizationFacade.tasks.submissions.execute(
+            {
+              cultivatorId: cultivator.id,
+              taskId,
+              ...query,
+            },
+            createPostgresSectQueryContext({
+              q: getExecutor(),
+              runtime,
+            }),
+          ),
+        });
+      } catch (error) {
+        return failure(c, error);
+      }
+    },
+  );
 
   router.get('/current/shop', requireActiveCultivator(), async (c) => {
     const cultivator = c.get('cultivator');
@@ -286,7 +338,9 @@ export function createSectsRouter(
     changes: Array<{
       domain: 'sect' | 'tasks' | 'loadout' | 'currency' | 'progress';
       eventType: string;
-      invalidates?: Array<'sect' | 'tasks' | 'loadout' | 'currency' | 'progress'>;
+      invalidates?: Array<
+        'sect' | 'tasks' | 'loadout' | 'currency' | 'progress'
+      >;
     }>,
     fingerprintPayload: unknown = null,
   ) => {
@@ -295,7 +349,7 @@ export function createSectsRouter(
     if (!user || !cultivator?.id)
       return c.json({ success: false, error: '当前没有活跃角色' }, 404);
     try {
-      const committed = await commitPlayerStateMutation({
+      const committed = await commitPlayerStateMutationWithLock({
         userId: user.id,
         cultivatorId: cultivator.id,
         source,
@@ -322,6 +376,11 @@ export function createSectsRouter(
     validateJson(SectTaskActionRequestSchema),
     async (c) => {
       const body = getValidatedJson<{ input: Record<string, unknown> }>(c);
+      if (
+        c.req.param('taskId').length > 64 ||
+        c.req.param('actionKey').length > 64
+      )
+        return c.json({ success: false, error: '任务操作编号无效' }, 400);
       const requestId = c.req.header('Idempotency-Key') ?? '';
       return organizationMutation(
         c,
@@ -517,7 +576,7 @@ export function createSectsRouter(
         return c.json({ success: false, error: '当前没有活跃角色' }, 404);
       try {
         const body = getValidatedJson<{ targetLevel: number }>(c);
-        const committed = await commitPlayerStateMutation({
+        const committed = await commitPlayerStateMutationWithLock({
           userId: user.id,
           cultivatorId: cultivator.id,
           source: 'sect_method_train',
@@ -526,13 +585,11 @@ export function createSectsRouter(
             ...body,
           }),
           run: async (tx) => {
-            const result = await tradition(tx).trainMethod(
-              {
-                cultivatorId: cultivator.id!,
-                methodId: c.req.param('methodId'),
-                targetLevel: body.targetLevel,
-              },
-            );
+            const result = await tradition(tx).trainMethod({
+              cultivatorId: cultivator.id!,
+              methodId: c.req.param('methodId'),
+              targetLevel: body.targetLevel,
+            });
             return {
               result,
               changes: [
@@ -570,7 +627,7 @@ export function createSectsRouter(
       if (!user || !cultivator?.id)
         return c.json({ success: false, error: '当前没有活跃角色' }, 404);
       try {
-        const committed = await commitPlayerStateMutation({
+        const committed = await commitPlayerStateMutationWithLock({
           userId: user.id,
           cultivatorId: cultivator.id,
           source: 'sect_path_layer_unlock',
@@ -579,13 +636,11 @@ export function createSectsRouter(
             layerId: c.req.param('layerId'),
           }),
           run: async (tx) => {
-            const result = await tradition(tx).unlockPathLayer(
-              {
-                cultivatorId: cultivator.id!,
-                pathId: c.req.param('pathId'),
-                layerId: c.req.param('layerId'),
-              },
-            );
+            const result = await tradition(tx).unlockPathLayer({
+              cultivatorId: cultivator.id!,
+              pathId: c.req.param('pathId'),
+              layerId: c.req.param('layerId'),
+            });
             return {
               result,
               changes: [
@@ -693,11 +748,7 @@ export function createSectsRouter(
         c,
         'sect_tactic',
         (id, tx) =>
-          tradition(tx).setPathTactic(
-            id,
-            c.req.param('pathId'),
-            body.tacticId,
-          ),
+          tradition(tx).setPathTactic(id, c.req.param('pathId'), body.tacticId),
         'sect.tactic_updated',
         false,
         body,
@@ -724,7 +775,7 @@ async function mutateSect(
   if (!user || !cultivator?.id)
     return c.json({ success: false, error: '当前没有活跃角色' }, 404);
   try {
-    const committed = await commitPlayerStateMutation({
+    const committed = await commitPlayerStateMutationWithLock({
       userId: user.id,
       cultivatorId: cultivator.id,
       source,

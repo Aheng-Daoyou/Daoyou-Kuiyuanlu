@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import type { Cultivator } from '@shared/types/cultivator';
+import { describe, expect, it } from 'vitest';
 import { LINGXIAO_ORGANIZATION } from './LingxiaoOrganizationModule';
 
 function playerFixture(overrides: Partial<Cultivator> = {}): Cultivator {
@@ -31,7 +31,8 @@ function playerFixture(overrides: Partial<Cultivator> = {}): Cultivator {
 
 describe('LingxiaoOrganizationModule', () => {
   it('centralizes V1 facility permissions by disciple rank', () => {
-    const registered = LINGXIAO_ORGANIZATION.capabilities.snapshot('registered');
+    const registered =
+      LINGXIAO_ORGANIZATION.capabilities.snapshot('registered');
     expect(registered['sect.hall.view'].granted).toBe(true);
     expect(registered['sect.shop.use'].granted).toBe(false);
     expect(registered['sect.facility.cultivation.use'].granted).toBe(false);
@@ -58,9 +59,13 @@ describe('LingxiaoOrganizationModule', () => {
     expect(
       LINGXIAO_ORGANIZATION.ranks.requirement('true').requiredTaskTags,
     ).toContainEqual({ tag: 'promotion.elder_trial', label: '通过长老试炼' });
-    expect(LINGXIAO_ORGANIZATION.tasks.get('gate_sweep')?.executorKey).toBe('sect.sweep');
+    expect(LINGXIAO_ORGANIZATION.tasks.get('gate_sweep')?.executorKey).toBe(
+      'sect.sweep',
+    );
     expect(LINGXIAO_ORGANIZATION.economy.donationDailyCap).toBe(60);
-    expect(LINGXIAO_ORGANIZATION.construction.facilityPriority[0]).toBe('archive');
+    expect(LINGXIAO_ORGANIZATION.construction.facilityPriority[0]).toBe(
+      'archive',
+    );
     const levels = new Map([
       ['archive', 5],
       ['cultivation_room', 5],
@@ -68,7 +73,9 @@ describe('LingxiaoOrganizationModule', () => {
       ['spirit_vein', 5],
     ]);
     expect(LINGXIAO_ORGANIZATION.benefits.methodLevelCap(levels)).toBe(100);
-    expect(LINGXIAO_ORGANIZATION.benefits.retreatMultiplier(levels, 'outer')).toBe(1.1);
+    expect(
+      LINGXIAO_ORGANIZATION.benefits.retreatMultiplier(levels, 'outer'),
+    ).toBe(1.1);
     expect(
       LINGXIAO_ORGANIZATION.benefits.craftDiscount(
         'sect.craft.alchemy',
@@ -94,16 +101,25 @@ describe('LingxiaoOrganizationModule', () => {
 
   it('rotates the weekly bounty between battle and material delivery', () => {
     const bounty = LINGXIAO_ORGANIZATION.tasks.get('weekly_bounty');
-    expect(bounty?.availability?.resolve({
-      dateKey: '2026-07-12',
-      weekKey: '2026-W28',
-    }).executorKey).toBe('sect.battle');
-    expect(bounty?.availability?.resolve({
-      dateKey: '2026-07-19',
-      weekKey: '2026-W29',
-    })).toEqual({
+    expect(
+      bounty?.availability?.resolve({
+        dateKey: '2026-07-12',
+        weekKey: '2026-W28',
+      }),
+    ).toBe('battle');
+    expect(
+      bounty?.availability?.resolve({
+        dateKey: '2026-07-19',
+        weekKey: '2026-W29',
+      }),
+    ).toBe('material');
+    expect(bounty?.availability?.variants).toContainEqual({
+      key: 'material',
       executorKey: 'sect.delivery.material',
-      parameters: { mode: 'material', minQuality: '玄品', quantity: 2 },
+      offer: {
+        policy: 'sect.offer.delivery',
+        input: { kind: 'material' },
+      },
     });
   });
 

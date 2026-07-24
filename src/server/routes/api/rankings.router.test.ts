@@ -163,7 +163,7 @@ vi.mock('@server/lib/services/TaskService', () => ({
 }));
 
 vi.mock('@server/lib/services/PlayerStateMutationService', () => ({
-  commitPlayerStateMutation: commitPlayerStateMutationMock,
+  commitPlayerStateMutationWithLock: commitPlayerStateMutationMock,
   toPlayerStateMutationResponse: (committed: any) => ({
     success: true,
     data: committed.result,

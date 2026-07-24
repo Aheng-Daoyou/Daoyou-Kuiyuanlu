@@ -28,7 +28,9 @@ export class SectQueryCoordinator {
       })
       .catch((reason) => {
         if (!controller.signal.aborted)
-          run.onError(reason instanceof Error ? reason.message : '宗门卷宗读取失败');
+          run.onError(
+            reason instanceof Error ? reason.message : '宗门卷宗读取失败',
+          );
         return undefined;
       })
       .finally(() => {

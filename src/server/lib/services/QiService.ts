@@ -293,14 +293,18 @@ export class QiService {
     }
 
     const run = async (tx: DbTransaction) => {
+      // 全部 Qi 写事务固定先锁 cultivators，再访问 qi_logs。
+      const row = await this.refreshLockedCultivator(tx, input.cultivatorId);
       const [existing] = await tx
         .select()
         .from(qiLogs)
         .where(eq(qiLogs.actionInstanceId, input.actionInstanceId))
-        .for('update')
         .limit(1);
 
       if (existing) {
+        if (existing.cultivatorId !== input.cultivatorId) {
+          throw new QiServiceError('灵气操作幂等键已被其他角色使用。', 409);
+        }
         if (
           existing.status === 'reserved' ||
           existing.status === 'committed' ||
@@ -318,7 +322,6 @@ export class QiService {
         throw new QiServiceError('该灵气预扣已退款，不能重复使用。', 409);
       }
 
-      const row = await this.refreshLockedCultivator(tx, input.cultivatorId);
       if (row.qi < cost) {
         throw new QiInsufficientError({
           action: input.action,
@@ -369,13 +372,17 @@ export class QiService {
     if (!isQiEnabled()) return;
 
     const run = async (tx: DbTransaction) => {
-      const log = await this.lockReservation(tx, input.actionInstanceId);
-      if (log.status === 'committed') return;
-      if (log.status !== 'reserved') {
-        throw new QiServiceError('只有预扣中的灵气日志可以提交。', 409);
+      const [log] = await tx
+        .select()
+        .from(qiLogs)
+        .where(eq(qiLogs.actionInstanceId, input.actionInstanceId))
+        .limit(1);
+      if (!log) {
+        throw new QiServiceError('未找到灵气预扣日志。', 404);
       }
+      if (log.status === 'committed') return;
 
-      await tx
+      const [updated] = await tx
         .update(qiLogs)
         .set({
           status: 'committed',
@@ -385,7 +392,22 @@ export class QiService {
           },
           updatedAt: new Date(),
         })
-        .where(eq(qiLogs.id, log.id));
+        .where(
+          and(
+            eq(qiLogs.id, log.id),
+            eq(qiLogs.status, 'reserved'),
+          ),
+        )
+        .returning({ id: qiLogs.id });
+      if (!updated) {
+        const [current] = await tx
+          .select({ status: qiLogs.status })
+          .from(qiLogs)
+          .where(eq(qiLogs.id, log.id))
+          .limit(1);
+        if (current?.status === 'committed') return;
+        throw new QiServiceError('只有预扣中的灵气日志可以提交。', 409);
+      }
     };
 
     if (input.tx) {
@@ -404,13 +426,17 @@ export class QiService {
     if (!isQiEnabled()) return;
 
     const run = async (tx: DbTransaction) => {
-      const log = await this.lockReservation(tx, input.actionInstanceId);
-      if (log.status === 'failed_no_refund') return;
-      if (log.status !== 'reserved') {
-        throw new QiServiceError('只有预扣中的灵气日志可以标记为不退款。', 409);
+      const [log] = await tx
+        .select()
+        .from(qiLogs)
+        .where(eq(qiLogs.actionInstanceId, input.actionInstanceId))
+        .limit(1);
+      if (!log) {
+        throw new QiServiceError('未找到灵气预扣日志。', 404);
       }
+      if (log.status === 'failed_no_refund') return;
 
-      await tx
+      const [updated] = await tx
         .update(qiLogs)
         .set({
           status: 'failed_no_refund',
@@ -421,7 +447,22 @@ export class QiService {
           },
           updatedAt: new Date(),
         })
-        .where(eq(qiLogs.id, log.id));
+        .where(
+          and(
+            eq(qiLogs.id, log.id),
+            eq(qiLogs.status, 'reserved'),
+          ),
+        )
+        .returning({ id: qiLogs.id });
+      if (!updated) {
+        const [current] = await tx
+          .select({ status: qiLogs.status })
+          .from(qiLogs)
+          .where(eq(qiLogs.id, log.id))
+          .limit(1);
+        if (current?.status === 'failed_no_refund') return;
+        throw new QiServiceError('只有预扣中的灵气日志可以标记为不退款。', 409);
+      }
     };
 
     if (input.tx) {
@@ -440,20 +481,24 @@ export class QiService {
     if (!isQiEnabled()) return;
 
     const run = async (tx: DbTransaction) => {
-      const log = await this.lockReservation(tx, input.actionInstanceId);
+      // 先普通读取确定角色，不持有 qi_logs 行锁。
+      const [log] = await tx
+        .select()
+        .from(qiLogs)
+        .where(eq(qiLogs.actionInstanceId, input.actionInstanceId))
+        .limit(1);
+      if (!log) {
+        throw new QiServiceError('未找到灵气预扣日志。', 404);
+      }
       if (log.status === 'refunded') return;
       if (log.status !== 'reserved') {
         throw new QiServiceError('只有预扣中的灵气日志可以退款。', 409);
       }
 
+      // 固定顺序：cultivators -> qi_logs。
       const row = await this.refreshLockedCultivator(tx, log.cultivatorId);
       const qiAfter = row.qi + log.qiCost;
-      await tx
-        .update(cultivators)
-        .set({ qi: qiAfter })
-        .where(eq(cultivators.id, log.cultivatorId));
-
-      await tx
+      const [transitioned] = await tx
         .update(qiLogs)
         .set({
           status: 'refunded',
@@ -466,7 +511,23 @@ export class QiService {
           },
           updatedAt: new Date(),
         })
-        .where(eq(qiLogs.id, log.id));
+        .where(and(eq(qiLogs.id, log.id), eq(qiLogs.status, 'reserved')))
+        .returning({ id: qiLogs.id });
+
+      if (!transitioned) {
+        const [current] = await tx
+          .select({ status: qiLogs.status })
+          .from(qiLogs)
+          .where(eq(qiLogs.id, log.id))
+          .limit(1);
+        if (current?.status === 'refunded') return;
+        throw new QiServiceError('只有预扣中的灵气日志可以退款。', 409);
+      }
+
+      await tx
+        .update(cultivators)
+        .set({ qi: qiAfter })
+        .where(eq(cultivators.id, log.cultivatorId));
     };
 
     if (input.tx) {
@@ -490,14 +551,18 @@ export class QiService {
     }
 
     const run = async (tx: DbTransaction) => {
+      // 固定顺序：cultivators -> qi_logs。
+      const row = await this.refreshLockedCultivator(tx, input.cultivatorId);
       const [existing] = await tx
         .select()
         .from(qiLogs)
         .where(eq(qiLogs.actionInstanceId, input.actionInstanceId))
-        .for('update')
         .limit(1);
 
       if (existing) {
+        if (existing.cultivatorId !== input.cultivatorId) {
+          throw new QiServiceError('灵气操作幂等键已被其他角色使用。', 409);
+        }
         return {
           success: true,
           qiBefore: existing.qiBefore,
@@ -525,7 +590,6 @@ export class QiService {
         }
       }
 
-      const row = await this.refreshLockedCultivator(tx, input.cultivatorId);
       if (row.qi >= QI_OVERFLOW_MAX) {
         throw new QiServiceError('天地灵气已达溢出上限，暂不可继续补充。', 409);
       }
@@ -576,21 +640,4 @@ export class QiService {
     return getExecutor().transaction(run);
   }
 
-  private static async lockReservation(
-    tx: DbTransaction,
-    actionInstanceId: string,
-  ) {
-    const [log] = await tx
-      .select()
-      .from(qiLogs)
-      .where(eq(qiLogs.actionInstanceId, actionInstanceId))
-      .for('update')
-      .limit(1);
-
-    if (!log) {
-      throw new QiServiceError('未找到灵气预扣日志。', 404);
-    }
-
-    return log;
-  }
 }

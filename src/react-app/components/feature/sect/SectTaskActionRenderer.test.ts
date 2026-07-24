@@ -8,6 +8,7 @@ import {
 describe('sect task presentation registry', () => {
   it('supports new renderers without changing the affairs page', () => {
     expect(hasSectTaskActionRenderer('sect.action.sweep-entry')).toBe(true);
+    expect(hasSectTaskActionRenderer('sect.action.claim')).toBe(true);
     registerSectTaskActionRenderer('fixture.action.custom', () => null);
     expect(hasSectTaskActionRenderer('fixture.action.custom')).toBe(true);
     expect(hasSectTaskActionRenderer('fixture.action.missing')).toBe(false);

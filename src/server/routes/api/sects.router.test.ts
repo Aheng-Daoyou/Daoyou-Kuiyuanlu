@@ -9,6 +9,7 @@ const {
   setAbilityLoadoutMock,
   listAvailableDefinitionsMock,
   taskActionMock,
+  submissionCandidatesMock,
 } = vi.hoisted(() => ({
   getStateMock: vi.fn(),
   getTodayMock: vi.fn(),
@@ -17,11 +18,13 @@ const {
   setAbilityLoadoutMock: vi.fn(),
   listAvailableDefinitionsMock: vi.fn(),
   taskActionMock: vi.fn(),
+  submissionCandidatesMock: vi.fn(),
 }));
 
 vi.mock('@server/lib/drizzle/db', () => ({ getExecutor: vi.fn(() => ({})) }));
 vi.mock('@server/lib/hono/middleware', () => {
   return {
+    redisLockErrorResponse: () => null,
     requireActiveCultivator:
       () => async (context: any, next: () => Promise<void>) => {
         context.set('user', { id: 'user-1' });
@@ -41,7 +44,7 @@ vi.mock('@server/lib/hono/middleware', () => {
     validateQuery: () => async (_context: any, next: () => Promise<void>) => {
       await next();
     },
-    getValidatedQuery: () => ({ page: 1, pageSize: 20 }),
+    getValidatedQuery: () => ({ page: 1, pageSize: 20, eligible: 'all' }),
   };
 });
 vi.mock('@server/lib/services/sect-organization', () => ({
@@ -92,6 +95,7 @@ vi.mock('@server/lib/services/sect-organization', () => ({
     },
     tasks: {
       queries: { execute: vi.fn() },
+      submissions: { execute: submissionCandidatesMock },
       actions: { execute: taskActionMock },
     },
     economy: {
@@ -120,7 +124,7 @@ vi.mock('@shared/lib/battle/simulateBattleV5', () => ({
 }));
 vi.mock('@server/lib/services/PlayerStateMutationService', () => ({
   PlayerStateIdempotencyError: class PlayerStateIdempotencyError extends Error {},
-  commitPlayerStateMutation: vi.fn(async (args) => {
+  commitPlayerStateMutationWithLock: vi.fn(async (args) => {
     const value = await args.run({});
     return {
       result: value.result,
@@ -305,7 +309,7 @@ describe('sects router', () => {
 
   it('dispatches arbitrary registered task actions through the generic endpoint', async () => {
     taskActionMock.mockResolvedValue({
-      task: { definitionId: 'fixture-task', state: 'completed' },
+      task: { definitionId: 'fixture-task', state: 'claimable' },
       outcome: { renderer: 'fixture.outcome', data: { ok: true } },
     });
     const response = await new Hono()
@@ -325,6 +329,36 @@ describe('sects router', () => {
         actionKey: 'finish',
         input: { value: 1 },
       }),
+      expect.anything(),
+    );
+  });
+
+  it('validates and dispatches submission candidate queries', async () => {
+    submissionCandidatesMock.mockResolvedValue({
+      requirement: {
+        kind: 'pill',
+        quantity: 1,
+        minQuality: '灵品',
+      },
+      items: [],
+      page: 1,
+      pageSize: 20,
+      total: 0,
+    });
+    const response = await new Hono()
+      .route('/api/sects', sectsRouter)
+      .request(
+        '/api/sects/current/tasks/pill_delivery/submission-candidates?page=1&pageSize=20',
+      );
+    expect(response.status).toBe(200);
+    expect(submissionCandidatesMock).toHaveBeenCalledWith(
+      {
+        cultivatorId: 'cultivator-1',
+        taskId: 'pill_delivery',
+        page: 1,
+        pageSize: 20,
+        eligible: 'all',
+      },
       expect.anything(),
     );
   });

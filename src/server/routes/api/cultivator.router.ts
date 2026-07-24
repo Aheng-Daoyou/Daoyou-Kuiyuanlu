@@ -14,6 +14,7 @@ import {
 } from '@server/lib/drizzle/schema';
 import {
   invalidateActiveCultivatorRef,
+  redisLockErrorResponse,
   requireActiveCultivator,
   requireActiveCultivatorRef,
   requireUser,
@@ -28,14 +29,7 @@ import {
   normalizeRedeemCode,
 } from '@server/lib/redeem/code';
 import { resolveRedeemCodeRewardAttachments } from '@server/lib/redeem/reward';
-import { redis } from '@server/lib/redis';
-import {
-  createRedisLock,
-  LockAcquisitionError,
-  releaseRedisLock,
-} from '@server/lib/redis/lock';
-import { removeFromAllRankingRealmsExcept } from '@server/lib/redis/rankings';
-import { getRetreatLock } from '@server/lib/redis/retreatLock';
+import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import * as creationProductRepository from '@server/lib/repositories/creationProductRepository';
 import { createMessage } from '@server/lib/repositories/worldChatRepository';
 import {
@@ -43,6 +37,7 @@ import {
   AttributeResetServiceError,
   withAttributeResetLock,
 } from '@server/lib/services/AttributeResetService';
+import { removeFromAllRankingRealmsExcept } from '@server/lib/redis/rankings';
 import {
   consumeBodyCultivationBreakthroughCosts,
   getBodyCultivationBreakthroughPreviewData,
@@ -57,8 +52,8 @@ import {
   type MailAttachment,
 } from '@server/lib/services/MailService';
 import {
-  identifyMysteryMaterial,
   MarketServiceError,
+  prepareMysteryMaterialIdentification,
 } from '@server/lib/services/MarketService';
 import { PillOperationExecutor } from '@server/lib/services/PillOperationExecutor';
 import {
@@ -67,6 +62,7 @@ import {
 } from '@server/lib/services/PlayerMailService';
 import {
   commitPlayerStateMutation,
+  commitPlayerStateMutationWithLock,
   toPlayerStateMutationResponse,
   type StateChangeDescriptor,
 } from '@server/lib/services/PlayerStateMutationService';
@@ -87,6 +83,7 @@ import {
   updateCultivator,
   updateSpiritStones,
 } from '@server/lib/services/cultivatorService';
+import { sectOrganizationFacade } from '@server/lib/services/sect-organization';
 import { stream_text } from '@server/utils/aiClient';
 import {
   getOrInitCultivationProgress,
@@ -120,7 +117,6 @@ import {
   attemptBreakthrough,
   performCultivation,
 } from '@shared/engine/cultivation/CultivationEngine';
-import { sectOrganizationFacade } from '@server/lib/services/sect-organization';
 import { MaterialGenerator } from '@shared/engine/material/creation/MaterialGenerator';
 import type { GeneratedMaterial } from '@shared/engine/material/creation/types';
 import { resourceEngine } from '@shared/engine/resource/ResourceEngine';
@@ -599,22 +595,48 @@ router.post('/active-reincarnate', requireActiveCultivator(), async (c) => {
     return c.json({ error: '该角色已身死道消' }, 400);
   }
 
-  await getExecutor().transaction(async (tx) => {
-    await tx
-      .update(cultivators)
-      .set({ status: 'dead', diedAt: new Date() })
-      .where(eq(cultivators.id, cultivator.id));
+  await commitPlayerStateMutationWithLock({
+    userId: user.id,
+    cultivatorId: cultivator.id,
+    source: 'active_reincarnate',
+    run: async (tx) => {
+      const [updated] = await tx
+        .update(cultivators)
+        .set({ status: 'dead', diedAt: new Date() })
+        .where(
+          and(
+            eq(cultivators.id, cultivator.id),
+            eq(cultivators.status, 'active'),
+          ),
+        )
+        .returning({ id: cultivators.id });
+      if (!updated) {
+        throw new Error('角色状态已经变化，请刷新后重试');
+      }
 
-    await tx.insert(breakthroughHistory).values({
-      cultivatorId: cultivator.id,
-      from_realm: cultivator.realm,
-      from_stage: cultivator.realm_stage,
-      to_realm: '轮回',
-      to_stage: '转世',
-      age: cultivator.age,
-      years_spent: 0,
-      story: `道友${cultivator.name}感悟天道无常，寿元虽未尽，然道心已决。遂于今日自行兵解，散去一身修为，只求来世再踏仙途，重证大道。天地为之动容，降下祥云送行。`,
-    });
+      await tx.insert(breakthroughHistory).values({
+        cultivatorId: cultivator.id,
+        from_realm: cultivator.realm,
+        from_stage: cultivator.realm_stage,
+        to_realm: '轮回',
+        to_stage: '转世',
+        age: cultivator.age,
+        years_spent: 0,
+        story: `道友${cultivator.name}感悟天道无常，寿元虽未尽，然道心已决。遂于今日自行兵解，散去一身修为，只求来世再踏仙途，重证大道。天地为之动容，降下祥云送行。`,
+      });
+
+      return {
+        result: null,
+        changes: [
+          {
+            domain: 'profile',
+            eventType: 'profile.reincarnated',
+            patch: { status: 'dead' },
+            invalidates: ['profile'],
+          },
+        ],
+      };
+    },
   });
 
   await invalidateActiveCultivatorRef(user.id);
@@ -635,113 +657,128 @@ router.post('/consume', requireActiveCultivator(), async (c) => {
   }
 
   try {
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'consumable_use',
-      run: async (tx) => {
-        const result = await ConsumableUseEngine.consume(
-          user.id,
-          cultivator.id,
-          parsed.data.consumableId,
-          { tx },
-        );
-        const [cultivatorState] = await tx
-          .select({
-            condition: cultivators.condition,
-            cultivationProgress: cultivators.cultivation_progress,
-            spiritStones: cultivators.spirit_stones,
-            qi: cultivators.qi,
-            lifespan: cultivators.lifespan,
-            vitality: cultivators.vitality,
-            spirit: cultivators.spirit,
-            wisdom: cultivators.wisdom,
-            speed: cultivators.speed,
-            willpower: cultivators.willpower,
-            unallocatedAttributePoints: cultivators.unallocatedAttributePoints,
-          })
-          .from(cultivators)
-          .where(eq(cultivators.id, cultivator.id))
-          .limit(1);
-
-        const changes: StateChangeDescriptor[] = [
-          {
-            domain: 'tasks',
-            eventType: 'tasks.maybe_changed',
-            invalidates: ['tasks'],
-          },
-        ];
-
-        if (
-          isTalismanConsumable(result.consumable) &&
-          isAttributeResetTalismanScenario(result.consumable.spec.scenario)
-        ) {
-          changes.push({
-            domain: 'profile',
-            eventType: 'profile.attributes.reset',
-            patch: {
-              attributes: {
-                vitality: cultivatorState?.vitality,
-                spirit: cultivatorState?.spirit,
-                wisdom: cultivatorState?.wisdom,
-                speed: cultivatorState?.speed,
-                willpower: cultivatorState?.willpower,
-              },
-              unallocated_attribute_points:
-                cultivatorState?.unallocatedAttributePoints,
-            },
-            invalidates: ['profile'],
-          });
-        } else if (isTalismanConsumable(result.consumable)) {
-          changes.push({
-            domain: 'currency',
-            eventType: 'currency.qi.changed',
-            patch: {
-              currency: {
-                spiritStones: cultivatorState?.spiritStones,
-                qi: cultivatorState?.qi,
-              },
-            },
-          });
-        } else {
-          changes.push(
-            {
-              domain: 'condition',
-              eventType: 'condition.consumable.changed',
-              patch: { condition: cultivatorState?.condition ?? {} },
-            },
-            {
-              domain: 'progress',
-              eventType: 'progress.consumable.changed',
-              patch: { progress: cultivatorState?.cultivationProgress ?? {} },
-            },
-            {
-              domain: 'profile',
-              eventType: 'profile.consumable.changed',
-              invalidates: ['profile'],
-            },
-          );
-        }
-
-        return {
-          result: {
-            message: result.message,
-            consumable: result.consumable,
-          },
-          changes,
-        };
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: 'consumable-use',
+        timeoutMs: 30_000,
+        renewEveryMs: 10_000,
+        retries: 0,
       },
-    });
-    try {
-      await TaskService.syncCultivatorTasks(cultivator.id);
-    } catch (syncError) {
-      console.error('使用消耗品后同步任务失败:', syncError);
-    }
-    return c.json(toPlayerStateMutationResponse(committed));
+      async (lease) => {
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'consumable_use',
+          run: async (tx) => {
+            const result = await ConsumableUseEngine.consume(
+              user.id,
+              cultivator.id,
+              parsed.data.consumableId,
+              { tx, lease },
+            );
+            const [cultivatorState] = await tx
+              .select({
+                condition: cultivators.condition,
+                cultivationProgress: cultivators.cultivation_progress,
+                spiritStones: cultivators.spirit_stones,
+                qi: cultivators.qi,
+                lifespan: cultivators.lifespan,
+                vitality: cultivators.vitality,
+                spirit: cultivators.spirit,
+                wisdom: cultivators.wisdom,
+                speed: cultivators.speed,
+                willpower: cultivators.willpower,
+                unallocatedAttributePoints:
+                  cultivators.unallocatedAttributePoints,
+              })
+              .from(cultivators)
+              .where(eq(cultivators.id, cultivator.id))
+              .limit(1);
+
+            const changes: StateChangeDescriptor[] = [
+              {
+                domain: 'tasks',
+                eventType: 'tasks.maybe_changed',
+                invalidates: ['tasks'],
+              },
+            ];
+
+            if (
+              isTalismanConsumable(result.consumable) &&
+              isAttributeResetTalismanScenario(result.consumable.spec.scenario)
+            ) {
+              changes.push({
+                domain: 'profile',
+                eventType: 'profile.attributes.reset',
+                patch: {
+                  attributes: {
+                    vitality: cultivatorState?.vitality,
+                    spirit: cultivatorState?.spirit,
+                    wisdom: cultivatorState?.wisdom,
+                    speed: cultivatorState?.speed,
+                    willpower: cultivatorState?.willpower,
+                  },
+                  unallocated_attribute_points:
+                    cultivatorState?.unallocatedAttributePoints,
+                },
+                invalidates: ['profile'],
+              });
+            } else if (isTalismanConsumable(result.consumable)) {
+              changes.push({
+                domain: 'currency',
+                eventType: 'currency.qi.changed',
+                patch: {
+                  currency: {
+                    spiritStones: cultivatorState?.spiritStones,
+                    qi: cultivatorState?.qi,
+                  },
+                },
+              });
+            } else {
+              changes.push(
+                {
+                  domain: 'condition',
+                  eventType: 'condition.consumable.changed',
+                  patch: { condition: cultivatorState?.condition ?? {} },
+                },
+                {
+                  domain: 'progress',
+                  eventType: 'progress.consumable.changed',
+                  patch: {
+                    progress: cultivatorState?.cultivationProgress ?? {},
+                  },
+                },
+                {
+                  domain: 'profile',
+                  eventType: 'profile.consumable.changed',
+                  invalidates: ['profile'],
+                },
+              );
+            }
+
+            return {
+              result: {
+                message: result.message,
+                consumable: result.consumable,
+              },
+              changes,
+            };
+          },
+        });
+        try {
+          await TaskService.syncCultivatorTasks(cultivator.id);
+        } catch (syncError) {
+          console.error('使用消耗品后同步任务失败:', syncError);
+        }
+        lease.assertHeld();
+        return c.json(toPlayerStateMutationResponse(committed));
+      },
+    );
   } catch (error) {
-    if (error instanceof LockAcquisitionError) {
-      return c.json({ error: '属性重置正在处理中，请稍后' }, 429);
-    }
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof AttributeResetServiceError) {
       return c.json({ error: error.message }, error.status as 400 | 404);
     }
@@ -773,7 +810,7 @@ router.post('/inn-recovery', requireActiveCultivator(), async (c) => {
   }
 
   const recovery = InnRecoveryService.buildRecoveryResult(cultivator);
-  const committed = await commitPlayerStateMutation({
+  const committed = await commitPlayerStateMutationWithLock({
     userId: user.id,
     cultivatorId: activeCultivator.id,
     source: 'inn_recovery',
@@ -971,7 +1008,7 @@ router.post(
         cultivator,
         cultivator.condition,
       );
-      const committed = await commitPlayerStateMutation({
+      const committed = await commitPlayerStateMutationWithLock({
         userId: user.id,
         cultivatorId: activeCultivator.id,
         source: 'body_cultivation_breakthrough',
@@ -1025,6 +1062,8 @@ router.post(
 
       return c.json(toPlayerStateMutationResponse(committed));
     } catch (error) {
+      const lockErrorResponse = redisLockErrorResponse(error);
+      if (lockErrorResponse) return lockErrorResponse;
       return c.json(
         {
           success: false,
@@ -1050,7 +1089,7 @@ router.post(
       const actionInstanceId = randomUUID();
       let qiAfter: number | null = null;
 
-      const committed = await commitPlayerStateMutation({
+      const committed = await commitPlayerStateMutationWithLock({
         userId: user.id,
         cultivatorId: activeCultivator.id,
         source: 'marrow_wash_breakthrough',
@@ -1162,6 +1201,8 @@ router.post(
 
       return c.json(toPlayerStateMutationResponse(committed));
     } catch (error) {
+      const lockErrorResponse = redisLockErrorResponse(error);
+      if (lockErrorResponse) return lockErrorResponse;
       const qiResponse = qiErrorResponse(c, error);
       if (qiResponse) return qiResponse;
 
@@ -1215,7 +1256,7 @@ router.post('/equip', requireActiveCultivator(), async (c) => {
   }
 
   const slot = product.slot || 'weapon';
-  const committed = await commitPlayerStateMutation({
+  const committed = await commitPlayerStateMutationWithLock({
     userId: user.id,
     cultivatorId: cultivator.id,
     source: 'artifact_equip',
@@ -1294,6 +1335,7 @@ router.post('/title', requireActiveCultivator(), async (c) => {
 
   const { title } = TitleSchema.parse(await c.req.json());
   const committed = await commitPlayerStateMutation({
+    coordination: { mode: 'database-only' },
     userId: user.id,
     cultivatorId: cultivator.id,
     source: 'profile_title',
@@ -1343,128 +1385,135 @@ router.post('/attributes/allocate', requireActiveCultivator(), async (c) => {
     return c.json({ error: '请选择要分配的属性点' }, 400);
   }
 
-  const lockKey = `cultivator:attributes:allocate:lock:${cultivator.id}`;
-  const lock = createRedisLock({
-    retries: 0,
-    delay: 50,
-  });
-  let lockAcquired = false;
-
   try {
-    await lock.acquire(lockKey);
-    lockAcquired = true;
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'profile_attribute_allocate',
-      run: async (tx) => {
-        const [current] = await tx
-          .select({
-            id: cultivators.id,
-            realm: cultivators.realm,
-            realmStage: cultivators.realm_stage,
-            vitality: cultivators.vitality,
-            spirit: cultivators.spirit,
-            wisdom: cultivators.wisdom,
-            speed: cultivators.speed,
-            willpower: cultivators.willpower,
-            unallocatedAttributePoints: cultivators.unallocatedAttributePoints,
-          })
-          .from(cultivators)
-          .where(eq(cultivators.id, cultivator.id));
-
-        if (!current) {
-          throw new Error('角色不存在');
-        }
-
-        if (spent > current.unallocatedAttributePoints) {
-          throw new Error('未分配属性点不足');
-        }
-
-        const nextAttributes = {
-          vitality: current.vitality + delta.vitality,
-          spirit: current.spirit + delta.spirit,
-          wisdom: current.wisdom + delta.wisdom,
-          speed: current.speed + delta.speed,
-          willpower: current.willpower + delta.willpower,
-        };
-        const values = Object.values(nextAttributes);
-        const naturalAttributeValue = getRealmStageNaturalAttributeValue(
-          current.realm as RealmType,
-          current.realmStage as RealmStage,
-        );
-        if (values.some((value) => value < naturalAttributeValue)) {
-          throw new Error('属性不能低于当前境界自然值');
-        }
-
-        const freeAttributeBudget = getRealmStageUnallocatedAttributeBudget(
-          current.realm as RealmType,
-          current.realmStage as RealmStage,
-        );
-        const totalAttributes = values.reduce((sum, value) => sum + value, 0);
-        const allocatedPoints = totalAttributes - naturalAttributeValue * 5;
-        const currentAllocatedPoints =
-          current.vitality +
-          current.spirit +
-          current.wisdom +
-          current.speed +
-          current.willpower -
-          naturalAttributeValue * 5;
-        const earnedAttributeBudget = Math.max(
-          freeAttributeBudget,
-          currentAllocatedPoints + current.unallocatedAttributePoints,
-        );
-        if (allocatedPoints > earnedAttributeBudget) {
-          throw new Error('属性总点数超过当前境界预算');
-        }
-
-        const [updated] = await tx
-          .update(cultivators)
-          .set({
-            ...nextAttributes,
-            unallocatedAttributePoints:
-              current.unallocatedAttributePoints - spent,
-          })
-          .where(eq(cultivators.id, cultivator.id))
-          .returning({
-            vitality: cultivators.vitality,
-            spirit: cultivators.spirit,
-            wisdom: cultivators.wisdom,
-            speed: cultivators.speed,
-            willpower: cultivators.willpower,
-            unallocated_attribute_points:
-              cultivators.unallocatedAttributePoints,
-          });
-        const result = {
-          attributes: {
-            vitality: updated.vitality,
-            spirit: updated.spirit,
-            wisdom: updated.wisdom,
-            speed: updated.speed,
-            willpower: updated.willpower,
-          },
-          unallocated_attribute_points: updated.unallocated_attribute_points,
-        };
-
-        return {
-          result,
-          changes: [
-            {
-              domain: 'profile',
-              eventType: 'profile.attributes.allocated',
-              patch: result,
-              invalidates: ['profile'],
-            },
-          ],
-        };
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: 'profile-attribute-allocate',
+        timeoutMs: 10_000,
+        retries: 0,
       },
-    });
+      async (lease) => {
+        lease.assertHeld();
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'profile_attribute_allocate',
+          run: async (tx) => {
+            const [current] = await tx
+              .select({
+                id: cultivators.id,
+                realm: cultivators.realm,
+                realmStage: cultivators.realm_stage,
+                vitality: cultivators.vitality,
+                spirit: cultivators.spirit,
+                wisdom: cultivators.wisdom,
+                speed: cultivators.speed,
+                willpower: cultivators.willpower,
+                unallocatedAttributePoints:
+                  cultivators.unallocatedAttributePoints,
+              })
+              .from(cultivators)
+              .where(eq(cultivators.id, cultivator.id));
 
-    return c.json(toPlayerStateMutationResponse(committed));
+            if (!current) {
+              throw new Error('角色不存在');
+            }
+
+            if (spent > current.unallocatedAttributePoints) {
+              throw new Error('未分配属性点不足');
+            }
+
+            const nextAttributes = {
+              vitality: current.vitality + delta.vitality,
+              spirit: current.spirit + delta.spirit,
+              wisdom: current.wisdom + delta.wisdom,
+              speed: current.speed + delta.speed,
+              willpower: current.willpower + delta.willpower,
+            };
+            const values = Object.values(nextAttributes);
+            const naturalAttributeValue = getRealmStageNaturalAttributeValue(
+              current.realm as RealmType,
+              current.realmStage as RealmStage,
+            );
+            if (values.some((value) => value < naturalAttributeValue)) {
+              throw new Error('属性不能低于当前境界自然值');
+            }
+
+            const freeAttributeBudget = getRealmStageUnallocatedAttributeBudget(
+              current.realm as RealmType,
+              current.realmStage as RealmStage,
+            );
+            const totalAttributes = values.reduce(
+              (sum, value) => sum + value,
+              0,
+            );
+            const allocatedPoints = totalAttributes - naturalAttributeValue * 5;
+            const currentAllocatedPoints =
+              current.vitality +
+              current.spirit +
+              current.wisdom +
+              current.speed +
+              current.willpower -
+              naturalAttributeValue * 5;
+            const earnedAttributeBudget = Math.max(
+              freeAttributeBudget,
+              currentAllocatedPoints + current.unallocatedAttributePoints,
+            );
+            if (allocatedPoints > earnedAttributeBudget) {
+              throw new Error('属性总点数超过当前境界预算');
+            }
+
+            const [updated] = await tx
+              .update(cultivators)
+              .set({
+                ...nextAttributes,
+                unallocatedAttributePoints:
+                  current.unallocatedAttributePoints - spent,
+              })
+              .where(eq(cultivators.id, cultivator.id))
+              .returning({
+                vitality: cultivators.vitality,
+                spirit: cultivators.spirit,
+                wisdom: cultivators.wisdom,
+                speed: cultivators.speed,
+                willpower: cultivators.willpower,
+                unallocated_attribute_points:
+                  cultivators.unallocatedAttributePoints,
+              });
+            const result = {
+              attributes: {
+                vitality: updated.vitality,
+                spirit: updated.spirit,
+                wisdom: updated.wisdom,
+                speed: updated.speed,
+                willpower: updated.willpower,
+              },
+              unallocated_attribute_points:
+                updated.unallocated_attribute_points,
+            };
+
+            return {
+              result,
+              changes: [
+                {
+                  domain: 'profile',
+                  eventType: 'profile.attributes.allocated',
+                  patch: result,
+                  invalidates: ['profile'],
+                },
+              ],
+            };
+          },
+        });
+
+        return c.json(toPlayerStateMutationResponse(committed));
+      },
+    );
   } catch (error) {
-    if (error instanceof LockAcquisitionError) {
-      return c.json({ error: '属性分配正在处理中，请稍后' }, 429);
-    }
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     const message = error instanceof Error ? error.message : '属性分配失败';
     if (
       [
@@ -1477,10 +1526,6 @@ router.post('/attributes/allocate', requireActiveCultivator(), async (c) => {
       return c.json({ error: message }, message === '角色不存在' ? 404 : 400);
     }
     throw error;
-  } finally {
-    if (lockAcquired) {
-      await releaseRedisLock(lock, lockKey);
-    }
   }
 });
 
@@ -1492,8 +1537,9 @@ router.post('/attributes/reset', requireActiveCultivator(), async (c) => {
   }
 
   try {
-    const committed = await withAttributeResetLock(cultivator.id, () =>
+    const committed = await withAttributeResetLock(cultivator.id, (lease) =>
       commitPlayerStateMutation({
+        coordination: { mode: 'redis', lease },
         userId: user.id,
         cultivatorId: cultivator.id,
         source: 'profile_attribute_reset',
@@ -1526,9 +1572,8 @@ router.post('/attributes/reset', requireActiveCultivator(), async (c) => {
 
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
-    if (error instanceof LockAcquisitionError) {
-      return c.json({ error: '属性重置正在处理中，请稍后' }, 429);
-    }
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof AttributeResetServiceError) {
       return c.json({ error: error.message }, error.status as 400 | 404);
     }
@@ -1554,7 +1599,7 @@ router.post('/redeem-code/claim', requireActiveCultivator(), async (c) => {
   }
 
   try {
-    const committed = await commitPlayerStateMutation({
+    const committed = await commitPlayerStateMutationWithLock({
       userId: user.id,
       cultivatorId: cultivator.id,
       source: 'redeem_code_claim',
@@ -1654,6 +1699,8 @@ router.post('/redeem-code/claim', requireActiveCultivator(), async (c) => {
 
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (isUniqueViolation(error)) {
       return c.json({ error: '该兑换码你已使用过' }, 400);
     }
@@ -1672,10 +1719,8 @@ router.post('/retreat', requireActiveCultivator(), async (c) => {
     return c.json({ error: '未授权访问' }, 401);
   }
 
-  const retreatLock = getRetreatLock();
   const cultivatorId = activeCultivator.id;
   let years = 0;
-  let lockAcquired = false;
   let qiAfter: number | null = null;
 
   try {
@@ -1684,398 +1729,402 @@ router.post('/retreat', requireActiveCultivator(), async (c) => {
     );
     years = inputYears ?? 0;
 
-    lockAcquired = await retreatLock.acquire(cultivatorId);
-    if (!lockAcquired) {
-      return c.json({ error: '角色正在闭关中，请稍后再试' }, 409);
-    }
-
-    const cultivator = await getPlayerRuntimeCultivatorById(
-      user.id,
-      cultivatorId,
-    );
-    if (!cultivator) {
-      return c.json({ error: '角色不存在' }, 404);
-    }
-
-    if (action === 'cultivate') {
-      if (!Number.isFinite(years) || years < 1 || years > 200) {
-        return c.json({ error: '闭关年限需在 1~200 年之间' }, 400);
-      }
-      if (cultivator.lifespan - cultivator.age < years) {
-        return c.json({ error: '道友，您没有这么多寿元了' }, 400);
-      }
-
-      const cultivateQiActionInstanceId = randomUUID();
-      const sectBonuses = await sectOrganizationFacade.getFacilityBonuses(
-        cultivatorId,
-      );
-      const result = performCultivation(cultivator, years, Math.random, {
-        retreatExpMultiplier: sectBonuses.retreatMultiplier,
-      });
-
-      let streamResult: RetreatResultData = {
-        summary: result.summary,
-        action: 'cultivate',
-      };
-      let storySource: RetreatStorySource = null;
-      let lifespanStoryPayload: LifespanExhaustedStoryPayload | null = null;
-      let afterCommit: (() => Promise<void>) | undefined;
-
-      const committed = await commitPlayerStateMutation({
-        userId: user.id,
-        cultivatorId,
-        source: 'retreat_cultivate',
-        run: async (tx) => {
-          const qiReservation = await QiService.reserveQi({
-            cultivatorId,
-            action: 'retreat_10_years',
-            actionInstanceId: cultivateQiActionInstanceId,
-            cost: getRetreatQiCost(years),
-            metadata: {
-              years,
-              retreatAction: action,
-            },
-            tx,
-          });
-          qiAfter =
-            typeof qiReservation?.qiAfter === 'number'
-              ? qiReservation.qiAfter
-              : null;
-
-          await addRetreatRecord(user.id, cultivatorId, result.record, tx);
-
-          const saved = await updateCultivator(
-            cultivatorId,
-            {
-              age: result.cultivator.age,
-              closed_door_years_total:
-                result.cultivator.closed_door_years_total,
-              cultivation_progress: result.cultivator.cultivation_progress,
-              condition: result.cultivator.condition,
-            },
-            tx,
-          );
-
-          if (!saved) {
-            throw new Error('更新角色数据失败');
-          }
-
-          await QiService.commitReservation({
-            actionInstanceId: cultivateQiActionInstanceId,
-            metadata: { committedAt: new Date().toISOString() },
-            tx,
-          });
-
-          try {
-            const lifespanResult = await consumeLifespanAndHandleDepletion(
-              cultivatorId,
-              years,
-              {
-                executor: tx,
-                deferSideEffects: true,
-                ageAfterConsumption: result.cultivator.age,
-              },
-            );
-            if (lifespanResult.depleted) {
-              streamResult = {
-                ...streamResult,
-                storyType: lifespanResult.storyPayload ? 'lifespan' : null,
-                depleted: true,
-              };
-              storySource = lifespanResult.storyPayload
-                ? {
-                    type: 'lifespan',
-                    payload: lifespanResult.storyPayload,
-                  }
-                : null;
-              lifespanStoryPayload =
-                storySource?.type === 'lifespan' ? storySource.payload : null;
-              afterCommit = lifespanResult.afterCommit;
-            }
-          } catch (error) {
-            console.warn('处理寿元耗尽失败：', error);
-          }
-
-          const changes: StateChangeDescriptor[] = [
-            {
-              domain: 'profile',
-              eventType: 'profile.retreat.changed',
-              invalidates: ['profile'],
-            },
-            {
-              domain: 'progress',
-              eventType: 'progress.cultivation.changed',
-              patch: {
-                progress: result.cultivator.cultivation_progress,
-              },
-            },
-            {
-              domain: 'condition',
-              eventType: 'condition.retreat.changed',
-              patch: { condition: result.cultivator.condition },
-            },
-            {
-              domain: 'currency',
-              eventType: 'currency.qi.spent',
-              patch: qiAfter === null ? {} : { currency: { qi: qiAfter } },
-            },
-          ];
-          if (streamResult.depleted) {
-            changes.push({
-              domain: 'condition',
-              eventType: 'condition.lifespan.depleted',
-              invalidates: ['condition'],
-            });
-          }
-
-          return {
-            result: streamResult,
-            changes,
-          };
-        },
-      });
-
-      if (afterCommit) {
-        try {
-          await afterCommit();
-        } catch (error) {
-          console.error('闭关寿元耗尽后置副作用失败:', error);
-        }
-      }
-
-      return createRetreatStreamResponse({
-        result: committed.result,
-        stateEvents: committed.state.events,
-        storySource,
-        onStoryComplete: async (story) => {
-          if (!lifespanStoryPayload) {
-            return;
-          }
-
-          await addBreakthroughHistoryEntry(
-            user.id,
-            cultivatorId,
-            buildLifespanHistoryEntry(lifespanStoryPayload, story),
-          );
-        },
-      });
-    }
-
-    const majorGate = await TaskService.getMajorBreakthroughGate(cultivatorId);
-    if (majorGate.required && majorGate.blocked) {
-      return c.json(
-        {
-          success: false,
-          error: '大境界突破仍需先完成破境任务',
-          errorCode: 'MAJOR_BREAKTHROUGH_TASK_REQUIRED',
-          data: {
-            task: majorGate.task,
-          },
-        },
-        409,
-      );
-    }
-
-    const breakthroughQiActionInstanceId = randomUUID();
-
-    const result = attemptBreakthrough(cultivator);
-    result.cultivator.condition =
-      PillOperationExecutor.consumeBreakthroughSupportStatuses(
-        result.cultivator.condition,
-        result.cultivator,
-      );
-    const storySource: RetreatStorySource = result.summary.success
-      ? {
-          type: 'breakthrough',
-          payload: {
-            cultivator: result.cultivator,
-            summary: {
-              success: result.summary.success,
-              isMajor: result.summary.toRealm !== result.summary.fromRealm,
-              yearsSpent: 1,
-              chance: result.summary.chance,
-              roll: result.summary.roll,
-              fromRealm: result.summary.fromRealm,
-              fromStage: result.summary.fromStage,
-              toRealm: result.summary.toRealm,
-              toStage: result.summary.toStage,
-              lifespanGained: result.summary.lifespanGained,
-              attributeGrowth: result.summary.attributeGrowth,
-              naturalAttributeGrowth: result.summary.naturalAttributeGrowth,
-              attributePointReward: result.summary.attributePointReward,
-              lifespanDepleted: false,
-              modifiers: result.summary.modifiers,
-            },
-          },
-        }
-      : null;
-
-    const isMajorBreakthrough =
-      result.summary.success &&
-      result.summary.toRealm &&
-      result.summary.toRealm !== result.summary.fromRealm;
-    const sendBreakthroughRumor = isMajorBreakthrough
-      ? async () => {
-          const rumor = buildMajorBreakthroughRumor(
-            result.cultivator.name,
-            result.summary.toRealm,
-            result.summary.toStage,
-          );
-          try {
-            await createMessage({
-              senderUserId: user.id,
-              senderCultivatorId: null,
-              senderName: '修仙界传闻',
-              senderRealm: '炼气',
-              senderRealmStage: '系统',
-              channel: 'system',
-              messageType: 'text',
-              textContent: rumor,
-              payload: { text: rumor },
-            });
-          } catch (chatError) {
-            console.error('突破传闻发送失败:', chatError);
-          }
-        }
-      : null;
-
-    const retreatResult: RetreatResultData = {
-      summary: result.summary,
-      storyType: storySource ? 'breakthrough' : null,
-      action: 'breakthrough',
-    };
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId,
-      source: 'retreat_breakthrough',
-      run: async (tx) => {
-        const qiReservation = await QiService.reserveQi({
-          cultivatorId,
-          action: 'breakthrough_attempt',
-          actionInstanceId: breakthroughQiActionInstanceId,
-          metadata: {
-            retreatAction: action,
-          },
-          tx,
-        });
-        qiAfter =
-          typeof qiReservation?.qiAfter === 'number'
-            ? qiReservation.qiAfter
-            : null;
-
-        const saved = await updateCultivator(
-          cultivatorId,
-          {
-            realm: result.cultivator.realm,
-            realm_stage: result.cultivator.realm_stage,
-            age: result.cultivator.age,
-            lifespan: result.cultivator.lifespan,
-            attributes: result.cultivator.attributes,
-            unallocated_attribute_points:
-              result.cultivator.unallocated_attribute_points,
-            cultivation_progress: result.cultivator.cultivation_progress,
-            condition: result.cultivator.condition,
-          },
-          tx,
-        );
-
-        if (!saved) {
-          throw new Error('更新角色数据失败');
-        }
-
-        if (result.summary.success) {
-          await QiService.commitReservation({
-            actionInstanceId: breakthroughQiActionInstanceId,
-            metadata: { committedAt: new Date().toISOString() },
-            tx,
-          });
-        } else {
-          await QiService.markNoRefund({
-            actionInstanceId: breakthroughQiActionInstanceId,
-            reason: 'breakthrough_failed_normally',
-            metadata: { committedAt: new Date().toISOString() },
-            tx,
-          });
-        }
-
-        return {
-          result: retreatResult,
-          changes: [
-            {
-              domain: 'profile',
-              eventType: 'profile.breakthrough.changed',
-              invalidates: ['profile'],
-            },
-            {
-              domain: 'condition',
-              eventType: 'condition.breakthrough.changed',
-              patch: { condition: result.cultivator.condition },
-            },
-            {
-              domain: 'progress',
-              eventType: 'progress.breakthrough.changed',
-              patch: {
-                progress: result.cultivator.cultivation_progress,
-              },
-            },
-            {
-              domain: 'currency',
-              eventType: 'currency.qi.spent',
-              patch: qiAfter === null ? {} : { currency: { qi: qiAfter } },
-            },
-          ],
-        };
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivatorId),
+        context: 'retreat',
+        timeoutMs: 300_000,
+        renewEveryMs: 60_000,
+        retries: 0,
       },
-    });
-
-    if (sendBreakthroughRumor) {
-      await sendBreakthroughRumor();
-    }
-
-    if (isMajorBreakthrough) {
-      try {
-        await removeFromAllRankingRealmsExcept(
-          cultivatorId,
-          result.summary.toRealm as RealmType,
-        );
-      } catch (rankingError) {
-        console.error('大境界突破后清理天骄榜旧境界失败:', rankingError);
-      }
-    }
-
-    return createRetreatStreamResponse({
-      result: committed.result,
-      stateEvents: committed.state.events,
-      storySource,
-      onStoryComplete: async (story) => {
-        if (!result.summary.success || !result.historyEntry) {
-          return;
-        }
-
-        if (story) {
-          result.historyEntry.story = story;
-        }
-
-        await addBreakthroughHistoryEntry(
+      async (lease) => {
+        const cultivator = await getPlayerRuntimeCultivatorById(
           user.id,
           cultivatorId,
-          result.historyEntry,
         );
+        if (!cultivator) {
+          return c.json({ error: '角色不存在' }, 404);
+        }
+
+        if (action === 'cultivate') {
+          if (!Number.isFinite(years) || years < 1 || years > 200) {
+            return c.json({ error: '闭关年限需在 1~200 年之间' }, 400);
+          }
+          if (cultivator.lifespan - cultivator.age < years) {
+            return c.json({ error: '道友，您没有这么多寿元了' }, 400);
+          }
+
+          const cultivateQiActionInstanceId = randomUUID();
+          const sectBonuses =
+            await sectOrganizationFacade.getFacilityBonuses(cultivatorId);
+          const result = performCultivation(cultivator, years, Math.random, {
+            retreatExpMultiplier: sectBonuses.retreatMultiplier,
+          });
+
+          let streamResult: RetreatResultData = {
+            summary: result.summary,
+            action: 'cultivate',
+          };
+          let storySource: RetreatStorySource = null;
+          let lifespanStoryPayload: LifespanExhaustedStoryPayload | null = null;
+          let afterCommit: (() => Promise<void>) | undefined;
+
+          const committed = await commitPlayerStateMutation({
+            coordination: { mode: 'redis', lease },
+            userId: user.id,
+            cultivatorId,
+            source: 'retreat_cultivate',
+            run: async (tx) => {
+              const qiReservation = await QiService.reserveQi({
+                cultivatorId,
+                action: 'retreat_10_years',
+                actionInstanceId: cultivateQiActionInstanceId,
+                cost: getRetreatQiCost(years),
+                metadata: {
+                  years,
+                  retreatAction: action,
+                },
+                tx,
+              });
+              qiAfter =
+                typeof qiReservation?.qiAfter === 'number'
+                  ? qiReservation.qiAfter
+                  : null;
+
+              await addRetreatRecord(user.id, cultivatorId, result.record, tx);
+
+              const saved = await updateCultivator(
+                cultivatorId,
+                {
+                  age: result.cultivator.age,
+                  closed_door_years_total:
+                    result.cultivator.closed_door_years_total,
+                  cultivation_progress: result.cultivator.cultivation_progress,
+                  condition: result.cultivator.condition,
+                },
+                tx,
+              );
+
+              if (!saved) {
+                throw new Error('更新角色数据失败');
+              }
+
+              await QiService.commitReservation({
+                actionInstanceId: cultivateQiActionInstanceId,
+                metadata: { committedAt: new Date().toISOString() },
+                tx,
+              });
+
+              try {
+                const lifespanResult = await consumeLifespanAndHandleDepletion(
+                  cultivatorId,
+                  years,
+                  {
+                    executor: tx,
+                    deferSideEffects: true,
+                    ageAfterConsumption: result.cultivator.age,
+                  },
+                );
+                if (lifespanResult.depleted) {
+                  streamResult = {
+                    ...streamResult,
+                    storyType: lifespanResult.storyPayload ? 'lifespan' : null,
+                    depleted: true,
+                  };
+                  storySource = lifespanResult.storyPayload
+                    ? {
+                        type: 'lifespan',
+                        payload: lifespanResult.storyPayload,
+                      }
+                    : null;
+                  lifespanStoryPayload =
+                    storySource?.type === 'lifespan'
+                      ? storySource.payload
+                      : null;
+                  afterCommit = lifespanResult.afterCommit;
+                }
+              } catch (error) {
+                console.warn('处理寿元耗尽失败：', error);
+              }
+
+              const changes: StateChangeDescriptor[] = [
+                {
+                  domain: 'profile',
+                  eventType: 'profile.retreat.changed',
+                  invalidates: ['profile'],
+                },
+                {
+                  domain: 'progress',
+                  eventType: 'progress.cultivation.changed',
+                  patch: {
+                    progress: result.cultivator.cultivation_progress,
+                  },
+                },
+                {
+                  domain: 'condition',
+                  eventType: 'condition.retreat.changed',
+                  patch: { condition: result.cultivator.condition },
+                },
+                {
+                  domain: 'currency',
+                  eventType: 'currency.qi.spent',
+                  patch: qiAfter === null ? {} : { currency: { qi: qiAfter } },
+                },
+              ];
+              if (streamResult.depleted) {
+                changes.push({
+                  domain: 'condition',
+                  eventType: 'condition.lifespan.depleted',
+                  invalidates: ['condition'],
+                });
+              }
+
+              return {
+                result: streamResult,
+                changes,
+              };
+            },
+          });
+
+          if (afterCommit) {
+            try {
+              await afterCommit();
+            } catch (error) {
+              console.error('闭关寿元耗尽后置副作用失败:', error);
+            }
+          }
+
+          return createRetreatStreamResponse({
+            result: committed.result,
+            stateEvents: committed.state.events,
+            storySource,
+            onStoryComplete: async (story) => {
+              if (!lifespanStoryPayload) {
+                return;
+              }
+
+              await addBreakthroughHistoryEntry(
+                user.id,
+                cultivatorId,
+                buildLifespanHistoryEntry(lifespanStoryPayload, story),
+              );
+            },
+          });
+        }
+
+        const majorGate =
+          await TaskService.getMajorBreakthroughGate(cultivatorId);
+        if (majorGate.required && majorGate.blocked) {
+          return c.json(
+            {
+              success: false,
+              error: '大境界突破仍需先完成破境任务',
+              errorCode: 'MAJOR_BREAKTHROUGH_TASK_REQUIRED',
+              data: {
+                task: majorGate.task,
+              },
+            },
+            409,
+          );
+        }
+
+        const breakthroughQiActionInstanceId = randomUUID();
+
+        const result = attemptBreakthrough(cultivator);
+        result.cultivator.condition =
+          PillOperationExecutor.consumeBreakthroughSupportStatuses(
+            result.cultivator.condition,
+            result.cultivator,
+          );
+        const storySource: RetreatStorySource = result.summary.success
+          ? {
+              type: 'breakthrough',
+              payload: {
+                cultivator: result.cultivator,
+                summary: {
+                  success: result.summary.success,
+                  isMajor: result.summary.toRealm !== result.summary.fromRealm,
+                  yearsSpent: 1,
+                  chance: result.summary.chance,
+                  roll: result.summary.roll,
+                  fromRealm: result.summary.fromRealm,
+                  fromStage: result.summary.fromStage,
+                  toRealm: result.summary.toRealm,
+                  toStage: result.summary.toStage,
+                  lifespanGained: result.summary.lifespanGained,
+                  attributeGrowth: result.summary.attributeGrowth,
+                  naturalAttributeGrowth: result.summary.naturalAttributeGrowth,
+                  attributePointReward: result.summary.attributePointReward,
+                  lifespanDepleted: false,
+                  modifiers: result.summary.modifiers,
+                },
+              },
+            }
+          : null;
+
+        const isMajorBreakthrough =
+          result.summary.success &&
+          result.summary.toRealm &&
+          result.summary.toRealm !== result.summary.fromRealm;
+        const sendBreakthroughRumor = isMajorBreakthrough
+          ? async () => {
+              const rumor = buildMajorBreakthroughRumor(
+                result.cultivator.name,
+                result.summary.toRealm,
+                result.summary.toStage,
+              );
+              try {
+                await createMessage({
+                  senderUserId: user.id,
+                  senderCultivatorId: null,
+                  senderName: '修仙界传闻',
+                  senderRealm: '炼气',
+                  senderRealmStage: '系统',
+                  channel: 'system',
+                  messageType: 'text',
+                  textContent: rumor,
+                  payload: { text: rumor },
+                });
+              } catch (chatError) {
+                console.error('突破传闻发送失败:', chatError);
+              }
+            }
+          : null;
+
+        const retreatResult: RetreatResultData = {
+          summary: result.summary,
+          storyType: storySource ? 'breakthrough' : null,
+          action: 'breakthrough',
+        };
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId,
+          source: 'retreat_breakthrough',
+          run: async (tx) => {
+            const qiReservation = await QiService.reserveQi({
+              cultivatorId,
+              action: 'breakthrough_attempt',
+              actionInstanceId: breakthroughQiActionInstanceId,
+              metadata: {
+                retreatAction: action,
+              },
+              tx,
+            });
+            qiAfter =
+              typeof qiReservation?.qiAfter === 'number'
+                ? qiReservation.qiAfter
+                : null;
+
+            const saved = await updateCultivator(
+              cultivatorId,
+              {
+                realm: result.cultivator.realm,
+                realm_stage: result.cultivator.realm_stage,
+                age: result.cultivator.age,
+                lifespan: result.cultivator.lifespan,
+                attributes: result.cultivator.attributes,
+                unallocated_attribute_points:
+                  result.cultivator.unallocated_attribute_points,
+                cultivation_progress: result.cultivator.cultivation_progress,
+                condition: result.cultivator.condition,
+              },
+              tx,
+            );
+
+            if (!saved) {
+              throw new Error('更新角色数据失败');
+            }
+
+            if (result.summary.success) {
+              await QiService.commitReservation({
+                actionInstanceId: breakthroughQiActionInstanceId,
+                metadata: { committedAt: new Date().toISOString() },
+                tx,
+              });
+            } else {
+              await QiService.markNoRefund({
+                actionInstanceId: breakthroughQiActionInstanceId,
+                reason: 'breakthrough_failed_normally',
+                metadata: { committedAt: new Date().toISOString() },
+                tx,
+              });
+            }
+
+            return {
+              result: retreatResult,
+              changes: [
+                {
+                  domain: 'profile',
+                  eventType: 'profile.breakthrough.changed',
+                  invalidates: ['profile'],
+                },
+                {
+                  domain: 'condition',
+                  eventType: 'condition.breakthrough.changed',
+                  patch: { condition: result.cultivator.condition },
+                },
+                {
+                  domain: 'progress',
+                  eventType: 'progress.breakthrough.changed',
+                  patch: {
+                    progress: result.cultivator.cultivation_progress,
+                  },
+                },
+                {
+                  domain: 'currency',
+                  eventType: 'currency.qi.spent',
+                  patch: qiAfter === null ? {} : { currency: { qi: qiAfter } },
+                },
+              ],
+            };
+          },
+        });
+
+        if (sendBreakthroughRumor) {
+          await sendBreakthroughRumor();
+        }
+
+        if (isMajorBreakthrough) {
+          try {
+            await removeFromAllRankingRealmsExcept(
+              cultivatorId,
+              result.summary.toRealm as RealmType,
+            );
+          } catch (rankingError) {
+            console.error('大境界突破后清理天骄榜旧境界失败:', rankingError);
+          }
+        }
+
+        return createRetreatStreamResponse({
+          result: committed.result,
+          stateEvents: committed.state.events,
+          storySource,
+          onStoryComplete: async (story) => {
+            if (!result.summary.success || !result.historyEntry) {
+              return;
+            }
+
+            if (story) {
+              result.historyEntry.story = story;
+            }
+
+            await addBreakthroughHistoryEntry(
+              user.id,
+              cultivatorId,
+              result.historyEntry,
+            );
+          },
+        });
       },
-    });
+    );
   } catch (err) {
+    const lockErrorResponse = redisLockErrorResponse(err);
+    if (lockErrorResponse) return lockErrorResponse;
     const qiResponse = qiErrorResponse(c, err);
     if (qiResponse) return qiResponse;
     console.error('闭关突破 API 错误:', err);
     throw err;
-  } finally {
-    if (lockAcquired && cultivatorId) {
-      try {
-        await retreatLock.release(cultivatorId);
-      } catch (unlockErr) {
-        console.error('释放闭关锁失败:', unlockErr);
-      }
-    }
   }
 });
 
@@ -2088,147 +2137,172 @@ router.post('/yield', requireActiveCultivator(), async (c) => {
 
   const userId = user.id;
   const cultivatorId = activeCultivator.id;
-  const lockKey = `yield:lock:${cultivatorId}`;
-  const acquired = await redis.set(lockKey, 'locked', 'EX', 100, 'NX');
-
-  if (!acquired) {
-    return c.json(
-      { success: false, error: '道友请勿心急，机缘正在结算中...' },
-      429,
-    );
-  }
 
   try {
-    const fullCultivator = await getPlayerRuntimeCultivatorById(
-      userId,
-      cultivatorId,
-    );
-    if (!fullCultivator) {
-      await redis.del(lockKey);
-      return c.json({ success: false, error: '未找到角色信息' }, 404);
-    }
-
-    const realm = fullCultivator.realm as RealmType;
-    const lastYieldAt = fullCultivator.last_yield_at
-      ? new Date(fullCultivator.last_yield_at)
-      : new Date(Date.now());
-    const now = new Date();
-    const diffMs = now.getTime() - lastYieldAt.getTime();
-    const hoursElapsed = Math.min(diffMs / (1000 * 60 * 60), 24);
-
-    if (hoursElapsed < 1) {
-      await redis.del(lockKey);
-      return c.json(
-        { success: false, error: '历练时日尚短（不足一小时），难有机缘。' },
-        400,
-      );
-    }
-
-    const operations = YieldCalculator.calculateYield(
-      realm,
-      hoursElapsed,
-      fullCultivator,
-    );
-    const materialCount = YieldCalculator.calculateMaterialCount(hoursElapsed);
-
-    const spiritStonesGain =
-      operations.find((operation) => operation.type === 'spirit_stones')
-        ?.value || 0;
-    const expGain =
-      operations.find((operation) => operation.type === 'cultivation_exp')
-        ?.value || 0;
-    const insightGain =
-      operations.find((operation) => operation.type === 'comprehension_insight')
-        ?.value || 0;
-
-    const result = {
-      cultivatorName: fullCultivator.name,
-      cultivatorRealm: fullCultivator.realm,
-      amount: spiritStonesGain,
-      expGain,
-      insightGain,
-      materials: [] as GeneratedMaterial[],
-      hours: hoursElapsed,
-      materialCount,
-    };
-
-    const committed = await commitPlayerStateMutation({
-      userId,
-      cultivatorId,
-      source: 'yield_claim',
-      run: async (tx) => {
-        let nextSpiritStones = fullCultivator.spirit_stones;
-        let nextCultivationProgress = fullCultivator.cultivation_progress;
-        const claimedAt = new Date();
-        for (const gain of operations) {
-          switch (gain.type) {
-            case 'spirit_stones':
-              nextSpiritStones = await updateSpiritStones(
-                userId,
-                cultivatorId,
-                gain.value,
-                tx,
-              );
-              break;
-            case 'cultivation_exp':
-              nextCultivationProgress = await updateCultivationExp(
-                userId,
-                cultivatorId,
-                gain.value,
-                undefined,
-                tx,
-              );
-              break;
-            case 'comprehension_insight':
-              nextCultivationProgress = await updateCultivationExp(
-                userId,
-                cultivatorId,
-                0,
-                gain.value,
-                tx,
-              );
-              break;
-            default:
-              if (gain.type !== 'material') {
-                throw new Error(`未知的资源类型: ${gain.type}`);
-              }
-          }
+    const prepared = await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivatorId),
+        context: 'yield',
+        timeoutMs: 120_000,
+        renewEveryMs: 30_000,
+        retries: 0,
+        delayMs: 50,
+      },
+      async (lease) => {
+        const fullCultivator = await getPlayerRuntimeCultivatorById(
+          userId,
+          cultivatorId,
+        );
+        if (!fullCultivator) {
+          return {
+            response: c.json({ success: false, error: '未找到角色信息' }, 404),
+          };
         }
 
-        await tx
-          .update(cultivators)
-          .set({ last_yield_at: claimedAt })
-          .where(eq(cultivators.id, cultivatorId));
+        const realm = fullCultivator.realm as RealmType;
+        const lastYieldAt = fullCultivator.last_yield_at
+          ? new Date(fullCultivator.last_yield_at)
+          : new Date(Date.now());
+        const now = new Date();
+        const diffMs = now.getTime() - lastYieldAt.getTime();
+        const hoursElapsed = Math.min(diffMs / (1000 * 60 * 60), 24);
+
+        if (hoursElapsed < 1) {
+          return {
+            response: c.json(
+              {
+                success: false,
+                error: '历练时日尚短（不足一小时），难有机缘。',
+              },
+              400,
+            ),
+          };
+        }
+
+        const operations = YieldCalculator.calculateYield(
+          realm,
+          hoursElapsed,
+          fullCultivator,
+        );
+        const materialCount =
+          YieldCalculator.calculateMaterialCount(hoursElapsed);
+
+        const spiritStonesGain =
+          operations.find((operation) => operation.type === 'spirit_stones')
+            ?.value || 0;
+        const expGain =
+          operations.find((operation) => operation.type === 'cultivation_exp')
+            ?.value || 0;
+        const insightGain =
+          operations.find(
+            (operation) => operation.type === 'comprehension_insight',
+          )?.value || 0;
+
+        const result = {
+          cultivatorName: fullCultivator.name,
+          cultivatorRealm: fullCultivator.realm,
+          amount: spiritStonesGain,
+          expGain,
+          insightGain,
+          materials: [] as GeneratedMaterial[],
+          hours: hoursElapsed,
+          materialCount,
+        };
+
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId,
+          cultivatorId,
+          source: 'yield_claim',
+          run: async (tx) => {
+            let nextSpiritStones = fullCultivator.spirit_stones;
+            let nextCultivationProgress = fullCultivator.cultivation_progress;
+            const claimedAt = new Date();
+            for (const gain of operations) {
+              switch (gain.type) {
+                case 'spirit_stones':
+                  nextSpiritStones = await updateSpiritStones(
+                    userId,
+                    cultivatorId,
+                    gain.value,
+                    tx,
+                  );
+                  break;
+                case 'cultivation_exp':
+                  nextCultivationProgress = await updateCultivationExp(
+                    userId,
+                    cultivatorId,
+                    gain.value,
+                    undefined,
+                    tx,
+                  );
+                  break;
+                case 'comprehension_insight':
+                  nextCultivationProgress = await updateCultivationExp(
+                    userId,
+                    cultivatorId,
+                    0,
+                    gain.value,
+                    tx,
+                  );
+                  break;
+                default:
+                  if (gain.type !== 'material') {
+                    throw new Error(`未知的资源类型: ${gain.type}`);
+                  }
+              }
+            }
+
+            await tx
+              .update(cultivators)
+              .set({ last_yield_at: claimedAt })
+              .where(eq(cultivators.id, cultivatorId));
+
+            return {
+              result,
+              changes: [
+                {
+                  domain: 'profile',
+                  eventType: 'profile.yield.changed',
+                  patch: { last_yield_at: claimedAt.toISOString() },
+                },
+                {
+                  domain: 'currency',
+                  eventType: 'currency.yield.gained',
+                  patch: {
+                    currency: {
+                      spiritStones: nextSpiritStones,
+                      qi: activeCultivator.qi,
+                      qiLastRefreshedAt:
+                        activeCultivator.qiLastRefreshedAt?.toISOString?.() ??
+                        null,
+                    },
+                  },
+                },
+                {
+                  domain: 'progress',
+                  eventType: 'progress.yield.gained',
+                  patch: { progress: nextCultivationProgress },
+                },
+              ],
+            };
+          },
+        });
 
         return {
+          response: null,
+          committed,
           result,
-          changes: [
-            {
-              domain: 'profile',
-              eventType: 'profile.yield.changed',
-              patch: { last_yield_at: claimedAt.toISOString() },
-            },
-            {
-              domain: 'currency',
-              eventType: 'currency.yield.gained',
-              patch: {
-                currency: {
-                  spiritStones: nextSpiritStones,
-                  qi: activeCultivator.qi,
-                  qiLastRefreshedAt:
-                    activeCultivator.qiLastRefreshedAt?.toISOString?.() ?? null,
-                },
-              },
-            },
-            {
-              domain: 'progress',
-              eventType: 'progress.yield.gained',
-              patch: { progress: nextCultivationProgress },
-            },
-          ],
+          realm,
+          materialCount,
         };
       },
-    });
+    );
+
+    if (prepared.response) {
+      return prepared.response;
+    }
+    const { committed, result, realm, materialCount } = prepared;
 
     // 异步生成材料并发送邮件，带重试与 fallback 兜底，避免灵材永久丢失
     if (materialCount > 0) {
@@ -2274,31 +2348,44 @@ router.post('/yield', requireActiveCultivator(), async (c) => {
 
         for (let attempt = 1; attempt <= MAX_MAIL_RETRIES; attempt++) {
           try {
-            await commitPlayerStateMutation({
-              userId,
-              cultivatorId,
-              source: 'yield_material_mail',
-              run: async (tx) => {
-                await MailService.sendMail(
-                  cultivatorId,
-                  '历练机缘',
-                  '道友历练途中，偶得天材地宝，特以此传音玉简送达。',
-                  attachments,
-                  'reward',
-                  tx,
-                );
-                return {
-                  result: null,
-                  changes: [
-                    {
-                      domain: 'mail',
-                      eventType: 'mail.yield_material.created',
-                      invalidates: ['mail'],
-                    },
-                  ],
-                };
+            await withRedisLock(
+              {
+                key: redisLockKeys.cultivatorMutation(cultivatorId),
+                context: 'yield-material-mail',
+                timeoutMs: 10_000,
+                retries: 20,
+                delayMs: 150,
               },
-            });
+              async (lease) => {
+                lease.assertHeld();
+                await commitPlayerStateMutation({
+                  coordination: { mode: 'redis', lease },
+                  userId,
+                  cultivatorId,
+                  source: 'yield_material_mail',
+                  run: async (tx) => {
+                    await MailService.sendMail(
+                      cultivatorId,
+                      '历练机缘',
+                      '道友历练途中，偶得天材地宝，特以此传音玉简送达。',
+                      attachments,
+                      'reward',
+                      tx,
+                    );
+                    return {
+                      result: null,
+                      changes: [
+                        {
+                          domain: 'mail',
+                          eventType: 'mail.yield_material.created',
+                          invalidates: ['mail'],
+                        },
+                      ],
+                    };
+                  },
+                });
+              },
+            );
             console.log('[Yield] 材料奖励邮件已发送');
             return; // 成功，退出
           } catch (mailErr) {
@@ -2370,7 +2457,6 @@ router.post('/yield', requireActiveCultivator(), async (c) => {
           controller.enqueue(encoder.encode(`data: ${errorMessage}\n\n`));
         } finally {
           controller.close();
-          await redis.del(lockKey);
         }
       },
     });
@@ -2383,7 +2469,8 @@ router.post('/yield', requireActiveCultivator(), async (c) => {
       },
     });
   } catch (error) {
-    await redis.del(lockKey);
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     throw error;
   }
 });
@@ -2519,7 +2606,7 @@ inventoryRouter.post('/discard', requireActiveCultivator(), async (c) => {
 
   const { itemId, itemType } = DiscardSchema.parse(await c.req.json());
 
-  const committed = await commitPlayerStateMutation({
+  const committed = await commitPlayerStateMutationWithLock({
     userId: user.id,
     cultivatorId: cultivator.id,
     source: 'inventory_discard',
@@ -2593,49 +2680,63 @@ inventoryRouter.post('/identify', requireActiveCultivator(), async (c) => {
 
   try {
     const { materialId } = IdentifySchema.parse(await c.req.json());
-    let afterCommit: (() => Promise<void>) | undefined;
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'inventory_identify',
-      run: async (tx) => {
-        const { afterCommit: identifyAfterCommit, ...result } =
-          await identifyMysteryMaterial({
-            materialId,
-            cultivatorId: cultivator.id,
-            tx,
-            deferSideEffects: true,
-          });
-        afterCommit = identifyAfterCommit;
-        return {
-          result,
-          changes: [
-            {
-              domain: 'currency',
-              eventType: 'currency.changed',
-              patch:
-                typeof result.qiAfter === 'number'
-                  ? {
-                      currency: {
-                        qi: result.qiAfter,
-                      },
-                    }
-                  : undefined,
-              invalidates: ['currency'],
-            },
-          ],
-        };
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: 'inventory-identify',
+        timeoutMs: 30_000,
+        renewEveryMs: 10_000,
+        retries: 0,
       },
-    });
-    if (afterCommit) {
-      try {
-        await afterCommit();
-      } catch (error) {
-        console.error('鉴定后置副作用失败:', error);
-      }
-    }
-    return c.json(toPlayerStateMutationResponse(committed));
+      async (lease) => {
+        const prepared = await prepareMysteryMaterialIdentification({
+          materialId,
+          cultivatorId: cultivator.id,
+        });
+        lease.assertHeld();
+        let afterCommit: (() => Promise<void>) | undefined;
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'inventory_identify',
+          run: async (tx) => {
+            const preparedCommit = await prepared.commit(tx);
+            const result = preparedCommit.result;
+            afterCommit = preparedCommit.afterCommit;
+            return {
+              result,
+              changes: [
+                {
+                  domain: 'currency',
+                  eventType: 'currency.changed',
+                  patch:
+                    typeof result.qiAfter === 'number'
+                      ? {
+                          currency: {
+                            qi: result.qiAfter,
+                          },
+                        }
+                      : undefined,
+                  invalidates: ['currency'],
+                },
+              ],
+            };
+          },
+        });
+        if (afterCommit) {
+          try {
+            await afterCommit();
+          } catch (error) {
+            console.error('鉴定后置副作用失败:', error);
+          }
+        }
+        return c.json(toPlayerStateMutationResponse(committed));
+      },
+    );
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     const qiResponse = qiErrorResponse(c, error);
     if (qiResponse) {
       return qiResponse;
@@ -2693,7 +2794,7 @@ mailRouter.post('/send', requireActiveCultivator(), async (c) => {
 
   try {
     const parsed = SendMailSchema.parse(await c.req.json());
-    const committed = await commitPlayerStateMutation({
+    const committed = await commitPlayerStateMutationWithLock({
       userId: user.id,
       cultivatorId: cultivator.id,
       source: 'player_mail_send',
@@ -2729,6 +2830,8 @@ mailRouter.post('/send', requireActiveCultivator(), async (c) => {
 
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof z.ZodError) {
       return c.json({ error: '参数错误', details: error.issues }, 400);
     }
@@ -2749,96 +2852,111 @@ mailRouter.post('/claim', requireActiveCultivator(), async (c) => {
 
   const { mailId } = ClaimMailSchema.parse(await c.req.json());
 
-  // [安全] 分布式锁防止同一邮件被并发领取
-  const claimLockKey = `mail:claim:lock:${mailId}`;
-  const acquiredLock = await redis.set(claimLockKey, 'locked', 'EX', 10, 'NX');
-  if (!acquiredLock) {
-    return c.json({ error: '领取正在处理中，请稍后' }, 429);
-  }
-
   try {
-    const mail = await getExecutor().query.mails.findFirst({
-      where: and(eq(mails.id, mailId), eq(mails.cultivatorId, cultivator.id)),
-    });
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: 'mail-claim',
+        timeoutMs: 10_000,
+        retries: 0,
+      },
+      async (lease) => {
+        const mail = await getExecutor().query.mails.findFirst({
+          where: and(
+            eq(mails.id, mailId),
+            eq(mails.cultivatorId, cultivator.id),
+          ),
+        });
 
-    if (!mail) {
-      return c.json({ error: 'Mail not found' }, 404);
-    }
-    if (mail.isClaimed) {
-      return c.json({ error: 'Already claimed' }, 400);
-    }
-
-    const attachments = (mail.attachments as MailAttachment[]) || [];
-    if (attachments.length === 0) {
-      return c.json({ message: 'No attachments' });
-    }
-
-    const gains = attachmentsToResourceOperations(attachments);
-
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'mail_claim',
-      run: async (tx) => {
-        const result = await resourceEngine.gainInTransaction(
-          user.id,
-          cultivator.id,
-          gains,
-          tx,
-          async (resourceTx) => {
-            // [安全] 条件更新：仅当 isClaimed=false 时才标记，防止并发双领
-            const [updated] = await resourceTx
-              .update(mails)
-              .set({ isClaimed: true, isRead: true })
-              .where(and(eq(mails.id, mailId), eq(mails.isClaimed, false)))
-              .returning({ id: mails.id });
-
-            if (!updated) {
-              throw new Error('邮件已被领取（并发冲突）');
-            }
-          },
-        );
-
-        if (!result.success) {
-          throw new Error(result.errors?.[0] || '领取失败');
+        if (!mail) {
+          return c.json({ error: 'Mail not found' }, 404);
+        }
+        if (mail.isClaimed) {
+          return c.json({ error: 'Already claimed' }, 400);
         }
 
-        const [cultivatorState] = await tx
-          .select({
-            spiritStones: cultivators.spirit_stones,
-            reputation: cultivators.reputation,
-            cultivationProgress: cultivators.cultivation_progress,
-            realm: cultivators.realm,
-            realmStage: cultivators.realm_stage,
-          })
-          .from(cultivators)
-          .where(eq(cultivators.id, cultivator.id))
-          .limit(1);
-        const unreadMailCount = await countUnreadMail(cultivator.id, tx);
+        const attachments = (mail.attachments as MailAttachment[]) || [];
+        if (attachments.length === 0) {
+          return c.json({ message: 'No attachments' });
+        }
 
-        return {
-          result: {
-            claimedMailId: mailId,
-            unreadMailCount,
+        const gains = attachmentsToResourceOperations(attachments);
+        lease.assertHeld();
+
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'mail_claim',
+          idempotency: {
+            key: `mail-claim:${mailId}`,
+            fingerprint: `${cultivator.id}:${mailId}`,
           },
-          changes: buildMailStateChanges({
-            eventType: 'mail.claimed',
-            unreadMailCount,
-            mailIds: [mailId],
-            gains,
-            spiritStones: cultivatorState?.spiritStones,
-            reputation: cultivatorState?.reputation,
-            cultivationProgress: cultivatorState?.cultivationProgress,
-            realm: cultivatorState?.realm as RealmType | undefined,
-            realmStage: cultivatorState?.realmStage as RealmStage | undefined,
-          }),
-        };
-      },
-    });
+          run: async (tx) => {
+            const result = await resourceEngine.gainInTransaction(
+              user.id,
+              cultivator.id,
+              gains,
+              tx,
+              async (resourceTx) => {
+                // [安全] 条件更新：仅当 isClaimed=false 时才标记，防止并发双领
+                const [updated] = await resourceTx
+                  .update(mails)
+                  .set({ isClaimed: true, isRead: true })
+                  .where(and(eq(mails.id, mailId), eq(mails.isClaimed, false)))
+                  .returning({ id: mails.id });
 
-    return c.json(toPlayerStateMutationResponse(committed));
-  } finally {
-    await redis.del(claimLockKey);
+                if (!updated) {
+                  throw new Error('邮件已被领取（并发冲突）');
+                }
+              },
+            );
+
+            if (!result.success) {
+              throw new Error(result.errors?.[0] || '领取失败');
+            }
+
+            const [cultivatorState] = await tx
+              .select({
+                spiritStones: cultivators.spirit_stones,
+                reputation: cultivators.reputation,
+                cultivationProgress: cultivators.cultivation_progress,
+                realm: cultivators.realm,
+                realmStage: cultivators.realm_stage,
+              })
+              .from(cultivators)
+              .where(eq(cultivators.id, cultivator.id))
+              .limit(1);
+            const unreadMailCount = await countUnreadMail(cultivator.id, tx);
+
+            return {
+              result: {
+                claimedMailId: mailId,
+                unreadMailCount,
+              },
+              changes: buildMailStateChanges({
+                eventType: 'mail.claimed',
+                unreadMailCount,
+                mailIds: [mailId],
+                gains,
+                spiritStones: cultivatorState?.spiritStones,
+                reputation: cultivatorState?.reputation,
+                cultivationProgress: cultivatorState?.cultivationProgress,
+                realm: cultivatorState?.realm as RealmType | undefined,
+                realmStage: cultivatorState?.realmStage as
+                  RealmStage | undefined,
+              }),
+            };
+          },
+        });
+
+        return c.json(toPlayerStateMutationResponse(committed));
+      },
+    );
+  } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
+    throw error;
   }
 });
 
@@ -2849,114 +2967,116 @@ mailRouter.post('/claim-all', requireActiveCultivator(), async (c) => {
     return c.json({ error: '未授权访问' }, 401);
   }
 
-  // [安全] 分布式锁防止同一用户并发批量领取
-  const claimAllLockKey = `mail:claim-all:lock:${cultivator.id}`;
-  const acquiredLock = await redis.set(
-    claimAllLockKey,
-    'locked',
-    'EX',
-    15,
-    'NX',
-  );
-  if (!acquiredLock) {
-    return c.json({ error: '领取正在处理中，请稍后' }, 429);
-  }
-
   try {
-    const pendingMails = await getExecutor().query.mails.findMany({
-      where: and(
-        eq(mails.type, 'reward'),
-        eq(mails.cultivatorId, cultivator.id),
-        eq(mails.isClaimed, false),
-      ),
-    });
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: 'mail-claim-all',
+        timeoutMs: 15_000,
+        retries: 0,
+      },
+      async (lease) => {
+        const pendingMails = await getExecutor().query.mails.findMany({
+          where: and(
+            eq(mails.type, 'reward'),
+            eq(mails.cultivatorId, cultivator.id),
+            eq(mails.isClaimed, false),
+          ),
+        });
 
-    const claimableMails = pendingMails.filter((mail) => {
-      const attachments = (mail.attachments as MailAttachment[]) || [];
-      return attachments.length > 0;
-    });
+        const claimableMails = pendingMails.filter((mail) => {
+          const attachments = (mail.attachments as MailAttachment[]) || [];
+          return attachments.length > 0;
+        });
 
-    if (claimableMails.length === 0) {
-      return c.json({ success: true, claimedCount: 0, claimedMailIds: [] });
-    }
-
-    const claimedMailIds = claimableMails.map((mail) => mail.id);
-    const gains = claimableMails.flatMap((mail) =>
-      attachmentsToResourceOperations(
-        (mail.attachments as MailAttachment[]) || [],
-      ),
-    );
-
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'mail_claim_all',
-      run: async (tx) => {
-        const result = await resourceEngine.gainInTransaction(
-          user.id,
-          cultivator.id,
-          gains,
-          tx,
-          async (resourceTx) => {
-            // [安全] 条件更新：仅当 isClaimed=false 时才标记，防止并发双领
-            const updatedRows = await resourceTx
-              .update(mails)
-              .set({ isClaimed: true, isRead: true })
-              .where(
-                and(
-                  inArray(mails.id, claimedMailIds),
-                  eq(mails.isClaimed, false),
-                ),
-              )
-              .returning({ id: mails.id });
-
-            if (updatedRows.length !== claimedMailIds.length) {
-              throw new Error('部分邮件已被领取（并发冲突）');
-            }
-          },
-        );
-
-        if (!result.success) {
-          throw new Error(result.errors?.[0] || '一键领取失败');
+        if (claimableMails.length === 0) {
+          return c.json({ success: true, claimedCount: 0, claimedMailIds: [] });
         }
 
-        const [cultivatorState] = await tx
-          .select({
-            spiritStones: cultivators.spirit_stones,
-            reputation: cultivators.reputation,
-            cultivationProgress: cultivators.cultivation_progress,
-            realm: cultivators.realm,
-            realmStage: cultivators.realm_stage,
-          })
-          .from(cultivators)
-          .where(eq(cultivators.id, cultivator.id))
-          .limit(1);
-        const unreadMailCount = await countUnreadMail(cultivator.id, tx);
+        const claimedMailIds = claimableMails.map((mail) => mail.id);
+        const gains = claimableMails.flatMap((mail) =>
+          attachmentsToResourceOperations(
+            (mail.attachments as MailAttachment[]) || [],
+          ),
+        );
 
-        return {
-          result: {
-            claimedCount: claimedMailIds.length,
-            claimedMailIds,
-            unreadMailCount,
+        lease.assertHeld();
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'mail_claim_all',
+          run: async (tx) => {
+            const result = await resourceEngine.gainInTransaction(
+              user.id,
+              cultivator.id,
+              gains,
+              tx,
+              async (resourceTx) => {
+                // [安全] 条件更新：仅当 isClaimed=false 时才标记，防止并发双领
+                const updatedRows = await resourceTx
+                  .update(mails)
+                  .set({ isClaimed: true, isRead: true })
+                  .where(
+                    and(
+                      inArray(mails.id, claimedMailIds),
+                      eq(mails.isClaimed, false),
+                    ),
+                  )
+                  .returning({ id: mails.id });
+
+                if (updatedRows.length !== claimedMailIds.length) {
+                  throw new Error('部分邮件已被领取（并发冲突）');
+                }
+              },
+            );
+
+            if (!result.success) {
+              throw new Error(result.errors?.[0] || '一键领取失败');
+            }
+
+            const [cultivatorState] = await tx
+              .select({
+                spiritStones: cultivators.spirit_stones,
+                reputation: cultivators.reputation,
+                cultivationProgress: cultivators.cultivation_progress,
+                realm: cultivators.realm,
+                realmStage: cultivators.realm_stage,
+              })
+              .from(cultivators)
+              .where(eq(cultivators.id, cultivator.id))
+              .limit(1);
+            const unreadMailCount = await countUnreadMail(cultivator.id, tx);
+
+            return {
+              result: {
+                claimedCount: claimedMailIds.length,
+                claimedMailIds,
+                unreadMailCount,
+              },
+              changes: buildMailStateChanges({
+                eventType: 'mail.claimed_all',
+                unreadMailCount,
+                mailIds: claimedMailIds,
+                gains,
+                spiritStones: cultivatorState?.spiritStones,
+                reputation: cultivatorState?.reputation,
+                cultivationProgress: cultivatorState?.cultivationProgress,
+                realm: cultivatorState?.realm as RealmType | undefined,
+                realmStage: cultivatorState?.realmStage as
+                  RealmStage | undefined,
+              }),
+            };
           },
-          changes: buildMailStateChanges({
-            eventType: 'mail.claimed_all',
-            unreadMailCount,
-            mailIds: claimedMailIds,
-            gains,
-            spiritStones: cultivatorState?.spiritStones,
-            reputation: cultivatorState?.reputation,
-            cultivationProgress: cultivatorState?.cultivationProgress,
-            realm: cultivatorState?.realm as RealmType | undefined,
-            realmStage: cultivatorState?.realmStage as RealmStage | undefined,
-          }),
-        };
-      },
-    });
+        });
 
-    return c.json(toPlayerStateMutationResponse(committed));
-  } finally {
-    await redis.del(claimAllLockKey);
+        return c.json(toPlayerStateMutationResponse(committed));
+      },
+    );
+  } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
+    throw error;
   }
 });
 
@@ -2976,6 +3096,7 @@ mailRouter.post('/read', requireActiveCultivator(), async (c) => {
   }
 
   const committed = await commitPlayerStateMutation({
+    coordination: { mode: 'database-only' },
     userId: user.id,
     cultivatorId: cultivator.id,
     source: 'mail_read',
@@ -3016,6 +3137,7 @@ mailRouter.post('/read-all', requireActiveCultivator(), async (c) => {
   }
 
   const committed = await commitPlayerStateMutation({
+    coordination: { mode: 'database-only' },
     userId: user.id,
     cultivatorId: cultivator.id,
     source: 'mail_read_all',

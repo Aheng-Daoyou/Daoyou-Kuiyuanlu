@@ -1,13 +1,21 @@
-import { requireUser } from '@server/lib/hono/middleware';
+import {
+  invalidateActiveCultivatorRef,
+  requireUser,
+} from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
 import {
+  isRedisLockContention,
+  redisLockKeys,
+  withRedisLock,
+} from '@server/lib/redis/lock';
+import {
+  buildCultivatorRuntime,
   deleteCultivator,
   getLastDeadCultivatorSummary,
   getPlayerLoadoutByCultivatorId,
   getPlayerProfileCultivatorsByUserId,
   getPlayerRuntimeCultivatorById,
   hasDeadCultivator,
-  buildCultivatorRuntime,
 } from '@server/lib/services/cultivatorService';
 import { Hono } from 'hono';
 
@@ -66,15 +74,34 @@ router.delete('/', requireUser(), async (c) => {
     return c.json({ error: '请提供角色ID' }, 400);
   }
 
-  const success = await deleteCultivator(user.id, cultivatorId);
-  if (!success) {
-    return c.json({ error: '删除角色失败或角色不存在' }, 404);
-  }
+  try {
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivatorId),
+        context: 'cultivator-delete',
+        timeoutMs: 15_000,
+        retries: 0,
+      },
+      async (lease) => {
+        lease.assertHeld();
+        const success = await deleteCultivator(user.id, cultivatorId);
+        if (!success) {
+          return c.json({ error: '删除角色失败或角色不存在' }, 404);
+        }
 
-  return c.json({
-    success: true,
-    message: '角色删除成功',
-  });
+        await invalidateActiveCultivatorRef(user.id);
+        return c.json({
+          success: true,
+          message: '角色删除成功',
+        });
+      },
+    );
+  } catch (error) {
+    if (isRedisLockContention(error)) {
+      return c.json({ error: '角色正在执行其他操作，请稍后重试' }, 429);
+    }
+    throw error;
+  }
 });
 
 router.get('/reincarnate-context', requireUser(), async (c) => {

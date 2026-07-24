@@ -3,8 +3,8 @@ import {
   SectConstructionProject,
   SectDonationOffer,
 } from '@shared/engine/sect';
-import type { SectBenefitService } from './SectBenefitService';
 import type { SectDonationSpecificationRegistry } from './EconomyStrategies';
+import type { SectBenefitService } from './SectBenefitService';
 import type { SectDomainEventDispatcherFactory } from './SectDomainEventDispatcher';
 import {
   assertDeclaredDonationKind,
@@ -34,13 +34,19 @@ export class SectConstructionApplicationService {
     const active = await context.construction.findActiveProject(sectId);
     if (active) return active;
     const weekKey = context.clock.weekKey();
-    const latest = await context.construction.findLatestCompletedProject(sectId);
-    if (latest?.completedAt && context.clock.weekKey(latest.completedAt) === weekKey)
+    const latest =
+      await context.construction.findLatestCompletedProject(sectId);
+    if (
+      latest?.completedAt &&
+      context.clock.weekKey(latest.completedAt) === weekKey
+    )
       return null;
     const facilities = await context.facilities.list(sectId);
     const policy = organizationFor(context.modules, sectId).construction;
     const upgradeable = new Set(
-      policy.facilities.filter((facility) => facility.upgradeable).map((facility) => facility.key),
+      policy.facilities
+        .filter((facility) => facility.upgradeable)
+        .map((facility) => facility.key),
     );
     const levels = new Map<string, number>(
       facilities
@@ -76,7 +82,10 @@ export class SectConstructionApplicationService {
     cultivatorId: string,
     context: SectConstructionQueryContext,
   ): Promise<SectConstructionData> {
-    const membership = await requireMembership(cultivatorId, context.memberships);
+    const membership = await requireMembership(
+      cultivatorId,
+      context.memberships,
+    );
     this.benefits.assertPermission(
       membership,
       'sect.construction.view',
@@ -84,11 +93,15 @@ export class SectConstructionApplicationService {
     );
     const dateKey = context.clock.dateKey();
     const organization = organizationFor(context.modules, membership.sectId);
-    const demands = [...organization.economy.donationDemands(membership.sectId, dateKey)];
+    const demands = [
+      ...organization.economy.donationDemands(membership.sectId, dateKey),
+    ];
     for (const demand of demands)
       assertDeclaredDonationKind(organization, demand.kind);
     return {
-      facilities: mapFacilities(await context.facilities.list(membership.sectId)),
+      facilities: mapFacilities(
+        await context.facilities.list(membership.sectId),
+      ),
       project: mapProject(
         await context.construction.findActiveProject(membership.sectId),
       ),
@@ -109,13 +122,19 @@ export class SectConstructionApplicationService {
     input: { demandId: string; itemId?: string; quantity: number },
     context: SectConstructionCommandContext,
   ) {
-    const membership = await requireMembership(cultivatorId, context.memberships);
+    const membership = await requireMembership(
+      cultivatorId,
+      context.memberships,
+    );
     this.benefits.assertPermission(
       membership,
       'sect.construction.donate',
       context.modules,
     );
-    const projectRecord = await this.ensureCurrentProject(membership.sectId, context);
+    const projectRecord = await this.ensureCurrentProject(
+      membership.sectId,
+      context,
+    );
     if (!projectRecord)
       organizationError('本周工程已经完成，请待下周长老议定新工程');
     const organization = organizationFor(context.modules, membership.sectId);
@@ -135,7 +154,10 @@ export class SectConstructionApplicationService {
         constructionPointsPerUnit: demand.constructionPoints,
       });
     } catch (error) {
-      organizationError(error instanceof Error ? error.message : '捐献请求无效', 400);
+      organizationError(
+        error instanceof Error ? error.message : '捐献请求无效',
+        400,
+      );
     }
     const current = await context.construction.donatedContribution(
       membership.id,
@@ -146,15 +168,17 @@ export class SectConstructionApplicationService {
         `每日建设贡献上限为 ${organization.economy.donationDailyCap}`,
         400,
       );
-    const itemSnapshot = await this.donationSpecifications.require(demand.kind).consume({
-      cultivatorId,
-      itemId: input.itemId,
-      units: offer.units,
-      itemQuantity: offer.itemQuantity,
-      demand,
-      inventory: context.inventory,
-      economy: context.economy,
-    });
+    const itemSnapshot = await this.donationSpecifications
+      .require(demand.kind)
+      .consume({
+        cultivatorId,
+        itemId: input.itemId,
+        units: offer.units,
+        itemQuantity: offer.itemQuantity,
+        demand,
+        inventory: context.inventory,
+        economy: context.economy,
+      });
     const donationId = context.ids.next();
     const aggregate = SectConstructionProject.rehydrate({
       id: projectRecord.id,

@@ -12,18 +12,20 @@ import {
   type SectDonationSpecification,
   type SectRewardGrantStrategy,
 } from './EconomyStrategies';
-import {
-  createStandardSectDomainEventDispatcher,
-} from './SectDomainEventDispatcher';
+import { createStandardSectDomainEventDispatcher } from './SectDomainEventDispatcher';
 import {
   CompletedDailyTaskProgressStrategy,
-  ContributionTaskSettlementStrategy,
-  ProgressSignalSettlementStrategy,
-  RealmDailyRewardSettlementStrategy,
+  DeliverySectTaskOfferPolicy,
+  ProgressSignalFulfillmentStrategy,
+  RealmSectTaskRewardPolicy,
+  SectTaskFulfillmentRegistry,
+  SectTaskOfferPolicyRegistry,
   SectTaskProgressRegistry,
-  SectTaskSettlementRegistry,
+  SectTaskRewardPolicyRegistry,
+  type SectTaskFulfillmentStrategy,
+  type SectTaskOfferPolicy,
   type SectTaskProgressStrategy,
-  type SectTaskSettlementStrategy,
+  type SectTaskRewardPolicy,
 } from './SectTaskSettlement';
 import {
   ArtifactDeliveryTaskExecutor,
@@ -40,7 +42,9 @@ export interface SectOrganizationPluginManifest {
   /** `*` contributes reusable application mechanics; other ids belong to one sect. */
   readonly sectId: string;
   readonly executors?: readonly (() => SectTaskExecutor)[];
-  readonly settlements?: readonly (() => SectTaskSettlementStrategy)[];
+  readonly offerPolicies?: readonly (() => SectTaskOfferPolicy)[];
+  readonly rewardPolicies?: readonly (() => SectTaskRewardPolicy)[];
+  readonly fulfillments?: readonly (() => SectTaskFulfillmentStrategy)[];
   readonly progress?: readonly (() => SectTaskProgressStrategy)[];
   readonly rewardGrants?: readonly (() => SectRewardGrantStrategy)[];
   readonly donations?: readonly (() => SectDonationSpecification)[];
@@ -56,11 +60,9 @@ export const CORE_SECT_ORGANIZATION_PLUGIN: SectOrganizationPluginManifest = {
     () => new MaterialDeliveryTaskExecutor(),
     () => new ProgressTaskExecutor(),
   ],
-  settlements: [
-    () => new ContributionTaskSettlementStrategy(),
-    () => new RealmDailyRewardSettlementStrategy(),
-    () => new ProgressSignalSettlementStrategy(),
-  ],
+  offerPolicies: [() => new DeliverySectTaskOfferPolicy()],
+  rewardPolicies: [() => new RealmSectTaskRewardPolicy()],
+  fulfillments: [() => new ProgressSignalFulfillmentStrategy()],
   progress: [() => new CompletedDailyTaskProgressStrategy()],
   rewardGrants: [
     () => new SpiritStoneRewardGrantStrategy(),
@@ -77,7 +79,9 @@ export const CORE_SECT_ORGANIZATION_PLUGIN: SectOrganizationPluginManifest = {
 
 export interface SectOrganizationPluginComposition {
   executors: SectTaskExecutorRegistry;
-  settlements: SectTaskSettlementRegistry;
+  offerPolicies: SectTaskOfferPolicyRegistry;
+  rewardPolicies: SectTaskRewardPolicyRegistry;
+  fulfillments: SectTaskFulfillmentRegistry;
   progress: SectTaskProgressRegistry;
   rewardGrants: SectRewardGrantStrategyRegistry;
   donations: SectDonationSpecificationRegistry;
@@ -103,7 +107,10 @@ function assertContributionNamespace(
 }
 
 export function composeSectOrganizationPlugins(args: {
-  organizations: readonly { sectId: string; organization: SectOrganizationModule }[];
+  organizations: readonly {
+    sectId: string;
+    organization: SectOrganizationModule;
+  }[];
   manifests: readonly SectOrganizationPluginManifest[];
 }): SectOrganizationPluginComposition {
   const knownSects = new Set(args.organizations.map((entry) => entry.sectId));
@@ -118,21 +125,41 @@ export function composeSectOrganizationPlugins(args: {
   const contributions = args.manifests.flatMap((manifest) =>
     (manifest.executors ?? []).map((create) => ({ manifest, value: create() })),
   );
-  const settlementContributions = args.manifests.flatMap((manifest) =>
-    (manifest.settlements ?? []).map((create) => ({ manifest, value: create() })),
+  const offerContributions = args.manifests.flatMap((manifest) =>
+    (manifest.offerPolicies ?? []).map((create) => ({
+      manifest,
+      value: create(),
+    })),
+  );
+  const taskRewardContributions = args.manifests.flatMap((manifest) =>
+    (manifest.rewardPolicies ?? []).map((create) => ({
+      manifest,
+      value: create(),
+    })),
+  );
+  const fulfillmentContributions = args.manifests.flatMap((manifest) =>
+    (manifest.fulfillments ?? []).map((create) => ({
+      manifest,
+      value: create(),
+    })),
   );
   const progressContributions = args.manifests.flatMap((manifest) =>
     (manifest.progress ?? []).map((create) => ({ manifest, value: create() })),
   );
   const rewardContributions = args.manifests.flatMap((manifest) =>
-    (manifest.rewardGrants ?? []).map((create) => ({ manifest, value: create() })),
+    (manifest.rewardGrants ?? []).map((create) => ({
+      manifest,
+      value: create(),
+    })),
   );
   const donationContributions = args.manifests.flatMap((manifest) =>
     (manifest.donations ?? []).map((create) => ({ manifest, value: create() })),
   );
   for (const { manifest, value } of [
     ...contributions,
-    ...settlementContributions,
+    ...offerContributions,
+    ...taskRewardContributions,
+    ...fulfillmentContributions,
     ...progressContributions,
     ...rewardContributions,
     ...donationContributions,
@@ -141,8 +168,14 @@ export function composeSectOrganizationPlugins(args: {
   const executors = new SectTaskExecutorRegistry(
     contributions.map(({ value }) => value),
   );
-  const settlements = new SectTaskSettlementRegistry(
-    settlementContributions.map(({ value }) => value),
+  const offerPolicies = new SectTaskOfferPolicyRegistry(
+    offerContributions.map(({ value }) => value),
+  );
+  const rewardPolicies = new SectTaskRewardPolicyRegistry(
+    taskRewardContributions.map(({ value }) => value),
+  );
+  const fulfillments = new SectTaskFulfillmentRegistry(
+    fulfillmentContributions.map(({ value }) => value),
   );
   const progress = new SectTaskProgressRegistry(
     progressContributions.map(({ value }) => value),
@@ -156,17 +189,45 @@ export function composeSectOrganizationPlugins(args: {
 
   for (const { sectId, organization } of args.organizations) {
     for (const task of allTasks(organization)) {
+      const variants = task.availability?.variants ?? [];
+      const variantKeys = new Set<string>();
+      for (const variant of variants) {
+        if (!variant.key)
+          throw new Error(
+            `宗门 ${sectId} 的任务 ${task.id} 存在空执行变体 key`,
+          );
+        if (variantKeys.has(variant.key))
+          throw new Error(
+            `宗门 ${sectId} 的任务 ${task.id} 重复注册执行变体：${variant.key}`,
+          );
+        variantKeys.add(variant.key);
+      }
       const executorKeys = new Set([
         task.executorKey,
-        ...(task.availability?.executorKeys ?? []),
+        ...variants.map((variant) => variant.executorKey),
       ]);
       for (const key of executorKeys)
         if (!executors.has(key))
-          throw new Error(`宗门 ${sectId} 的任务 ${task.id} 缺少执行器：${key}`);
-      for (const rule of task.completion)
-        if (!settlements.has(rule.strategy))
           throw new Error(
-            `宗门 ${sectId} 的任务 ${task.id} 缺少结算策略：${rule.strategy}`,
+            `宗门 ${sectId} 的任务 ${task.id} 缺少执行器：${key}`,
+          );
+      if (task.offer && !offerPolicies.has(task.offer.policy))
+        throw new Error(
+          `宗门 ${sectId} 的任务 ${task.id} 缺少告示策略：${task.offer.policy}`,
+        );
+      for (const variant of variants)
+        if (variant.offer && !offerPolicies.has(variant.offer.policy))
+          throw new Error(
+            `宗门 ${sectId} 的任务 ${task.id} 的变体 ${variant.key} 缺少告示策略：${variant.offer.policy}`,
+          );
+      if (task.reward && !rewardPolicies.has(task.reward.policy))
+        throw new Error(
+          `宗门 ${sectId} 的任务 ${task.id} 缺少奖励策略：${task.reward.policy}`,
+        );
+      for (const rule of task.fulfillment)
+        if (!fulfillments.has(rule.strategy))
+          throw new Error(
+            `宗门 ${sectId} 的任务 ${task.id} 缺少达成策略：${rule.strategy}`,
           );
       if (task.progress && !progress.has(task.progress.strategy))
         throw new Error(
@@ -183,14 +244,18 @@ export function composeSectOrganizationPlugins(args: {
 
   return {
     executors,
-    settlements,
+    offerPolicies,
+    rewardPolicies,
+    fulfillments,
     progress,
     rewardGrants,
     donations,
     events: createStandardSectDomainEventDispatcher({
-      settlements,
+      fulfillments,
       progress,
       rewards: rewardGrants,
+      offerPolicies,
+      rewardPolicies,
     }),
   };
 }

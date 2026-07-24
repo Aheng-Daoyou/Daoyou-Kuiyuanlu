@@ -1,6 +1,12 @@
 import type { SectOrganizationModule } from '@shared/engine/sect';
 import { CUSTOM_ECONOMY_FIXTURE_SECT_MODULE as FIXTURE_SECT_MODULE } from '@shared/engine/sect/testing/fixtures/CustomEconomyFixtureSectModule';
 import { describe, expect, it, vi } from 'vitest';
+import type {
+  Clock,
+  SectConstructionCommandContext,
+  SectConstructionProjectRecord,
+  SectEconomyCommandContext,
+} from './ports';
 import { SectBenefitService } from './SectBenefitService';
 import { SectConstructionApplicationService } from './SectConstructionApplicationService';
 import { SectEconomyApplicationService } from './SectEconomyApplicationService';
@@ -10,12 +16,6 @@ import {
   CORE_SECT_ORGANIZATION_PLUGIN,
 } from './SectOrganizationPlugins';
 import { FIXTURE_SECT_ORGANIZATION_PLUGIN } from './testing/FixtureSectOrganizationPlugin';
-import type {
-  Clock,
-  SectConstructionCommandContext,
-  SectConstructionProjectRecord,
-  SectEconomyCommandContext,
-} from './ports';
 
 const clock: Clock = {
   now: () => new Date('2026-07-19T00:00:00.000Z'),
@@ -24,14 +24,13 @@ const clock: Clock = {
 };
 const modules = { require: () => FIXTURE_SECT_MODULE.organization };
 const plugins = composeSectOrganizationPlugins({
-  organizations: [{
-    sectId: 'fixture-sect',
-    organization: FIXTURE_SECT_MODULE.organization,
-  }],
-  manifests: [
-    CORE_SECT_ORGANIZATION_PLUGIN,
-    FIXTURE_SECT_ORGANIZATION_PLUGIN,
+  organizations: [
+    {
+      sectId: 'fixture-sect',
+      organization: FIXTURE_SECT_MODULE.organization,
+    },
   ],
+  manifests: [CORE_SECT_ORGANIZATION_PLUGIN, FIXTURE_SECT_ORGANIZATION_PLUGIN],
 });
 
 describe('fixture sect organization extensions', () => {
@@ -51,18 +50,20 @@ describe('fixture sect organization extensions', () => {
       ...FIXTURE_SECT_MODULE.organization,
       economy: {
         ...FIXTURE_SECT_MODULE.organization.economy,
-        shopItems: () => [{
-          id: 'undeclared',
-          requiredRank: 'registered',
-          price: 1,
-          stock: 1,
-          rotating: false,
-          grant: {
-            kind: 'fixture-sect.undeclared-reward',
-            name: '未声明奖励',
-            description: '仅用于验证运行时防线。',
+        shopItems: () => [
+          {
+            id: 'undeclared',
+            requiredRank: 'registered',
+            price: 1,
+            stock: 1,
+            rotating: false,
+            grant: {
+              kind: 'fixture-sect.undeclared-reward',
+              name: '未声明奖励',
+              description: '仅用于验证运行时防线。',
+            },
           },
-        }],
+        ],
       },
     };
     await expect(
@@ -86,15 +87,17 @@ describe('fixture sect organization extensions', () => {
       ...FIXTURE_SECT_MODULE.organization,
       economy: {
         ...FIXTURE_SECT_MODULE.organization.economy,
-        donationDemands: () => [{
-          id: 'undeclared',
-          name: '未声明需求',
-          description: '仅用于验证运行时防线。',
-          kind: 'fixture-sect.undeclared-donation',
-          quantity: 1,
-          contribution: 1,
-          constructionPoints: 1,
-        }],
+        donationDemands: () => [
+          {
+            id: 'undeclared',
+            name: '未声明需求',
+            description: '仅用于验证运行时防线。',
+            kind: 'fixture-sect.undeclared-donation',
+            quantity: 1,
+            contribution: 1,
+            constructionPoints: 1,
+          },
+        ],
       },
     };
     await expect(
@@ -359,16 +362,36 @@ describe('fixture sect organization extensions', () => {
 
     expect(claimed.rewards).toEqual(overview.stipend.rewards);
     expect(claimed.rewards).toEqual([
-      { kind: 'sect.reward.spirit-stones', name: '灵石', quantity: 1, summary: '灵石 ×1' },
-      { kind: 'fixture-sect.material', name: '样例灵草', quantity: 1, summary: '样例灵草 ×1' },
+      {
+        kind: 'sect.reward.spirit-stones',
+        name: '灵石',
+        quantity: 1,
+        summary: '灵石 ×1',
+      },
+      {
+        kind: 'fixture-sect.material',
+        name: '样例灵草',
+        quantity: 1,
+        summary: '样例灵草 ×1',
+      },
     ]);
-    expect(recordStipendClaim).toHaveBeenCalledWith(expect.objectContaining({
-      spiritStones: 1,
-      rewards: [
-        expect.objectContaining({ quantity: 1, grant: expect.objectContaining({ kind: 'sect.reward.spirit-stones' }) }),
-        expect.objectContaining({ quantity: 1, grant: expect.objectContaining({ kind: 'fixture-sect.material' }) }),
-      ],
-    }));
+    expect(recordStipendClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spiritStones: 1,
+        rewards: [
+          expect.objectContaining({
+            quantity: 1,
+            grant: expect.objectContaining({
+              kind: 'sect.reward.spirit-stones',
+            }),
+          }),
+          expect.objectContaining({
+            quantity: 1,
+            grant: expect.objectContaining({ kind: 'fixture-sect.material' }),
+          }),
+        ],
+      }),
+    );
     expect(grantSpiritStones).toHaveBeenCalledWith('cultivator-1', 1);
     expect(grantMaterial).toHaveBeenCalledWith(
       'cultivator-1',

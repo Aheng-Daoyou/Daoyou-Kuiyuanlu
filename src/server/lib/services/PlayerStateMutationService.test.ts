@@ -113,6 +113,7 @@ describe('commitPlayerStateMutation', () => {
     });
 
     const committed = await commitPlayerStateMutation({
+      coordination: { mode: 'database-only' },
       userId: 'user-1',
       cultivatorId: 'cultivator-1',
       source: 'mail_read',
@@ -157,6 +158,7 @@ describe('commitPlayerStateMutation', () => {
     });
 
     const committed = await commitPlayerStateMutation({
+      coordination: { mode: 'database-only' },
       userId: 'user-1',
       cultivatorId: 'cultivator-1',
       source: 'noop',
@@ -187,6 +189,7 @@ describe('commitPlayerStateMutation', () => {
       .mockImplementationOnce(async (callback) => callback({}));
 
     const committed = await commitPlayerStateMutation({
+      coordination: { mode: 'database-only' },
       userId: 'user-1',
       cultivatorId: 'cultivator-1',
       source: 'mail_read',
@@ -211,6 +214,7 @@ describe('commitPlayerStateMutation', () => {
     const businessError = new Error('业务校验失败');
     await expect(
       commitPlayerStateMutation({
+        coordination: { mode: 'database-only' },
         userId: 'user-1',
         cultivatorId: 'cultivator-1',
         source: 'business',
@@ -233,6 +237,7 @@ describe('commitPlayerStateMutation', () => {
     }));
 
     const committed = await commitPlayerStateMutation({
+      coordination: { mode: 'database-only' },
       userId: 'user-1',
       cultivatorId: 'cultivator-1',
       source: 'sect_task',
@@ -262,6 +267,7 @@ describe('commitPlayerStateMutation', () => {
     const run = vi.fn();
 
     const committed = await commitPlayerStateMutation({
+      coordination: { mode: 'database-only' },
       userId: 'user-1',
       cultivatorId: 'cultivator-1',
       source: 'sect_task',
@@ -285,6 +291,7 @@ describe('commitPlayerStateMutation', () => {
 
     await expect(
       commitPlayerStateMutation({
+        coordination: { mode: 'database-only' },
         userId: 'user-1',
         cultivatorId: 'cultivator-1',
         source: 'sect_task',

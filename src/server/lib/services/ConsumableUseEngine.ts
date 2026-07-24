@@ -36,6 +36,7 @@ import {
   AttributeResetService,
   withAttributeResetLock,
 } from './AttributeResetService';
+import type { RedisLeaseContext } from '@server/lib/redis/lock';
 
 async function loadOwnedConsumable(
   cultivatorId: string,
@@ -89,7 +90,7 @@ export const ConsumableUseEngine = {
     userId: string,
     cultivatorId: string,
     consumableId: string,
-    options: { tx?: DbTransaction } = {},
+    options: { tx?: DbTransaction; lease?: RedisLeaseContext } = {},
   ): Promise<{
     message: string;
     consumable: Consumable;
@@ -120,13 +121,16 @@ export const ConsumableUseEngine = {
           );
         }
 
-        await withAttributeResetLock(cultivatorId, () =>
-          AttributeResetService.resetAttributesWithTalisman({
-            userId,
-            cultivatorId,
-            consumableId,
-            tx: options.tx,
-          }),
+        await withAttributeResetLock(
+          cultivatorId,
+          () =>
+            AttributeResetService.resetAttributesWithTalisman({
+              userId,
+              cultivatorId,
+              consumableId,
+              tx: options.tx,
+            }),
+          options.lease,
         );
 
         return {

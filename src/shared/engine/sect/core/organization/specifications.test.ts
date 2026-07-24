@@ -24,16 +24,23 @@ describe('PromotionRequirementSpecification', () => {
       ),
     ).toEqual([]);
     expect(
-      specification.violations(
-        {
-          realm: '炼气',
-          stage: '初期',
-          contribution: 10,
-          dailyCompletions: 0,
-          completedTaskTags: new Set(),
-        },
-        requirement,
-      ).map((item) => item.code),
-    ).toEqual(['realm', 'contribution', 'daily_completions', 'task:fixture.trial']);
+      specification
+        .violations(
+          {
+            realm: '炼气',
+            stage: '初期',
+            contribution: 10,
+            dailyCompletions: 0,
+            completedTaskTags: new Set(),
+          },
+          requirement,
+        )
+        .map((item) => item.code),
+    ).toEqual([
+      'realm',
+      'contribution',
+      'daily_completions',
+      'task:fixture.trial',
+    ]);
   });
 });

@@ -1,6 +1,6 @@
 import { rollManualDrawQualities } from '@shared/config/manualDrawConfig';
-import type { MaterialSkeleton } from '@shared/engine/material/creation/types';
 import { MaterialGenerator } from '@shared/engine/material/creation/MaterialGenerator';
+import type { MaterialSkeleton } from '@shared/engine/material/creation/types';
 import { resourceEngine } from '@shared/engine/resource/ResourceEngine';
 import { isTalismanConsumable } from '@shared/lib/consumables';
 import type { Material } from '@shared/types/cultivator';
@@ -19,8 +19,8 @@ import {
   type DbTransaction,
 } from '../drizzle/db';
 import * as schema from '../drizzle/schema';
-import { consumeConsumableById } from './cultivatorService';
 import { mapConsumableRow, type ConsumableRow } from './consumablePersistence';
+import { consumeConsumableById } from './cultivatorService';
 
 const ALLOWED_DRAW_COUNTS = new Set<ManualDrawCount>([1, 5]);
 
@@ -113,6 +113,12 @@ export class ManualDrawServiceError extends Error {
   }
 }
 
+export type PreparedManualDraw = {
+  kind: ManualDrawKind;
+  count: ManualDrawCount;
+  rewards: Material[];
+};
+
 export const ManualDrawService = {
   async getAvailableTalismanCount(
     cultivatorId: string,
@@ -127,26 +133,31 @@ export const ManualDrawService = {
     cultivatorId: string,
     executor?: DbExecutor | DbTransaction,
   ): Promise<ManualDrawStatusDTO> {
-    const [gongfa, skill] = await Promise.all([
-      this.getAvailableTalismanCount(cultivatorId, 'gongfa', executor),
-      this.getAvailableTalismanCount(cultivatorId, 'skill', executor),
-    ]);
+    const gongfa = await this.getAvailableTalismanCount(
+      cultivatorId,
+      'gongfa',
+      executor,
+    );
+    const skill = await this.getAvailableTalismanCount(
+      cultivatorId,
+      'skill',
+      executor,
+    );
 
     const talismanCounts: ManualDrawTalismanCounts = { gongfa, skill };
     return { talismanCounts };
   },
 
-  async draw(
-    userId: string,
+  async prepareDraw(
     cultivatorId: string,
     kind: ManualDrawKind,
     count: number,
-    options: { tx?: DbTransaction } = {},
-  ): Promise<ManualDrawResultDTO> {
+    executor: DbExecutor | DbTransaction = getExecutor(),
+  ): Promise<PreparedManualDraw> {
     validateDrawCount(count);
 
     const config = MANUAL_DRAW_CONFIG[kind];
-    const rows = await loadMatchingTalismanRows(cultivatorId, kind, options.tx);
+    const rows = await loadMatchingTalismanRows(cultivatorId, kind, executor);
     const totalCount = rows.reduce((sum, row) => sum + row.quantity, 0);
     if (totalCount < count) {
       throw new ManualDrawServiceError(
@@ -160,40 +171,53 @@ export const ManualDrawService = {
       throw new ManualDrawServiceError(500, '秘籍抽取失败，请稍后再试');
     }
 
-    const { plan, remaining } = buildSpendPlan(rows, count);
+    return { kind, count, rewards };
+  },
+
+  async commitPreparedDraw(
+    userId: string,
+    cultivatorId: string,
+    prepared: PreparedManualDraw,
+    tx: DbTransaction,
+  ): Promise<ManualDrawResultDTO> {
+    const config = MANUAL_DRAW_CONFIG[prepared.kind];
+    const rows = await loadMatchingTalismanRows(
+      cultivatorId,
+      prepared.kind,
+      tx,
+    );
+    const { plan, remaining } = buildSpendPlan(rows, prepared.count);
     if (remaining > 0) {
       throw new ManualDrawServiceError(
         400,
-        `${config.talismanName}不足，无法完成本次抽取`,
+        `${config.talismanName}数量已经变化，无法完成本次抽取`,
       );
     }
 
-    const gains = rewards.map((reward) => ({
+    const gains = prepared.rewards.map((reward) => ({
       type: 'material' as const,
       value: reward.quantity,
       name: reward.name,
       data: reward,
     }));
-    const action = async (tx: DbTransaction) => {
+    const consumeTalismans = async (resourceTx: DbTransaction) => {
       for (const step of plan) {
         await consumeConsumableById(
           userId,
           cultivatorId,
           step.consumableId,
           step.quantity,
-          tx,
+          resourceTx,
         );
       }
     };
-    const result = options.tx
-      ? await resourceEngine.gainInTransaction(
-          userId,
-          cultivatorId,
-          gains,
-          options.tx,
-          action,
-        )
-      : await resourceEngine.gain(userId, cultivatorId, gains, action);
+    const result = await resourceEngine.gainInTransaction(
+      userId,
+      cultivatorId,
+      gains,
+      tx,
+      consumeTalismans,
+    );
 
     if (!result.success) {
       throw new ManualDrawServiceError(
@@ -202,12 +226,12 @@ export const ManualDrawService = {
       );
     }
 
-    const status = await this.getStatus(cultivatorId, options.tx);
+    const status = await this.getStatus(cultivatorId, tx);
 
     return {
-      kind,
-      drawCount: count,
-      rewards,
+      kind: prepared.kind,
+      drawCount: prepared.count,
+      rewards: prepared.rewards,
       talismanCounts: status.talismanCounts,
     };
   },

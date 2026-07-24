@@ -7,18 +7,21 @@ describe('sect onboarding guard', () => {
     expect(resolveSectOnboardingRedirect('/game', false, 'none')).toBeNull();
   });
 
-  it('forces sectless cultivators into the sect world map from unrelated routes', () => {
+  it('forces sectless cultivators into onboarding from home and deep links', () => {
     expect(resolveSectOnboardingRedirect('/game', true, 'none')).toBe(
-      '/game/map?intent=sect',
+      '/game/sect/onboarding',
     );
     expect(resolveSectOnboardingRedirect('/game/inventory', true, 'none')).toBe(
-      '/game/map?intent=sect',
+      '/game/sect/onboarding',
     );
-  });
-
-  it('allows sectless cultivators to select, inspect, and visit sects', () => {
     expect(
       resolveSectOnboardingRedirect('/game/map', true, 'none', '?intent=sect'),
+    ).toBe('/game/sect/onboarding');
+    expect(
+      resolveSectOnboardingRedirect('/game/sect/lingxiao/visit', true, 'none'),
+    ).toBe('/game/sect/onboarding');
+    expect(
+      resolveSectOnboardingRedirect('/game/sect/onboarding', true, 'none'),
     ).toBeNull();
     expect(
       resolveSectOnboardingRedirect(
@@ -28,12 +31,6 @@ describe('sect onboarding guard', () => {
         '?sectId=lingxiao',
       ),
     ).toBeNull();
-    expect(
-      resolveSectOnboardingRedirect('/game/sect/lingxiao/visit', true, 'none'),
-    ).toBeNull();
-    expect(
-      resolveSectOnboardingRedirect('/game/sect/onboarding', true, 'none'),
-    ).toBe('/game/map?intent=sect');
   });
 
   it('only sends existing members away from unscoped onboarding', () => {

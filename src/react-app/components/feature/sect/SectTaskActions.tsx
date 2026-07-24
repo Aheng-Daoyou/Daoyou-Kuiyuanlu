@@ -1,11 +1,10 @@
-import { InkButton, InkSelect } from '@app/components/ui';
-import {
-  useInventorySnapshot,
-  useProductsSnapshot,
-} from '@app/lib/player-state/selectors';
+import { useInkUI } from '@app/components/providers/InkUIProvider';
+import { InkButton } from '@app/components/ui';
 import type { SectTaskViewData } from '@shared/contracts/sect';
-import { useMemo, useState } from 'react';
+import { describeSectDeliveryRequirement } from '@shared/engine/sect';
+import { useState } from 'react';
 import { useSectTaskInteraction } from './SectTaskInteractionProvider';
+import { SectTaskSubmissionDialog } from './SectTaskSubmissionDialog';
 
 export type SectTaskViewAction = SectTaskViewData['actions'][number];
 
@@ -14,15 +13,66 @@ export interface SectTaskActionRendererProps {
   action: SectTaskViewAction;
 }
 
+function rewardLines(task: SectTaskViewData) {
+  return task.reward?.summary ?? ['此任务结清后授予对应宗门资格'];
+}
+
 export function AcceptAction({ task, action }: SectTaskActionRendererProps) {
+  const { busy, execute } = useSectTaskInteraction();
+  const { openDialog } = useInkUI();
+  return (
+    <InkButton
+      variant="primary"
+      disabled={busy || !action.enabled || !task.offerRevision}
+      onClick={() =>
+        openDialog({
+          title: task.presentation.title,
+          content: (
+            <div className="space-y-3 text-sm leading-7">
+              <p>{task.presentation.description}</p>
+              {task.requirement ? (
+                <p>
+                  要求：
+                  {describeSectDeliveryRequirement(task.requirement)}
+                </p>
+              ) : null}
+              <div>
+                {rewardLines(task).map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+              <p className="text-stone-500">本任务每个周期只可完成一次。</p>
+            </div>
+          ),
+          confirmLabel: '揭下告示',
+          cancelLabel: '再看看',
+          onConfirm: async () => {
+            await execute(
+              task,
+              action,
+              { offerRevision: task.offerRevision },
+              `已领取「${task.presentation.title}」`,
+            );
+          },
+        })
+      }
+    >
+      {action.enabled ? action.label : (action.disabledReason ?? '尚未解锁')}
+    </InkButton>
+  );
+}
+
+export function ClaimAction({ task, action }: SectTaskActionRendererProps) {
   const { busy, execute } = useSectTaskInteraction();
   return (
     <InkButton
       variant="primary"
       disabled={busy || !action.enabled}
-      onClick={() => void execute(task, action, {}, `已领取「${task.presentation.title}」`)}
+      onClick={() =>
+        void execute(task, action, {}, `「${task.presentation.title}」已结清`)
+      }
     >
-      {action.enabled ? action.label : action.disabledReason ?? '尚未解锁'}
+      {action.enabled ? action.label : (action.disabledReason ?? '尚未解锁')}
     </InkButton>
   );
 }
@@ -39,7 +89,7 @@ export function BattleAction({ task, action }: SectTaskActionRendererProps) {
         )
       }
     >
-      {action.enabled ? action.label : action.disabledReason ?? '尚未解锁'}
+      {action.enabled ? action.label : (action.disabledReason ?? '尚未解锁')}
     </InkButton>
   );
 }
@@ -52,60 +102,31 @@ export function SweepEntryAction({ action }: SectTaskActionRendererProps) {
       disabled={busy || !action.enabled}
       onClick={() => navigate('/game/sect/gate')}
     >
-      {action.enabled ? action.label : action.disabledReason ?? '尚未解锁'}
+      {action.enabled ? action.label : (action.disabledReason ?? '尚未解锁')}
     </InkButton>
   );
 }
 
 export function ItemDeliveryAction(props: SectTaskActionRendererProps) {
-  const { busy, execute } = useSectTaskInteraction();
-  const inventory = useInventorySnapshot();
-  const products = useProductsSnapshot();
-  const [itemId, setItemId] = useState('');
-  const kind = props.action.parameters?.itemKind;
-  const quantity = Number(props.action.parameters?.quantity ?? 1);
-  const options = useMemo(() => {
-    if (kind === 'pill')
-      return inventory.consumables
-        .filter((item): item is typeof item & { id: string } => Boolean(item.id))
-        .map((item) => ({
-          id: item.id,
-          label: `${item.name} · ${item.quality} · ${item.quantity}枚`,
-        }));
-    if (kind === 'artifact')
-      return products.artifacts
-        .filter((item): item is typeof item & { id: string } => Boolean(item.id) && !item.isEquipped)
-        .map((item) => ({ id: item.id, label: `${item.name} · ${item.quality}` }));
-    if (kind === 'material')
-      return inventory.materials.map((item) => ({
-        id: item.id,
-        label: `${item.name} · ${item.rank} · ${item.quantity}份`,
-      }));
-    return [];
-  }, [inventory.consumables, inventory.materials, kind, products.artifacts]);
-
+  const [open, setOpen] = useState(false);
+  const { busy } = useSectTaskInteraction();
   return (
-    <div className="mt-3">
-      <InkSelect label="选择交付物" value={itemId} onChange={setItemId}>
-        <option value="">请选择符合要求的物品</option>
-        {options.map((item) => (
-          <option key={item.id} value={item.id}>{item.label}</option>
-        ))}
-      </InkSelect>
+    <>
       <InkButton
         variant="primary"
-        disabled={busy || !props.action.enabled || !itemId}
-        onClick={() =>
-          void execute(
-            props.task,
-            props.action,
-            { itemId, quantity },
-            `「${props.task.presentation.title}」已完成`,
-          )
-        }
+        disabled={busy || !props.action.enabled}
+        onClick={() => setOpen(true)}
       >
-        {props.action.enabled ? props.action.label : props.action.disabledReason ?? '尚未解锁'}
+        {props.action.enabled
+          ? props.action.label
+          : (props.action.disabledReason ?? '尚未解锁')}
       </InkButton>
-    </div>
+      <SectTaskSubmissionDialog
+        open={open}
+        task={props.task}
+        action={props.action}
+        onClose={() => setOpen(false)}
+      />
+    </>
   );
 }

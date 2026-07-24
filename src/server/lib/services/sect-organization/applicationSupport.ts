@@ -1,7 +1,7 @@
 import {
   type SectConstructionProjectState,
-  type SectFacilityState,
   type SectDiscipleRank,
+  type SectFacilityState,
   type SectOrganizationModule,
   type SectRewardGrantDefinition,
 } from '@shared/engine/sect';
@@ -50,7 +50,9 @@ export function assertDeclaredDonationKind(
     organizationError(`宗门经济策略返回未声明的捐献类型：${kind}`, 500);
 }
 
-export function mapFacilities(rows: readonly SectFacilityRecord[]): SectFacilityState[] {
+export function mapFacilities(
+  rows: readonly SectFacilityRecord[],
+): SectFacilityState[] {
   return rows.map((row) => ({
     key: row.facilityKey,
     level: row.level,
@@ -87,7 +89,7 @@ export function quoteSectStipend(
     {
       quantity: spiritStones,
       grant: {
-          kind: 'sect.reward.spirit-stones',
+        kind: 'sect.reward.spirit-stones',
         name: '灵石',
         description: '宗门按弟子职阶与灵脉等级发放的周俸。',
       },

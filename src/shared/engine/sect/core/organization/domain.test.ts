@@ -40,7 +40,7 @@ describe('sect organization domain', () => {
     );
   });
 
-  it('keeps task completion idempotent and rejects a mismatched period', () => {
+  it('separates task fulfillment from reward claiming', () => {
     const task = SectTask.offered({
       id: 'task-1',
       definitionId: 'fixture-task',
@@ -53,7 +53,30 @@ describe('sect organization domain', () => {
     task.accept('2026-07-19');
     expect(task.complete()).toBe(true);
     expect(task.complete()).toBe(false);
-    expect(task.pullEvents()).toHaveLength(1);
+    expect(task.status()).toBe('claimable');
+    expect(task.pullEvents().map((event) => event.type)).toEqual([
+      'SectTaskFulfilled',
+    ]);
+    task.claim({
+      userId: 'user-1',
+      cultivatorId: 'cultivator-1',
+      reward: {
+        policyKey: 'sect.reward.realm-task',
+        policyVersion: 1,
+        difficulty: 'easy',
+        contribution: 10,
+        cultivationExp: 20,
+        spiritStones: 30,
+        summary: [],
+      },
+    });
+    expect(task.status()).toBe('claimed');
+    expect(task.pullEvents().map((event) => event.type)).toEqual([
+      'SectTaskRewardClaimed',
+    ]);
+    expect(() =>
+      task.claim({ userId: 'user-1', cultivatorId: 'cultivator-1' }),
+    ).toThrow('已经领取');
   });
 
   it('completes a construction project once at its target', () => {
@@ -89,7 +112,9 @@ describe('sect organization domain', () => {
       weekKey: '2026-W29',
       claimed: false,
     });
-    expect(() => claim.claim('2026-W28', stipendSnapshot)).toThrow('俸禄周期不匹配');
+    expect(() => claim.claim('2026-W28', stipendSnapshot)).toThrow(
+      '俸禄周期不匹配',
+    );
     claim.claim('2026-W29', stipendSnapshot);
     expect(claim.pullEvents()).toEqual([
       {
@@ -99,7 +124,9 @@ describe('sect organization domain', () => {
         rewardSnapshot: stipendSnapshot,
       },
     ]);
-    expect(() => claim.claim('2026-W29', stipendSnapshot)).toThrow('本周俸禄已经领取');
+    expect(() => claim.claim('2026-W29', stipendSnapshot)).toThrow(
+      '本周俸禄已经领取',
+    );
   });
 
   it('quotes shop and donation commands inside the domain', () => {
@@ -129,6 +156,10 @@ describe('sect organization domain', () => {
         contributionPerUnit: 10,
         constructionPointsPerUnit: 12,
       }),
-    ).toMatchObject({ itemQuantity: 6, contribution: 20, constructionPoints: 24 });
+    ).toMatchObject({
+      itemQuantity: 6,
+      contribution: 20,
+      constructionPoints: 24,
+    });
   });
 });

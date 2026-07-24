@@ -17,8 +17,12 @@ export function getSectWeekKey(now = new Date()): string {
     day: '2-digit',
     weekday: 'short',
   }).formatToParts(now);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const local = new Date(`${values.year}-${values.month}-${values.day}T00:00:00Z`);
+  const values = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+  const local = new Date(
+    `${values.year}-${values.month}-${values.day}T00:00:00Z`,
+  );
   const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
     values.weekday,
   );
@@ -26,7 +30,9 @@ export function getSectWeekKey(now = new Date()): string {
   return local.toISOString().slice(0, 10);
 }
 
-export function getSectBountyMode(weekKey = getSectWeekKey()): 'battle' | 'material' {
+export function getSectBountyMode(
+  weekKey = getSectWeekKey(),
+): 'battle' | 'material' {
   const seed = [...weekKey].reduce(
     (sum, char) => sum * 31 + char.charCodeAt(0),
     0,

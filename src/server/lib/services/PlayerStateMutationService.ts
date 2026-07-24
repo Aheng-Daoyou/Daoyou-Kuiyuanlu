@@ -1,4 +1,10 @@
-import { db, type DbTransaction } from '@server/lib/drizzle/db';
+import { createHash } from 'node:crypto';
+import { db, getPoolMetrics, type DbTransaction } from '@server/lib/drizzle/db';
+import {
+  redisLockKeys,
+  withRedisLock,
+  type RedisLeaseContext,
+} from '@server/lib/redis/lock';
 import {
   bumpStateVersions,
   findPlayerMutationRequest,
@@ -15,8 +21,9 @@ import type {
   PlayerStateMutationResponse,
 } from '@shared/contracts/player';
 
-const RETRYABLE_TRANSACTION_CODES = new Set(['40P01', '40001']);
+const RETRYABLE_TRANSACTION_CODES = new Set(['40P01', '40001', '55P03']);
 const MAX_TRANSACTION_ATTEMPTS = 3;
+const SLOW_TRANSACTION_THRESHOLD_MS = 500;
 
 export type StateChangeDescriptor = {
   domain: PlayerStateDomain;
@@ -30,7 +37,7 @@ export class PlayerStateIdempotencyError extends Error {
   readonly status = 409;
 }
 
-export async function commitPlayerStateMutation<T>(args: {
+export type PlayerStateMutationArgs<T> = {
   userId: string;
   cultivatorId: string;
   source: string;
@@ -44,114 +51,189 @@ export async function commitPlayerStateMutation<T>(args: {
     result: T;
     changes: StateChangeDescriptor[];
   }>;
-}): Promise<{
+};
+
+export type PlayerStateMutationCoordination =
+  | {
+      mode: 'redis';
+      lease: RedisLeaseContext;
+    }
+  | {
+      mode: 'database-only';
+    };
+
+type CommittedPlayerStateMutation<T> = {
   result: T;
   state: PlayerStateMutationMeta;
-}> {
-  const committed = await runRetryableStateTransaction(async () =>
-    db().transaction(async (tx) => {
-      await lockCultivatorForStateMutation(tx, args.cultivatorId);
+};
 
-      if (args.idempotency) {
-        const existing = await findPlayerMutationRequest(
-          args.cultivatorId,
-          args.source,
-          args.idempotency.key,
-          tx,
-        );
-        if (existing) {
-          if (existing.requestFingerprint !== args.idempotency.fingerprint) {
-            throw new PlayerStateIdempotencyError(
-              '同一幂等键不能用于不同的宗门事务',
-            );
-          }
-          const version = await getOrCreateStateVersion(args.cultivatorId, tx);
-          return {
-            result: existing.result as T,
-            state: {
-              cultivatorId: args.cultivatorId,
-              globalVersion: version.globalVersion,
-              domainVersions: {},
-              events: [],
-              replayed: true,
-            },
-          };
-        }
-      }
+export async function commitPlayerStateMutation<T>(
+  args: PlayerStateMutationArgs<T> & {
+    coordination: PlayerStateMutationCoordination;
+  },
+): Promise<CommittedPlayerStateMutation<T>> {
+  const lease =
+    args.coordination.mode === 'redis'
+      ? args.coordination.lease
+      : undefined;
+  lease?.assertHeld();
+  return commitPlayerStateMutationTransaction(args, lease);
+}
 
-      const { result, changes } = await args.run(tx);
+export async function commitPlayerStateMutationWithLock<T>(
+  args: PlayerStateMutationArgs<T>,
+): Promise<CommittedPlayerStateMutation<T>> {
+  const lockKey = redisLockKeys.cultivatorMutation(args.cultivatorId);
+  return withRedisLock(
+    {
+      key: lockKey,
+      context: `player-state:${args.source}`,
+      timeoutMs: 30_000,
+      renewEveryMs: 10_000,
+      retries: 0,
+    },
+    (lease) =>
+      commitPlayerStateMutation({
+        ...args,
+        coordination: { mode: 'redis', lease },
+      }),
+  );
+}
 
-      if (changes.length === 0) {
-        if (args.allowEmpty) {
-          const version = await getOrCreateStateVersion(args.cultivatorId, tx);
-          const committed = {
-            result,
-            state: {
-              cultivatorId: args.cultivatorId,
-              globalVersion: version.globalVersion,
-              domainVersions: {},
-              events: [],
-            },
-          };
-          if (args.idempotency)
-            await insertPlayerMutationRequest(
-              {
-                cultivatorId: args.cultivatorId,
-                source: args.source,
-                requestId: args.idempotency.key,
-                requestFingerprint: args.idempotency.fingerprint,
-                result,
-              },
+async function commitPlayerStateMutationTransaction<T>(
+  args: PlayerStateMutationArgs<T>,
+  lease?: RedisLeaseContext,
+): Promise<CommittedPlayerStateMutation<T>> {
+  const idempotency = args.idempotency
+    ? normalizePlayerMutationIdempotency(args.idempotency)
+    : undefined;
+  const eventRequestId = normalizeNullablePlayerMutationField(
+    args.requestId ?? idempotency?.key ?? null,
+  );
+  const committed = await runRetryableStateTransaction(async (retryAttempt) => {
+    const startedAt = Date.now();
+
+    try {
+      const result = await db().transaction(async (tx) => {
+        await lockCultivatorForStateMutation(tx, args.cultivatorId);
+
+        if (idempotency) {
+          const existing = await findPlayerMutationRequest(
+            args.cultivatorId,
+            args.source,
+            idempotency.key,
+            tx,
+          );
+          if (existing) {
+            if (existing.requestFingerprint !== idempotency.fingerprint) {
+              throw new PlayerStateIdempotencyError(
+                '同一幂等键不能用于不同的玩家状态事务',
+              );
+            }
+            const version = await getOrCreateStateVersion(
+              args.cultivatorId,
               tx,
             );
-          return committed;
+            const replayed = {
+              result: existing.result as T,
+              state: {
+                cultivatorId: args.cultivatorId,
+                globalVersion: version.globalVersion,
+                domainVersions: {},
+                events: [],
+                replayed: true,
+              },
+            };
+            lease?.assertHeld();
+            return replayed;
+          }
         }
-        throw new Error('玩家状态写操作缺少状态变更描述');
-      }
 
-      const versions = await bumpStateVersions(
-        tx,
-        args.cultivatorId,
-        changes.map((change) => change.domain),
-      );
-      const events = await insertStateEvents(tx, {
-        userId: args.userId,
-        cultivatorId: args.cultivatorId,
-        globalVersion: versions.globalVersion,
-        domainVersions: versions.domainVersions,
-        events: changes.map((change) => ({
-          ...change,
-          source: args.source,
-          requestId: args.requestId ?? args.idempotency?.key ?? null,
-        })),
-      });
+        const { result, changes } = await args.run(tx);
 
-      const committed = {
-        result,
-        state: {
+        if (changes.length === 0) {
+          if (args.allowEmpty) {
+            const version = await getOrCreateStateVersion(
+              args.cultivatorId,
+              tx,
+            );
+            const committed = {
+              result,
+              state: {
+                cultivatorId: args.cultivatorId,
+                globalVersion: version.globalVersion,
+                domainVersions: {},
+                events: [],
+              },
+            };
+            if (idempotency)
+              await insertPlayerMutationRequest(
+                {
+                  cultivatorId: args.cultivatorId,
+                  source: args.source,
+                  requestId: idempotency.key,
+                  requestFingerprint: idempotency.fingerprint,
+                  result,
+                },
+                tx,
+              );
+            lease?.assertHeld();
+            return committed;
+          }
+          throw new Error('玩家状态写操作缺少状态变更描述');
+        }
+
+        const versions = await bumpStateVersions(
+          tx,
+          args.cultivatorId,
+          changes.map((change) => change.domain),
+        );
+        const events = await insertStateEvents(tx, {
+          userId: args.userId,
           cultivatorId: args.cultivatorId,
           globalVersion: versions.globalVersion,
-          domainVersions: pickChangedDomainVersions(
-            versions.domainVersions,
-            changes.map((change) => change.domain),
-          ),
-          events,
-        },
-      };
-      if (args.idempotency)
-        await insertPlayerMutationRequest(
-          {
-            cultivatorId: args.cultivatorId,
+          domainVersions: versions.domainVersions,
+          events: changes.map((change) => ({
+            ...change,
             source: args.source,
-            requestId: args.idempotency.key,
-            requestFingerprint: args.idempotency.fingerprint,
-            result,
+            requestId: eventRequestId,
+          })),
+        });
+
+        const committed = {
+          result,
+          state: {
+            cultivatorId: args.cultivatorId,
+            globalVersion: versions.globalVersion,
+            domainVersions: pickChangedDomainVersions(
+              versions.domainVersions,
+              changes.map((change) => change.domain),
+            ),
+            events,
           },
-          tx,
-        );
-      return committed;
-    }),
-  );
+        };
+        if (idempotency)
+          await insertPlayerMutationRequest(
+            {
+              cultivatorId: args.cultivatorId,
+              source: args.source,
+              requestId: idempotency.key,
+              requestFingerprint: idempotency.fingerprint,
+              result,
+            },
+            tx,
+          );
+        lease?.assertHeld();
+        return committed;
+      });
+
+      logTransaction('completed', args, retryAttempt, startedAt);
+      return result;
+    } catch (error) {
+      logTransaction('failed', args, retryAttempt, startedAt, error);
+      throw error;
+    }
+  });
 
   if (committed.state.events.length > 0) {
     publishPlayerStateEvents(args.cultivatorId, committed.state.events);
@@ -160,12 +242,10 @@ export async function commitPlayerStateMutation<T>(args: {
   return committed;
 }
 
-export function toPlayerStateMutationResponse<T>(
-  committed: {
-    result: T;
-    state: PlayerStateMutationMeta;
-  },
-): PlayerStateMutationResponse<T> {
+export function toPlayerStateMutationResponse<T>(committed: {
+  result: T;
+  state: PlayerStateMutationMeta;
+}): PlayerStateMutationResponse<T> {
   return {
     success: true,
     data: committed.result,
@@ -187,14 +267,40 @@ function pickChangedDomainVersions(
   );
 }
 
+function normalizePlayerMutationIdempotency(idempotency: {
+  key: string;
+  fingerprint: string;
+}): {
+  key: string;
+  fingerprint: string;
+} {
+  return {
+    key: normalizePlayerMutationField(idempotency.key),
+    fingerprint: normalizePlayerMutationField(idempotency.fingerprint),
+  };
+}
+
+function normalizeNullablePlayerMutationField(
+  value: string | null,
+): string | null {
+  return value === null ? null : normalizePlayerMutationField(value);
+}
+
+function normalizePlayerMutationField(value: string): string {
+  if (Buffer.byteLength(value, 'utf8') <= 128) {
+    return value;
+  }
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
 async function runRetryableStateTransaction<T>(
-  run: () => Promise<T>,
+  run: (attempt: number) => Promise<T>,
 ): Promise<T> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
     try {
-      return await run();
+      return await run(attempt);
     } catch (error) {
       lastError = error;
       if (
@@ -209,6 +315,45 @@ async function runRetryableStateTransaction<T>(
   }
 
   throw lastError;
+}
+
+function logTransaction(
+  outcome: 'completed' | 'failed',
+  args: {
+    source: string;
+    cultivatorId: string;
+    requestId?: string | null;
+  },
+  retryAttempt: number,
+  startedAt: number,
+  error?: unknown,
+): void {
+  const durationMs = Date.now() - startedAt;
+  const pool = getPoolMetrics();
+  const details = {
+    outcome,
+    source: args.source,
+    cultivatorId: args.cultivatorId,
+    requestId: args.requestId ?? null,
+    durationMs,
+    retryAttempt,
+    postgresCode: getPostgresErrorCode(error),
+    ...pool,
+  };
+
+  if (outcome === 'failed') {
+    console.error('[player-state-transaction]', details);
+    return;
+  }
+  if (durationMs >= SLOW_TRANSACTION_THRESHOLD_MS || pool.poolWaiting > 0) {
+    console.info('[player-state-transaction]', details);
+  }
+}
+
+function getPostgresErrorCode(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null) return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : null;
 }
 
 function isRetryableTransactionError(error: unknown): boolean {

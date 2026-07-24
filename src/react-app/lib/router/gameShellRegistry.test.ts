@@ -91,14 +91,21 @@ describe('game shell registry', () => {
     expect(source).toContain('path="skills"');
   });
 
-  it('sends a newly created cultivator to the sect world map', () => {
+  it('sends a newly created cultivator to the collected sect onboarding', () => {
     const source = readFileSync(
       'src/react-app/routes/game/create/route.tsx',
       'utf8',
     );
     expect(source).toContain(
-      "navigate('/game/map?intent=sect', { replace: true })",
+      "navigate('/game/sect/onboarding', { replace: true })",
     );
+
+    const onboardingSource = readFileSync(
+      'src/react-app/routes/game/sect/onboarding/route.tsx',
+      'utf8',
+    );
+    expect(onboardingSource).toContain('诸宗候君');
+    expect(onboardingSource).toContain('catalog.data.sects.map');
   });
 
   it('keeps sect query state above every active-player game shell', () => {

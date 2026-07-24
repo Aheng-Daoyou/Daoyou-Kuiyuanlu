@@ -160,6 +160,29 @@ export async function updateBetBattleById(
     .where(eq(schema.betBattles.id, id));
 }
 
+export async function transitionPendingBetBattle(
+  tx: DbTransaction,
+  id: string,
+  patch: Partial<typeof schema.betBattles.$inferInsert> & {
+    status: 'settled' | 'cancelled' | 'expired';
+  },
+  creatorId?: string,
+): Promise<BetBattleRecord | null> {
+  const conditions = [
+    eq(schema.betBattles.id, id),
+    eq(schema.betBattles.status, 'pending'),
+  ];
+  if (creatorId) {
+    conditions.push(eq(schema.betBattles.creatorId, creatorId));
+  }
+  const [row] = await tx
+    .update(schema.betBattles)
+    .set(patch)
+    .where(and(...conditions))
+    .returning();
+  return row ?? null;
+}
+
 export async function markExpiredPendingBetBattles(
   tx: DbTransaction,
 ): Promise<BetBattleRecord[]> {

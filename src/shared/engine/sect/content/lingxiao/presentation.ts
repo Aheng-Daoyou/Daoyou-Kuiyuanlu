@@ -247,7 +247,7 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
     affairs: {
       title: '执事堂',
       description:
-        '木榜上新令墨迹未干，今日差事、周录与晋升试炼各有封签；择下一令，便不可在当日更换。',
+        '木榜上新令墨迹未干，今日差事、周录与晋升试炼各有封签；诸令皆可逐一揭下，办妥后回堂交卷领赏。',
       loadingText: '执事正整理今日委托……',
     },
     archive: {

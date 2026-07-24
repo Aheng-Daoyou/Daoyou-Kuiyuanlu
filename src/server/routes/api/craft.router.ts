@@ -1,24 +1,28 @@
-import { requireActiveCultivator } from '@server/lib/hono/middleware';
+import {
+  redisLockErrorResponse,
+  requireActiveCultivator,
+} from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
+import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import { createMessage } from '@server/lib/repositories/worldChatRepository';
 import {
-  craftFromFormula,
+  prepareFormulaCraft,
   previewFormulaCraft,
 } from '@server/lib/services/AlchemyFormulaService';
 import {
   AlchemyServiceError,
+  prepareAlchemyCraft,
   previewAlchemySelection,
-  processAlchemyCraft,
 } from '@server/lib/services/alchemyServiceV2';
 import {
   abandonPending,
-  confirmCreation,
   CreationServiceError,
   estimateCost,
   getPendingCreation,
+  prepareCreation,
+  prepareCreationConfirmation,
   previewCreationSelection,
-  processCreation,
 } from '@server/lib/services/creationServiceV2';
 import { getPlayerProfileCultivatorById } from '@server/lib/services/cultivatorService';
 import {
@@ -538,148 +542,196 @@ router.post('/', requireActiveCultivator(), async (c) => {
         return c.json({ error: '请先推演药路。' }, 400);
       }
 
-      const craftQiActionInstanceId = randomUUID();
-      let afterCommit: (() => Promise<void>) | undefined;
-      const committed = await commitPlayerStateMutation({
-        userId: user.id,
-        cultivatorId: cultivator.id,
-        source: `alchemy_${resolvedAlchemyMode}`,
-        run: async (tx) => {
-          const qiReservation = await QiService.reserveQi({
-            cultivatorId: cultivator.id,
-            action: getCraftQiAction({
-              craftType,
-              alchemyMode: resolvedAlchemyMode,
-            }),
-            actionInstanceId: craftQiActionInstanceId,
-            metadata: {
-              craftType,
-              alchemyMode: resolvedAlchemyMode,
-              materialCount: materialIds.length,
-              formulaId,
-            },
-            tx,
-          });
-
-          const craftResult =
-            resolvedAlchemyMode === 'formula'
-              ? await craftFromFormula(
+      return await withRedisLock(
+        {
+          key: redisLockKeys.cultivatorMutation(cultivator.id),
+          context: `alchemy-${resolvedAlchemyMode}`,
+          timeoutMs: 60_000,
+          renewEveryMs: 20_000,
+          retries: 0,
+        },
+        async (lease) => {
+          const mutationSource = `alchemy_${resolvedAlchemyMode}`;
+          const preparedAlchemy =
+            resolvedAlchemyMode === 'improvised'
+              ? await prepareAlchemyCraft(cultivator.id, materialIds, {
+                  materialQuantities,
+                  userPrompt: normalizedUserPrompt,
+                })
+              : await prepareFormulaCraft(
                   cultivator.id,
                   formulaId!,
                   materialIds,
                   materialQuantities,
                   analysisId,
-                  { tx, deferSideEffects: true },
-                )
-              : await processAlchemyCraft(cultivator.id, materialIds, {
-                  materialQuantities,
-                  userPrompt: normalizedUserPrompt,
-                  tx,
-                });
-          if ('afterCommit' in craftResult) {
-            afterCommit = craftResult.afterCommit;
-          }
-          const result = { ...craftResult };
-          delete (result as { afterCommit?: unknown }).afterCommit;
+                );
+          lease.assertHeld();
 
-          await QiService.commitReservation({
-            actionInstanceId: craftQiActionInstanceId,
-            metadata: { committedAt: new Date().toISOString() },
-            tx,
+          const craftQiActionInstanceId = randomUUID();
+          let afterCommit: (() => Promise<void>) | undefined;
+          const committed = await commitPlayerStateMutation({
+            coordination: { mode: 'redis', lease },
+            userId: user.id,
+            cultivatorId: cultivator.id,
+            source: mutationSource,
+            run: async (tx) => {
+              const qiReservation = await QiService.reserveQi({
+                cultivatorId: cultivator.id,
+                action: getCraftQiAction({
+                  craftType,
+                  alchemyMode: resolvedAlchemyMode,
+                }),
+                actionInstanceId: craftQiActionInstanceId,
+                metadata: {
+                  craftType,
+                  alchemyMode: resolvedAlchemyMode,
+                  materialCount: materialIds.length,
+                  formulaId,
+                },
+                tx,
+              });
+
+              const preparedCommit = await preparedAlchemy.commit(tx);
+              afterCommit = preparedCommit.afterCommit;
+              const result = preparedCommit.result;
+
+              await QiService.commitReservation({
+                actionInstanceId: craftQiActionInstanceId,
+                metadata: { committedAt: new Date().toISOString() },
+                tx,
+              });
+
+              let taskSynced = false;
+              try {
+                await TaskService.recordTaskEvent(
+                  cultivator.id,
+                  'alchemy_crafted',
+                  {
+                    tx,
+                  },
+                );
+                taskSynced = true;
+              } catch (syncError) {
+                console.error('炼丹后同步任务失败:', syncError);
+              }
+
+              return {
+                result,
+                changes: buildAlchemyStateChanges({
+                  qiAfter: qiReservation.qiAfter,
+                  taskSynced,
+                }),
+              };
+            },
+          });
+          if (afterCommit) {
+            try {
+              await afterCommit();
+            } catch (afterCommitError) {
+              console.error('炼丹后置副作用失败:', {
+                cultivatorId: cultivator.id,
+                source: `alchemy_${resolvedAlchemyMode}`,
+                error: afterCommitError,
+              });
+            }
+          }
+          await broadcastAlchemyRumor({
+            userId: user.id,
+            cultivatorName: cultivator.name,
+            consumable: committed.result.consumable,
           });
 
-          let taskSynced = false;
-          try {
-            await TaskService.recordTaskEvent(
-              cultivator.id,
-              'alchemy_crafted',
-              {
-                tx,
-              },
-            );
-            taskSynced = true;
-          } catch (syncError) {
-            console.error('炼丹后同步任务失败:', syncError);
-          }
-
-          return {
-            result,
-            changes: buildAlchemyStateChanges({
-              qiAfter: qiReservation.qiAfter,
-              taskSynced,
-            }),
-          };
+          return c.json(toPlayerStateMutationResponse(committed));
         },
-      });
-      if (afterCommit) {
-        await afterCommit();
-      }
-      await broadcastAlchemyRumor({
-        userId: user.id,
-        cultivatorName: cultivator.name,
-        consumable: committed.result.consumable,
-      });
-
-      return c.json(toPlayerStateMutationResponse(committed));
+      );
     }
 
-    const craftQiActionInstanceId = randomUUID();
-    let afterCommit: (() => Promise<void>) | undefined;
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: `creation_${craftType}`,
-      run: async (tx) => {
-        const qiReservation = await QiService.reserveQi({
-          cultivatorId: cultivator.id,
-          action: getCraftQiAction({ craftType }),
-          actionInstanceId: craftQiActionInstanceId,
-          metadata: {
-            craftType,
-            materialCount: materialIds.length,
-            requestedSlot,
-          },
-          tx,
-        });
-
-        const { afterCommit: creationAfterCommit, ...result } =
-          await processCreation(cultivator.id, materialIds, craftType, {
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: `creation-${craftType}`,
+        timeoutMs: 60_000,
+        renewEveryMs: 20_000,
+        retries: 0,
+      },
+      async (lease) => {
+        const mutationSource = `creation_${craftType}`;
+        const preparedCreation = await prepareCreation(
+          cultivator.id,
+          materialIds,
+          craftType,
+          {
             materialQuantities,
             userPrompt: normalizedUserPrompt,
             requestedSlot,
             requestedTargetPolicy,
-            tx,
-            deferSideEffects: true,
-          });
-        afterCommit = creationAfterCommit;
+          },
+        );
+        lease.assertHeld();
 
-        await QiService.commitReservation({
-          actionInstanceId: craftQiActionInstanceId,
-          metadata: { committedAt: new Date().toISOString() },
-          tx,
+        const craftQiActionInstanceId = randomUUID();
+        let afterCommit: (() => Promise<void>) | undefined;
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: mutationSource,
+          run: async (tx) => {
+            const qiReservation = await QiService.reserveQi({
+              cultivatorId: cultivator.id,
+              action: getCraftQiAction({ craftType }),
+              actionInstanceId: craftQiActionInstanceId,
+              metadata: {
+                craftType,
+                materialCount: materialIds.length,
+                requestedSlot,
+              },
+              tx,
+            });
+
+            const preparedCommit = await preparedCreation.commit(tx);
+            const result = preparedCommit.result;
+            afterCommit = preparedCommit.afterCommit;
+
+            await QiService.commitReservation({
+              actionInstanceId: craftQiActionInstanceId,
+              metadata: { committedAt: new Date().toISOString() },
+              tx,
+            });
+
+            return {
+              result,
+              changes: buildCreationStateChanges({
+                craftType,
+                qiAfter: qiReservation.qiAfter,
+                needsReplace: Boolean(result.needs_replace),
+              }),
+            };
+          },
+        });
+        if (afterCommit) {
+          try {
+            await afterCommit();
+          } catch (afterCommitError) {
+            console.error('造物后置副作用失败:', {
+              cultivatorId: cultivator.id,
+              source: `creation_${craftType}`,
+              error: afterCommitError,
+            });
+          }
+        }
+        await broadcastCreationRumor({
+          userId: user.id,
+          cultivatorName: cultivator.name,
+          item: committed.result as BroadcastableCreationResult,
         });
 
-        return {
-          result,
-          changes: buildCreationStateChanges({
-            craftType,
-            qiAfter: qiReservation.qiAfter,
-            needsReplace: Boolean(result.needs_replace),
-          }),
-        };
+        return c.json(toPlayerStateMutationResponse(committed));
       },
-    });
-    if (afterCommit) {
-      await afterCommit();
-    }
-    await broadcastCreationRumor({
-      userId: user.id,
-      cultivatorName: cultivator.name,
-      item: committed.result as BroadcastableCreationResult,
-    });
-
-    return c.json(toPlayerStateMutationResponse(committed));
+    );
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     const qiError = qiErrorPayload(error);
     if (qiError) {
       return jsonWithStatus(c, qiError.body, qiError.status);
@@ -731,50 +783,77 @@ confirmRouter.post('/', requireActiveCultivator(), async (c) => {
       await c.req.json(),
     );
     if (abandon) {
-      await abandonPending(cultivator.id, craftType);
-      return c.json({
-        success: true,
-        message: '已放弃新生成的感悟',
-      });
+      return await withRedisLock(
+        {
+          key: redisLockKeys.cultivatorMutation(cultivator.id),
+          context: 'creation-abandon',
+          timeoutMs: 10_000,
+          retries: 0,
+        },
+        async (lease) => {
+          lease.assertHeld();
+          await abandonPending(cultivator.id, craftType);
+          lease.assertHeld();
+          return c.json({
+            success: true,
+            message: '已放弃新生成的感悟',
+          });
+        },
+      );
     }
 
-    let afterCommit: (() => Promise<void>) | undefined;
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'creation_confirm',
-      run: async (tx) => {
-        const { afterCommit: confirmAfterCommit, ...result } =
-          await confirmCreation(cultivator.id, craftType, replaceId ?? null, {
-            tx,
-            deferSideEffects: true,
-          });
-        afterCommit = confirmAfterCommit;
-        return {
-          result: {
-            message: '领悟成功，已纳入道基',
-            item: result,
-          },
-          changes: [
-            {
-              domain: 'loadout',
-              eventType: 'loadout.changed',
-              invalidates: ['loadout'],
-            },
-          ],
-        };
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: 'creation-confirm',
+        timeoutMs: 10_000,
+        retries: 0,
       },
-    });
-    if (afterCommit) {
-      await afterCommit();
-    }
-    await broadcastCreationRumor({
-      userId: user.id,
-      cultivatorName: cultivator.name,
-      item: committed.result.item as BroadcastableCreationResult,
-    });
-    return c.json(toPlayerStateMutationResponse(committed));
+      async (lease) => {
+        const prepared = await prepareCreationConfirmation(
+          cultivator.id,
+          craftType,
+          replaceId ?? null,
+        );
+        lease.assertHeld();
+        let afterCommit: (() => Promise<void>) | undefined;
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'creation_confirm',
+          run: async (tx) => {
+            const preparedCommit = await prepared.commit(tx);
+            afterCommit = preparedCommit.afterCommit;
+            return {
+              result: {
+                message: '领悟成功，已纳入道基',
+                item: preparedCommit.result,
+              },
+              changes: [
+                {
+                  domain: 'loadout',
+                  eventType: 'loadout.changed',
+                  invalidates: ['loadout'],
+                },
+              ],
+            };
+          },
+        });
+        if (afterCommit) {
+          await afterCommit();
+        }
+        await broadcastCreationRumor({
+          userId: user.id,
+          cultivatorName: cultivator.name,
+          item: committed.result.item as BroadcastableCreationResult,
+        });
+        return c.json(toPlayerStateMutationResponse(committed));
+      },
+    );
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof z.ZodError) {
       return c.json(
         { error: error.issues[0]?.message || '请求参数格式错误' },

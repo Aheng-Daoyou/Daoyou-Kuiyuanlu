@@ -15,9 +15,7 @@ import { SectCapabilityAuthorizer } from './SectCapabilityAuthorizer';
 type BenefitMembership = Pick<SectMembershipRecord, 'sectId' | 'discipleRank'>;
 
 export class SectBenefitService {
-  constructor(
-    private readonly authorizer = new SectCapabilityAuthorizer(),
-  ) {}
+  constructor(private readonly authorizer = new SectCapabilityAuthorizer()) {}
 
   permissionSnapshot(
     membership: BenefitMembership,
@@ -86,7 +84,7 @@ export class SectBenefitService {
         return [
           craftContext,
           organization.capabilities.allows(rank, benefit.capability)
-            ? snapshot.craftDiscounts[craftContext] ?? 0
+            ? (snapshot.craftDiscounts[craftContext] ?? 0)
             : 0,
         ];
       }),
@@ -107,9 +105,6 @@ export class SectBenefitService {
     context: SectBenefitQueryContext,
   ): Promise<number> {
     const { craftDiscounts } = await this.getBonuses(cultivatorId, context);
-    return Math.max(
-      0,
-      Math.floor(cost * (1 - craftDiscounts[craftContext])),
-    );
+    return Math.max(0, Math.floor(cost * (1 - craftDiscounts[craftContext])));
   }
 }

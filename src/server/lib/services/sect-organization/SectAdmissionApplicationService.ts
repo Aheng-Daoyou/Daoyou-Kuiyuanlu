@@ -1,7 +1,4 @@
-import type {
-  SectAdmissionContext,
-  SectRuntime,
-} from '@shared/engine/sect';
+import type { SectAdmissionContext, SectRuntime } from '@shared/engine/sect';
 import { SectError } from '../SectError';
 import type {
   SectAdmissionRepository,
@@ -23,8 +20,10 @@ export class SectAdmissionApplicationService {
   listAvailableDefinitions(context: SectAdmissionContext) {
     return this.runtime.registry
       .listDefinitions()
-      .filter((definition) =>
-        this.runtime.registry.require(definition.id).checkAdmission(context).allowed,
+      .filter(
+        (definition) =>
+          this.runtime.registry.require(definition.id).checkAdmission(context)
+            .allowed,
       );
   }
 

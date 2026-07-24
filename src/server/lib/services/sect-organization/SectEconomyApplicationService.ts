@@ -5,8 +5,9 @@ import {
   SectShopOrder,
   SectStipendClaim,
 } from '@shared/engine/sect';
-import type { SectBenefitService } from './SectBenefitService';
 import type { SectRewardGrantStrategyRegistry } from './EconomyStrategies';
+import type { SectBenefitService } from './SectBenefitService';
+import type { SectDomainEventDispatcherFactory } from './SectDomainEventDispatcher';
 import {
   assertDeclaredRewardKind,
   mapFacilities,
@@ -16,7 +17,6 @@ import {
   requireMembership,
   stipendRewardView,
 } from './applicationSupport';
-import type { SectDomainEventDispatcherFactory } from './SectDomainEventDispatcher';
 import type {
   SectEconomyCommandContext,
   SectEconomyQueryContext,
@@ -31,8 +31,15 @@ export class SectEconomyApplicationService {
   ) {}
 
   async getShop(cultivatorId: string, context: SectEconomyQueryContext) {
-    const membership = await requireMembership(cultivatorId, context.memberships);
-    this.benefits.assertPermission(membership, 'sect.shop.use', context.modules);
+    const membership = await requireMembership(
+      cultivatorId,
+      context.memberships,
+    );
+    this.benefits.assertPermission(
+      membership,
+      'sect.shop.use',
+      context.modules,
+    );
     const weekKey = context.clock.weekKey();
     const items: SectShopItemData[] = [];
     const organization = organizationFor(context.modules, membership.sectId);
@@ -65,11 +72,19 @@ export class SectEconomyApplicationService {
     quantity: number,
     context: SectEconomyCommandContext,
   ) {
-    const membership = await requireMembership(cultivatorId, context.memberships);
-    this.benefits.assertPermission(membership, 'sect.shop.use', context.modules);
+    const membership = await requireMembership(
+      cultivatorId,
+      context.memberships,
+    );
+    this.benefits.assertPermission(
+      membership,
+      'sect.shop.use',
+      context.modules,
+    );
     const weekKey = context.clock.weekKey();
     const organization = organizationFor(context.modules, membership.sectId);
-    const item = organization.economy.shopItems(weekKey)
+    const item = organization.economy
+      .shopItems(weekKey)
       .find((entry) => entry.id === itemId);
     if (!item) organizationError('本周宝库没有该物品', 400);
     assertDeclaredRewardKind(organization, item.grant.kind);
@@ -90,7 +105,10 @@ export class SectEconomyApplicationService {
         unitPrice: item.price,
       });
     } catch (error) {
-      organizationError(error instanceof Error ? error.message : '兑换请求无效', 400);
+      organizationError(
+        error instanceof Error ? error.message : '兑换请求无效',
+        400,
+      );
     }
 
     await this.spendContribution(
@@ -145,10 +163,19 @@ export class SectEconomyApplicationService {
     cultivatorId: string,
     context: SectEconomyCommandContext,
   ) {
-    const membership = await requireMembership(cultivatorId, context.memberships);
-    this.benefits.assertPermission(membership, 'sect.hall.view', context.modules);
+    const membership = await requireMembership(
+      cultivatorId,
+      context.memberships,
+    );
+    this.benefits.assertPermission(
+      membership,
+      'sect.hall.view',
+      context.modules,
+    );
     await context.facilities.ensure(membership.sectId);
-    const facilities = mapFacilities(await context.facilities.list(membership.sectId));
+    const facilities = mapFacilities(
+      await context.facilities.list(membership.sectId),
+    );
     const facilityLevels = new Map(
       facilities.map((item) => [item.key as string, item.level]),
     );
@@ -169,11 +196,13 @@ export class SectEconomyApplicationService {
     } catch {
       organizationError('本周俸禄已经领取');
     }
-    await this.events.forStipend({
-      userId,
-      cultivatorId,
-      command: context,
-    }).dispatch(claim.pullEvents());
+    await this.events
+      .forStipend({
+        userId,
+        cultivatorId,
+        command: context,
+      })
+      .dispatch(claim.pullEvents());
     return {
       weekKey,
       rewards: quote.rewards.map(stipendRewardView),

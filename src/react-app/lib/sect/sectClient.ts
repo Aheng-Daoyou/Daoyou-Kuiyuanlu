@@ -8,6 +8,7 @@ import type {
   SectMembersData,
   SectOverviewData,
   SectShopData,
+  SectSubmissionCandidatesData,
   SectTaskActionData,
   SectTasksData,
 } from '@shared/contracts/sect';
@@ -44,6 +45,24 @@ export function fetchSectOverview(
 
 export function fetchSectTasks(signal?: AbortSignal): Promise<SectTasksData> {
   return fetchData('/api/sects/current/tasks', signal);
+}
+
+export function fetchSectSubmissionCandidates(
+  taskId: string,
+  page = 1,
+  pageSize = 30,
+  eligible: 'all' | 'yes' | 'no' = 'all',
+  signal?: AbortSignal,
+): Promise<SectSubmissionCandidatesData> {
+  const query = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+    eligible,
+  });
+  return fetchData(
+    `/api/sects/current/tasks/${encodeURIComponent(taskId)}/submission-candidates?${query.toString()}`,
+    signal,
+  );
 }
 
 export function fetchSectShop(signal?: AbortSignal): Promise<SectShopData> {

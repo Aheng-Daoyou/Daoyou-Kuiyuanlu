@@ -2,10 +2,11 @@ import { BattlePageLayout } from '@app/components/feature/battle/BattlePageLayou
 import { BattlePlaybackPanel } from '@app/components/feature/battle/BattlePlaybackPanel';
 import { useBattlePlaybackState } from '@app/components/feature/battle/useBattlePlaybackState';
 import { CombatResultDialog } from '@app/components/feature/battle/v5/CombatResultDialog';
-import { InkButton, InkNotice } from '@app/components/ui';
+import { InkButton, InkDialog, InkNotice } from '@app/components/ui';
 import type { SectOutcomeRendererProps } from '@app/lib/sect/presentation/core/registry';
 import type {
   SectBattleOutcomeData,
+  SectTaskRewardReceipt,
 } from '@shared/contracts/sect';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useSectPresentation } from './SectQueryProvider';
@@ -28,15 +29,53 @@ export function SweepSessionOutcome({
   );
 }
 
-export function CompletedOutcome() {
+export function CompletedOutcome({ task }: SectOutcomeRendererProps<unknown>) {
   const { clearOutcome } = useSectTaskInteraction();
   return (
-    <InkNotice className="mt-4">
-      宗门卷宗已经更新。
-      <InkButton variant="secondary" onClick={clearOutcome}>
-        收起结果
-      </InkButton>
-    </InkNotice>
+    <InkDialog
+      dialog={{
+        id: `sect-task-${task.id}`,
+        title: task.state === 'claimable' ? '委托回执已成' : '告示已经揭下',
+        content: (
+          <p className="text-sm leading-7">
+            {task.state === 'claimable'
+              ? '任务已经达成，赏赐尚未发放。请在告示榜领取结算。'
+              : '委托已经登记，可按告示要求开始执行。'}
+          </p>
+        ),
+        confirmLabel: '知道了',
+        cancelLabel: null,
+      }}
+      onClose={clearOutcome}
+    />
+  );
+}
+
+export function RewardClaimedOutcome({
+  task,
+  data,
+}: SectOutcomeRendererProps<unknown>) {
+  const { clearOutcome } = useSectTaskInteraction();
+  const receipt = data as SectTaskRewardReceipt;
+  return (
+    <InkDialog
+      dialog={{
+        id: `sect-task-reward-${receipt.taskRecordId}`,
+        title: '委托已结清',
+        content: (
+          <div className="space-y-2 text-sm leading-7">
+            <p className="font-semibold">{task.presentation.title}</p>
+            <p>宗门贡献 +{receipt.rewards.contribution}</p>
+            <p>修为 +{receipt.rewards.cultivationExp}</p>
+            <p>灵石 +{receipt.rewards.spiritStones}</p>
+            <p className="pt-2 text-stone-500">以上奖励已经入账</p>
+          </div>
+        ),
+        confirmLabel: '收下赏赐',
+        cancelLabel: null,
+      }}
+      onClose={clearOutcome}
+    />
   );
 }
 
@@ -82,8 +121,8 @@ export function BattleOutcome({
         content={
           <p className="leading-8">
             {battle.won
-              ? battle.rewardGranted
-                ? '胜绩与贡献已经记入宗门卷宗。'
+              ? battle.taskFulfilled
+                ? '胜绩回执已成，请回事务堂领取赏赐。'
                 : '胜绩已经记入宗门卷宗。'
               : '此战未能压过残影，任务仍然保留，可整顿后再次挑战。'}
           </p>

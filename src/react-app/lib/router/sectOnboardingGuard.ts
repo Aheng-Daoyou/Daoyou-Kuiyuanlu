@@ -10,18 +10,9 @@ export function resolveSectOnboardingRedirect(
   const normalizedPath = pathname.replace(/\/+$/, '') || '/';
   const searchParams = new URLSearchParams(search);
   const hasSelectedSect = Boolean(searchParams.get('sectId'));
-  const isSectSelectionMap =
-    normalizedPath === '/game/map' && searchParams.get('intent') === 'sect';
-  const isSectVisit = /^\/game\/sect\/[^/]+\/visit$/.test(normalizedPath);
   if (!hasActiveCultivator || state === 'loading') return null;
-  if (
-    state === 'none' &&
-    !isSectSelectionMap &&
-    !isSectVisit &&
-    !(normalizedPath === onboardingPath && hasSelectedSect)
-  ) {
-    return '/game/map?intent=sect';
-  }
+  if (state === 'none' && normalizedPath !== onboardingPath)
+    return onboardingPath;
   if (
     state === 'joined' &&
     normalizedPath === onboardingPath &&

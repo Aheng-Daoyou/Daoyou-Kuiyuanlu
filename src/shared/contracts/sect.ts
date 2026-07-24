@@ -3,12 +3,16 @@ import type {
   SectBenefitSnapshot,
   SectConstructionProjectState,
   SectDefinition,
+  SectDeliveryRequirement,
+  SectDeliveryViolation,
   SectDiscipleRank,
   SectFacilityState,
   SectPermissionState,
+  SectSubmissionItemFacts,
+  SectTaskRewardSnapshot,
 } from '@shared/engine/sect';
-import type { BattleRecord } from '@shared/types/battle';
 import { StandardSectRules } from '@shared/engine/sect';
+import type { BattleRecord } from '@shared/types/battle';
 import { z } from 'zod';
 import type { PlayerStateMutationResponse } from './player';
 
@@ -32,6 +36,11 @@ export const SectTacticRequestSchema = z.object({
 export const SectTaskActionRequestSchema = z.object({
   input: z.record(z.string(), z.unknown()).default({}),
 });
+export const SectSubmissionCandidatesQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(30),
+  eligible: z.enum(['all', 'yes', 'no']).default('all'),
+});
 export const SectShopPurchaseRequestSchema = z.object({
   itemId: z.string().min(1).max(64),
   quantity: z.number().int().positive().max(10).default(1),
@@ -54,14 +63,17 @@ export interface SectTaskViewData {
   id: string;
   definitionId: SectTaskId;
   kind: 'daily' | 'weekly' | 'promotion';
-  state: 'offered' | 'active' | 'completed' | 'locked';
+  state: 'offered' | 'active' | 'claimable' | 'claimed' | 'locked';
   periodKey: string;
   progress: { current: number; target: number };
+  difficulty: 'easy' | 'normal' | 'hard' | 'elite';
+  requirement?: SectDeliveryRequirement;
+  reward?: SectTaskRewardSnapshot;
+  offerRevision?: string;
   presentation: {
     title: string;
     description: string;
-    contributionReward: number;
-    rewardSummary: string;
+    metadata: string[];
   };
   actions: Array<{
     key: string;
@@ -76,11 +88,7 @@ export interface SectTaskViewData {
 export interface SectTasksData {
   dateKey: string;
   weekKey: string;
-  sections: {
-    daily: SectTaskViewData[];
-    weekly: SectTaskViewData[];
-    promotion: SectTaskViewData[];
-  };
+  items: SectTaskViewData[];
 }
 
 export interface SectTaskActionOutcome {
@@ -104,7 +112,32 @@ export interface SectBattleOutcomeData {
   battle: BattleRecord;
   won: boolean;
   challengeTitle: string;
-  rewardGranted: boolean;
+  taskFulfilled: boolean;
+}
+
+export interface SectTaskRewardReceipt {
+  taskRecordId: string;
+  claimedAt: string;
+  rewards: {
+    contribution: number;
+    cultivationExp: number;
+    spiritStones: number;
+  };
+  lines: string[];
+}
+
+export interface SectSubmissionCandidateData {
+  item: SectSubmissionItemFacts;
+  eligible: boolean;
+  violations: SectDeliveryViolation[];
+}
+
+export interface SectSubmissionCandidatesData {
+  requirement: SectDeliveryRequirement;
+  items: SectSubmissionCandidateData[];
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 export type SectTaskActionResponse =

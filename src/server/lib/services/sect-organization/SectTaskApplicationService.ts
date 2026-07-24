@@ -1,228 +1,33 @@
-import type {
-  SectTaskActionData,
-  SectTasksData,
-  SectTaskViewData,
-} from '@shared/contracts/sect';
+import type { SectTaskActionData } from '@shared/contracts/sect';
 import {
   SectTask,
+  SectTaskRecordPayloadSchema,
   type SectTaskDefinition,
 } from '@shared/engine/sect';
-import { SectError } from '../SectError';
+import { z } from 'zod';
+import { ClaimSectTaskRewardHandler } from './ClaimSectTaskRewardHandler';
+import { SectCapabilityAuthorizer } from './SectCapabilityAuthorizer';
 import type { SectDomainEventDispatcherFactory } from './SectDomainEventDispatcher';
+import {
+  invalidSectTask,
+  requireSectMembership,
+  resolveCurrentSectTaskExecution,
+  sectTaskPeriodKey,
+} from './SectTaskApplicationSupport';
+import { SectTaskOfferService } from './SectTaskOfferService';
+import type {
+  SectTaskOfferPolicyRegistry,
+  SectTaskRewardPolicyRegistry,
+} from './SectTaskSettlement';
+import { toSectTaskView } from './SectTaskViewAssembler';
 import type {
   SectCommandContext,
   SectMembershipRecord,
-  SectQueryContext,
   SectTaskRecord,
 } from './ports';
-import type {
-  SectTaskExecutor,
-  SectTaskExecutorRegistry,
-} from './task-executors/SectTaskExecutor';
-import type { SectTaskProgressRegistry } from './SectTaskSettlement';
-import { SectCapabilityAuthorizer } from './SectCapabilityAuthorizer';
+import type { SectTaskExecutorRegistry } from './task-executors/SectTaskExecutor';
 
-function invalid(message: string, status = 409): never {
-  throw new SectError('SECT_ORGANIZATION_INVALID', message, status);
-}
-
-function taskPeriodKey(
-  definition: SectTaskDefinition,
-  context: Pick<SectQueryContext, 'clock'>,
-): string {
-  if (definition.kind === 'daily') return context.clock.dateKey();
-  if (definition.kind === 'weekly') return context.clock.weekKey();
-  return 'permanent';
-}
-
-function resolvedExecution(
-  definition: SectTaskDefinition,
-  context: Pick<SectQueryContext, 'clock'>,
-) {
-  const execution = (
-    definition.availability?.resolve({
-      dateKey: context.clock.dateKey(),
-      weekKey: context.clock.weekKey(),
-    }) ?? { executorKey: definition.executorKey }
-  );
-  if (
-    definition.availability &&
-    !definition.availability.executorKeys.includes(execution.executorKey)
-  )
-    invalid(
-      `任务 ${definition.id} 返回未声明的执行器：${execution.executorKey}`,
-      500,
-    );
-  return execution;
-}
-
-function syntheticRecord(
-  membership: SectMembershipRecord,
-  definition: SectTaskDefinition,
-  context: Pick<SectQueryContext, 'clock'>,
-  payload: Record<string, unknown> = {},
-): SectTaskRecord {
-  return {
-    id: `offered:${definition.id}`,
-    membershipId: membership.id,
-    taskId: definition.id,
-    kind: definition.kind,
-    periodKey: taskPeriodKey(definition, context),
-    status: 'active',
-    progress: 0,
-    payload: { target: definition.target, ...payload },
-  };
-}
-
-function toView(args: {
-  definition: SectTaskDefinition;
-  record: SectTaskRecord;
-  state: SectTaskViewData['state'];
-  executor: SectTaskExecutor;
-  enabled: boolean;
-  disabledReason?: string;
-  offered?: boolean;
-}): SectTaskViewData {
-  const actions = args.state === 'completed'
-    ? []
-    : args.offered
-      ? [
-          {
-            key: 'accept',
-            renderer: 'sect.action.accept',
-            label: '领取委托',
-            enabled: args.enabled,
-            ...(args.disabledReason ? { disabledReason: args.disabledReason } : {}),
-          },
-        ]
-      : args.executor.actions(args.definition, args.record).map((action) => ({
-          ...action,
-          enabled: args.enabled,
-          ...(args.disabledReason ? { disabledReason: args.disabledReason } : {}),
-        }));
-  return {
-    id: args.record.id,
-    definitionId: args.definition.id,
-    kind: args.definition.kind,
-    state: args.state,
-    periodKey: args.record.periodKey,
-    progress: {
-      current: args.record.progress,
-      target: Number(args.record.payload.target ?? args.definition.target),
-    },
-    presentation: {
-      title: args.definition.presentation.title,
-      description: args.definition.presentation.description,
-      contributionReward: args.definition.contributionReward,
-      rewardSummary: args.definition.presentation.rewardSummary,
-    },
-    actions,
-  };
-}
-
-async function requireMembership(
-  cultivatorId: string,
-  context: Pick<SectQueryContext, 'memberships'>,
-): Promise<SectMembershipRecord> {
-  const membership = await context.memberships.findByCultivator(cultivatorId);
-  if (!membership) invalid('尚未拜入宗门');
-  return membership;
-}
-
-export class GetSectTasksQueryHandler {
-  constructor(
-    private readonly executors: SectTaskExecutorRegistry,
-    private readonly progress: SectTaskProgressRegistry,
-    private readonly authorizer = new SectCapabilityAuthorizer(),
-  ) {}
-
-  async execute(
-    cultivatorId: string,
-    context: SectQueryContext,
-  ): Promise<SectTasksData> {
-    const membership = await requireMembership(cultivatorId, context);
-    const organization = context.modules.require(membership.sectId);
-    this.authorizer.assertOrganization(
-      organization,
-      membership.discipleRank,
-      'sect.tasks.use',
-    );
-    const records = await context.tasks.list(membership.id);
-    const dateKey = context.clock.dateKey();
-    const weekKey = context.clock.weekKey();
-    const currentDaily = records.find(
-      (record) => record.kind === 'daily' && record.periodKey === dateKey,
-    );
-    const build = async (
-      definition: SectTaskDefinition,
-      offered: boolean,
-    ): Promise<SectTaskViewData> => {
-      const periodKey = taskPeriodKey(definition, context);
-      const execution = resolvedExecution(definition, context);
-      const executor = this.executors.require(execution.executorKey);
-      const persisted = records.find(
-        (record) => record.taskId === definition.id && record.periodKey === periodKey,
-      );
-      const record = persisted ?? syntheticRecord(membership, definition, context, execution.parameters);
-      if (!persisted && definition.progress)
-        record.progress = Math.min(
-          definition.target,
-          await this.progress.require(definition.progress.strategy).current({
-            membership,
-            definition,
-            context,
-          }),
-        );
-      const capabilityAllowed = organization.capabilities.allows(
-        membership.discipleRank,
-        executor.requiredCapability(definition),
-      );
-      const dailyBlocked = definition.kind === 'daily' && Boolean(currentDaily && !persisted);
-      const enabled = capabilityAllowed && !dailyBlocked;
-      const permission = organization.capabilities.snapshot(membership.discipleRank)[
-        executor.requiredCapability(definition)
-      ];
-      const disabledReason = dailyBlocked
-        ? '今日已经领取其他委托'
-        : capabilityAllowed
-          ? undefined
-          : permission?.reason ?? '当前弟子职阶尚未开放';
-      return toView({
-        definition,
-        record,
-        executor,
-        offered: offered && !persisted,
-        state: persisted?.status === 'completed'
-          ? 'completed'
-          : enabled
-            ? offered && !persisted
-              ? 'offered'
-              : 'active'
-            : 'locked',
-        enabled,
-        disabledReason,
-      });
-    };
-
-    return {
-      dateKey,
-      weekKey,
-      sections: {
-        daily: await Promise.all(
-          organization.tasks.listDaily().map((definition) => build(definition, true)),
-        ),
-        weekly: await Promise.all(
-          organization.tasks.listWeekly().map((definition) => build(definition, false)),
-        ),
-        promotion: await Promise.all(
-          organization.tasks.listPromotion().map((definition) => build(definition, false)),
-        ),
-      },
-    };
-  }
-}
-
-export class ProcessSectTaskCompletionHandler {
+export class FulfillSectTaskHandler {
   constructor(private readonly events: SectDomainEventDispatcherFactory) {}
 
   async execute(args: {
@@ -239,30 +44,45 @@ export class ProcessSectTaskCompletionHandler {
       membershipId: args.record.membershipId,
       kind: args.record.kind,
       periodKey: args.record.periodKey,
-      target: Number(args.record.payload.target ?? args.definition.target),
-      state: args.record.status,
+      target: args.record.payload.target,
+      state: 'active',
       progress: args.record.progress,
     });
-    if (!aggregate.complete()) invalid('该宗门任务已经完成');
-    const completed = await args.context.tasks.complete(args.record.id, args.definition.target);
-    if (!completed) invalid('该宗门任务已经完成');
-
-    await this.events.forTask({
-      userId: args.userId,
-      cultivatorId: args.cultivatorId,
-      membership: args.membership,
-      command: args.context,
-    }).dispatch(aggregate.pullEvents());
+    if (!aggregate.complete()) invalidSectTask('该宗门任务已经达成');
+    const completed = await args.context.tasks.complete(
+      args.record.id,
+      args.definition.target,
+    );
+    if (!completed) invalidSectTask('该宗门任务已经达成');
+    await this.events
+      .forTask({
+        userId: args.userId,
+        cultivatorId: args.cultivatorId,
+        membership: args.membership,
+        command: args.context,
+      })
+      .dispatch(aggregate.pullEvents());
     return completed;
   }
 }
 
+const acceptInput = z.object({
+  offerRevision: z.string().min(16).max(64),
+});
+
 export class ExecuteSectTaskActionHandler {
+  private readonly offers: SectTaskOfferService;
+
   constructor(
     private readonly executors: SectTaskExecutorRegistry,
-    private readonly completion: ProcessSectTaskCompletionHandler,
+    private readonly fulfillment: FulfillSectTaskHandler,
+    private readonly claims: ClaimSectTaskRewardHandler,
+    offerPolicies: SectTaskOfferPolicyRegistry,
+    rewardPolicies: SectTaskRewardPolicyRegistry,
     private readonly authorizer = new SectCapabilityAuthorizer(),
-  ) {}
+  ) {
+    this.offers = new SectTaskOfferService(offerPolicies, rewardPolicies);
+  }
 
   async execute(
     command: {
@@ -275,90 +95,131 @@ export class ExecuteSectTaskActionHandler {
     },
     context: SectCommandContext,
   ): Promise<SectTaskActionData> {
-    const membership = await requireMembership(command.cultivatorId, context);
+    const membership = await requireSectMembership(
+      command.cultivatorId,
+      context,
+    );
     const organization = context.modules.require(membership.sectId);
     const definition = organization.tasks.get(command.taskId);
-    if (!definition) invalid('未知宗门委托', 400);
-    const execution = resolvedExecution(definition, context);
-    const executor = this.executors.require(execution.executorKey);
-    const capability = executor.requiredCapability(definition);
-    this.authorizer.assertOrganization(
-      organization,
-      membership.discipleRank,
-      capability,
+    if (!definition) invalidSectTask('未知宗门委托', 400);
+    const periodKey = sectTaskPeriodKey(definition, context);
+    let record = await context.tasks.find(
+      membership.id,
+      periodKey,
+      definition.id,
     );
-    const periodKey = taskPeriodKey(definition, context);
 
     if (command.actionKey === 'accept') {
-      if (definition.kind !== 'daily') invalid('该任务不需要领取', 400);
-      if (await context.tasks.findDaily(membership.id, periodKey))
-        invalid('今日已经领取过宗门委托');
-      const seed = [...`${membership.id}:${periodKey}`].reduce(
-        (sum, char) => sum + char.charCodeAt(0),
-        0,
+      if (definition.enrollment !== 'manual')
+        invalidSectTask('该任务不需要领取', 400);
+      const execution = resolveCurrentSectTaskExecution(definition, context);
+      const executor = this.executors.require(execution.executorKey);
+      this.authorizer.assertOrganization(
+        organization,
+        membership.discipleRank,
+        executor.requiredCapability(definition),
       );
-      const offered = SectTask.offered({
-        id: `offered:${definition.id}`,
-        definitionId: definition.id,
+      const progress = await context.cultivators.loadProgress(
+        command.cultivatorId,
+      );
+      if (!progress) invalidSectTask('角色境界状态不存在', 500);
+      const offer = this.offers.create({
+        definition,
         membershipId: membership.id,
-        kind: definition.kind,
         periodKey,
-        target: definition.target,
+        realm: progress.realm,
+        realmStage: progress.stage,
+        executorKey: execution.executorKey,
+        offer: execution.offer,
       });
-      offered.accept(periodKey);
-      const record = await context.tasks.create({
+      const parsed = acceptInput.safeParse(command.input);
+      if (!parsed.success) invalidSectTask('告示凭据无效', 400);
+      if (parsed.data.offerRevision !== offer.offerRevision)
+        invalidSectTask('告示内容已经更新，请刷新后重试');
+      if (record) invalidSectTask('该宗门任务本周期已经领取');
+      record = await context.tasks.create({
         membershipId: membership.id,
         taskId: definition.id,
         kind: definition.kind,
         periodKey,
-        payload: executor.prepareAcceptance(definition, {
-          seed,
-          parameters: execution.parameters,
-        }),
+        payload: this.offers.payload(definition, offer),
       });
       return {
-        task: toView({
+        task: toSectTaskView({
           definition,
           record,
           executor,
           state: 'active',
           enabled: true,
         }),
-        outcome: { renderer: 'sect.outcome.accepted', data: { accepted: true } },
+        outcome: {
+          renderer: 'sect.outcome.accepted',
+          data: { accepted: true },
+        },
       };
     }
 
-    let record = await context.tasks.find(membership.id, periodKey, definition.id);
+    let executor;
     if (!record) {
-      if (definition.kind === 'daily') invalid('尚未领取对应宗门委托', 400);
-      const seed = [...`${membership.id}:${periodKey}`].reduce(
-        (sum, char) => sum + char.charCodeAt(0),
-        0,
+      const execution = resolveCurrentSectTaskExecution(definition, context);
+      executor = this.executors.require(execution.executorKey);
+      this.authorizer.assertOrganization(
+        organization,
+        membership.discipleRank,
+        executor.requiredCapability(definition),
       );
-      const offered = SectTask.offered({
-        id: `offered:${definition.id}`,
-        definitionId: definition.id,
+      if (definition.enrollment === 'manual')
+        invalidSectTask('尚未领取对应宗门委托', 400);
+      const progress = await context.cultivators.loadProgress(
+        command.cultivatorId,
+      );
+      if (!progress) invalidSectTask('角色境界状态不存在', 500);
+      const offer = this.offers.create({
+        definition,
         membershipId: membership.id,
-        kind: definition.kind,
         periodKey,
-        target: definition.target,
+        realm: progress.realm,
+        realmStage: progress.stage,
+        executorKey: execution.executorKey,
+        offer: execution.offer,
       });
-      offered.accept(periodKey);
       record = await context.tasks.create({
         membershipId: membership.id,
         taskId: definition.id,
         kind: definition.kind,
         periodKey,
-        payload: executor.prepareAcceptance(definition, {
-          seed,
-          parameters: execution.parameters,
-        }),
+        payload: this.offers.payload(definition, offer),
       });
+    } else {
+      executor = this.executors.require(record.payload.offer.executorKey);
+      this.authorizer.assertOrganization(
+        organization,
+        membership.discipleRank,
+        executor.requiredCapability(definition),
+      );
     }
-    if (record.status === 'completed') invalid('该宗门任务已经完成');
-    const parsed = executor.inputSchema(command.actionKey).safeParse(command.input);
+
+    if (command.actionKey === 'claim')
+      return this.claims.execute({
+        command,
+        context,
+        membership,
+        definition,
+        executor,
+        record,
+      });
+    if (record.status === 'completed')
+      invalidSectTask(
+        record.claimedAt ? '该宗门任务已经结清' : '该宗门任务奖励待领取',
+      );
+    const parsed = executor
+      .inputSchema(command.actionKey)
+      .safeParse(command.input);
     if (!parsed.success)
-      invalid(parsed.error.issues[0]?.message ?? '任务操作参数无效', 400);
+      invalidSectTask(
+        parsed.error.issues[0]?.message ?? '任务操作参数无效',
+        400,
+      );
     const decision = await executor.execute(
       command.actionKey,
       {
@@ -373,12 +234,15 @@ export class ExecuteSectTaskActionHandler {
       parsed.data,
     );
     if (decision.payload) {
-      const updated = await context.tasks.updatePayload(record.id, decision.payload);
-      if (!updated) invalid('任务状态已经变化，请重试');
+      const updated = await context.tasks.updatePayload(
+        record.id,
+        SectTaskRecordPayloadSchema.parse(decision.payload),
+      );
+      if (!updated) invalidSectTask('任务状态已经变化，请重试');
       record = updated;
     }
     if (decision.completed)
-      record = await this.completion.execute({
+      record = await this.fulfillment.execute({
         userId: command.userId,
         cultivatorId: command.cultivatorId,
         membership,
@@ -387,11 +251,11 @@ export class ExecuteSectTaskActionHandler {
         context,
       });
     return {
-      task: toView({
+      task: toSectTaskView({
         definition,
         record,
         executor,
-        state: record.status === 'completed' ? 'completed' : 'active',
+        state: record.status === 'completed' ? 'claimable' : 'active',
         enabled: true,
       }),
       outcome: decision.outcome,

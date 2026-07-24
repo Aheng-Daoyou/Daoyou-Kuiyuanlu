@@ -1,8 +1,9 @@
 import { getExecutor, type DbTransaction } from '@server/lib/drizzle/db';
 import * as schema from '@server/lib/drizzle/schema';
 import {
-  createRedisLock,
-  releaseRedisLock,
+  redisLockKeys,
+  withRedisLock,
+  type RedisLeaseContext,
 } from '@server/lib/redis/lock';
 import {
   ATTRIBUTE_RESET_TALISMAN_NAME,
@@ -34,29 +35,33 @@ export interface AttributeResetResult {
 }
 
 export function getAttributeResetLockKey(cultivatorId: string): string {
-  return `cultivator:attributes:reset:lock:${cultivatorId}`;
+  return redisLockKeys.cultivatorMutation(cultivatorId);
 }
 
 export async function withAttributeResetLock<T>(
   cultivatorId: string,
-  task: () => Promise<T>,
+  task: (lease: RedisLeaseContext) => Promise<T>,
+  lease?: RedisLeaseContext,
 ): Promise<T> {
-  const lockKey = getAttributeResetLockKey(cultivatorId);
-  const lock = createRedisLock({
-    retries: 0,
-    delay: 50,
-  });
-  let lockAcquired = false;
-
-  try {
-    await lock.acquire(lockKey);
-    lockAcquired = true;
-    return await task();
-  } finally {
-    if (lockAcquired) {
-      await releaseRedisLock(lock, lockKey);
-    }
+  if (lease) {
+    lease.assertHeld();
+    const result = await task(lease);
+    lease.assertHeld();
+    return result;
   }
+
+  return withRedisLock(
+    {
+      key: getAttributeResetLockKey(cultivatorId),
+      context: 'attribute-reset',
+      retries: 0,
+      delayMs: 50,
+    },
+    async (lease) => {
+      lease.assertHeld();
+      return task(lease);
+    },
+  );
 }
 
 async function loadResetTalisman(args: {

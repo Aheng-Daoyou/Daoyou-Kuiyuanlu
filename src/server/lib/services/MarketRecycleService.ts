@@ -17,7 +17,11 @@ import {
   BASE_PRICES,
   TYPE_MULTIPLIERS,
 } from '@shared/engine/material/creation/config';
-import { getExecutor, type DbTransaction } from '@server/lib/drizzle/db';
+import {
+  getExecutor,
+  type DbExecutor,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
 import {
   cultivators,
   materials,
@@ -48,7 +52,6 @@ import {
 } from './materialMysteryGuard';
 
 const SELL_SESSION_PREFIX = 'market:sell:session:';
-const SELL_LOCK_PREFIX = 'market:sell:lock:';
 const MYSTERY_MATERIAL_RECYCLE_BLOCKING_REASON =
   '待鉴定材料不可回收，请先鉴定。';
 const APPRAISAL_RATING_STEPS: HighTierAppraisal['rating'][] = ['C', 'B', 'A', 'S'];
@@ -422,8 +425,9 @@ function ensureNoMysteryMaterials(items: Material[]): void {
 async function loadOwnedMaterials(
   cultivatorId: string,
   materialIds: string[],
+  q: DbExecutor | DbTransaction = getExecutor(),
 ): Promise<Material[]> {
-  const rows = await getExecutor()
+  const rows = await q
     .select()
     .from(materials)
     .where(
@@ -445,10 +449,12 @@ async function loadOwnedMaterials(
 async function loadOwnedArtifacts(
   cultivatorId: string,
   artifactIds: string[],
+  q: DbExecutor | DbTransaction = getExecutor(),
 ): Promise<{ artifacts: Artifact[]; rawRecords: CreationProductRecord[] }> {
   const rows = await creationProductRepository.findArtifactsByIdsAndCultivator(
     cultivatorId,
     artifactIds,
+    q,
   );
 
   if (rows.length !== artifactIds.length) {
@@ -756,9 +762,11 @@ async function confirmMaterialSell(
   session: RecycleSession,
   options: { tx?: DbTransaction; deferSideEffects?: boolean } = {},
 ): Promise<SellConfirmResult> {
+  const q = getExecutor(options.tx);
   const ownedMaterials = await loadOwnedMaterials(
     cultivatorId,
     session.itemIds,
+    q,
   );
   ensureNoMysteryMaterials(ownedMaterials);
   const snapshot = new Map(ownedMaterials.map((item) => [item.id, item]));
@@ -936,34 +944,51 @@ async function confirmArtifactSell(
   };
 }
 
+export async function prepareSellConfirmation(
+  cultivatorId: string,
+  sessionId: string,
+): Promise<{
+  commit(tx: DbTransaction): Promise<SellConfirmResult>;
+}> {
+  const session = await readSession(sessionId);
+
+  if (session.cultivatorId !== cultivatorId) {
+    throw new MarketRecycleError(410, '回收确认已失效');
+  }
+  if (session.expiresAt < Date.now()) {
+    await redis.del(buildSessionKey(sessionId));
+    throw new MarketRecycleError(410, '回收确认已过期，请重新鉴定');
+  }
+
+  return {
+    commit(tx: DbTransaction) {
+      if (session.itemType === 'artifact') {
+        return confirmArtifactSell(cultivatorId, session, {
+          tx,
+          deferSideEffects: true,
+        });
+      }
+
+      return confirmMaterialSell(cultivatorId, session, {
+        tx,
+        deferSideEffects: true,
+      });
+    },
+  };
+}
+
 export async function confirmSell(
   cultivatorId: string,
   sessionId: string,
   options: { tx?: DbTransaction; deferSideEffects?: boolean } = {},
 ): Promise<SellConfirmResult> {
-  const lockKey = `${SELL_LOCK_PREFIX}${cultivatorId}`;
-  const acquiredLock = await redis.set(lockKey, 'locked', 'EX', 10, 'NX');
-  if (!acquiredLock) {
-    throw new MarketRecycleError(429, '回收交易处理中，请稍后再试');
+  const prepared = await prepareSellConfirmation(cultivatorId, sessionId);
+  const result = options.tx
+    ? await prepared.commit(options.tx)
+    : await getExecutor().transaction((tx) => prepared.commit(tx));
+  if (result.afterCommit && !options.deferSideEffects) {
+    await result.afterCommit();
+    return { ...result, afterCommit: undefined };
   }
-
-  try {
-    const session = await readSession(sessionId);
-
-    if (session.cultivatorId !== cultivatorId) {
-      throw new MarketRecycleError(410, '回收确认已失效');
-    }
-    if (session.expiresAt < Date.now()) {
-      await redis.del(buildSessionKey(sessionId));
-      throw new MarketRecycleError(410, '回收确认已过期，请重新鉴定');
-    }
-
-    if (session.itemType === 'artifact') {
-      return confirmArtifactSell(cultivatorId, session, options);
-    }
-
-    return confirmMaterialSell(cultivatorId, session, options);
-  } finally {
-    await redis.del(lockKey);
-  }
+  return result;
 }

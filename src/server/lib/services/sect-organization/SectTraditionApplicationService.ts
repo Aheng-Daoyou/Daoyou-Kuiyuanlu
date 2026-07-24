@@ -97,11 +97,19 @@ export class SectTraditionApplicationService {
     );
     const trained = await this.requireActive(args.cultivatorId);
     const unlocked = listUnlockedAbilityIds(module.definition, trained).filter(
-      (id) => module.definition.abilities.find((ability) => ability.id === id)?.kind === 'active',
+      (id) =>
+        module.definition.abilities.find((ability) => ability.id === id)
+          ?.kind === 'active',
     );
-    const nextLoadout = fillFirstEmptyAbilitySlots(trained.abilityLoadout, unlocked);
+    const nextLoadout = fillFirstEmptyAbilitySlots(
+      trained.abilityLoadout,
+      unlocked,
+    );
     if (nextLoadout.some((id, index) => id !== trained.abilityLoadout[index]))
-      await this.repository.replaceAbilityLoadout(trained.membershipId, nextLoadout);
+      await this.repository.replaceAbilityLoadout(
+        trained.membershipId,
+        nextLoadout,
+      );
     return {
       sect: await this.requireActive(args.cultivatorId),
       methodId: args.methodId,
@@ -118,7 +126,9 @@ export class SectTraditionApplicationService {
     const sect = await this.requireActive(args.cultivatorId);
     const module = this.runtime.registry.require(sect.sectId);
     this.assertEnlightenment(module.organization, sect);
-    const path = module.definition.paths.find((entry) => entry.id === args.pathId);
+    const path = module.definition.paths.find(
+      (entry) => entry.id === args.pathId,
+    );
     if (!path) throw new SectError('SECT_PATH_UNKNOWN', '未知流派', 400);
     const pathState = sect.paths.find((entry) => entry.pathId === args.pathId);
     const cultivator = await this.requireProgress(args.cultivatorId);
@@ -144,20 +154,24 @@ export class SectTraditionApplicationService {
     const aggregate = SectTradition.rehydrate(sect);
     aggregate.unlockPathLayer(args.pathId, layer.id, path.defaultTacticId);
     if (pathState) {
-      if (!(await this.repository.appendUnlockedPathLayer(
-        sect.membershipId,
-        args.pathId,
-        layer.id,
-        pathState.unlockedLayerIds.length,
-      )))
+      if (
+        !(await this.repository.appendUnlockedPathLayer(
+          sect.membershipId,
+          args.pathId,
+          layer.id,
+          pathState.unlockedLayerIds.length,
+        ))
+      )
         throw new SectError('SECT_REALM_GATE', '流派层级状态已变化，请重试');
     } else {
-      if (!(await this.repository.createPathWithFirstLayer(
-        sect.membershipId,
-        args.pathId,
-        path.defaultTacticId,
-        layer.id,
-      )))
+      if (
+        !(await this.repository.createPathWithFirstLayer(
+          sect.membershipId,
+          args.pathId,
+          path.defaultTacticId,
+          layer.id,
+        ))
+      )
         throw new SectError('SECT_REALM_GATE', '流派已经习得，请重试');
       await this.repository.activatePathIfNone(sect.membershipId, args.pathId);
     }
@@ -184,7 +198,10 @@ export class SectTraditionApplicationService {
     nodeIds: string[],
   ) {
     const normalizedSlot = this.requireSlot(slot);
-    const { sect, path, pathState } = await this.requirePath(cultivatorId, pathId);
+    const { sect, path, pathState } = await this.requirePath(
+      cultivatorId,
+      pathId,
+    );
     let validated: string[];
     try {
       validated = this.meridianLoadout.validate({
@@ -200,7 +217,11 @@ export class SectTraditionApplicationService {
         400,
       );
     }
-    SectTradition.rehydrate(sect).setMeridianLoadout(pathId, normalizedSlot, validated);
+    SectTradition.rehydrate(sect).setMeridianLoadout(
+      pathId,
+      normalizedSlot,
+      validated,
+    );
     await this.repository.replaceMeridianLoadout(
       sect.membershipId,
       pathId,
@@ -210,10 +231,17 @@ export class SectTraditionApplicationService {
     return this.requireActive(cultivatorId);
   }
 
-  async activateMeridianLoadout(cultivatorId: string, pathId: string, slot: number) {
+  async activateMeridianLoadout(
+    cultivatorId: string,
+    pathId: string,
+    slot: number,
+  ) {
     const normalizedSlot = this.requireSlot(slot);
     const { sect } = await this.requirePath(cultivatorId, pathId);
-    SectTradition.rehydrate(sect).activateMeridianLoadout(pathId, normalizedSlot);
+    SectTradition.rehydrate(sect).activateMeridianLoadout(
+      pathId,
+      normalizedSlot,
+    );
     await this.repository.activateMeridianLoadout(
       sect.membershipId,
       pathId,
@@ -222,7 +250,10 @@ export class SectTraditionApplicationService {
     return this.requireActive(cultivatorId);
   }
 
-  async setAbilityLoadout(cultivatorId: string, rawSlots: Array<string | null>) {
+  async setAbilityLoadout(
+    cultivatorId: string,
+    rawSlots: Array<string | null>,
+  ) {
     const sect = await this.requireActive(cultivatorId);
     const module = this.runtime.registry.require(sect.sectId);
     this.authorizer.assertOrganization(
@@ -267,7 +298,9 @@ export class SectTraditionApplicationService {
   }
 
   private assertEnlightenment(
-    organization: ReturnType<SectRuntime['registry']['require']>['organization'],
+    organization: ReturnType<
+      SectRuntime['registry']['require']
+    >['organization'],
     sect: CultivatorSectState,
   ) {
     this.authorizer.assertOrganization(

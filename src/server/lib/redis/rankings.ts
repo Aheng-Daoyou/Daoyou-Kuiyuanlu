@@ -5,7 +5,9 @@ import {
 import { getBodyCultivationRankingTag } from '@shared/lib/bodyCultivation/ranking';
 import { REALM_VALUES, type RealmType } from '@shared/types/constants';
 import type { BodyCultivationRankingInfo } from '@shared/types/rankings';
+import type { Lock } from '@microfleet/ioredis-lock';
 import { redis } from './index';
+import { createRedisLock, releaseRedisLock } from './lock';
 
 const RANKING_LIST_PREFIX = 'golden_rank:list:';
 const LEGACY_RANKING_LIST_KEY = 'golden_rank:list';
@@ -395,31 +397,27 @@ export async function getRemainingChallenges(
  */
 export async function acquireChallengeLock(
   cultivatorId: string,
-): Promise<boolean> {
+): Promise<Lock | null> {
   const lockKey = `${CHALLENGE_LOCK_PREFIX}${cultivatorId}`;
-
-  // 使用SET NX EX实现分布式锁
-  // Upstash Redis: set(key, value, { ex?: number, nx?: boolean })
-  // 返回 'OK' | null
-  const result = await redis.set(
-    lockKey,
-    Date.now().toString(),
-    'EX',
-    LOCK_DURATION,
-    'NX',
-  );
-
-  return result === 'OK';
+  const lock = createRedisLock({
+    timeout: LOCK_DURATION * 1000,
+    retries: 0,
+  });
+  try {
+    await lock.acquire(lockKey);
+    return lock;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * 释放挑战锁
  */
 export async function releaseChallengeLock(
-  cultivatorId: string,
+  lock: Lock | null,
 ): Promise<void> {
-  const lockKey = `${CHALLENGE_LOCK_PREFIX}${cultivatorId}`;
-  await redis.del(lockKey);
+  await releaseRedisLock(lock, 'ranking-challenge');
 }
 
 /**

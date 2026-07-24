@@ -1,8 +1,12 @@
-import {
-  requireActiveCultivator,
-} from '@server/lib/hono/middleware';
+import { requireActiveCultivator } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
+import {
+  LockAcquisitionError,
+  RedisLeaseLostError,
+  redisLockKeys,
+  withRedisLock,
+} from '@server/lib/redis/lock';
 import {
   ManualDrawService,
   ManualDrawServiceError,
@@ -35,28 +39,57 @@ router.post('/', requireActiveCultivator(), async (c) => {
       return c.json({ success: false, error: '请求参数格式错误' }, 400);
     }
 
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'manual_draw',
-      allowEmpty: true,
-      run: async (tx) => {
-        const result = await ManualDrawService.draw(
-          user.id,
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: 'manual-draw',
+        timeoutMs: 60_000,
+        renewEveryMs: 20_000,
+        retries: 0,
+      },
+      async (lease) => {
+        const prepared = await ManualDrawService.prepareDraw(
           cultivator.id,
           parsed.data.kind,
           parsed.data.count,
-          { tx },
         );
-        return {
-          result,
-          changes: [],
-        };
-      },
-    });
+        lease.assertHeld();
 
-    return c.json(toPlayerStateMutationResponse(committed));
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'manual_draw',
+          run: async (tx) => {
+            const result = await ManualDrawService.commitPreparedDraw(
+              user.id,
+              cultivator.id,
+              prepared,
+              tx,
+            );
+            return {
+              result,
+              changes: [
+                {
+                  domain: 'loadout',
+                  eventType: 'loadout.manual_draw.completed',
+                  invalidates: ['loadout'],
+                },
+              ],
+            };
+          },
+        });
+
+        return c.json(toPlayerStateMutationResponse(committed));
+      },
+    );
   } catch (error) {
+    if (
+      error instanceof LockAcquisitionError ||
+      error instanceof RedisLeaseLostError
+    ) {
+      throw error;
+    }
     const status = error instanceof ManualDrawServiceError ? error.status : 400;
     return jsonWithStatus(
       c,

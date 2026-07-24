@@ -1,23 +1,23 @@
-import type { SectConstructionApplicationService } from './SectConstructionApplicationService';
-import { SectAdmissionApplicationService } from './SectAdmissionApplicationService';
-import { SectTraditionApplicationService } from './SectTraditionApplicationService';
 import type { SectRuntime } from '@shared/engine/sect';
+import type { GetSectTasksQueryHandler } from './GetSectTasksQueryHandler';
 import type {
   SectAdmissionRepository,
   SectTraditionRepository,
   SectTrainingResourceGateway,
 } from './ports';
+import { SectAdmissionApplicationService } from './SectAdmissionApplicationService';
+import type { SectConstructionApplicationService } from './SectConstructionApplicationService';
 import type { SectEconomyApplicationService } from './SectEconomyApplicationService';
 import type { SectMembershipApplicationService } from './SectMembershipApplicationService';
-import type {
-  ExecuteSectTaskActionHandler,
-  GetSectTasksQueryHandler,
-} from './SectTaskApplicationService';
+import type { ExecuteSectTaskActionHandler } from './SectTaskApplicationService';
+import type { SectTaskSubmissionQueryService } from './SectTaskSubmissionQueryService';
+import { SectTraditionApplicationService } from './SectTraditionApplicationService';
 
 export interface SectOrganizationServices {
   membership: SectMembershipApplicationService;
   tasks: {
     queries: GetSectTasksQueryHandler;
+    submissions: SectTaskSubmissionQueryService;
     actions: ExecuteSectTaskActionHandler;
   };
   economy: SectEconomyApplicationService;

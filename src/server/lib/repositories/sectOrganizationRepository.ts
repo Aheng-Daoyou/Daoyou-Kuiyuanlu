@@ -1,9 +1,9 @@
 import type { DbExecutor, DbTransaction } from '@server/lib/drizzle/db';
 import {
+  consumables,
   creationProducts,
   cultivators,
   materials,
-  consumables,
   sectConstructionProjects,
   sectContributionLedger,
   sectDonationLedger,
@@ -13,10 +13,7 @@ import {
   sectStipendClaims,
   sectTaskRecords,
 } from '@server/lib/drizzle/schema';
-import type {
-  SectDiscipleRank,
-  SectOffice,
-} from '@shared/engine/sect';
+import type { SectDiscipleRank, SectOffice } from '@shared/engine/sect';
 import { and, asc, count, desc, eq, gte, sql } from 'drizzle-orm';
 
 export async function ensureSectFacilities(
@@ -72,10 +69,7 @@ export async function findActiveSectProject(
   return row ?? null;
 }
 
-export async function lockActiveSectProject(
-  sectId: string,
-  tx: DbTransaction,
-) {
+export async function lockActiveSectProject(sectId: string, tx: DbTransaction) {
   const [row] = await tx
     .select()
     .from(sectConstructionProjects)
@@ -301,25 +295,6 @@ export async function findSectTaskRecord(
   return row ?? null;
 }
 
-export async function findDailySectTask(
-  membershipId: string,
-  dateKey: string,
-  q: DbExecutor | DbTransaction,
-) {
-  const [row] = await q
-    .select()
-    .from(sectTaskRecords)
-    .where(
-      and(
-        eq(sectTaskRecords.membershipId, membershipId),
-        eq(sectTaskRecords.periodKey, dateKey),
-        eq(sectTaskRecords.kind, 'daily'),
-      ),
-    )
-    .limit(1);
-  return row ?? null;
-}
-
 export async function createSectTaskRecord(
   input: {
     membershipId: string;
@@ -333,10 +308,17 @@ export async function createSectTaskRecord(
 ) {
   const [row] = await tx
     .insert(sectTaskRecords)
-    .values({ ...input, progress: input.progress ?? 0, payload: input.payload ?? {} })
+    .values({
+      ...input,
+      progress: input.progress ?? 0,
+      payload: input.payload ?? {},
+    })
     .onConflictDoNothing()
     .returning();
-  return row ?? findSectTaskRecord(input.membershipId, input.periodKey, input.taskId, tx);
+  return (
+    row ??
+    findSectTaskRecord(input.membershipId, input.periodKey, input.taskId, tx)
+  );
 }
 
 export async function completeSectTaskRecord(
@@ -367,7 +349,28 @@ export async function updateSectTaskPayload(
   const [row] = await tx
     .update(sectTaskRecords)
     .set({ payload, updatedAt: new Date() })
-    .where(and(eq(sectTaskRecords.id, id), eq(sectTaskRecords.status, 'active')))
+    .where(
+      and(eq(sectTaskRecords.id, id), eq(sectTaskRecords.status, 'active')),
+    )
+    .returning();
+  return row ?? null;
+}
+
+export async function claimCompletedSectTaskRecord(
+  id: string,
+  claimedAt: Date,
+  tx: DbTransaction,
+) {
+  const [row] = await tx
+    .update(sectTaskRecords)
+    .set({ claimedAt, updatedAt: claimedAt })
+    .where(
+      and(
+        eq(sectTaskRecords.id, id),
+        eq(sectTaskRecords.status, 'completed'),
+        sql`${sectTaskRecords.claimedAt} IS NULL`,
+      ),
+    )
     .returning();
   return row ?? null;
 }
@@ -477,7 +480,9 @@ export async function getPurchasedSectShopQuantity(
   q: DbExecutor | DbTransaction,
 ) {
   const [row] = await q
-    .select({ quantity: sql<number>`COALESCE(SUM(${sectShopPurchases.quantity}), 0)` })
+    .select({
+      quantity: sql<number>`COALESCE(SUM(${sectShopPurchases.quantity}), 0)`,
+    })
     .from(sectShopPurchases)
     .where(
       and(
@@ -596,7 +601,9 @@ export async function findOwnedMaterial(
   const [row] = await q
     .select()
     .from(materials)
-    .where(and(eq(materials.cultivatorId, cultivatorId), eq(materials.id, itemId)))
+    .where(
+      and(eq(materials.cultivatorId, cultivatorId), eq(materials.id, itemId)),
+    )
     .limit(1);
   return row ?? null;
 }
@@ -610,7 +617,10 @@ export async function findOwnedConsumable(
     .select()
     .from(consumables)
     .where(
-      and(eq(consumables.cultivatorId, cultivatorId), eq(consumables.id, itemId)),
+      and(
+        eq(consumables.cultivatorId, cultivatorId),
+        eq(consumables.id, itemId),
+      ),
     )
     .limit(1);
   return row ?? null;
@@ -635,14 +645,142 @@ export async function findOwnedArtifact(
   return row ?? null;
 }
 
+export async function listOwnedSubmissionMaterials(
+  cultivatorId: string,
+  q: DbExecutor | DbTransaction,
+) {
+  return q
+    .select()
+    .from(materials)
+    .where(eq(materials.cultivatorId, cultivatorId))
+    .orderBy(desc(materials.createdAt), asc(materials.id));
+}
+
+export async function listOwnedSubmissionConsumables(
+  cultivatorId: string,
+  q: DbExecutor | DbTransaction,
+) {
+  const condition = and(
+    eq(consumables.cultivatorId, cultivatorId),
+    eq(consumables.type, '丹药'),
+  );
+  return q
+    .select()
+    .from(consumables)
+    .where(condition)
+    .orderBy(desc(consumables.createdAt), asc(consumables.id));
+}
+
+export async function listOwnedSubmissionArtifacts(
+  cultivatorId: string,
+  q: DbExecutor | DbTransaction,
+) {
+  const condition = and(
+    eq(creationProducts.cultivatorId, cultivatorId),
+    eq(creationProducts.productType, 'artifact'),
+  );
+  return q
+    .select()
+    .from(creationProducts)
+    .where(condition)
+    .orderBy(desc(creationProducts.createdAt), asc(creationProducts.id));
+}
+
+export async function consumeOwnedSubmissionMaterial(
+  cultivatorId: string,
+  itemId: string,
+  quantity: number,
+  tx: DbTransaction,
+) {
+  const [row] = await tx
+    .update(materials)
+    .set({ quantity: sql`${materials.quantity} - ${quantity}` })
+    .where(
+      and(
+        eq(materials.id, itemId),
+        eq(materials.cultivatorId, cultivatorId),
+        gte(materials.quantity, quantity),
+      ),
+    )
+    .returning({ id: materials.id, quantity: materials.quantity });
+  if (!row) return false;
+  if (row.quantity === 0)
+    await tx
+      .delete(materials)
+      .where(
+        and(
+          eq(materials.id, itemId),
+          eq(materials.cultivatorId, cultivatorId),
+          eq(materials.quantity, 0),
+        ),
+      );
+  return true;
+}
+
+export async function consumeOwnedSubmissionConsumable(
+  cultivatorId: string,
+  itemId: string,
+  quantity: number,
+  tx: DbTransaction,
+) {
+  const [row] = await tx
+    .update(consumables)
+    .set({ quantity: sql`${consumables.quantity} - ${quantity}` })
+    .where(
+      and(
+        eq(consumables.id, itemId),
+        eq(consumables.cultivatorId, cultivatorId),
+        eq(consumables.type, '丹药'),
+        gte(consumables.quantity, quantity),
+      ),
+    )
+    .returning({ id: consumables.id, quantity: consumables.quantity });
+  if (!row) return false;
+  if (row.quantity === 0)
+    await tx
+      .delete(consumables)
+      .where(
+        and(
+          eq(consumables.id, itemId),
+          eq(consumables.cultivatorId, cultivatorId),
+          eq(consumables.quantity, 0),
+        ),
+      );
+  return true;
+}
+
+export async function consumeOwnedSubmissionArtifact(
+  cultivatorId: string,
+  itemId: string,
+  tx: DbTransaction,
+) {
+  const rows = await tx
+    .delete(creationProducts)
+    .where(
+      and(
+        eq(creationProducts.id, itemId),
+        eq(creationProducts.cultivatorId, cultivatorId),
+        eq(creationProducts.productType, 'artifact'),
+        eq(creationProducts.isEquipped, false),
+      ),
+    )
+    .returning({ id: creationProducts.id });
+  return rows.length === 1;
+}
+
 export async function consumeOwnedMaterial(
   itemId: string,
   quantity: number,
   tx: DbTransaction,
 ) {
-  const [row] = await tx.select().from(materials).where(eq(materials.id, itemId)).limit(1);
+  const [row] = await tx
+    .select()
+    .from(materials)
+    .where(eq(materials.id, itemId))
+    .limit(1);
   if (!row || row.quantity < quantity) return false;
-  if (row.quantity === quantity) await tx.delete(materials).where(eq(materials.id, itemId));
+  if (row.quantity === quantity)
+    await tx.delete(materials).where(eq(materials.id, itemId));
   else
     await tx
       .update(materials)
@@ -692,7 +830,9 @@ export async function sumSectDonationContributionForDate(
   q: DbExecutor | DbTransaction,
 ) {
   const [row] = await q
-    .select({ value: sql<number>`COALESCE(SUM(${sectDonationLedger.contribution}), 0)` })
+    .select({
+      value: sql<number>`COALESCE(SUM(${sectDonationLedger.contribution}), 0)`,
+    })
     .from(sectDonationLedger)
     .where(
       and(

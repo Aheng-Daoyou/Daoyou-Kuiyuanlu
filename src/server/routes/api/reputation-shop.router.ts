@@ -1,11 +1,10 @@
-import { requireActiveCultivator } from '@server/lib/hono/middleware';
+import {
+  redisLockErrorResponse,
+  requireActiveCultivator,
+} from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
-import {
-  createRedisLock,
-  LockAcquisitionError,
-  releaseRedisLock,
-} from '@server/lib/redis/lock';
+import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import {
   commitPlayerStateMutation,
   toPlayerStateMutationResponse,
@@ -69,48 +68,48 @@ router.post('/:id/buy', requireActiveCultivator(), async (c) => {
     const params = ReputationShopBuyParamsSchema.parse({
       id: c.req.param('id'),
     });
-    const lockKey = `reputation-shop:buy:lock:${cultivator.id}`;
-    const lock = createRedisLock({
-      timeout: BUY_LOCK_TTL_MS,
-      retries: 0,
-      delay: 50,
-    });
-    await lock.acquire(lockKey);
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: 'reputation-shop-buy',
+        timeoutMs: BUY_LOCK_TTL_MS,
+        retries: 0,
+        delayMs: 50,
+      },
+      async (lease) => {
+        lease.assertHeld();
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'reputation_shop_buy',
+          run: async (tx) => {
+            const result = await buyReputationShopItem({
+              id: params.id,
+              userId: user.id,
+              cultivatorId: cultivator.id,
+              tx,
+            });
 
-    try {
-      const committed = await commitPlayerStateMutation({
-        userId: user.id,
-        cultivatorId: cultivator.id,
-        source: 'reputation_shop_buy',
-        run: async (tx) => {
-          const result = await buyReputationShopItem({
-            id: params.id,
-            userId: user.id,
-            cultivatorId: cultivator.id,
-            tx,
-          });
+            return {
+              result: {
+                purchasedItem: result.item,
+                reputation: result.reputation,
+              },
+              changes: buildBuyChanges({
+                reputation: result.reputation,
+                gains: result.gains,
+              }),
+            };
+          },
+        });
 
-          return {
-            result: {
-              purchasedItem: result.item,
-              reputation: result.reputation,
-            },
-            changes: buildBuyChanges({
-              reputation: result.reputation,
-              gains: result.gains,
-            }),
-          };
-        },
-      });
-
-      return c.json(toPlayerStateMutationResponse(committed));
-    } finally {
-      await releaseRedisLock(lock, lockKey);
-    }
+        return c.json(toPlayerStateMutationResponse(committed));
+      },
+    );
   } catch (error) {
-    if (error instanceof LockAcquisitionError) {
-      return c.json({ error: '兑换正在处理中，请稍后' }, 429);
-    }
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof ReputationShopError) {
       return jsonWithStatus(c, { error: error.message }, error.status);
     }

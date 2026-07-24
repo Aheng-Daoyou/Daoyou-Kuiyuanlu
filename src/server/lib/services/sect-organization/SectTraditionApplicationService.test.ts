@@ -5,9 +5,7 @@ import {
   createSectRuntime,
   StandardSectCapabilityPolicy,
 } from '@shared/engine/sect';
-import {
-  CUSTOM_ECONOMY_FIXTURE_SECT_MODULE as FIXTURE_SECT_MODULE,
-} from '@shared/engine/sect/testing/fixtures/CustomEconomyFixtureSectModule';
+import { CUSTOM_ECONOMY_FIXTURE_SECT_MODULE as FIXTURE_SECT_MODULE } from '@shared/engine/sect/testing/fixtures/CustomEconomyFixtureSectModule';
 import { fixtureSectState } from '@shared/engine/sect/testing/fixtures/FixtureSectModule';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -25,16 +23,14 @@ vi.mock('@server/lib/repositories/sectRepository', () => ({
   },
 }));
 
-import {
-  createSectTestApplication,
-} from './testing/createSectTestApplication';
-import { productionSectRuntime } from '@shared/engine/sect/content';
 import { postgresSectRepository } from '@server/lib/repositories/sectRepository';
+import { productionSectRuntime } from '@shared/engine/sect/content';
 import { SectTraditionApplicationService } from './SectTraditionApplicationService';
 import type {
   SectTraditionRepository,
   SectTrainingResourceGateway,
 } from './ports';
+import { createSectTestApplication } from './testing/createSectTestApplication';
 
 const tx = {} as DbTransaction;
 const traditionApplication = createSectTestApplication({
@@ -276,20 +272,28 @@ describe('SectTraditionApplicationService capability boundary', () => {
       resources,
     );
 
-    await expect(service.trainMethod({
-      cultivatorId: 'fixture-cultivator',
-      methodId: 'fixture-method-1',
-      targetLevel: 2,
-    })).rejects.toMatchObject({ status: 403 });
-    await expect(service.unlockPathLayer({
-      cultivatorId: 'fixture-cultivator',
-      pathId: 'fixture-first-path',
-      layerId: 'foundation',
-    })).rejects.toMatchObject({ status: 403 });
-    await expect(service.setAbilityLoadout(
-      'fixture-cultivator',
-      ['fixture-ability-2', null, null, null],
-    )).rejects.toMatchObject({ status: 403 });
+    await expect(
+      service.trainMethod({
+        cultivatorId: 'fixture-cultivator',
+        methodId: 'fixture-method-1',
+        targetLevel: 2,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      service.unlockPathLayer({
+        cultivatorId: 'fixture-cultivator',
+        pathId: 'fixture-first-path',
+        layerId: 'foundation',
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      service.setAbilityLoadout('fixture-cultivator', [
+        'fixture-ability-2',
+        null,
+        null,
+        null,
+      ]),
+    ).rejects.toMatchObject({ status: 403 });
     expect(spend).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
   });

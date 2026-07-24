@@ -7,10 +7,9 @@ import type {
 import { SectError } from '../SectError';
 import type { SectMembershipRecord, SectModuleResolver } from './ports';
 
-type CapabilitySubject = Pick<SectMembershipRecord, 'sectId' | 'discipleRank'> | Pick<
-  CultivatorSectState,
-  'sectId' | 'discipleRank'
->;
+type CapabilitySubject =
+  | Pick<SectMembershipRecord, 'sectId' | 'discipleRank'>
+  | Pick<CultivatorSectState, 'sectId' | 'discipleRank'>;
 
 export class SectCapabilityAuthorizer {
   assert(

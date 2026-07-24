@@ -1,6 +1,7 @@
 import {
   ContributionBalance,
   SectTask,
+  SectTaskRecordPayloadSchema,
   type SectDomainEvent,
 } from '@shared/engine/sect';
 import { organizationError } from './applicationSupport';
@@ -12,9 +13,13 @@ import type {
   SectMembershipCommandContext,
   SectMembershipRecord,
 } from './ports';
+import { resolveCurrentSectTaskExecution } from './SectTaskApplicationSupport';
+import { SectTaskOfferService } from './SectTaskOfferService';
 import type {
+  SectTaskFulfillmentRegistry,
+  SectTaskOfferPolicyRegistry,
   SectTaskProgressRegistry,
-  SectTaskSettlementRegistry,
+  SectTaskRewardPolicyRegistry,
 } from './SectTaskSettlement';
 
 type SectDomainEventType = SectDomainEvent['type'];
@@ -86,7 +91,9 @@ export interface SectDomainEventDispatcherFactory {
     membership: SectMembershipRecord;
     command: SectCommandContext;
   }): SectDomainEventDispatcher;
-  forMembership(command: SectMembershipCommandContext): SectDomainEventDispatcher;
+  forMembership(
+    command: SectMembershipCommandContext,
+  ): SectDomainEventDispatcher;
   forShop(command: SectEconomyCommandContext): SectDomainEventDispatcher;
   forStipend(args: {
     userId: string;
@@ -98,7 +105,10 @@ export interface SectDomainEventDispatcherFactory {
   ): SectDomainEventDispatcher;
 }
 
-function taskDefinitions(command: SectCommandContext, membership: SectMembershipRecord) {
+function taskDefinitions(
+  command: SectCommandContext,
+  membership: SectMembershipRecord,
+) {
   const catalog = command.modules.require(membership.sectId).tasks;
   return [
     ...catalog.listDaily(),
@@ -116,13 +126,12 @@ function periodKey(
   return 'permanent';
 }
 
-class StandardSectDomainEventDispatcherFactory
-  implements SectDomainEventDispatcherFactory
-{
+class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatcherFactory {
   constructor(
-    private readonly settlements: SectTaskSettlementRegistry,
+    private readonly fulfillments: SectTaskFulfillmentRegistry,
     private readonly progress: SectTaskProgressRegistry,
     private readonly rewards: SectRewardGrantStrategyRegistry,
+    private readonly offers: SectTaskOfferService,
     private readonly limit = 64,
   ) {}
 
@@ -133,148 +142,249 @@ class StandardSectDomainEventDispatcherFactory
     command: SectCommandContext;
   }): SectDomainEventDispatcher {
     const { command, membership } = args;
-    return new SectDomainEventDispatcher([
-      defineSectDomainEventHandler('SectTaskCompleted', async (event) => {
-        const definition = command.modules
-          .require(membership.sectId)
-          .tasks.get(event.taskId);
-        if (!definition)
-          organizationError(`任务结算定义不存在：${event.taskId}`, 500);
-        const derived: SectDomainEvent[] = [];
-        for (const rule of definition.completion) {
-          const strategy = this.settlements.require(rule.strategy);
-          const parsed = strategy.inputSchema.safeParse(rule.input ?? {});
-          if (!parsed.success)
-            organizationError(`任务结算配置无效：${rule.strategy}`, 500);
-          derived.push(
-            ...(await strategy.settle(
-              {
-                userId: args.userId,
-                cultivatorId: args.cultivatorId,
-                membership,
-                definition,
-                taskRecordId: event.taskRecordId,
-                ports: command,
-              },
-              parsed.data,
-            )),
-          );
-        }
-        return derived;
-      }),
-      defineSectDomainEventHandler('SectTaskProgressSignaled', async (event) => {
-        const derived: SectDomainEvent[] = [];
-        for (const definition of taskDefinitions(command, membership).filter(
-          (candidate) => candidate.progress?.source === event.source,
-        )) {
-          const key = periodKey(definition.kind, command);
-          const existing = await command.tasks.find(
-            membership.id,
-            key,
-            definition.id,
-          );
-          if (existing?.status === 'completed') continue;
-          const current = Math.min(
-            definition.target,
-            await this.progress.require(definition.progress!.strategy).current({
+    return new SectDomainEventDispatcher(
+      [
+        defineSectDomainEventHandler('SectTaskFulfilled', async (event) => {
+          const definition = command.modules
+            .require(membership.sectId)
+            .tasks.get(event.taskId);
+          if (!definition)
+            organizationError(`任务结算定义不存在：${event.taskId}`, 500);
+          const derived: SectDomainEvent[] = [];
+          for (const rule of definition.fulfillment) {
+            const strategy = this.fulfillments.require(rule.strategy);
+            const parsed = strategy.inputSchema.safeParse(rule.input ?? {});
+            if (!parsed.success)
+              organizationError(`任务结算配置无效：${rule.strategy}`, 500);
+            derived.push(
+              ...(await strategy.apply(
+                {
+                  membership,
+                  definition,
+                  taskRecordId: event.taskRecordId,
+                },
+                parsed.data,
+              )),
+            );
+          }
+          return derived;
+        }),
+        defineSectDomainEventHandler(
+          'SectTaskProgressSignaled',
+          async (event) => {
+            const derived: SectDomainEvent[] = [];
+            for (const definition of taskDefinitions(
+              command,
               membership,
-              definition,
-              context: command,
-            }),
-          );
-          const aggregate = existing
-            ? SectTask.rehydrate({
-                id: existing.id,
-                definitionId: existing.taskId,
-                membershipId: existing.membershipId,
-                kind: existing.kind,
-                periodKey: existing.periodKey,
-                target: definition.target,
-                state: existing.status,
-                progress: existing.progress,
-              })
-            : SectTask.offered({
-                id: `progress:${definition.id}:${key}`,
-                definitionId: definition.id,
+            ).filter(
+              (candidate) => candidate.progress?.source === event.source,
+            )) {
+              const key = periodKey(definition.kind, command);
+              const existing = await command.tasks.find(
+                membership.id,
+                key,
+                definition.id,
+              );
+              if (existing?.status === 'completed') continue;
+              const current = Math.min(
+                definition.target,
+                await this.progress
+                  .require(definition.progress!.strategy)
+                  .current({
+                    membership,
+                    definition,
+                    context: command,
+                  }),
+              );
+              const aggregate = existing
+                ? SectTask.rehydrate({
+                    id: existing.id,
+                    definitionId: existing.taskId,
+                    membershipId: existing.membershipId,
+                    kind: existing.kind,
+                    periodKey: existing.periodKey,
+                    target: definition.target,
+                    state: 'active',
+                    progress: existing.progress,
+                  })
+                : SectTask.offered({
+                    id: `progress:${definition.id}:${key}`,
+                    definitionId: definition.id,
+                    membershipId: membership.id,
+                    kind: definition.kind,
+                    periodKey: key,
+                    target: definition.target,
+                  });
+              if (!existing) aggregate.accept(key);
+              if (
+                aggregate.status() === 'active' &&
+                current > aggregate.progress()
+              )
+                aggregate.advance(current - aggregate.progress());
+              const completedNow =
+                aggregate.status() === 'active' &&
+                aggregate.progress() >= definition.target;
+              if (completedNow) aggregate.complete();
+              let payload;
+              if (existing) {
+                payload = SectTaskRecordPayloadSchema.parse(existing.payload);
+              } else {
+                const progressFacts = await command.cultivators.loadProgress(
+                  args.cultivatorId,
+                );
+                if (!progressFacts)
+                  organizationError('角色境界状态不存在', 500);
+                const execution = resolveCurrentSectTaskExecution(
+                  definition,
+                  command,
+                );
+                payload = this.offers.payload(
+                  definition,
+                  this.offers.create({
+                    definition,
+                    membershipId: membership.id,
+                    periodKey: key,
+                    realm: progressFacts.realm,
+                    realmStage: progressFacts.stage,
+                    executorKey: execution.executorKey,
+                    offer: execution.offer,
+                  }),
+                );
+              }
+              const row = await command.tasks.upsertProgress({
                 membershipId: membership.id,
-                kind: definition.kind,
+                taskId: definition.id,
+                kind: definition.kind === 'promotion' ? 'promotion' : 'weekly',
                 periodKey: key,
+                progress: aggregate.progress(),
                 target: definition.target,
+                completed: aggregate.status() === 'claimable',
+                payload,
               });
-          if (!existing) aggregate.accept(key);
-          if (aggregate.status() === 'active' && current > aggregate.progress())
-            aggregate.advance(current - aggregate.progress());
-          const completedNow =
-            aggregate.status() === 'active' &&
-            aggregate.progress() >= definition.target;
-          if (completedNow) aggregate.complete();
-          const row = await command.tasks.upsertProgress({
-            membershipId: membership.id,
-            taskId: definition.id,
-            kind: definition.kind === 'promotion' ? 'promotion' : 'weekly',
-            periodKey: key,
-            progress: aggregate.progress(),
-            target: definition.target,
-            completed: aggregate.status() === 'completed',
-            payload: { target: definition.target },
-          });
-          aggregate.pullEvents();
-          if (completedNow)
-            derived.push({
-              type: 'SectTaskCompleted',
-              taskId: definition.id,
-              taskRecordId: row.id,
-              membershipId: membership.id,
-              kind: definition.kind,
-            });
-        }
-        return derived;
-      }),
-      defineSectDomainEventHandler('SectContributionGranted', async (event) => {
-        ContributionBalance.of(0).credit(event.amount);
-        await command.rewards.grantContribution(
-          event.membershipId,
-          event.amount,
-          event.reason,
-          event.referenceId,
-        );
-      }),
-      defineSectDomainEventHandler('SectSpiritStonesGranted', async (event) => {
-        await command.rewards.grantSpiritStones(event.cultivatorId, event.amount);
-      }),
-      defineSectDomainEventHandler('SectCultivationExpGranted', async (event) => {
-        await command.rewards.grantCultivationExp(
-          event.userId,
-          event.cultivatorId,
-          event.amount,
-        );
-      }),
-    ], this.limit);
+              aggregate.pullEvents();
+              if (completedNow)
+                derived.push({
+                  type: 'SectTaskFulfilled',
+                  taskId: definition.id,
+                  taskRecordId: row.id,
+                  membershipId: membership.id,
+                  kind: definition.kind,
+                });
+            }
+            return derived;
+          },
+        ),
+        defineSectDomainEventHandler('SectTaskRewardClaimed', async (event) => {
+          const reward = event.reward;
+          if (!reward) return [];
+          return [
+            ...(reward.contribution > 0
+              ? [
+                  {
+                    type: 'SectContributionGranted' as const,
+                    membershipId: event.membershipId,
+                    amount: reward.contribution,
+                    reason: 'sect_task_reward',
+                    referenceId: event.taskRecordId,
+                  },
+                ]
+              : []),
+            ...(reward.spiritStones > 0
+              ? [
+                  {
+                    type: 'SectSpiritStonesGranted' as const,
+                    cultivatorId: event.cultivatorId,
+                    amount: reward.spiritStones,
+                  },
+                ]
+              : []),
+            ...(reward.cultivationExp > 0
+              ? [
+                  {
+                    type: 'SectCultivationExpGranted' as const,
+                    userId: event.userId,
+                    cultivatorId: event.cultivatorId,
+                    amount: reward.cultivationExp,
+                  },
+                ]
+              : []),
+          ];
+        }),
+        defineSectDomainEventHandler(
+          'SectContributionGranted',
+          async (event) => {
+            ContributionBalance.of(0).credit(event.amount);
+            await command.rewards.grantContribution(
+              event.membershipId,
+              event.amount,
+              event.reason,
+              event.referenceId,
+            );
+          },
+        ),
+        defineSectDomainEventHandler(
+          'SectSpiritStonesGranted',
+          async (event) => {
+            await command.rewards.grantSpiritStones(
+              event.cultivatorId,
+              event.amount,
+            );
+          },
+        ),
+        defineSectDomainEventHandler(
+          'SectCultivationExpGranted',
+          async (event) => {
+            await command.rewards.grantCultivationExp(
+              event.userId,
+              event.cultivatorId,
+              event.amount,
+            );
+          },
+        ),
+      ],
+      this.limit,
+    );
   }
 
-  forMembership(command: SectMembershipCommandContext): SectDomainEventDispatcher {
-    return new SectDomainEventDispatcher([
-      defineSectDomainEventHandler('SectMembershipPromoted', async (event) => {
-        if (!(await command.memberships.promote(event.membershipId, event.rank)))
-          organizationError('弟子职阶状态已经变化，请重试');
-      }),
-    ], this.limit);
+  forMembership(
+    command: SectMembershipCommandContext,
+  ): SectDomainEventDispatcher {
+    return new SectDomainEventDispatcher(
+      [
+        defineSectDomainEventHandler(
+          'SectMembershipPromoted',
+          async (event) => {
+            if (
+              !(await command.memberships.promote(
+                event.membershipId,
+                event.rank,
+              ))
+            )
+              organizationError('弟子职阶状态已经变化，请重试');
+          },
+        ),
+      ],
+      this.limit,
+    );
   }
 
   forShop(command: SectEconomyCommandContext): SectDomainEventDispatcher {
-    return new SectDomainEventDispatcher([
-      defineSectDomainEventHandler('SectContributionSpent', async (event) => {
-        if (
-          !(await command.economy.spendContribution(
-            event.membershipId,
-            event.amount,
-            event.reason,
-            event.referenceId,
-          ))
-        )
-          organizationError('宗门贡献不足', 400);
-      }),
-    ], this.limit);
+    return new SectDomainEventDispatcher(
+      [
+        defineSectDomainEventHandler('SectContributionSpent', async (event) => {
+          if (
+            !(await command.economy.spendContribution(
+              event.membershipId,
+              event.amount,
+              event.reason,
+              event.referenceId,
+            ))
+          )
+            organizationError('宗门贡献不足', 400);
+        }),
+      ],
+      this.limit,
+    );
   }
 
   forStipend(args: {
@@ -282,104 +392,118 @@ class StandardSectDomainEventDispatcherFactory
     cultivatorId: string;
     command: SectEconomyCommandContext;
   }): SectDomainEventDispatcher {
-    return new SectDomainEventDispatcher([
-      defineSectDomainEventHandler('SectStipendClaimed', async (event) => {
-        if (
-          !(await args.command.economy.recordStipendClaim({
-            membershipId: event.membershipId,
-            weekKey: event.weekKey,
-            spiritStones: event.rewardSnapshot.spiritStones,
-            rewards: [...event.rewardSnapshot.rewards],
-          }))
-        )
-          organizationError('本周俸禄已经领取');
-        for (const reward of event.rewardSnapshot.rewards)
-          await this.rewards.require(reward.grant.kind).grant({
-            userId: args.userId,
-            cultivatorId: args.cultivatorId,
-            quantity: reward.quantity,
-            grant: reward.grant,
-            rewards: args.command.rewards,
-            ids: args.command.ids,
-            source: 'sect_stipend',
-          });
-      }),
-    ], this.limit);
+    return new SectDomainEventDispatcher(
+      [
+        defineSectDomainEventHandler('SectStipendClaimed', async (event) => {
+          if (
+            !(await args.command.economy.recordStipendClaim({
+              membershipId: event.membershipId,
+              weekKey: event.weekKey,
+              spiritStones: event.rewardSnapshot.spiritStones,
+              rewards: [...event.rewardSnapshot.rewards],
+            }))
+          )
+            organizationError('本周俸禄已经领取');
+          for (const reward of event.rewardSnapshot.rewards)
+            await this.rewards.require(reward.grant.kind).grant({
+              userId: args.userId,
+              cultivatorId: args.cultivatorId,
+              quantity: reward.quantity,
+              grant: reward.grant,
+              rewards: args.command.rewards,
+              ids: args.command.ids,
+              source: 'sect_stipend',
+            });
+        }),
+      ],
+      this.limit,
+    );
   }
 
   forConstruction(
     command: SectConstructionCommandContext,
   ): SectDomainEventDispatcher {
-    return new SectDomainEventDispatcher([
-      defineSectDomainEventHandler('SectDonationAccepted', async (event) => {
-        const donation = await command.construction.recordDonation({
-          id: event.donationId,
-          membershipId: event.membershipId,
-          projectId: event.projectId,
-          dateKey: event.dateKey,
-          demandId: event.demand.id,
-          contribution: event.contribution,
-          constructionPoints: event.constructionPoints,
-          itemSnapshot: event.itemSnapshot,
-        });
-        if (!donation) organizationError('该笔捐献已经处理');
-        if (
-          !(await command.construction.saveProjectProgress(
-            event.projectId,
-            event.projectProgress,
-          ))
-        )
-          organizationError('工程状态已变化，请重试');
-        return [{
-          type: 'SectContributionGranted',
-          membershipId: event.membershipId,
-          amount: event.contribution,
-          reason: 'construction_donation',
-          referenceId: donation.id,
-        }];
-      }),
-      defineSectDomainEventHandler('SectContributionGranted', async (event) => {
-        ContributionBalance.of(0).credit(event.amount);
-        await command.construction.grantContribution(
-          event.membershipId,
-          event.amount,
-          event.reason,
-          event.referenceId,
-        );
-      }),
-      defineSectDomainEventHandler('SectProjectCompleted', async (event) => {
-        if (
-          !(await command.construction.completeProject(
-            event.projectId,
-            command.clock.now(),
-          ))
-        )
-          organizationError('工程完成状态已经变化，请重试');
-      }),
-      defineSectDomainEventHandler('SectFacilityUpgraded', async (event) => {
-        if (
-          !(await command.construction.upgradeFacility(
-            event.sectId,
-            event.facilityKey,
-            event.level,
-          ))
-        )
-          organizationError('设施等级已经变化，请重试');
-      }),
-    ], this.limit);
+    return new SectDomainEventDispatcher(
+      [
+        defineSectDomainEventHandler('SectDonationAccepted', async (event) => {
+          const donation = await command.construction.recordDonation({
+            id: event.donationId,
+            membershipId: event.membershipId,
+            projectId: event.projectId,
+            dateKey: event.dateKey,
+            demandId: event.demand.id,
+            contribution: event.contribution,
+            constructionPoints: event.constructionPoints,
+            itemSnapshot: event.itemSnapshot,
+          });
+          if (!donation) organizationError('该笔捐献已经处理');
+          if (
+            !(await command.construction.saveProjectProgress(
+              event.projectId,
+              event.projectProgress,
+            ))
+          )
+            organizationError('工程状态已变化，请重试');
+          return [
+            {
+              type: 'SectContributionGranted',
+              membershipId: event.membershipId,
+              amount: event.contribution,
+              reason: 'construction_donation',
+              referenceId: donation.id,
+            },
+          ];
+        }),
+        defineSectDomainEventHandler(
+          'SectContributionGranted',
+          async (event) => {
+            ContributionBalance.of(0).credit(event.amount);
+            await command.construction.grantContribution(
+              event.membershipId,
+              event.amount,
+              event.reason,
+              event.referenceId,
+            );
+          },
+        ),
+        defineSectDomainEventHandler('SectProjectCompleted', async (event) => {
+          if (
+            !(await command.construction.completeProject(
+              event.projectId,
+              command.clock.now(),
+            ))
+          )
+            organizationError('工程完成状态已经变化，请重试');
+        }),
+        defineSectDomainEventHandler('SectFacilityUpgraded', async (event) => {
+          if (
+            !(await command.construction.upgradeFacility(
+              event.sectId,
+              event.facilityKey,
+              event.level,
+            ))
+          )
+            organizationError('设施等级已经变化，请重试');
+        }),
+      ],
+      this.limit,
+    );
   }
 }
 
 export function createStandardSectDomainEventDispatcher(args: {
-  settlements: SectTaskSettlementRegistry;
+  fulfillments: SectTaskFulfillmentRegistry;
   progress: SectTaskProgressRegistry;
   rewards: SectRewardGrantStrategyRegistry;
+  offerPolicies: SectTaskOfferPolicyRegistry;
+  rewardPolicies: SectTaskRewardPolicyRegistry;
   limit?: number;
 }): SectDomainEventDispatcherFactory {
   return new StandardSectDomainEventDispatcherFactory(
-    args.settlements,
+    args.fulfillments,
     args.progress,
     args.rewards,
+    new SectTaskOfferService(args.offerPolicies, args.rewardPolicies),
     args.limit,
   );
 }

@@ -52,19 +52,17 @@ const fixtureOrganization: SectOrganizationModule = {
       {
         id: 'fixture_patrol',
         kind: 'daily',
+        enrollment: 'manual',
         requiredCapability: 'sect.tasks.use',
-        contributionReward: 3,
         executorKey: 'fixture-sect.battle',
-        completion: [
-          {
-            strategy: 'fixture-sect.settlement.contribution',
-            input: { amount: 3, reason: 'fixture_task' },
-          },
-        ],
+        reward: {
+          policy: 'sect.reward.realm-task',
+          input: { baseContribution: 3, frequencyBps: 10_000 },
+        },
+        fulfillment: [],
         presentation: {
           title: '夹具巡山',
           description: '仅用于验证内容模块替换。',
-          rewardSummary: '3 宗门贡献',
           actionLabel: '开始巡山',
         },
         target: 1,
@@ -77,19 +75,17 @@ const fixtureOrganization: SectOrganizationModule = {
         ? {
             id,
             kind: 'daily',
+            enrollment: 'manual',
             requiredCapability: 'sect.tasks.use',
-            contributionReward: 3,
             executorKey: 'fixture-sect.battle',
-            completion: [
-              {
-                strategy: 'fixture-sect.settlement.contribution',
-                input: { amount: 3, reason: 'fixture_task' },
-              },
-            ],
+            reward: {
+              policy: 'sect.reward.realm-task',
+              input: { baseContribution: 3, frequencyBps: 10_000 },
+            },
+            fulfillment: [],
             presentation: {
               title: '夹具巡山',
               description: '仅用于验证内容模块替换。',
-              rewardSummary: '3 宗门贡献',
               actionLabel: '开始巡山',
             },
             target: 1,

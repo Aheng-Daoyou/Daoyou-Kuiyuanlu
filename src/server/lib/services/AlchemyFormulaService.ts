@@ -1,4 +1,8 @@
-import { getExecutor, type DbTransaction } from '@server/lib/drizzle/db';
+import {
+  getExecutor,
+  type DbExecutor,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
 import {
   alchemyFormulas,
   consumables,
@@ -101,7 +105,6 @@ import { sectOrganizationFacade } from './sect-organization';
 const DISCOVERY_TTL_SECONDS = 600;
 const FORMULA_ANALYSIS_TTL_SECONDS = 600;
 const FORMULA_ANALYSIS_COOLDOWN_SECONDS = 30;
-const FORMULA_LOCK_TTL_SECONDS = 30;
 const DISCOVERY_STABILITY_THRESHOLD = 70;
 const FIT_ALIGNED_THRESHOLD = 0.65;
 const FIT_POOR_THRESHOLD = 0.35;
@@ -419,10 +422,6 @@ function getFormulaAnalysisKey(cultivatorId: string, analysisId: string): string
 
 function getFormulaAnalysisCooldownKey(cultivatorId: string): string {
   return `alchemy:formula_analysis:cooldown:${cultivatorId}`;
-}
-
-function getFormulaLockKey(cultivatorId: string): string {
-  return `alchemy:lock:${cultivatorId}`;
 }
 
 function getFormulaMaterialVerdictOrder(
@@ -881,8 +880,9 @@ export function advanceFormulaMastery(
 async function loadCultivatorFormula(
   cultivatorId: string,
   formulaId: string,
+  q: DbExecutor | DbTransaction = getExecutor(),
 ): Promise<AlchemyFormula> {
-  const [row] = await getExecutor()
+  const [row] = await q
     .select()
     .from(alchemyFormulas)
     .where(
@@ -903,9 +903,10 @@ async function loadCultivatorFormula(
 async function loadOwnedMaterials(
   cultivatorId: string,
   materialIds: string[],
+  q: DbExecutor | DbTransaction = getExecutor(),
 ): Promise<MaterialRow[]> {
   const rows = sortRowsByRequestedIds(
-    await getExecutor()
+    await q
       .select()
       .from(materials)
       .where(inArray(materials.id, materialIds)),
@@ -1334,42 +1335,36 @@ export async function previewFormulaCraft(
   };
 }
 
-export async function craftFromFormula(
+export interface PreparedFormulaCraft {
+  commit(tx: DbTransaction): Promise<{
+    result: {
+      consumable: Consumable;
+      formulaProgress: FormulaProgress;
+    };
+    afterCommit: () => Promise<void>;
+  }>;
+}
+
+export async function prepareFormulaCraft(
   cultivatorId: string,
   formulaId: string,
   materialIds: string[],
   materialQuantities?: Record<string, number>,
   analysisId?: string,
-  options: { tx?: DbTransaction; deferSideEffects?: boolean } = {},
-): Promise<{
-  consumable: Consumable;
-  formulaProgress: FormulaProgress;
-  afterCommit?: () => Promise<void>;
-}> {
-  const lockKey = getFormulaLockKey(cultivatorId);
-  const acquired = await redis.set(
-    lockKey,
-    'locked',
-    'EX',
-    FORMULA_LOCK_TTL_SECONDS,
-    'NX',
-  );
-  if (!acquired) {
-    throw new AlchemyServiceError('丹炉已开，道友稍候片刻', 429);
-  }
-
-  try {
+): Promise<PreparedFormulaCraft> {
+  // 分布式锁由 API/Application 层统一获取。
+  const q = getExecutor();
     const [formula, selectedMaterials, cultivator, fullCultivator, rawAnalysis] =
       await Promise.all([
-        loadCultivatorFormula(cultivatorId, formulaId),
-        loadOwnedMaterials(cultivatorId, materialIds),
-        (options.tx ?? getExecutor())
+        loadCultivatorFormula(cultivatorId, formulaId, q),
+        loadOwnedMaterials(cultivatorId, materialIds, q),
+        q
           .select()
           .from(cultivators)
           .where(eq(cultivators.id, cultivatorId))
           .limit(1)
           .then((rows) => rows[0]),
-        getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId, options.tx),
+        getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId, q),
         analysisId
           ? redis.get(getFormulaAnalysisKey(cultivatorId, analysisId))
           : Promise.resolve(null),
@@ -1428,7 +1423,7 @@ export async function craftFromFormula(
       cultivatorId,
       baseCost,
       'sect.craft.alchemy',
-      options.tx ?? getExecutor(),
+      q,
     );
     if ((cultivator.spirit_stones ?? 0) < cost) {
       throw new AlchemyServiceError(`灵石不足，需要 ${cost} 枚`);
@@ -1614,27 +1609,100 @@ export async function craftFromFormula(
       fitBand,
     );
 
-    const writeFormulaCraft = async (tx: DbTransaction) => {
-      for (const material of materialsList) {
-        const row = selectedMaterials.find((item) => item.id === material.id);
-        if (!row) {
-          throw new AlchemyServiceError('材料记录异常，无法扣除', 500);
-        }
+    const afterCommit = async () => {
+      await redis.del(analysisKey);
+    };
 
-        if (material.dose >= row.quantity) {
-          await tx.delete(materials).where(eq(materials.id, material.id));
-        } else {
-          await tx
-            .update(materials)
-            .set({ quantity: row.quantity - material.dose })
-            .where(eq(materials.id, material.id));
+  return {
+    async commit(tx: DbTransaction) {
+      const stableMaterialIds = [...materialIds].sort();
+      const currentRows = await loadOwnedMaterials(
+        cultivatorId,
+        stableMaterialIds,
+        tx,
+      );
+      const currentById = new Map(currentRows.map((row) => [row.id, row]));
+      const expectedById = new Map(
+        selectedMaterials.map((row) => [row.id, row]),
+      );
+      for (const id of stableMaterialIds) {
+        const current = currentById.get(id);
+        const expected = expectedById.get(id);
+        if (
+          !current ||
+          !expected ||
+          current.quantity !== expected.quantity ||
+          current.rank !== expected.rank ||
+          current.type !== expected.type ||
+          current.element !== expected.element
+        ) {
+          throw new AlchemyServiceError(
+            '材料已发生变化，请重新推演药路。',
+            409,
+          );
         }
       }
 
-      await tx
+      const [charged] = await tx
         .update(cultivators)
-        .set({ spirit_stones: (cultivator.spirit_stones ?? 0) - cost })
-        .where(eq(cultivators.id, cultivatorId));
+        .set({
+          spirit_stones: sql`${cultivators.spirit_stones} - ${cost}`,
+        })
+        .where(
+          and(
+            eq(cultivators.id, cultivatorId),
+            eq(cultivators.userId, cultivator.userId),
+            sql`${cultivators.spirit_stones} >= ${cost}`,
+          ),
+        )
+        .returning({ id: cultivators.id });
+      if (!charged) {
+        throw new AlchemyServiceError(`灵石不足，需要 ${cost} 枚`, 409);
+      }
+
+      for (const id of stableMaterialIds) {
+        const material = materialsList.find((item) => item.id === id);
+        const expected = expectedById.get(id);
+        if (!material || !expected) {
+          throw new AlchemyServiceError('材料记录异常，无法扣除', 500);
+        }
+        if (material.dose >= expected.quantity) {
+          const deleted = await tx
+            .delete(materials)
+            .where(
+              and(
+                eq(materials.id, id),
+                eq(materials.cultivatorId, cultivatorId),
+                eq(materials.quantity, expected.quantity),
+              ),
+            )
+            .returning({ id: materials.id });
+          if (deleted.length !== 1) {
+            throw new AlchemyServiceError(
+              '材料已发生变化，请重新推演药路。',
+              409,
+            );
+          }
+        } else {
+          const updated = await tx
+            .update(materials)
+            .set({ quantity: sql`${materials.quantity} - ${material.dose}` })
+            .where(
+              and(
+                eq(materials.id, id),
+                eq(materials.cultivatorId, cultivatorId),
+                eq(materials.quantity, expected.quantity),
+              ),
+            )
+            .returning({ id: materials.id });
+          if (updated.length !== 1) {
+            throw new AlchemyServiceError(
+              '材料已发生变化，请重新推演药路。',
+              409,
+            );
+          }
+        }
+      }
 
       await addConsumableToInventory(
         cultivator.userId,
@@ -1643,56 +1711,86 @@ export async function craftFromFormula(
         tx,
       );
 
-      await tx
+      const [masteryUpdated] = await tx
         .update(alchemyFormulas)
         .set({ mastery: nextMastery })
-        .where(eq(alchemyFormulas.id, formula.id));
-    };
-
-    if (options.tx) {
-      await writeFormulaCraft(options.tx);
-    } else {
-      await getExecutor().transaction(writeFormulaCraft);
-    }
-    const afterCommit = async () => {
-      await redis.del(analysisKey);
-    };
-    if (!options.deferSideEffects) {
-      await afterCommit();
-    }
-
-    const inserted = await (options.tx ?? getExecutor())
-      .select()
-      .from(consumables)
-      .where(
-        and(
-          eq(consumables.cultivatorId, cultivatorId),
-          eq(consumables.name, consumable.name),
-          eq(consumables.quality, highestMaterialRank),
-          eq(consumables.type, consumable.type),
-        ),
-      )
-      .limit(20);
-
-    const insertedRow = inserted.find((row) => {
-      try {
-        return (
-          serializeConsumableSpec(row.spec as Consumable['spec']) ===
-          serializeConsumableSpec(spec)
-        );
-      } catch {
-        return false;
+        .where(
+          and(
+            eq(alchemyFormulas.id, formula.id),
+            eq(alchemyFormulas.cultivatorId, cultivatorId),
+            sql`${alchemyFormulas.mastery} = ${JSON.stringify(
+              formula.mastery,
+            )}::jsonb`,
+          ),
+        )
+        .returning({ id: alchemyFormulas.id });
+      if (!masteryUpdated) {
+        throw new AlchemyServiceError('丹方熟练度已发生变化，请重试。', 409);
       }
-    });
 
-    return {
-      consumable: insertedRow
-        ? mapConsumableCraftResult(insertedRow, consumable.quantity)
-        : consumable,
-      formulaProgress: progress,
-      afterCommit: options.deferSideEffects ? afterCommit : undefined,
-    };
-  } finally {
-    await redis.del(lockKey);
+      const inserted = await tx
+        .select()
+        .from(consumables)
+        .where(
+          and(
+            eq(consumables.cultivatorId, cultivatorId),
+            eq(consumables.name, consumable.name),
+            eq(consumables.quality, highestMaterialRank),
+            eq(consumables.type, consumable.type),
+          ),
+        )
+        .limit(20);
+      const insertedRow = inserted.find((row) => {
+        try {
+          return (
+            serializeConsumableSpec(row.spec as Consumable['spec']) ===
+            serializeConsumableSpec(spec)
+          );
+        } catch {
+          return false;
+        }
+      });
+
+      return {
+        result: {
+          consumable: insertedRow
+            ? mapConsumableCraftResult(insertedRow, consumable.quantity)
+            : consumable,
+          formulaProgress: progress,
+        },
+        afterCommit,
+      };
+    },
+  };
+}
+
+export async function craftFromFormula(
+  cultivatorId: string,
+  formulaId: string,
+  materialIds: string[],
+  materialQuantities?: Record<string, number>,
+  analysisId?: string,
+  options: { tx?: DbTransaction; deferSideEffects?: boolean } = {},
+): Promise<{
+  consumable: Consumable;
+  formulaProgress: FormulaProgress;
+  afterCommit?: () => Promise<void>;
+}> {
+  const prepared = await prepareFormulaCraft(
+    cultivatorId,
+    formulaId,
+    materialIds,
+    materialQuantities,
+    analysisId,
+  );
+  const committed = options.tx
+    ? await prepared.commit(options.tx)
+    : await getExecutor().transaction((tx) => prepared.commit(tx));
+  if (!options.deferSideEffects) {
+    await committed.afterCommit();
   }
+  return {
+    ...committed.result,
+    afterCommit: options.deferSideEffects ? committed.afterCommit : undefined,
+  };
 }

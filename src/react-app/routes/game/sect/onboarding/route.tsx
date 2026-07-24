@@ -62,8 +62,70 @@ export default function SectOnboardingPage() {
   const selected: SectCatalogEntry | undefined = catalog.data.sects.find(
     (sect) => sect.id === sectId,
   );
+  if (!sectId) {
+    return (
+      <section className="min-h-[100svh] bg-[#e8e1d1] px-4 pt-[calc(env(safe-area-inset-top)+2rem)] pb-[calc(env(safe-area-inset-bottom)+2rem)] text-[#241d17] sm:px-7">
+        <div className="mx-auto max-w-6xl">
+          <header className="max-w-2xl">
+            <p className="text-xs tracking-[0.3em] text-[#765e49]">
+              尘世初行 · 山门在望
+            </p>
+            <h1 className="mt-3 text-3xl tracking-[0.16em] sm:text-4xl">
+              诸宗候君
+            </h1>
+            <p className="mt-5 leading-8 text-[#5e5043]">
+              你走出尘世第一步，前方云路分作不同方向。山门都没有催你，只把各自的钟声送到风里。先入山一观，再决定今后与谁同行。
+            </p>
+          </header>
+
+          <div className="mt-9 grid gap-5 lg:grid-cols-2">
+            {catalog.data.sects.map((sect) => {
+              const presentation = getSectPresentation(sect.id).onboarding;
+              if (!presentation) return null;
+              return (
+                <article
+                  key={sect.id}
+                  className="group relative isolate flex min-h-[28rem] overflow-hidden border border-[#2c241d]/15 bg-[#1d211d] p-6 text-[#f4eddd] shadow-[0_18px_55px_rgba(41,31,22,0.18)] sm:p-8"
+                >
+                  <img
+                    src={presentation.script.backdrop.src}
+                    alt=""
+                    className="absolute inset-0 -z-20 h-full w-full object-cover transition duration-700 group-hover:scale-[1.025] motion-reduce:transition-none"
+                  />
+                  <div className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(9,13,12,0.12),rgba(9,13,12,0.88)_72%,rgba(9,13,12,0.97))]" />
+                  <div className="mt-auto">
+                    <h2 className="text-2xl tracking-[0.14em]">{sect.name}</h2>
+                    <p className="mt-4 max-w-xl leading-8 text-[#e4dac5]">
+                      {presentation.summary}
+                    </p>
+                    <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm text-[#d4c19b]">
+                      {presentation.traits.map((trait) => (
+                        <li key={trait}>· {trait}</li>
+                      ))}
+                    </ul>
+                    <InkButton
+                      onClick={() =>
+                        navigate(
+                          `/game/sect/onboarding?sectId=${encodeURIComponent(sect.id)}`,
+                        )
+                      }
+                      variant="primary"
+                      className="mt-5 text-[#f2c977] hover:text-[#ffe0a0]"
+                    >
+                      入山一观
+                    </InkButton>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   if (!selected) {
-    return <Navigate to="/game/map?intent=sect" replace />;
+    return <Navigate to="/game/sect/onboarding" replace />;
   }
 
   const onboarding = getSectPresentation(selected.id).onboarding;
@@ -119,7 +181,11 @@ export default function SectOnboardingPage() {
       }
       busy={busy}
       error={joinError?.sectId === selected.id ? joinError.message : undefined}
-      onBack={() => navigate(worldMapHref, { replace: true })}
+      onBack={() =>
+        navigate(activeSectId ? worldMapHref : '/game/sect/onboarding', {
+          replace: true,
+        })
+      }
       onFinish={() => {
         if (finish.kind === 'join') {
           void join();

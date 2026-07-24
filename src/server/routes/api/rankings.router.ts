@@ -24,7 +24,7 @@ import { createBattleRecordV2 } from '@server/lib/repositories/battleRecordV2Rep
 import { createMessage } from '@server/lib/repositories/worldChatRepository';
 import { getPlayerRuntimeCultivatorByIdUnsafe } from '@server/lib/services/cultivatorService';
 import {
-  commitPlayerStateMutation,
+  commitPlayerStateMutationWithLock,
   toPlayerStateMutationResponse,
 } from '@server/lib/services/PlayerStateMutationService';
 import { simulateBattleV5 } from '@server/lib/services/simulateBattleV5';
@@ -52,6 +52,7 @@ import type {
 import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import type { Lock } from '@microfleet/ioredis-lock';
 
 const ChallengeSchema = z.object({
   targetId: z.string().optional().nullable(),
@@ -557,7 +558,7 @@ challengeRouter.post(
       return c.json({ error: '未授权访问' }, 401);
     }
 
-    let lockAcquired = false;
+    let challengeLock: Lock | null = null;
     let targetId: string | null = null;
 
     try {
@@ -586,7 +587,7 @@ challengeRouter.post(
         challengerRank === null
       ) {
         await addToRanking(rankingRealm, cultivatorId, user.id, 1);
-        const committed = await commitPlayerStateMutation({
+        const committed = await commitPlayerStateMutationWithLock({
           userId: user.id,
           cultivatorId,
           source: 'ranking_challenge_direct_entry',
@@ -632,10 +633,10 @@ challengeRouter.post(
         return c.json({ error: '被挑战者不在排行榜上' }, 404);
       }
 
-      if (!(await acquireChallengeLock(targetId))) {
+      challengeLock = await acquireChallengeLock(targetId);
+      if (!challengeLock) {
         return c.json({ error: '被挑战者正在被其他玩家挑战，请稍后再试' }, 429);
       }
-      lockAcquired = true;
 
       const challengerRecord =
         await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId);
@@ -678,7 +679,7 @@ challengeRouter.post(
 
       const remainingChallenges = await incrementDailyChallenges(cultivatorId);
 
-      const committed = await commitPlayerStateMutation({
+      const committed = await commitPlayerStateMutationWithLock({
         userId: user.id,
         cultivatorId,
         source: 'ranking_challenge_battle',
@@ -742,9 +743,7 @@ challengeRouter.post(
         500,
       );
     } finally {
-      if (lockAcquired && targetId) {
-        await releaseChallengeLock(targetId);
-      }
+      await releaseChallengeLock(challengeLock);
     }
   },
 );

@@ -1,6 +1,10 @@
-import { requireActiveCultivator } from '@server/lib/hono/middleware';
+import {
+  redisLockErrorResponse,
+  requireActiveCultivator,
+} from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
+import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import * as betBattleRepository from '@server/lib/repositories/betBattleRepository';
 import { createMessage } from '@server/lib/repositories/worldChatRepository';
 import {
@@ -14,6 +18,7 @@ import {
   type StateChangeDescriptor,
   toPlayerStateMutationResponse,
 } from '@server/lib/services/PlayerStateMutationService';
+import { stableCompactStringify } from '@server/utils/llmPayload';
 import { REALM_VALUES } from '@shared/types/constants';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -186,67 +191,81 @@ router.post('/create', requireActiveCultivator(), async (c) => {
     const { minRealm, maxRealm, taunt, stakeType, spiritStones, stakeItem } =
       CreateBetBattleSchema.parse(await c.req.json());
 
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'bet_battle_create',
-      allowEmpty: true,
-      run: async (tx) => {
-        const result = await createBetBattle(
-          {
-            creatorId: cultivator.id,
-            creatorName: cultivator.name,
-            minRealm,
-            maxRealm,
-            taunt,
-            stakeType,
-            spiritStones,
-            stakeItem,
-          },
-          { tx },
-        );
-
-        return {
-          result: {
-            battleId: result.battleId,
-            message: '赌战发起成功，等待道友应战',
-          },
-          changes: buildBetStakeChanges(stakeType, stakeItem),
-        };
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: 'bet-battle-create',
+        timeoutMs: 10_000,
+        retries: 0,
       },
-    });
-    const result = committed.result;
+      async (lease) => {
+        lease.assertHeld();
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'bet_battle_create',
+          allowEmpty: true,
+          run: async (tx) => {
+            const result = await createBetBattle(
+              {
+                creatorId: cultivator.id,
+                creatorName: cultivator.name,
+                minRealm,
+                maxRealm,
+                taunt,
+                stakeType,
+                spiritStones,
+                stakeItem,
+              },
+              { tx },
+            );
 
-    const rumor = taunt?.trim()
-      ? `${cultivator.name}在赌战台放话：${taunt.trim()} 有胆便来应战！`
-      : `${cultivator.name}在赌战台摆下战帖，静候各路道友应战！`;
+            return {
+              result: {
+                battleId: result.battleId,
+                message: '赌战发起成功，等待道友应战',
+              },
+              changes: buildBetStakeChanges(stakeType, stakeItem),
+            };
+          },
+        });
+        const result = committed.result;
 
-    try {
-      await createMessage({
-        senderUserId: user.id,
-        senderCultivatorId: null,
-        senderName: '修仙界传闻',
-        senderRealm: '炼气',
-        senderRealmStage: '系统',
-        channel: 'system',
-        messageType: 'duel_invite',
-        textContent: rumor,
-        payload: {
-          battleId: result.battleId,
-          routePath: '/game/bet-battle',
-          taunt: taunt?.trim() || undefined,
-          expiresAt: undefined,
-        },
-      });
-    } catch (chatError) {
-      console.error(
-        'Bet battle created but world chat broadcast failed:',
-        chatError,
-      );
-    }
+        const rumor = taunt?.trim()
+          ? `${cultivator.name}在赌战台放话：${taunt.trim()} 有胆便来应战！`
+          : `${cultivator.name}在赌战台摆下战帖，静候各路道友应战！`;
 
-    return c.json(toPlayerStateMutationResponse(committed));
+        try {
+          await createMessage({
+            senderUserId: user.id,
+            senderCultivatorId: null,
+            senderName: '修仙界传闻',
+            senderRealm: '炼气',
+            senderRealmStage: '系统',
+            channel: 'system',
+            messageType: 'duel_invite',
+            textContent: rumor,
+            payload: {
+              battleId: result.battleId,
+              routePath: '/game/bet-battle',
+              taunt: taunt?.trim() || undefined,
+              expiresAt: undefined,
+            },
+          });
+        } catch (chatError) {
+          console.error(
+            'Bet battle created but world chat broadcast failed:',
+            chatError,
+          );
+        }
+
+        return c.json(toPlayerStateMutationResponse(committed));
+      },
+    );
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof z.ZodError) {
       return c.json({ error: '参数错误', details: error.issues }, 400);
     }
@@ -272,28 +291,50 @@ router.post('/:id/cancel', requireActiveCultivator(), async (c) => {
   }
 
   try {
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'bet_battle_cancel',
-      run: async (tx) => {
-        await cancelBetBattle(c.req.param('id'), cultivator.id, { tx });
-        return {
-          result: {
-            message: '赌战已取消，押注将通过邮件返还',
-          },
-          changes: [
-            {
-              domain: 'mail',
-              eventType: 'mail.bet_battle.cancel.created',
-              invalidates: ['mail'],
-            },
-          ],
-        };
+    const battleId = c.req.param('id');
+    return await withRedisLock(
+      {
+        keys: [
+          redisLockKeys.betBattle(battleId),
+          redisLockKeys.cultivatorMutation(cultivator.id),
+        ],
+        context: 'bet-battle-cancel',
+        timeoutMs: 10_000,
+        retries: 0,
       },
-    });
-    return c.json(toPlayerStateMutationResponse(committed));
+      async (lease) => {
+        lease.assertHeld();
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'bet_battle_cancel',
+          idempotency: {
+            key: `bet-battle-cancel:${battleId}`,
+            fingerprint: `${cultivator.id}:${battleId}`,
+          },
+          run: async (tx) => {
+            await cancelBetBattle(battleId, cultivator.id, { tx });
+            return {
+              result: {
+                message: '赌战已取消，押注将通过邮件返还',
+              },
+              changes: [
+                {
+                  domain: 'mail',
+                  eventType: 'mail.bet_battle.cancel.created',
+                  invalidates: ['mail'],
+                },
+              ],
+            };
+          },
+        });
+        return c.json(toPlayerStateMutationResponse(committed));
+      },
+    );
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof BetBattleServiceError) {
       return jsonWithStatus(
         c,
@@ -328,55 +369,106 @@ router.post('/:id/challenge/v5', requireActiveCultivator(), async (c) => {
     const { stakeType, spiritStones, stakeItem } =
       ChallengeBetBattleSchema.parse(await c.req.json());
 
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
+    const battleId = c.req.param('id');
+    const requestFingerprint = stableCompactStringify({
+      battleId,
       cultivatorId: cultivator.id,
-      source: 'bet_battle_challenge',
-      run: async (tx) => {
-        const result = await challengeBetBattle(
-          {
-            battleId: c.req.param('id'),
-            challengerId: cultivator.id,
-            challengerName: cultivator.name,
-            challengerUserId: user.id,
-            stakeType,
-            spiritStones,
-            stakeItem,
-          },
-          { tx },
-        );
-
-        const isWin = result.winnerId === cultivator.id;
-        const resultMessage = isWin
-          ? '你力压对手，赢得赌战押注，奖励已发放邮件。'
-          : '你此战失利，押注归对方所有，下次再战。';
-
-        return {
-          result: {
-            type: 'battle_result',
-            battleResult: result.battleResult,
-            settlement: {
-              isWin,
-              winnerId: result.winnerId,
-              battleId: result.battleId,
-              battleRecordV2Id: result.battleRecordV2Id,
-              resultMessage,
-            },
-          },
-          changes: [
-            ...buildBetStakeChanges(stakeType, stakeItem),
-            {
-              domain: 'mail',
-              eventType: 'mail.bet_battle.settlement.created',
-              invalidates: ['mail'],
-            },
-          ],
-        };
-      },
+      stakeType,
+      spiritStones: spiritStones ?? 0,
+      stakeItem: stakeItem ?? null,
     });
+    return await withRedisLock(
+      {
+        keys: [
+          redisLockKeys.betBattle(battleId),
+          redisLockKeys.cultivatorMutation(cultivator.id),
+        ],
+        context: 'bet-battle-challenge',
+        timeoutMs: 10_000,
+        retries: 0,
+      },
+      async (lease) => {
+        lease.assertHeld();
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'bet_battle_challenge',
+          idempotency: {
+            key: `bet-battle-challenge:${battleId}`,
+            fingerprint: requestFingerprint,
+          },
+          run: async (tx) => {
+            const result = await challengeBetBattle(
+              {
+                battleId,
+                challengerId: cultivator.id,
+                challengerName: cultivator.name,
+                challengerUserId: user.id,
+                stakeType,
+                spiritStones,
+                stakeItem,
+              },
+              { tx },
+            );
 
-    return c.json(toPlayerStateMutationResponse(committed));
+            const isWin = result.winnerId === cultivator.id;
+            const resultMessage = isWin
+              ? '你力压对手，赢得赌战押注，奖励已发放邮件。'
+              : '你此战失利，押注归对方所有，下次再战。';
+
+            return {
+              result: {
+                type: 'battle_result',
+                battleResult: result.battleResult,
+                settlement: {
+                  isWin,
+                  winnerId: result.winnerId,
+                  battleId: result.battleId,
+                  battleRecordV2Id: result.battleRecordV2Id,
+                  resultMessage,
+                  rumor: result.rumor,
+                },
+              },
+              changes: [
+                ...buildBetStakeChanges(stakeType, stakeItem),
+                {
+                  domain: 'mail',
+                  eventType: 'mail.bet_battle.settlement.created',
+                  invalidates: ['mail'],
+                },
+              ],
+            };
+          },
+        });
+
+        if (!committed.state.replayed) {
+          try {
+            await createMessage({
+              senderUserId: user.id,
+              senderCultivatorId: null,
+              senderName: '修仙界传闻',
+              senderRealm: '炼气',
+              senderRealmStage: '系统',
+              channel: 'system',
+              messageType: 'text',
+              textContent: committed.result.settlement.rumor,
+              payload: { text: committed.result.settlement.rumor },
+            });
+          } catch (chatError) {
+            console.error(
+              'Bet battle settled but world chat broadcast failed:',
+              chatError,
+            );
+          }
+        }
+
+        return c.json(toPlayerStateMutationResponse(committed));
+      },
+    );
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof z.ZodError) {
       return c.json({ error: '参数错误', details: error.issues }, 400);
     }

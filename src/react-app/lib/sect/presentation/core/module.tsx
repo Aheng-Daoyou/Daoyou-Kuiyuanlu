@@ -1,12 +1,14 @@
 import {
   AcceptAction,
   BattleAction,
+  ClaimAction,
   ItemDeliveryAction,
   SweepEntryAction,
 } from '@app/components/feature/sect/SectTaskActions';
 import {
   BattleOutcome,
   CompletedOutcome,
+  RewardClaimedOutcome,
   SweepSessionOutcome,
 } from '@app/components/feature/sect/SectTaskOutcomeRenderers';
 import type {
@@ -73,7 +75,17 @@ const battleOutcomeSchema = z.object({
   battle: battleRecordSchema,
   won: z.boolean(),
   challengeTitle: z.string(),
-  rewardGranted: z.boolean(),
+  taskFulfilled: z.boolean(),
+});
+const rewardReceiptSchema = z.object({
+  taskRecordId: z.string(),
+  claimedAt: z.string(),
+  rewards: z.object({
+    contribution: z.number().int().nonnegative(),
+    cultivationExp: z.number().int().nonnegative(),
+    spiritStones: z.number().int().nonnegative(),
+  }),
+  lines: z.array(z.string()),
 });
 
 export const CORE_SECT_TASK_RENDERER_PLUGIN: SectTaskRendererPluginManifest = {
@@ -83,6 +95,7 @@ export const CORE_SECT_TASK_RENDERER_PLUGIN: SectTaskRendererPluginManifest = {
     { key: 'sect.action.battle', renderer: BattleAction },
     { key: 'sect.action.sweep-entry', renderer: SweepEntryAction },
     { key: 'sect.action.item-delivery', renderer: ItemDeliveryAction },
+    { key: 'sect.action.claim', renderer: ClaimAction },
   ],
   outcomes: [
     {
@@ -101,9 +114,14 @@ export const CORE_SECT_TASK_RENDERER_PLUGIN: SectTaskRendererPluginManifest = {
       renderer: CompletedOutcome,
     },
     {
-      key: 'sect.outcome.completed',
+      key: 'sect.outcome.fulfilled',
       schema: z.record(z.string(), z.unknown()),
       renderer: CompletedOutcome,
+    },
+    {
+      key: 'sect.outcome.reward-claimed',
+      schema: rewardReceiptSchema,
+      renderer: RewardClaimedOutcome,
     },
   ],
 };

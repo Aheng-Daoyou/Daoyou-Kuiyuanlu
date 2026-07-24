@@ -34,6 +34,30 @@ describe('sect task outcome registry', () => {
     });
   });
 
+  it('decodes the authoritative reward receipt', () => {
+    expect(
+      decodeSectTaskOutcome({
+        renderer: 'sect.outcome.reward-claimed',
+        data: {
+          taskRecordId: 'record-1',
+          claimedAt: '2026-07-23T00:00:00.000Z',
+          rewards: {
+            contribution: 35,
+            cultivationExp: 1_200,
+            spiritStones: 2_000,
+          },
+          lines: ['宗门贡献 +35'],
+        },
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        renderer: 'sect.outcome.reward-claimed',
+        data: { rewards: { contribution: 35 } },
+      },
+    });
+  });
+
   it('reports malformed registered outcome data as a recoverable error', () => {
     expect(
       decodeSectTaskOutcome({
@@ -51,7 +75,7 @@ describe('sect task outcome registry', () => {
           battle: {},
           won: true,
           challengeTitle: '无效战局',
-          rewardGranted: true,
+          taskFulfilled: true,
         },
       }),
     ).toEqual({

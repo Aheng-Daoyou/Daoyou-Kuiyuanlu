@@ -152,11 +152,12 @@ export async function addFriendPair(
       throw new FriendServiceError(404, '未找到该道友');
     }
 
+    const [firstId, secondId] = [cultivatorId, friendCultivatorId].sort();
     await tx
       .insert(schema.cultivatorFriends)
       .values([
-        { cultivatorId, friendCultivatorId },
-        { cultivatorId: friendCultivatorId, friendCultivatorId: cultivatorId },
+        { cultivatorId: firstId!, friendCultivatorId: secondId! },
+        { cultivatorId: secondId!, friendCultivatorId: firstId! },
       ])
       .onConflictDoNothing();
 

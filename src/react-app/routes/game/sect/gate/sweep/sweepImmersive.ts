@@ -21,7 +21,10 @@ export function readSweepViewportState() {
 
 export async function requestSweepImmersiveMode(): Promise<void> {
   if (!readSweepViewportState().coarsePointer) return;
-  if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+  if (
+    !document.fullscreenElement &&
+    document.documentElement.requestFullscreen
+  ) {
     try {
       await document.documentElement.requestFullscreen();
       ownsFullscreen = true;

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SectAbilityLoadoutRequestSchema,
   SectMeridianLoadoutRequestSchema,
+  SectSubmissionCandidatesQuerySchema,
 } from './sect';
 
 describe('SectAbilityLoadoutRequestSchema', () => {
@@ -19,6 +20,30 @@ describe('SectAbilityLoadoutRequestSchema', () => {
     expect(
       SectAbilityLoadoutRequestSchema.safeParse({
         abilityIds: ['guiding-sword', null, null, null, null],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('SectSubmissionCandidatesQuerySchema', () => {
+  it('bounds page size and eligible filters', () => {
+    expect(
+      SectSubmissionCandidatesQuerySchema.parse({
+        page: '2',
+        pageSize: '30',
+        eligible: 'yes',
+      }),
+    ).toEqual({ page: 2, pageSize: 30, eligible: 'yes' });
+    expect(
+      SectSubmissionCandidatesQuerySchema.safeParse({
+        page: 1,
+        pageSize: 51,
+      }).success,
+    ).toBe(false);
+    expect(
+      SectSubmissionCandidatesQuerySchema.safeParse({
+        page: 1,
+        eligible: 'maybe',
       }).success,
     ).toBe(false);
   });

@@ -4,6 +4,11 @@ import { getExecutor } from '@server/lib/drizzle/db';
 import { cultivators } from '@server/lib/drizzle/schema';
 import type { ActiveCultivatorRef, AppEnv } from '@server/lib/hono/types';
 import { redis } from '@server/lib/redis';
+import {
+  isRedisLockContention,
+  LockAcquisitionError,
+  RedisLeaseLostError,
+} from '@server/lib/redis/lock';
 import { and, eq } from 'drizzle-orm';
 import type { Context, MiddlewareHandler } from 'hono';
 import { ZodError, type ZodType } from 'zod';
@@ -24,9 +29,7 @@ function activeRefCacheKey(userId: string): string {
   return `active-cultivator:user:${userId}`;
 }
 
-function readActiveRefMemoryCache(
-  userId: string,
-): ActiveCultivatorRef | null {
+function readActiveRefMemoryCache(userId: string): ActiveCultivatorRef | null {
   const cached = activeRefMemoryCache.get(userId);
   if (!cached) {
     return null;
@@ -234,6 +237,35 @@ export function errorBody(
   return Response.json(body, { status });
 }
 
+export function redisLockErrorResponse(error: unknown): Response | null {
+  if (isRedisLockContention(error)) {
+    const response = errorBody('操作正在处理中，请稍后重试', 429);
+    response.headers.set('Retry-After', '1');
+    return response;
+  }
+  if (error instanceof LockAcquisitionError) {
+    const response = errorBody('Redis 协调服务暂不可用，请稍后重试', 503);
+    response.headers.set('Retry-After', '1');
+    return response;
+  }
+  if (error instanceof RedisLeaseLostError) {
+    const response = errorBody(error.message, 503);
+    response.headers.set('Retry-After', '1');
+    return response;
+  }
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === '55P03'
+  ) {
+    const response = errorBody('数据库事务繁忙，请稍后重试', 503);
+    response.headers.set('Retry-After', '1');
+    return response;
+  }
+  return null;
+}
+
 export function jsonError(): MiddlewareHandler<AppEnv> {
   return async (context, next) => {
     try {
@@ -250,9 +282,18 @@ export function jsonError(): MiddlewareHandler<AppEnv> {
         );
         return;
       }
+      const lockErrorResponse = redisLockErrorResponse(error);
+      if (lockErrorResponse) {
+        context.res = lockErrorResponse;
+        return;
+      }
 
       console.error('Unhandled API error:', error);
-      context.res = errorBody(toErrorMessage(error, '服务器内部错误'), 500, error);
+      context.res = errorBody(
+        toErrorMessage(error, '服务器内部错误'),
+        500,
+        error,
+      );
     }
   };
 }
@@ -350,9 +391,7 @@ export function requireActiveCultivatorRef(): MiddlewareHandler<AppEnv> {
 
 export function validateJson<TSchema extends ZodType>(schema: TSchema) {
   return (async (context: Context<AppEnv>, next) => {
-    const rawBody = await context.req
-      .json()
-      .catch(() => undefined);
+    const rawBody = await context.req.json().catch(() => undefined);
     const parsed = schema.parse(rawBody);
     context.set('validatedJson', parsed);
     await next();

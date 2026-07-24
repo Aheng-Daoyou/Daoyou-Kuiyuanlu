@@ -6,7 +6,6 @@ import type {
   SectRewardGrantStrategy,
 } from '../EconomyStrategies';
 import type { SectOrganizationPluginManifest } from '../SectOrganizationPlugins';
-import { ContributionTaskSettlementStrategy } from '../SectTaskSettlement';
 import type { SectTaskExecutor } from '../task-executors/SectTaskExecutor';
 
 const fixtureInput = z.object({ pass: z.literal(true) });
@@ -16,12 +15,13 @@ const fixtureExecutor: SectTaskExecutor<z.infer<typeof fixtureInput>> = {
   inputSchema: (actionKey) =>
     actionKey === 'finish' ? fixtureInput : z.never(),
   requiredCapability: (definition) => definition.requiredCapability,
-  prepareAcceptance: (definition) => ({ target: definition.target }),
-  actions: (definition) => [{
-    key: 'finish',
-    renderer: 'fixture-sect.action.battle',
-    label: definition.presentation.actionLabel,
-  }],
+  actions: (definition) => [
+    {
+      key: 'finish',
+      renderer: 'fixture-sect.action.battle',
+      label: definition.presentation.actionLabel,
+    },
+  ],
   execute: async (_actionKey, _context, input) => ({
     completed: input.pass,
     outcome: { renderer: 'fixture-sect.outcome', data: { pass: input.pass } },
@@ -65,14 +65,10 @@ class FixtureSpiritStoneDonation implements SectDonationSpecification {
   }
 }
 
-export const FIXTURE_SECT_ORGANIZATION_PLUGIN: SectOrganizationPluginManifest = {
-  sectId: 'fixture-sect',
-  executors: [() => fixtureExecutor],
-  settlements: [
-    () => new ContributionTaskSettlementStrategy(
-      'fixture-sect.settlement.contribution',
-    ),
-  ],
-  rewardGrants: [() => new FixtureMaterialRewardStrategy()],
-  donations: [() => new FixtureSpiritStoneDonation()],
-};
+export const FIXTURE_SECT_ORGANIZATION_PLUGIN: SectOrganizationPluginManifest =
+  {
+    sectId: 'fixture-sect',
+    executors: [() => fixtureExecutor],
+    rewardGrants: [() => new FixtureMaterialRewardStrategy()],
+    donations: [() => new FixtureSpiritStoneDonation()],
+  };

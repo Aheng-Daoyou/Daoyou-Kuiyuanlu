@@ -21,20 +21,31 @@ function imports(path: string): string[] {
 
 const sourceRoot = fileURLToPath(new URL('../../../../', import.meta.url));
 
-function resolveSourceImport(from: string, specifier: string): string | undefined {
+function resolveSourceImport(
+  from: string,
+  specifier: string,
+): string | undefined {
   const aliases: Record<string, string> = {
     '@app/': 'react-app/',
     '@server/': 'server/',
     '@shared/': 'shared/',
   };
-  const alias = Object.entries(aliases).find(([prefix]) => specifier.startsWith(prefix));
+  const alias = Object.entries(aliases).find(([prefix]) =>
+    specifier.startsWith(prefix),
+  );
   const base = alias
     ? resolve(sourceRoot, alias[1], specifier.slice(alias[0].length))
     : specifier.startsWith('.')
       ? resolve(dirname(from), specifier)
       : undefined;
   if (!base) return undefined;
-  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`])
+  for (const candidate of [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    `${base}/index.ts`,
+    `${base}/index.tsx`,
+  ])
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   return undefined;
 }
@@ -52,7 +63,9 @@ function sourceFiles(root: string): string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const path = resolve(root, entry.name);
     if (entry.isDirectory()) return sourceFiles(path);
-    return entry.isFile() && /\.tsx?$/.test(entry.name) && !entry.name.includes('.test.')
+    return entry.isFile() &&
+      /\.tsx?$/.test(entry.name) &&
+      !entry.name.includes('.test.')
       ? [path]
       : [];
   });
@@ -81,12 +94,16 @@ describe('sect organization architecture', () => {
   it('keeps the pure organization domain independent from server and React', () => {
     const files = sourceFiles(
       fileURLToPath(
-        new URL('../../../../shared/engine/sect/core/organization/', import.meta.url),
+        new URL(
+          '../../../../shared/engine/sect/core/organization/',
+          import.meta.url,
+        ),
       ),
     );
     expect(
       dependencyEdges(files).filter(
-        ({ target }) => target.includes('/src/server/') || target.includes('/src/react-app/'),
+        ({ target }) =>
+          target.includes('/src/server/') || target.includes('/src/react-app/'),
       ),
     ).toEqual([]);
   });
@@ -107,7 +124,8 @@ describe('sect organization architecture', () => {
     expect(
       dependencyClosure(
         files,
-        (path) => path.startsWith(directory) || path.startsWith(domainDirectory),
+        (path) =>
+          path.startsWith(directory) || path.startsWith(domainDirectory),
       ).filter(
         ({ target }) =>
           target.includes('/server/lib/repositories/') ||
@@ -120,15 +138,17 @@ describe('sect organization architecture', () => {
 
   it('removes the legacy transaction workflow', () => {
     expect(
+      existsSync(fileURLToPath(new URL('../SectService.ts', import.meta.url))),
+    ).toBe(false);
+    expect(
       existsSync(
-        fileURLToPath(new URL('../SectService.ts', import.meta.url)),
+        fileURLToPath(new URL('./SectTaskWorkflow.ts', import.meta.url)),
       ),
     ).toBe(false);
     expect(
-      existsSync(fileURLToPath(new URL('./SectTaskWorkflow.ts', import.meta.url))),
-    ).toBe(false);
-    expect(
-      existsSync(fileURLToPath(new URL('./SectOrganizationSupport.ts', import.meta.url))),
+      existsSync(
+        fileURLToPath(new URL('./SectOrganizationSupport.ts', import.meta.url)),
+      ),
     ).toBe(false);
     expect(
       existsSync(
@@ -148,6 +168,8 @@ describe('sect organization architecture', () => {
       'utf8',
     );
     expect(source).not.toContain('SectDomainEventDispatchContext');
-    expect(source).not.toMatch(/scope:\s*'(task|membership|shop|stipend|construction)'/);
+    expect(source).not.toMatch(
+      /scope:\s*'(task|membership|shop|stipend|construction)'/,
+    );
   });
 });

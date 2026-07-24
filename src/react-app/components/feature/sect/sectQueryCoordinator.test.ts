@@ -11,8 +11,16 @@ describe('SectQueryCoordinator', () => {
   it('deduplicates the same resource request', async () => {
     const coordinator = new SectQueryCoordinator();
     const loader = vi.fn(async () => ({ value: 1 }));
-    const first = coordinator.execute({ key: 'overview', loader, ...callbacks() });
-    const second = coordinator.execute({ key: 'overview', loader, ...callbacks() });
+    const first = coordinator.execute({
+      key: 'overview',
+      loader,
+      ...callbacks(),
+    });
+    const second = coordinator.execute({
+      key: 'overview',
+      loader,
+      ...callbacks(),
+    });
     expect(await first).toEqual({ value: 1 });
     expect(await second).toEqual({ value: 1 });
     expect(loader).toHaveBeenCalledTimes(1);

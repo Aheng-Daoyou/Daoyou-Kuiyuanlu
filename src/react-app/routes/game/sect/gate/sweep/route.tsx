@@ -47,8 +47,7 @@ type ActiveSweepSession =
       server: SectSweepSessionData;
     };
 
-type SweepSettlement =
-  { kind: 'practice' } | { kind: 'reward'; rewardSummary: string };
+type SweepSettlement = { kind: 'practice' } | { kind: 'reward' };
 
 function postJson(
   input: Record<string, unknown>,
@@ -191,10 +190,7 @@ export default function SectGateSweepPage() {
           ),
         );
         await Promise.all([reloadTasks(), invalidateCurrent()]);
-        setSettlement({
-          kind: 'reward',
-          rewardSummary: session.task.presentation.rewardSummary,
-        });
+        setSettlement({ kind: 'reward' });
         pushToast({
           message: `「${session.task.presentation.title}」已完成`,
           tone: 'success',
@@ -357,7 +353,7 @@ export default function SectGateSweepPage() {
           </p>
           <p className="mt-3 text-sm leading-7 text-stone-300">
             {settlement.kind === 'reward'
-              ? `${settlement.rewardSummary}已经记入宗门卷宗。`
+              ? '勤务回执已成，请回事务堂领取赏赐。'
               : '这是一局自由练习，没有产生任务奖励。'}
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-3">

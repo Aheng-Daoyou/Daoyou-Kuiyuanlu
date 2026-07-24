@@ -22,15 +22,23 @@ export function createSectTestApplication(args: {
     const resources = {
       load: (cultivatorId: string) =>
         args.repository.loadCultivatorProgress(cultivatorId, q),
-      spend: (cultivatorId: string, cost: Parameters<SectRepositoryPort['spendTrainingResources']>[1]) =>
-        args.repository.spendTrainingResources(cultivatorId, cost, q as DbTransaction),
+      spend: (
+        cultivatorId: string,
+        cost: Parameters<SectRepositoryPort['spendTrainingResources']>[1],
+      ) =>
+        args.repository.spendTrainingResources(
+          cultivatorId,
+          cost,
+          q as DbTransaction,
+        ),
       methodLevelCap: async () => args.methodLevelCap ?? 20,
     };
     const admission = new SectAdmissionApplicationService(
       args.runtime,
       {
         ...state,
-        findActiveMembership: (cultivatorId) => args.repository.findMembership(cultivatorId, q),
+        findActiveMembership: (cultivatorId) =>
+          args.repository.findMembership(cultivatorId, q),
         findMembershipForSect: (cultivatorId, sectId) =>
           args.repository.findMembershipForSect(cultivatorId, sectId, q),
         ensureMembershipCandidate(cultivatorId, sectId, configVersion) {
@@ -42,7 +50,11 @@ export function createSectTestApplication(args: {
           );
         },
         activateMembership: (membershipId, definition) =>
-          args.repository.activateMembership(membershipId, definition, q as DbTransaction),
+          args.repository.activateMembership(
+            membershipId,
+            definition,
+            q as DbTransaction,
+          ),
         ensureFacilities: async () => undefined,
       },
       resources,
@@ -52,7 +64,12 @@ export function createSectTestApplication(args: {
       {
         ...state,
         setMethodLevel: (membershipId, methodId, level) =>
-          args.repository.setMethodLevel(membershipId, methodId, level, q as DbTransaction),
+          args.repository.setMethodLevel(
+            membershipId,
+            methodId,
+            level,
+            q as DbTransaction,
+          ),
         createPathWithFirstLayer: (membershipId, pathId, tacticId, layerId) =>
           args.repository.createPathWithFirstLayer(
             membershipId,
@@ -61,7 +78,12 @@ export function createSectTestApplication(args: {
             layerId,
             q as DbTransaction,
           ),
-        appendUnlockedPathLayer: (membershipId, pathId, layerId, expectedCount) =>
+        appendUnlockedPathLayer: (
+          membershipId,
+          pathId,
+          layerId,
+          expectedCount,
+        ) =>
           args.repository.appendUnlockedPathLayer(
             membershipId,
             pathId,
@@ -70,9 +92,17 @@ export function createSectTestApplication(args: {
             q as DbTransaction,
           ),
         activatePathIfNone: (membershipId, pathId) =>
-          args.repository.activatePathIfNone(membershipId, pathId, q as DbTransaction),
+          args.repository.activatePathIfNone(
+            membershipId,
+            pathId,
+            q as DbTransaction,
+          ),
         activatePath: (membershipId, pathId) =>
-          args.repository.activatePath(membershipId, pathId, q as DbTransaction),
+          args.repository.activatePath(
+            membershipId,
+            pathId,
+            q as DbTransaction,
+          ),
         replaceMeridianLoadout: (membershipId, pathId, slot, nodeIds) =>
           args.repository.replaceMeridianLoadout(
             membershipId,
@@ -89,32 +119,70 @@ export function createSectTestApplication(args: {
             q as DbTransaction,
           ),
         replaceAbilityLoadout: (membershipId, slots: SectAbilitySlots) =>
-          args.repository.replaceAbilityLoadout(membershipId, slots, q as DbTransaction),
+          args.repository.replaceAbilityLoadout(
+            membershipId,
+            slots,
+            q as DbTransaction,
+          ),
         setPathTactic: (membershipId, pathId, tacticId) =>
-          args.repository.setPathTactic(membershipId, pathId, tacticId, q as DbTransaction),
+          args.repository.setPathTactic(
+            membershipId,
+            pathId,
+            tacticId,
+            q as DbTransaction,
+          ),
       },
       resources,
     );
     return { admission, tradition };
   };
   return {
-    listAvailableDefinitions: (context: Parameters<SectAdmissionApplicationService['listAvailableDefinitions']>[0]) =>
-      bind({} as DbExecutor).admission.listAvailableDefinitions(context),
+    listAvailableDefinitions: (
+      context: Parameters<
+        SectAdmissionApplicationService['listAvailableDefinitions']
+      >[0],
+    ) => bind({} as DbExecutor).admission.listAvailableDefinitions(context),
     join: (cultivatorId: string, sectId: string, tx: DbTransaction) =>
       bind(tx).admission.join(cultivatorId, sectId),
-    trainMethod: (input: Parameters<SectTraditionApplicationService['trainMethod']>[0], tx: DbTransaction) =>
-      bind(tx).tradition.trainMethod(input),
-    unlockPathLayer: (input: Parameters<SectTraditionApplicationService['unlockPathLayer']>[0], tx: DbTransaction) =>
-      bind(tx).tradition.unlockPathLayer(input),
+    trainMethod: (
+      input: Parameters<SectTraditionApplicationService['trainMethod']>[0],
+      tx: DbTransaction,
+    ) => bind(tx).tradition.trainMethod(input),
+    unlockPathLayer: (
+      input: Parameters<SectTraditionApplicationService['unlockPathLayer']>[0],
+      tx: DbTransaction,
+    ) => bind(tx).tradition.unlockPathLayer(input),
     activatePath: (cultivatorId: string, pathId: string, tx: DbTransaction) =>
       bind(tx).tradition.activatePath(cultivatorId, pathId),
-    setMeridianLoadout: (cultivatorId: string, pathId: string, slot: number, nodeIds: string[], tx: DbTransaction) =>
-      bind(tx).tradition.setMeridianLoadout(cultivatorId, pathId, slot, nodeIds),
-    activateMeridianLoadout: (cultivatorId: string, pathId: string, slot: number, tx: DbTransaction) =>
-      bind(tx).tradition.activateMeridianLoadout(cultivatorId, pathId, slot),
-    setAbilityLoadout: (cultivatorId: string, slots: Array<string | null>, tx: DbTransaction) =>
-      bind(tx).tradition.setAbilityLoadout(cultivatorId, slots),
-    setPathTactic: (cultivatorId: string, pathId: string, tacticId: string, tx: DbTransaction) =>
-      bind(tx).tradition.setPathTactic(cultivatorId, pathId, tacticId),
+    setMeridianLoadout: (
+      cultivatorId: string,
+      pathId: string,
+      slot: number,
+      nodeIds: string[],
+      tx: DbTransaction,
+    ) =>
+      bind(tx).tradition.setMeridianLoadout(
+        cultivatorId,
+        pathId,
+        slot,
+        nodeIds,
+      ),
+    activateMeridianLoadout: (
+      cultivatorId: string,
+      pathId: string,
+      slot: number,
+      tx: DbTransaction,
+    ) => bind(tx).tradition.activateMeridianLoadout(cultivatorId, pathId, slot),
+    setAbilityLoadout: (
+      cultivatorId: string,
+      slots: Array<string | null>,
+      tx: DbTransaction,
+    ) => bind(tx).tradition.setAbilityLoadout(cultivatorId, slots),
+    setPathTactic: (
+      cultivatorId: string,
+      pathId: string,
+      tacticId: string,
+      tx: DbTransaction,
+    ) => bind(tx).tradition.setPathTactic(cultivatorId, pathId, tacticId),
   };
 }

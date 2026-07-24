@@ -32,7 +32,11 @@ interface SectTaskInteractionContextValue {
     input: Record<string, unknown>,
     successMessage: string,
   ): Promise<SectTaskActionData | undefined>;
-  runRaw<T>(url: string, init: RequestInit, successMessage: string): Promise<T | undefined>;
+  runRaw<T>(
+    url: string,
+    init: RequestInit,
+    successMessage: string,
+  ): Promise<T | undefined>;
   navigate(path: string, options?: { replace?: boolean }): void;
   clearOutcome(): void;
   refreshTasks(): Promise<unknown> | unknown;
@@ -66,6 +70,11 @@ export function SectTaskInteractionProvider({
         pushToast({ message: successMessage, tone: 'success' });
         return result;
       } catch (reason) {
+        try {
+          await refreshTasks();
+        } catch {
+          // Keep the original mutation error as the player-facing failure.
+        }
         pushToast({
           message: reason instanceof Error ? reason.message : '宗门事务失败',
           tone: 'danger',

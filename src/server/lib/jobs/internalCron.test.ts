@@ -91,7 +91,7 @@ vi.mock('@server/lib/repositories/appSettingsRepository', () => ({
 }));
 
 vi.mock('@server/lib/services/PlayerStateMutationService', () => ({
-  commitPlayerStateMutation: commitPlayerStateMutationMock,
+  commitPlayerStateMutationWithLock: commitPlayerStateMutationMock,
 }));
 
 vi.mock('@server/lib/services/AuctionService', () => ({

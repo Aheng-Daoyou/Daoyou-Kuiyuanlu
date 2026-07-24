@@ -369,7 +369,7 @@ export default function CreatePage() {
         tone: 'success',
       });
       await refresh();
-      navigate('/game/map?intent=sect', { replace: true });
+      navigate('/game/sect/onboarding', { replace: true });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : '保存角色失败，请检查控制台';

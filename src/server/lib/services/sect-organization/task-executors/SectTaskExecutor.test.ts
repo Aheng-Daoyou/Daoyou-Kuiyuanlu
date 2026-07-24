@@ -1,7 +1,7 @@
 import {
   createSweepBoard,
-  sweepDirectionsForPath,
   SWEEP_RULES_VERSION,
+  sweepDirectionsForPath,
   type SectTaskDefinition,
 } from '@shared/engine/sect';
 import { describe, expect, it } from 'vitest';
@@ -15,14 +15,13 @@ import {
 const definition: SectTaskDefinition = {
   id: 'fixture',
   kind: 'weekly',
+  enrollment: 'manual',
   requiredCapability: 'sect.tasks.use',
-  contributionReward: 1,
   executorKey: 'sect.battle',
-  completion: [],
+  fulfillment: [],
   presentation: {
     title: '夹具任务',
     description: '验证执行器拥有交互类型。',
-    rewardSummary: '1 宗门贡献',
     actionLabel: '执行任务',
   },
   target: 1,
@@ -36,7 +35,26 @@ const record = {
   periodKey: '2026-W29',
   status: 'active' as const,
   progress: 0,
-  payload: { quantity: 2, minQuality: '玄品' },
+  payload: {
+    schemaVersion: 1 as const,
+    target: 1,
+    offer: {
+      schemaVersion: 1 as const,
+      rulesVersion: 1,
+      offerRevision: '1234567890abcdef',
+      anchorRealm: '金丹' as const,
+      anchorRealmStage: '初期' as const,
+      periodKey: '2026-W29',
+      executorKey: 'sect.delivery.material',
+      requirement: {
+        kind: 'material' as const,
+        quantity: 2,
+        minQuality: '玄品' as const,
+      },
+      difficulty: 'normal' as const,
+    },
+    executorData: {},
+  },
 };
 
 describe('SectTaskExecutor action presentation', () => {
@@ -48,7 +66,7 @@ describe('SectTaskExecutor action presentation', () => {
       new MaterialDeliveryTaskExecutor().actions(definition, record)[0],
     ).toMatchObject({
       renderer: 'sect.action.item-delivery',
-      parameters: { itemKind: 'material', quantity: 2, minQuality: '玄品' },
+      parameters: { itemKind: 'material' },
     });
     expect(new SweepGameTaskExecutor().actions(definition)[0]).toMatchObject({
       key: 'enter',

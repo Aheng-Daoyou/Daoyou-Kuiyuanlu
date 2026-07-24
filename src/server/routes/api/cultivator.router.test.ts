@@ -111,10 +111,6 @@ vi.mock('@server/lib/redis/lock', () => ({
   LockAcquisitionError: class LockAcquisitionError extends Error {},
 }));
 
-vi.mock('@server/lib/redis/retreatLock', () => ({
-  getRetreatLock: vi.fn(),
-}));
-
 vi.mock('@server/lib/repositories/creationProductRepository', () => ({
   findEquippedArtifacts: vi.fn(),
 }));
@@ -269,7 +265,6 @@ import { consumeLifespanAndHandleDepletion } from '@server/lib/lifespan/handleLi
 import { renderPrompt } from '@server/lib/prompts';
 import { redis } from '@server/lib/redis';
 import { LockAcquisitionError } from '@server/lib/redis/lock';
-import { getRetreatLock } from '@server/lib/redis/retreatLock';
 import { InnRecoveryService } from '@server/lib/services/InnRecoveryService';
 import { MailService } from '@server/lib/services/MailService';
 import { ConsumableUseEngine } from '@server/lib/services/ConsumableUseEngine';
@@ -312,7 +307,6 @@ const consumeLifespanAndHandleDepletionMock =
 const renderPromptMock = renderPrompt as unknown as Mock;
 const redisSetMock = redis.set as unknown as Mock;
 const redisDelMock = redis.del as unknown as Mock;
-const getRetreatLockMock = getRetreatLock as unknown as Mock;
 const buildRecoveryResultMock =
   InnRecoveryService.buildRecoveryResult as unknown as Mock;
 const sendMailMock = MailService.sendMail as unknown as Mock;
@@ -816,14 +810,6 @@ function mockBodyCultivationBreakthroughTransaction() {
   } as any);
 
   return txMock;
-}
-
-function createRetreatLockMocks() {
-  return {
-    acquire: vi.fn().mockResolvedValue(true),
-    release: vi.fn().mockResolvedValue(undefined),
-    isLocked: vi.fn(),
-  };
 }
 
 function createTextStream(...chunks: string[]) {
@@ -2173,13 +2159,8 @@ describe('cultivator body cultivation routes', () => {
 });
 
 describe('cultivator retreat route', () => {
-  let retreatLockMocks: ReturnType<typeof createRetreatLockMocks>;
-
   beforeEach(() => {
     vi.clearAllMocks();
-
-    retreatLockMocks = createRetreatLockMocks();
-    getRetreatLockMock.mockReturnValue(retreatLockMocks);
 
     const cultivator = createCultivator();
 
@@ -2512,24 +2493,6 @@ describe('cultivator retreat route', () => {
           id: 'task-major',
         },
       },
-    });
-  });
-
-  it('keeps lock conflicts on JSON errors', async () => {
-    retreatLockMocks.acquire.mockResolvedValue(false);
-
-    const response = await createApp().request('/api/cultivator/retreat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'cultivate',
-        years: 12,
-      }),
-    });
-
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: '角色正在闭关中，请稍后再试',
     });
   });
 

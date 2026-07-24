@@ -6,7 +6,7 @@ import {
 } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
 import {
-  commitPlayerStateMutation,
+  commitPlayerStateMutationWithLock,
   toPlayerStateMutationResponse,
 } from '@server/lib/services/PlayerStateMutationService';
 import { TaskService } from '@server/lib/services/TaskService';
@@ -123,7 +123,7 @@ router.post('/:id/claim-reward', requireActiveCultivator(), async (c) => {
   }
 
   try {
-    const committed = await commitPlayerStateMutation({
+    const committed = await commitPlayerStateMutationWithLock({
       userId: user.id,
       cultivatorId: cultivator.id,
       source: 'task_claim_reward',

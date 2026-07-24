@@ -2,7 +2,7 @@ import { towerService } from '@server/lib/tower/service';
 import { requireActiveCultivator } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
 import {
-  commitPlayerStateMutation,
+  commitPlayerStateMutationWithLock,
   toPlayerStateMutationResponse,
 } from '@server/lib/services/PlayerStateMutationService';
 import { TOWER_ELIGIBLE_REALMS } from '@shared/lib/tower';
@@ -180,7 +180,7 @@ battleRouter.post('/execute/v5', requireActiveCultivator(), async (c) => {
       return c.json({ success: true, data });
     }
 
-    const committed = await commitPlayerStateMutation({
+    const committed = await commitPlayerStateMutationWithLock({
       userId: user.id,
       cultivatorId: cultivator.id,
       source: 'tower_battle_execute',

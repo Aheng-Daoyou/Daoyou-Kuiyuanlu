@@ -1,10 +1,10 @@
-import { productionSectRuntime } from '@shared/engine/sect/content';
 import {
   SECT_CRAFT_CONTEXTS,
   StandardSectCapabilityPolicy,
   type SectDiscipleRank,
   type SectOrganizationModule,
 } from '@shared/engine/sect';
+import { productionSectRuntime } from '@shared/engine/sect/content';
 import { CUSTOM_ECONOMY_FIXTURE_SECT_MODULE as FIXTURE_SECT_MODULE } from '@shared/engine/sect/testing/fixtures/CustomEconomyFixtureSectModule';
 import { describe, expect, it } from 'vitest';
 import { SectBenefitService } from './SectBenefitService';
@@ -23,13 +23,29 @@ function context(rank: SectDiscipleRank): SectBenefitQueryContext {
     },
     facilities: {
       list: async () => [
-        { sectId: 'lingxiao', facilityKey: 'archive', level: 3, updatedAt: new Date(0) },
-        { sectId: 'lingxiao', facilityKey: 'cultivation_room', level: 5, updatedAt: new Date(0) },
-        { sectId: 'lingxiao', facilityKey: 'workshop', level: 5, updatedAt: new Date(0) },
+        {
+          sectId: 'lingxiao',
+          facilityKey: 'archive',
+          level: 3,
+          updatedAt: new Date(0),
+        },
+        {
+          sectId: 'lingxiao',
+          facilityKey: 'cultivation_room',
+          level: 5,
+          updatedAt: new Date(0),
+        },
+        {
+          sectId: 'lingxiao',
+          facilityKey: 'workshop',
+          level: 5,
+          updatedAt: new Date(0),
+        },
       ],
     },
     modules: {
-      require: (sectId) => productionSectRuntime.registry.require(sectId).organization,
+      require: (sectId) =>
+        productionSectRuntime.registry.require(sectId).organization,
     },
   };
 }
@@ -43,16 +59,20 @@ describe('SectBenefitService', () => {
   ] as const)(
     'applies facility benefits only after the %s capability gate',
     async (rank, retreatMultiplier, craftDiscount) => {
-      expect(await new SectBenefitService().getBonuses('cultivator-1', context(rank)))
-        .toMatchObject({
-          retreatMultiplier,
-          craftDiscounts: {
-            'sect.craft.alchemy': craftDiscount,
-            'sect.craft.refinery': craftDiscount,
-          },
-          archiveLevel: 3,
-          methodLevelCap: 60,
-        });
+      expect(
+        await new SectBenefitService().getBonuses(
+          'cultivator-1',
+          context(rank),
+        ),
+      ).toMatchObject({
+        retreatMultiplier,
+        craftDiscounts: {
+          'sect.craft.alchemy': craftDiscount,
+          'sect.craft.refinery': craftDiscount,
+        },
+        archiveLevel: 3,
+        methodLevelCap: 60,
+      });
     },
   );
 
@@ -97,7 +117,9 @@ describe('SectBenefitService', () => {
       modules: { require: () => organization },
     };
     const service = new SectBenefitService();
-    expect(await service.getBonuses('cultivator-1', splitContext)).toMatchObject({
+    expect(
+      await service.getBonuses('cultivator-1', splitContext),
+    ).toMatchObject({
       craftDiscounts: {
         'sect.craft.alchemy': 0.1,
         'sect.craft.refinery': 0,

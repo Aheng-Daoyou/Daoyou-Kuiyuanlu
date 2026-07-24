@@ -6,6 +6,7 @@ import {
 } from '@shared/engine/sect';
 import type { Cultivator } from '@shared/types/cultivator';
 import type { SectBenefitService } from './SectBenefitService';
+import type { SectDomainEventDispatcherFactory } from './SectDomainEventDispatcher';
 import {
   mapFacilities,
   mapProject,
@@ -15,7 +16,6 @@ import {
   requireMembership,
   stipendRewardView,
 } from './applicationSupport';
-import type { SectDomainEventDispatcherFactory } from './SectDomainEventDispatcher';
 import type {
   SectMembershipCommandContext,
   SectMembershipQueryContext,
@@ -69,10 +69,15 @@ export class SectMembershipApplicationService {
     realmMethodLevelCap: number,
     context: SectMembershipQueryContext,
   ): Promise<SectOverviewData> {
-    const membership = await requireMembership(cultivator.id!, context.memberships);
+    const membership = await requireMembership(
+      cultivator.id!,
+      context.memberships,
+    );
     const sect = await context.memberships.loadState(cultivator.id!);
     if (!sect) organizationError('宗门状态不存在');
-    const facilities = mapFacilities(await context.facilities.list(membership.sectId));
+    const facilities = mapFacilities(
+      await context.facilities.list(membership.sectId),
+    );
     const project = mapProject(
       await context.construction.findActiveProject(membership.sectId),
     );
@@ -82,11 +87,7 @@ export class SectMembershipApplicationService {
     const facilityLevels = new Map(
       facilities.map((item) => [item.key as string, item.level]),
     );
-    const stipend = quoteSectStipend(
-      organization,
-      rank,
-      facilityLevels,
-    );
+    const stipend = quoteSectStipend(organization, rank, facilityLevels);
     const benefitSnapshot = this.benefits.snapshotForMembership(
       membership,
       facilityLevels,
@@ -105,7 +106,10 @@ export class SectMembershipApplicationService {
       }),
       stipend: {
         weekKey,
-        claimed: await context.economy.hasClaimedStipend(membership.id, weekKey),
+        claimed: await context.economy.hasClaimedStipend(
+          membership.id,
+          weekKey,
+        ),
         spiritStones: stipend.spiritStones,
         rewards: stipend.rewards.map(stipendRewardView),
       },
@@ -116,7 +120,10 @@ export class SectMembershipApplicationService {
         cultivator.realm_stage,
         context,
       ),
-      permissions: this.benefits.permissionSnapshot(membership, context.modules),
+      permissions: this.benefits.permissionSnapshot(
+        membership,
+        context.modules,
+      ),
       benefits: {
         retreatMultiplier: benefitSnapshot.retreatMultiplier,
         craftDiscounts: benefitSnapshot.craftDiscounts,
@@ -129,11 +136,19 @@ export class SectMembershipApplicationService {
     cultivator: Pick<Cultivator, 'id' | 'realm' | 'realm_stage'>,
     context: SectMembershipCommandContext,
   ) {
-    const membership = await requireMembership(cultivator.id!, context.memberships);
-    this.benefits.assertPermission(membership, 'sect.hall.view', context.modules);
-    const target = organizationFor(context.modules, membership.sectId).ranks.nextRank(
-      membership.discipleRank,
+    const membership = await requireMembership(
+      cultivator.id!,
+      context.memberships,
     );
+    this.benefits.assertPermission(
+      membership,
+      'sect.hall.view',
+      context.modules,
+    );
+    const target = organizationFor(
+      context.modules,
+      membership.sectId,
+    ).ranks.nextRank(membership.discipleRank);
     if (!target || target === 'registered') organizationError('已是真传弟子');
     const missing = await this.getPromotionMissing(
       membership,
@@ -150,7 +165,8 @@ export class SectMembershipApplicationService {
     const evaluation = aggregate.evaluatePromotion(
       missing.map((message) => ({ code: 'promotion_requirement', message })),
     );
-    if (!evaluation.allowed) organizationError(`尚需：${missing.join('、')}`, 400);
+    if (!evaluation.allowed)
+      organizationError(`尚需：${missing.join('、')}`, 400);
     aggregate.promote(target, evaluation);
     await this.events.forMembership(context).dispatch(aggregate.pullEvents());
     return context.memberships.loadState(cultivator.id!);
@@ -162,20 +178,25 @@ export class SectMembershipApplicationService {
     pageSize: number,
     context: SectMembershipQueryContext,
   ) {
-    const membership = await requireMembership(cultivatorId, context.memberships);
-    this.benefits.assertPermission(membership, 'sect.hall.view', context.modules);
+    const membership = await requireMembership(
+      cultivatorId,
+      context.memberships,
+    );
+    this.benefits.assertPermission(
+      membership,
+      'sect.hall.view',
+      context.modules,
+    );
     const result = await context.memberships.listMembers(
       membership.sectId,
       page,
       pageSize,
     );
     return {
-      items: result.rows.map(
-        (row): SectMemberData => ({
-          ...row,
-          joinedAt: row.joinedAt?.toISOString(),
-        }),
-      ),
+      items: result.rows.map((row): SectMemberData => ({
+        ...row,
+        joinedAt: row.joinedAt?.toISOString(),
+      })),
       page,
       pageSize,
       total: result.total,

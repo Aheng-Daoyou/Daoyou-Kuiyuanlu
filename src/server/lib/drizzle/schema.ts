@@ -356,7 +356,10 @@ export const sectDonationLedger = pgTable(
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (table) => [
-    index('sect_donation_member_date_idx').on(table.membershipId, table.dateKey),
+    index('sect_donation_member_date_idx').on(
+      table.membershipId,
+      table.dateKey,
+    ),
     uniqueIndex('sect_donation_member_request_unique')
       .on(table.membershipId, table.requestId)
       .where(sql`${table.requestId} is not null`),
@@ -578,7 +581,9 @@ export const playerMutationRequests = pgTable(
       .notNull(),
     source: varchar('source', { length: 96 }).notNull(),
     requestId: varchar('request_id', { length: 128 }).notNull(),
-    requestFingerprint: varchar('request_fingerprint', { length: 128 }).notNull(),
+    requestFingerprint: varchar('request_fingerprint', {
+      length: 128,
+    }).notNull(),
     result: jsonb('result').notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },

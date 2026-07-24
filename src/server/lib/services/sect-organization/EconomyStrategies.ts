@@ -5,8 +5,8 @@ import {
   type SectDonationDemandDefinition,
   type SectShopGrant,
 } from '@shared/engine/sect';
-import type { Material } from '@shared/types/cultivator';
 import type { Quality } from '@shared/types/constants';
+import type { Material } from '@shared/types/cultivator';
 import { organizationError } from './applicationSupport';
 import type {
   IdGenerator,
@@ -104,7 +104,8 @@ export class PillRewardGrantStrategy implements SectRewardGrantStrategy {
       name: context.grant.name,
       quality: context.grant.quality,
       description: context.grant.description,
-      prompt: context.source === 'sect_stipend' ? '宗门弟子周俸' : '宗门宝库制式丹药',
+      prompt:
+        context.source === 'sect_stipend' ? '宗门弟子周俸' : '宗门宝库制式丹药',
       spec: context.grant.spec,
       quantity: context.quantity,
     });
@@ -123,11 +124,16 @@ export interface SectDonationExecutionContext {
 
 export interface SectDonationSpecification {
   readonly key: string;
-  consume(context: SectDonationExecutionContext): Promise<Record<string, unknown>>;
+  consume(
+    context: SectDonationExecutionContext,
+  ): Promise<Record<string, unknown>>;
 }
 
 export class SectDonationSpecificationRegistry {
-  private readonly specifications = new Map<string, SectDonationSpecification>();
+  private readonly specifications = new Map<
+    string,
+    SectDonationSpecification
+  >();
 
   constructor(specifications: readonly SectDonationSpecification[] = []) {
     for (const specification of specifications) this.register(specification);
@@ -155,7 +161,9 @@ export class SpiritStoneDonationSpecification implements SectDonationSpecificati
 
   async consume(context: SectDonationExecutionContext) {
     const amount = context.itemQuantity;
-    if (!(await context.economy.spendSpiritStones(context.cultivatorId, amount)))
+    if (
+      !(await context.economy.spendSpiritStones(context.cultivatorId, amount))
+    )
       organizationError('灵石不足', 400);
     return { kind: this.key, units: context.units, amount };
   }
@@ -167,8 +175,12 @@ export class MaterialDonationSpecification implements SectDonationSpecification 
 
   async consume(context: SectDonationExecutionContext) {
     if (!context.itemId) organizationError('请选择要捐献的材料', 400);
-    const item = await context.inventory.findMaterial(context.cultivatorId, context.itemId);
-    if (!item || item.type !== 'herb') organizationError('该需求只接收灵草', 400);
+    const item = await context.inventory.findMaterial(
+      context.cultivatorId,
+      context.itemId,
+    );
+    if (!item || item.type !== 'herb')
+      organizationError('该需求只接收灵草', 400);
     const amount = context.itemQuantity;
     const violations = this.specification.violations(item, {
       quantity: amount,
@@ -177,7 +189,13 @@ export class MaterialDonationSpecification implements SectDonationSpecification 
     if (violations.length) organizationError(violations[0]!, 400);
     if (!(await context.inventory.consumeMaterial(item.id, amount)))
       organizationError('材料数量不足', 400);
-    return { kind: this.key, units: context.units, itemId: item.id, name: item.name, amount };
+    return {
+      kind: this.key,
+      units: context.units,
+      itemId: item.id,
+      name: item.name,
+      amount,
+    };
   }
 }
 
@@ -187,7 +205,10 @@ export class PillDonationSpecification implements SectDonationSpecification {
 
   async consume(context: SectDonationExecutionContext) {
     if (!context.itemId) organizationError('请选择要捐献的丹药', 400);
-    const item = await context.inventory.findConsumable(context.cultivatorId, context.itemId);
+    const item = await context.inventory.findConsumable(
+      context.cultivatorId,
+      context.itemId,
+    );
     if (!item) organizationError('该物品不是有效丹药', 400);
     const amount = context.itemQuantity;
     const violations = this.specification.violations(item, {
@@ -198,7 +219,13 @@ export class PillDonationSpecification implements SectDonationSpecification {
     if (violations.length) organizationError(violations[0]!, 400);
     if (!(await context.inventory.consumeConsumable(item.id, amount)))
       organizationError('丹药数量不足', 400);
-    return { kind: this.key, units: context.units, itemId: item.id, name: item.name, amount };
+    return {
+      kind: this.key,
+      units: context.units,
+      itemId: item.id,
+      name: item.name,
+      amount,
+    };
   }
 }
 
@@ -208,7 +235,10 @@ export class ArtifactDonationSpecification implements SectDonationSpecification 
 
   async consume(context: SectDonationExecutionContext) {
     if (!context.itemId) organizationError('请选择要捐献的法宝', 400);
-    const item = await context.inventory.findArtifact(context.cultivatorId, context.itemId);
+    const item = await context.inventory.findArtifact(
+      context.cultivatorId,
+      context.itemId,
+    );
     if (!item) organizationError('未找到该法宝', 400);
     const amount = context.itemQuantity;
     const violations = this.specification.violations(item, {

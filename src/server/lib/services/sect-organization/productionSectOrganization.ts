@@ -5,43 +5,57 @@ import {
 } from '@server/lib/drizzle/db';
 import type { SectCraftContextKey } from '@shared/engine/sect';
 import { productionSectRuntime } from '@shared/engine/sect/content';
-import { SectBenefitService } from './SectBenefitService';
-import { SectConstructionApplicationService } from './SectConstructionApplicationService';
-import { SectEconomyApplicationService } from './SectEconomyApplicationService';
-import { SectMembershipApplicationService } from './SectMembershipApplicationService';
-import { SectOrganizationFacade } from './SectOrganizationFacade';
-import {
-  ExecuteSectTaskActionHandler,
-  GetSectTasksQueryHandler,
-  ProcessSectTaskCompletionHandler,
-} from './SectTaskApplicationService';
+import { ClaimSectTaskRewardHandler } from './ClaimSectTaskRewardHandler';
+import { GetSectTasksQueryHandler } from './GetSectTasksQueryHandler';
 import {
   createPostgresSectAdmissionRepository,
   createPostgresSectBenefitContext,
   createPostgresSectTraditionRepository,
   createPostgresSectTrainingResourceGateway,
 } from './PostgresSectOrganizationAdapters';
+import { SectBenefitService } from './SectBenefitService';
+import { SectConstructionApplicationService } from './SectConstructionApplicationService';
+import { SectEconomyApplicationService } from './SectEconomyApplicationService';
+import { SectMembershipApplicationService } from './SectMembershipApplicationService';
+import { SectOrganizationFacade } from './SectOrganizationFacade';
 import {
   composeSectOrganizationPlugins,
   CORE_SECT_ORGANIZATION_PLUGIN,
 } from './SectOrganizationPlugins';
+import {
+  ExecuteSectTaskActionHandler,
+  FulfillSectTaskHandler,
+} from './SectTaskApplicationService';
+import { SectTaskSubmissionQueryService } from './SectTaskSubmissionQueryService';
 
 const benefits = new SectBenefitService();
 const plugins = composeSectOrganizationPlugins({
-  organizations: productionSectRuntime.registry.listDefinitions().map((definition) => ({
-    sectId: definition.id,
-    organization: productionSectRuntime.registry.require(definition.id).organization,
-  })),
+  organizations: productionSectRuntime.registry
+    .listDefinitions()
+    .map((definition) => ({
+      sectId: definition.id,
+      organization: productionSectRuntime.registry.require(definition.id)
+        .organization,
+    })),
   manifests: [CORE_SECT_ORGANIZATION_PLUGIN],
 });
 
 const application = new SectOrganizationFacade({
   membership: new SectMembershipApplicationService(benefits, plugins.events),
   tasks: {
-    queries: new GetSectTasksQueryHandler(plugins.executors, plugins.progress),
+    queries: new GetSectTasksQueryHandler(
+      plugins.executors,
+      plugins.progress,
+      plugins.offerPolicies,
+      plugins.rewardPolicies,
+    ),
+    submissions: new SectTaskSubmissionQueryService(),
     actions: new ExecuteSectTaskActionHandler(
       plugins.executors,
-      new ProcessSectTaskCompletionHandler(plugins.events),
+      new FulfillSectTaskHandler(plugins.events),
+      new ClaimSectTaskRewardHandler(plugins.events),
+      plugins.offerPolicies,
+      plugins.rewardPolicies,
     ),
   },
   economy: new SectEconomyApplicationService(

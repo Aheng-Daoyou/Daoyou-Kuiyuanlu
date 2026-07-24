@@ -129,7 +129,10 @@ const redis = new Proxy({} as Redis, {
 
       return result.catch((error: unknown) => {
         if (shouldResetRedisClient(error)) {
-          resetRedisClient(client, `${String(prop)} failed: ${(error as Error).message}`);
+          resetRedisClient(
+            client,
+            `${String(prop)} failed: ${(error as Error).message}`,
+          );
         }
 
         throw error;
@@ -138,5 +141,4 @@ const redis = new Proxy({} as Redis, {
   },
 });
 
-export { getRetreatLock, RetreatLock } from './retreatLock';
 export { getRedisClient, redis };

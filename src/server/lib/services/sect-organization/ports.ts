@@ -1,20 +1,19 @@
-import type { BattleRecord } from '@shared/types/battle';
 import type {
-  Cultivator,
-  Material,
-} from '@shared/types/cultivator';
-import type { RealmStage, RealmType } from '@shared/types/constants';
-import type { PillSpec } from '@shared/types/consumable';
-import type { Quality } from '@shared/types/constants';
-import type {
-  SectDiscipleRank,
   CultivatorSectState,
+  SectAbilitySlots,
+  SectDefinition,
+  SectDiscipleRank,
   SectOffice,
   SectOrganizationModule,
-  SectDefinition,
-  SectAbilitySlots,
+  SectSubmissionItemFacts,
+  SectSubmissionItemKind,
+  SectTaskRecordPayload,
   SectTrainingCost,
 } from '@shared/engine/sect';
+import type { BattleRecord } from '@shared/types/battle';
+import type { Quality, RealmStage, RealmType } from '@shared/types/constants';
+import type { PillSpec } from '@shared/types/consumable';
+import type { Cultivator, Material } from '@shared/types/cultivator';
 
 export interface Clock {
   now(): Date;
@@ -34,19 +33,32 @@ export interface SectAdmissionMembershipRecord {
 
 export interface SectStateRepository {
   load(cultivatorId: string): Promise<CultivatorSectState | undefined>;
-  loadForSect(cultivatorId: string, sectId: string): Promise<CultivatorSectState | undefined>;
-  listMemberships(cultivatorId: string): Promise<readonly SectAdmissionMembershipRecord[]>;
+  loadForSect(
+    cultivatorId: string,
+    sectId: string,
+  ): Promise<CultivatorSectState | undefined>;
+  listMemberships(
+    cultivatorId: string,
+  ): Promise<readonly SectAdmissionMembershipRecord[]>;
 }
 
 export interface SectAdmissionRepository extends SectStateRepository {
-  findActiveMembership(cultivatorId: string): Promise<SectAdmissionMembershipRecord | null>;
-  findMembershipForSect(cultivatorId: string, sectId: string): Promise<SectAdmissionMembershipRecord | null>;
+  findActiveMembership(
+    cultivatorId: string,
+  ): Promise<SectAdmissionMembershipRecord | null>;
+  findMembershipForSect(
+    cultivatorId: string,
+    sectId: string,
+  ): Promise<SectAdmissionMembershipRecord | null>;
   ensureMembershipCandidate(
     cultivatorId: string,
     sectId: string,
     configVersion: number,
   ): Promise<SectAdmissionMembershipRecord>;
-  activateMembership(membershipId: string, definition: SectDefinition): Promise<void>;
+  activateMembership(
+    membershipId: string,
+    definition: SectDefinition,
+  ): Promise<void>;
   ensureFacilities(
     sectId: string,
     facilities: readonly { key: string; initialLevel: number }[],
@@ -69,7 +81,11 @@ export interface SectTrainingResourceGateway {
 }
 
 export interface SectTraditionRepository extends SectStateRepository {
-  setMethodLevel(membershipId: string, methodId: string, level: number): Promise<void>;
+  setMethodLevel(
+    membershipId: string,
+    methodId: string,
+    level: number,
+  ): Promise<void>;
   createPathWithFirstLayer(
     membershipId: string,
     pathId: string,
@@ -90,9 +106,20 @@ export interface SectTraditionRepository extends SectStateRepository {
     slot: number,
     nodeIds: string[],
   ): Promise<void>;
-  activateMeridianLoadout(membershipId: string, pathId: string, slot: number): Promise<void>;
-  replaceAbilityLoadout(membershipId: string, slots: SectAbilitySlots): Promise<void>;
-  setPathTactic(membershipId: string, pathId: string, tacticId: string): Promise<void>;
+  activateMeridianLoadout(
+    membershipId: string,
+    pathId: string,
+    slot: number,
+  ): Promise<void>;
+  replaceAbilityLoadout(
+    membershipId: string,
+    slots: SectAbilitySlots,
+  ): Promise<void>;
+  setPathTactic(
+    membershipId: string,
+    pathId: string,
+    tacticId: string,
+  ): Promise<void>;
 }
 
 export interface SectMembershipRecord {
@@ -111,8 +138,9 @@ export interface SectTaskRecord {
   periodKey: string;
   status: 'active' | 'completed';
   progress: number;
-  payload: Record<string, unknown>;
+  payload: SectTaskRecordPayload;
   completedAt?: Date;
+  claimedAt?: Date;
 }
 
 export interface SectMembershipReadRepository {
@@ -123,7 +151,11 @@ export interface SectMembershipReadRepository {
 
 export interface SectMembershipQueryRepository extends SectMembershipReadRepository {
   loadState(cultivatorId: string): Promise<CultivatorSectState | undefined>;
-  listMembers(sectId: string, page: number, pageSize: number): Promise<{
+  listMembers(
+    sectId: string,
+    page: number,
+    pageSize: number,
+  ): Promise<{
     rows: SectMemberRecord[];
     total: number;
   }>;
@@ -145,9 +177,15 @@ export interface SectMemberRecord {
 
 export interface SectTaskReadRepository {
   list(membershipId: string): Promise<SectTaskRecord[]>;
-  find(membershipId: string, periodKey: string, taskId: string): Promise<SectTaskRecord | null>;
-  findDaily(membershipId: string, dateKey: string): Promise<SectTaskRecord | null>;
-  countCompletedDailySince(membershipId: string, periodKey: string): Promise<number>;
+  find(
+    membershipId: string,
+    periodKey: string,
+    taskId: string,
+  ): Promise<SectTaskRecord | null>;
+  countCompletedDailySince(
+    membershipId: string,
+    periodKey: string,
+  ): Promise<number>;
 }
 
 export interface SectTaskRepository extends SectTaskReadRepository {
@@ -157,10 +195,14 @@ export interface SectTaskRepository extends SectTaskReadRepository {
     kind: 'daily' | 'weekly' | 'promotion';
     periodKey: string;
     progress?: number;
-    payload?: Record<string, unknown>;
+    payload: SectTaskRecordPayload;
   }): Promise<SectTaskRecord>;
   complete(id: string, progress: number): Promise<SectTaskRecord | null>;
-  updatePayload(id: string, payload: Record<string, unknown>): Promise<SectTaskRecord | null>;
+  claim(id: string, claimedAt: Date): Promise<SectTaskRecord | null>;
+  updatePayload(
+    id: string,
+    payload: SectTaskRecordPayload,
+  ): Promise<SectTaskRecord | null>;
   upsertProgress(input: {
     membershipId: string;
     taskId: string;
@@ -169,7 +211,7 @@ export interface SectTaskRepository extends SectTaskReadRepository {
     progress: number;
     target: number;
     completed: boolean;
-    payload?: Record<string, unknown>;
+    payload: SectTaskRecordPayload;
   }): Promise<SectTaskRecord>;
 }
 
@@ -197,17 +239,50 @@ export interface SectOwnedArtifact {
 }
 
 export interface SectInventoryGateway {
-  findMaterial(cultivatorId: string, itemId: string): Promise<SectOwnedMaterial | null>;
-  findConsumable(cultivatorId: string, itemId: string): Promise<SectOwnedConsumable | null>;
-  findArtifact(cultivatorId: string, itemId: string): Promise<SectOwnedArtifact | null>;
+  findMaterial(
+    cultivatorId: string,
+    itemId: string,
+  ): Promise<SectOwnedMaterial | null>;
+  findConsumable(
+    cultivatorId: string,
+    itemId: string,
+  ): Promise<SectOwnedConsumable | null>;
+  findArtifact(
+    cultivatorId: string,
+    itemId: string,
+  ): Promise<SectOwnedArtifact | null>;
   consumeMaterial(itemId: string, quantity: number): Promise<boolean>;
   consumeConsumable(itemId: string, quantity: number): Promise<boolean>;
   consumeArtifact(itemId: string): Promise<boolean>;
 }
 
+export interface SectSubmissionInventoryReadGateway {
+  listSubmissionItems(input: {
+    cultivatorId: string;
+    kind: SectSubmissionItemKind;
+  }): Promise<SectSubmissionItemFacts[]>;
+  findSubmissionItem(
+    cultivatorId: string,
+    kind: SectSubmissionItemKind,
+    itemId: string,
+  ): Promise<SectSubmissionItemFacts | null>;
+}
+
+export interface SectSubmissionInventoryGateway extends SectSubmissionInventoryReadGateway {
+  consumeSubmissionItem(input: {
+    cultivatorId: string;
+    kind: SectSubmissionItemKind;
+    itemId: string;
+    quantity: number;
+  }): Promise<boolean>;
+}
+
 export interface SectCultivatorGateway {
   loadRuntime(cultivatorId: string): Promise<Cultivator | null>;
-  findMirrorCultivatorId(sectId: string, excludeCultivatorId: string): Promise<string | null>;
+  findMirrorCultivatorId(
+    sectId: string,
+    excludeCultivatorId: string,
+  ): Promise<string | null>;
   loadProgress(cultivatorId: string): Promise<{
     realm: RealmType;
     stage: RealmStage;
@@ -215,7 +290,11 @@ export interface SectCultivatorGateway {
 }
 
 export interface SectBattleGateway {
-  simulate(player: Cultivator, opponent: Cultivator, seed: string): BattleRecord;
+  simulate(
+    player: Cultivator,
+    opponent: Cultivator,
+    seed: string,
+  ): BattleRecord;
 }
 
 export interface SectRewardGateway {
@@ -226,23 +305,37 @@ export interface SectRewardGateway {
     referenceId: string,
   ): Promise<void>;
   grantSpiritStones(cultivatorId: string, amount: number): Promise<void>;
-  grantCultivationExp(userId: string, cultivatorId: string, amount: number): Promise<void>;
+  grantCultivationExp(
+    userId: string,
+    cultivatorId: string,
+    amount: number,
+  ): Promise<void>;
   grantMaterial(
     cultivatorId: string,
     input: Pick<
       Material,
-      'name' | 'type' | 'rank' | 'element' | 'description' | 'details' | 'quantity'
+      | 'name'
+      | 'type'
+      | 'rank'
+      | 'element'
+      | 'description'
+      | 'details'
+      | 'quantity'
     >,
   ): Promise<void>;
-  grantPill(userId: string, cultivatorId: string, input: {
-    id: string;
-    name: string;
-    quality: Quality;
-    description: string;
-    prompt: string;
-    spec: PillSpec;
-    quantity: number;
-  }): Promise<void>;
+  grantPill(
+    userId: string,
+    cultivatorId: string,
+    input: {
+      id: string;
+      name: string;
+      quality: Quality;
+      description: string;
+      prompt: string;
+      spec: PillSpec;
+      quantity: number;
+    },
+  ): Promise<void>;
 }
 
 export interface SectFacilityRecord {
@@ -261,7 +354,11 @@ export interface SectFacilityRepository extends SectFacilityReadRepository {
 }
 
 export interface SectEconomyReadRepository {
-  purchasedQuantity(membershipId: string, weekKey: string, itemId: string): Promise<number>;
+  purchasedQuantity(
+    membershipId: string,
+    weekKey: string,
+    itemId: string,
+  ): Promise<number>;
   hasClaimedStipend(membershipId: string, weekKey: string): Promise<boolean>;
 }
 
@@ -309,11 +406,18 @@ export interface SectDonationActivityRecord {
 }
 
 export interface SectConstructionReadRepository {
-  findActiveProject(sectId: string): Promise<SectConstructionProjectRecord | null>;
-  findLatestCompletedProject(sectId: string): Promise<SectConstructionProjectRecord | null>;
+  findActiveProject(
+    sectId: string,
+  ): Promise<SectConstructionProjectRecord | null>;
+  findLatestCompletedProject(
+    sectId: string,
+  ): Promise<SectConstructionProjectRecord | null>;
   countRecentlyActiveMembers(sectId: string, since: Date): Promise<number>;
   donatedContribution(membershipId: string, dateKey: string): Promise<number>;
-  listRecentDonations(sectId: string, limit: number): Promise<SectDonationActivityRecord[]>;
+  listRecentDonations(
+    sectId: string,
+    limit: number,
+  ): Promise<SectDonationActivityRecord[]>;
 }
 
 export interface SectConstructionRepository extends SectConstructionReadRepository {
@@ -332,7 +436,11 @@ export interface SectConstructionRepository extends SectConstructionReadReposito
     projectId: string,
     completedAt: Date,
   ): Promise<SectConstructionProjectRecord | null>;
-  upgradeFacility(sectId: string, facilityKey: string, level: number): Promise<boolean>;
+  upgradeFacility(
+    sectId: string,
+    facilityKey: string,
+    level: number,
+  ): Promise<boolean>;
   recordDonation(input: {
     id: string;
     membershipId: string;
@@ -358,7 +466,7 @@ export interface SectModuleResolver {
 export interface SectCommandContext {
   memberships: SectMembershipReadRepository;
   tasks: SectTaskRepository;
-  inventory: SectInventoryGateway;
+  submissionInventory: SectSubmissionInventoryGateway;
   cultivators: SectCultivatorGateway;
   battle: SectBattleGateway;
   rewards: SectRewardGateway;
@@ -370,6 +478,7 @@ export interface SectCommandContext {
 export interface SectQueryContext {
   memberships: SectMembershipReadRepository;
   tasks: SectTaskReadRepository;
+  submissionInventory: SectSubmissionInventoryReadGateway;
   modules: SectModuleResolver;
   clock: Clock;
 }

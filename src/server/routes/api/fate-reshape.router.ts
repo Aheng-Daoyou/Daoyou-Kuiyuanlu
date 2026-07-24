@@ -1,11 +1,15 @@
 import {
+  redisLockErrorResponse,
   requireActiveCultivator,
 } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
+import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import {
   FateReshapeService,
   FateReshapeServiceError,
+  prepareFateReshapeConfirmation,
+  prepareFateReshapeStart,
 } from '@server/lib/services/FateReshapeService';
 import {
   commitPlayerStateMutation,
@@ -58,33 +62,54 @@ router.post('/session', requireActiveCultivator(), async (c) => {
   }
 
   try {
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'fate_reshape_start',
-      allowEmpty: true,
-      run: async (tx) => {
-        const session = await FateReshapeService.startSession(
-          user.id,
-          cultivator.id,
-          { tx },
-        );
-        const talismanCount = await FateReshapeService.getAvailableTalismanCount(
-          cultivator.id,
-        );
-
-        return {
-          result: {
-            session,
-            talismanCount,
-          },
-          changes: [],
-        };
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: 'fate-reshape-start',
+        timeoutMs: 60_000,
+        renewEveryMs: 20_000,
+        retries: 0,
       },
-    });
-    return c.json(toPlayerStateMutationResponse(committed));
+      async (lease) => {
+        const prepared = await prepareFateReshapeStart(user.id, cultivator.id);
+        lease.assertHeld();
+        let afterCommit: (() => Promise<void>) | undefined;
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'fate_reshape_start',
+          allowEmpty: true,
+          run: async (tx) => {
+            const preparedCommit = await prepared.commit(tx);
+            afterCommit = preparedCommit.afterCommit;
+            return {
+              result: {
+                session: preparedCommit.session,
+              },
+              changes: [],
+            };
+          },
+        });
+        await afterCommit?.();
+        const talismanCount =
+          await FateReshapeService.getAvailableTalismanCount(cultivator.id);
+        return c.json(
+          toPlayerStateMutationResponse({
+            ...committed,
+            result: {
+              ...committed.result,
+              talismanCount,
+            },
+          }),
+        );
+      },
+    );
   } catch (error) {
-    const status = error instanceof FateReshapeServiceError ? error.status : 400;
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
+    const status =
+      error instanceof FateReshapeServiceError ? error.status : 400;
     return jsonWithStatus(
       c,
       {
@@ -109,7 +134,8 @@ router.post('/reroll', requireActiveCultivator(), async (c) => {
       data: { session },
     });
   } catch (error) {
-    const status = error instanceof FateReshapeServiceError ? error.status : 400;
+    const status =
+      error instanceof FateReshapeServiceError ? error.status : 400;
     return jsonWithStatus(
       c,
       {
@@ -134,33 +160,50 @@ router.post('/confirm', requireActiveCultivator(), async (c) => {
       return c.json({ success: false, error: '请求参数格式错误' }, 400);
     }
 
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'fate_reshape_confirm',
-      run: async (tx) => {
-        const selectedFates = await FateReshapeService.confirmSession(
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivator.id),
+        context: 'fate-reshape-confirm',
+        timeoutMs: 10_000,
+        retries: 0,
+      },
+      async (lease) => {
+        const prepared = await prepareFateReshapeConfirmation(
           user.id,
           cultivator.id,
           parsed.data.selectedIndices,
-          { tx },
         );
-
-        return {
-          result: { selectedFates },
-          changes: [
-            {
-              domain: 'profile',
-              eventType: 'profile.fates.changed',
-              invalidates: ['profile'],
-            },
-          ],
-        };
+        lease.assertHeld();
+        let afterCommit: (() => Promise<void>) | undefined;
+        const committed = await commitPlayerStateMutation({
+          coordination: { mode: 'redis', lease },
+          userId: user.id,
+          cultivatorId: cultivator.id,
+          source: 'fate_reshape_confirm',
+          run: async (tx) => {
+            const preparedCommit = await prepared.commit(tx);
+            afterCommit = preparedCommit.afterCommit;
+            return {
+              result: { selectedFates: preparedCommit.selectedFates },
+              changes: [
+                {
+                  domain: 'profile',
+                  eventType: 'profile.fates.changed',
+                  invalidates: ['profile'],
+                },
+              ],
+            };
+          },
+        });
+        await afterCommit?.();
+        return c.json(toPlayerStateMutationResponse(committed));
       },
-    });
-    return c.json(toPlayerStateMutationResponse(committed));
+    );
   } catch (error) {
-    const status = error instanceof FateReshapeServiceError ? error.status : 400;
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
+    const status =
+      error instanceof FateReshapeServiceError ? error.status : 400;
     return jsonWithStatus(
       c,
       {
@@ -182,7 +225,8 @@ router.post('/abandon', requireActiveCultivator(), async (c) => {
     await FateReshapeService.abandonSession(cultivator.id);
     return c.json({ success: true });
   } catch (error) {
-    const status = error instanceof FateReshapeServiceError ? error.status : 400;
+    const status =
+      error instanceof FateReshapeServiceError ? error.status : 400;
     return jsonWithStatus(
       c,
       {

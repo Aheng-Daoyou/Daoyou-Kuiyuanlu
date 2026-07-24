@@ -5,7 +5,7 @@ import {
 import type { AppEnv } from '@server/lib/hono/types';
 import * as creationProductRepository from '@server/lib/repositories/creationProductRepository';
 import {
-  commitPlayerStateMutation,
+  commitPlayerStateMutationWithLock,
   toPlayerStateMutationResponse,
   type StateChangeDescriptor,
 } from '@server/lib/services/PlayerStateMutationService';
@@ -130,7 +130,7 @@ router.post('/equip', requireActiveCultivator(), async (c) => {
     }
 
     const equipped = !product.isEquipped;
-    const committed = await commitPlayerStateMutation({
+    const committed = await commitPlayerStateMutationWithLock({
       userId: user.id,
       cultivatorId: cultivator.id,
       source: 'product_equip',
@@ -161,7 +161,7 @@ router.post('/equip', requireActiveCultivator(), async (c) => {
   }
 
   if (product.isEquipped) {
-    const committed = await commitPlayerStateMutation({
+    const committed = await commitPlayerStateMutationWithLock({
       userId: user.id,
       cultivatorId: cultivator.id,
       source: 'product_equip',
@@ -207,7 +207,7 @@ router.post('/equip', requireActiveCultivator(), async (c) => {
     );
   }
 
-  const committed = await commitPlayerStateMutation({
+  const committed = await commitPlayerStateMutationWithLock({
     userId: user.id,
     cultivatorId: cultivator.id,
     source: 'product_equip',
@@ -256,7 +256,7 @@ router.delete('/:id', requireActiveCultivator(), async (c) => {
   }
 
   const productType = product.productType as CreationProductType;
-  const committed = await commitPlayerStateMutation({
+  const committed = await commitPlayerStateMutationWithLock({
     userId: user.id,
     cultivatorId: cultivator.id,
     source: 'product_delete',
