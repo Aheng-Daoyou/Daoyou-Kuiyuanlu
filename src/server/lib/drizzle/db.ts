@@ -4,6 +4,7 @@ import { drizzle } from 'drizzle-orm/bun-sql';
 import * as schema from './schema';
 
 const connectionString = process.env.DATABASE_URL;
+const maxConnections = Number(process.env.DB_MAX_CONNECTIONS || 20);
 
 if (!connectionString) {
   throw new Error('Missing DATABASE_URL');
@@ -13,7 +14,7 @@ const client = new SQL({
   // PostgreSQL 连接地址；数据库相关环境变量仅保留 DATABASE_URL。
   url: connectionString,
   // 单个应用实例允许同时建立的最大物理连接数。
-  max: 20,
+  max: maxConnections,
   // 空闲连接保留 5 分钟后回收，减少低频流量下的连接反复创建。
   idleTimeout: 300,
   // 建立新连接最多等待 30 秒，超时后让当前查询快速失败。

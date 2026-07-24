@@ -10,17 +10,6 @@ import {
   runTowerEnemySetRefreshJob,
 } from './internalCron';
 
-type BunCronTask = {
-  ref?: () => void;
-  stop?: () => void;
-  unref?: () => void;
-};
-
-type BunCronRegistrar = (
-  schedule: string,
-  callback: () => void | Promise<void>,
-) => BunCronTask;
-
 const AUCTION_EXPIRE_SCHEDULE = '*/2 * * * *';
 const BET_BATTLE_EXPIRE_SCHEDULE = '*/2 * * * *';
 // Bun.cron uses UTC for cron expressions. 16:00 UTC equals 00:00 Asia/Shanghai.
@@ -36,19 +25,7 @@ const EXPIRED_DATA_CLEANUP_SCHEDULE = '45 18 * * *';
 const MATERIAL_LIBRARY_DAILY_GENERATION_SCHEDULE = '0 17 * * *';
 
 let schedulerRegistered = false;
-let scheduledTasks: BunCronTask[] = [];
-
-function getBunCronRegistrar(): BunCronRegistrar | null {
-  const bunValue = (
-    globalThis as typeof globalThis & {
-      Bun?: {
-        cron?: BunCronRegistrar;
-      };
-    }
-  ).Bun;
-
-  return typeof bunValue?.cron === 'function' ? bunValue.cron : null;
-}
+let scheduledTasks: Bun.CronJob[] = [];
 
 async function runScheduledJob(
   jobName: string,
@@ -61,49 +38,46 @@ async function runScheduledJob(
   }
 }
 
-export function registerInternalCronJobs(options: {
-  bunCron?: BunCronRegistrar;
-  enabled?: boolean;
-} = {}): BunCronTask[] {
-  const { bunCron = getBunCronRegistrar(), enabled = process.env.NODE_ENV === 'production' } =
-    options;
+export function registerInternalCronJobs(
+  options: {
+    enabled?: boolean;
+  } = {},
+): Bun.CronJob[] {
+  const { enabled = process.env.NODE_ENV === 'production' } = options;
 
-  if (!enabled || schedulerRegistered || !bunCron) {
+  if (!enabled || schedulerRegistered) {
     return scheduledTasks;
   }
 
   scheduledTasks = [
-    bunCron(AUCTION_EXPIRE_SCHEDULE, () =>
+    Bun.cron(AUCTION_EXPIRE_SCHEDULE, () =>
       runScheduledJob('auction-expire', runAuctionExpireJob),
     ),
-    bunCron(BET_BATTLE_EXPIRE_SCHEDULE, () =>
+    Bun.cron(BET_BATTLE_EXPIRE_SCHEDULE, () =>
       runScheduledJob('bet-battle-expire', runBetBattleExpireJob),
     ),
-    bunCron(RANK_REWARDS_SCHEDULE, () =>
+    Bun.cron(RANK_REWARDS_SCHEDULE, () =>
       runScheduledJob('rank-rewards', runRankRewardsJob),
     ),
-    bunCron(SECT_CONSTRUCTION_WEEKLY_SCHEDULE, () =>
-      runScheduledJob(
-        'sect-construction-weekly',
-        runSectConstructionWeeklyJob,
-      ),
+    Bun.cron(SECT_CONSTRUCTION_WEEKLY_SCHEDULE, () =>
+      runScheduledJob('sect-construction-weekly', runSectConstructionWeeklyJob),
     ),
-    bunCron(MARKET_REFRESH_SCHEDULE, () =>
+    Bun.cron(MARKET_REFRESH_SCHEDULE, () =>
       runScheduledJob('market-refresh', runMarketRefreshCronJob),
     ),
-    bunCron(TOWER_ENEMY_SETS_SCHEDULE, () =>
+    Bun.cron(TOWER_ENEMY_SETS_SCHEDULE, () =>
       runScheduledJob('tower-enemy-sets', runTowerEnemySetRefreshJob),
     ),
-    bunCron(PLAYER_STATE_EVENTS_CLEANUP_SCHEDULE, () =>
+    Bun.cron(PLAYER_STATE_EVENTS_CLEANUP_SCHEDULE, () =>
       runScheduledJob(
         'player-state-events-cleanup',
         runPlayerStateEventsCleanupJob,
       ),
     ),
-    bunCron(EXPIRED_DATA_CLEANUP_SCHEDULE, () =>
+    Bun.cron(EXPIRED_DATA_CLEANUP_SCHEDULE, () =>
       runScheduledJob('expired-data-cleanup', runExpiredDataCleanupJob),
     ),
-    bunCron(MATERIAL_LIBRARY_DAILY_GENERATION_SCHEDULE, () =>
+    Bun.cron(MATERIAL_LIBRARY_DAILY_GENERATION_SCHEDULE, () =>
       runScheduledJob(
         'material-library-daily-generation',
         runMaterialLibraryDailyGenerationJob,
