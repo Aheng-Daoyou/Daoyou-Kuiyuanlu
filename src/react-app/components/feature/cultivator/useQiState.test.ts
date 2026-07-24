@@ -2,6 +2,28 @@ import { describe, expect, it } from 'vitest';
 import { deriveQiState } from './useQiState';
 
 describe('deriveQiState', () => {
+  it('advances natural recovery from local time without changing the snapshot baseline', () => {
+    const baseline = {
+      current: 40,
+      qiLastRefreshedAt: new Date(
+        '2026-06-06T00:00:00+08:00',
+      ).toISOString(),
+    };
+
+    expect(
+      deriveQiState({
+        ...baseline,
+        nowMs: new Date('2026-06-06T00:59:00+08:00').getTime(),
+      }).current,
+    ).toBe(40);
+    expect(
+      deriveQiState({
+        ...baseline,
+        nowMs: new Date('2026-06-06T01:01:00+08:00').getTime(),
+      }).current,
+    ).toBe(50);
+  });
+
   it('derives next restore and full restore times from the settlement baseline', () => {
     const state = deriveQiState({
       current: 40,

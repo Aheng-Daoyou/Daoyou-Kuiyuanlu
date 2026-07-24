@@ -113,12 +113,12 @@ export function deriveQiState(input: {
 
 export function useQiState({
   cultivatorId,
-  autoRefresh = false,
-  refreshInterval = 60_000,
+  autoTick = false,
+  tickInterval = 60_000,
 }: {
   cultivatorId: string;
-  autoRefresh?: boolean;
-  refreshInterval?: number;
+  autoTick?: boolean;
+  tickInterval?: number;
 }) {
   const currency = usePlayerState((store) => store.snapshot.currency);
   const storeLoading = usePlayerState((store) => store.loading);
@@ -139,13 +139,23 @@ export function useQiState({
   }, [cultivatorId, refreshPlayerState]);
 
   useEffect(() => {
-    if (!cultivatorId || !autoRefresh || refreshInterval <= 0) return;
+    if (!cultivatorId || !autoTick || tickInterval <= 0) return;
 
-    const timer = window.setInterval(refresh, refreshInterval);
+    const updateNow = () => setNowMs(Date.now());
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        updateNow();
+      }
+    };
+
+    updateNow();
+    const timer = window.setInterval(updateNow, tickInterval);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [autoRefresh, cultivatorId, refresh, refreshInterval]);
+  }, [autoTick, cultivatorId, tickInterval]);
 
   const state: QiStateWithRecovery | null =
     cultivatorId && currency

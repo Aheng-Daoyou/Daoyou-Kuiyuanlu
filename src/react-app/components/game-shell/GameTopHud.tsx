@@ -256,8 +256,8 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
     error: qiError,
   } = useQiState({
     cultivatorId: snapshot?.cultivatorId ?? '',
-    autoRefresh: true,
-    refreshInterval: 60_000,
+    autoTick: true,
+    tickInterval: 60_000,
   });
 
   if (!snapshot) return null;
