@@ -83,4 +83,4 @@ docker compose up -d
 - Runtime/build changes: run `bun run build`.
 - Dev-server changes: run `bun run dev` and hit `/api/health-check`.
 - Docker changes: build locally or inspect the exact script affected.
-- Cron changes: run the relevant route or unit tests if available, and verify `CRON_SECRET` behavior.
+- Cron changes: run lint/build and verify `CRON_SECRET` behavior with focused runtime checks; do not add server unit tests.

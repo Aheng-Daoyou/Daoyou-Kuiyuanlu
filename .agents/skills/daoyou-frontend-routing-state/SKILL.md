@@ -55,7 +55,7 @@ description: Daoyou React Router、game scene metadata、layout selection、fron
 3. For game scenes, update `src/react-app/components/game-shell/gameNavigation.ts` scene registry/dock information if needed.
 4. For `chrome: "immersive"` scenes, check `src/react-app/layouts/game-layout.tsx` special scene back descriptor.
 5. For admin routes, update `src/react-app/router.tsx`, the route module, and `src/react-app/routes/admin/_config/nav.ts` when the page should appear in navigation.
-6. Check `src/react-app/lib/router/gameShellRegistry.ts`, `src/react-app/lib/router/routeTitle.ts`, and related tests.
+6. Check `src/react-app/lib/router/gameShellRegistry.ts` and `src/react-app/lib/router/routeTitle.ts`.
 7. Reuse existing hooks/providers before creating new page-level fetching state.
 8. For `GameViewportLayout` pages, load and follow `daoyou-game-ui`.
 
@@ -76,6 +76,6 @@ description: Daoyou React Router、game scene metadata、layout selection、fron
 
 ## Verify
 
-- Route metadata: run `src/react-app/lib/router/routeTitle.test.ts` and `src/react-app/lib/router/gameShellRegistry.test.ts` when affected.
-- Hooks/cache: run the nearest hook tests.
+- Route metadata: run lint/build and inspect titles, scene registration, and navigation manually.
+- Hooks/cache: run lint/build and inspect invalidation/refresh behavior manually.
 - Main game UI: follow the validation in `daoyou-game-ui`.
