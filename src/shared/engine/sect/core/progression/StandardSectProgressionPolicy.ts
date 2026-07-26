@@ -1,11 +1,6 @@
 import { EXP_CAP_TABLE } from '@shared/config/cultivationProgress';
 import { getRealmStageRank } from '@shared/config/realmProgression';
-import {
-  REALM_STAGE_VALUES,
-  REALM_VALUES,
-  type RealmStage,
-  type RealmType,
-} from '@shared/types/constants';
+import type { RealmStage, RealmType } from '@shared/types/constants';
 import type {
   SectMethodId,
   SectPathDefinition,
@@ -22,10 +17,6 @@ export interface SectPathProgressProjection {
 
 export interface SectProgressionPolicy {
   methodLevelCap(realm: RealmType, stage: RealmStage): number;
-  minimumRealmStageForMethodLevel(level: number): {
-    realm: RealmType;
-    stage: RealmStage;
-  };
   methodTrainingCost(fromLevel: number, targetLevel: number): SectTrainingCost;
   pathProgress(args: {
     path: SectPathDefinition;
@@ -42,6 +33,35 @@ export interface SectProgressionPolicy {
     stage: RealmStage;
     methods: Partial<Record<SectMethodId, number>>;
   }): SectPathLayerDefinition;
+}
+
+export const STANDARD_SECT_METHOD_COST_CURVE = {
+  baseCultivationExp: 50,
+  growthRate: 1.05,
+  cultivationRoundUnit: 10,
+  spiritStoneMultiplier: 3,
+  spiritStoneRoundUnit: 100,
+} as const;
+
+function roundUpToUnit(value: number, unit: number): number {
+  return Math.ceil(value / unit) * unit;
+}
+
+function methodLevelTrainingCost(level: number): SectTrainingCost {
+  const cultivationExp = roundUpToUnit(
+    STANDARD_SECT_METHOD_COST_CURVE.baseCultivationExp *
+      STANDARD_SECT_METHOD_COST_CURVE.growthRate ** (level - 1),
+    STANDARD_SECT_METHOD_COST_CURVE.cultivationRoundUnit,
+  );
+  return {
+    cultivationExp,
+    comprehensionInsight: 0,
+    spiritStones: roundUpToUnit(
+      cultivationExp *
+        STANDARD_SECT_METHOD_COST_CURVE.spiritStoneMultiplier,
+      STANDARD_SECT_METHOD_COST_CURVE.spiritStoneRoundUnit,
+    ),
+  };
 }
 
 function pathLayerCost(
@@ -143,18 +163,6 @@ export class StandardSectProgressionPolicy implements SectProgressionPolicy {
     return (getRealmStageRank(realm, stage) + 1) * 5;
   }
 
-  minimumRealmStageForMethodLevel(level: number): {
-    realm: RealmType;
-    stage: RealmStage;
-  } {
-    for (const realm of REALM_VALUES) {
-      for (const stage of REALM_STAGE_VALUES) {
-        if (this.methodLevelCap(realm, stage) >= level) return { realm, stage };
-      }
-    }
-    return { realm: '渡劫', stage: '圆满' };
-  }
-
   methodTrainingCost(fromLevel: number, targetLevel: number): SectTrainingCost {
     const total: SectTrainingCost = {
       cultivationExp: 0,
@@ -162,10 +170,9 @@ export class StandardSectProgressionPolicy implements SectProgressionPolicy {
       spiritStones: 0,
     };
     for (let level = fromLevel + 1; level <= targetLevel; level += 1) {
-      const { realm, stage } = this.minimumRealmStageForMethodLevel(level);
-      const cultivationExp = Math.ceil(EXP_CAP_TABLE[realm][stage] * 0.01);
-      total.cultivationExp += cultivationExp;
-      total.spiritStones += Math.max(50, cultivationExp * 2);
+      const cost = methodLevelTrainingCost(level);
+      total.cultivationExp += cost.cultivationExp;
+      total.spiritStones += cost.spiritStones;
     }
     return total;
   }

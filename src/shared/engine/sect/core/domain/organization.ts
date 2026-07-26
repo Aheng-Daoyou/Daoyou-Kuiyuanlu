@@ -28,12 +28,12 @@ export const SECT_RANK_LABELS: Record<SectDiscipleRank, string> = {
   true: '真传弟子',
 };
 
-export const SECT_RANK_METHOD_CAP: Record<SectDiscipleRank, number> = {
-  registered: 5,
-  outer: 20,
-  inner: 40,
-  true: Number.MAX_SAFE_INTEGER,
-};
+export const SECT_RANK_METHOD_CAP = {
+  registered: 45,
+  outer: 90,
+  inner: 135,
+  true: 180,
+} as const satisfies Record<SectDiscipleRank, number>;
 
 export interface SectFacilityState {
   key: SectFacilityKey;

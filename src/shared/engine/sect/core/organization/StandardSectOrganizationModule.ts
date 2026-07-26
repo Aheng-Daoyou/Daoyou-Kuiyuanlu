@@ -4,7 +4,11 @@ import {
 } from '@shared/config/realmProgression';
 import type { PillSpec } from '@shared/types/consumable';
 import type { Attributes, Cultivator } from '@shared/types/cultivator';
-import type { SectDiscipleRank, SectRankRequirement } from '../domain';
+import {
+  SECT_RANK_METHOD_CAP,
+  type SectDiscipleRank,
+  type SectRankRequirement,
+} from '../domain';
 import { StandardSectCapabilityPolicy } from './StandardSectCapabilityPolicy';
 import {
   SECT_CRAFT_CONTEXTS,
@@ -49,6 +53,10 @@ const capabilities = new StandardSectCapabilityPolicy(
   },
   new Set(['sect.formation.view']),
 );
+
+export const STANDARD_SECT_ARCHIVE_METHOD_CAP = [
+  0, 40, 75, 110, 145, 180,
+] as const;
 
 function taskPresentation(
   title: string,
@@ -824,12 +832,7 @@ class StandardSectRankPolicy implements SectRankPolicy {
   }
 
   methodLevelCap(rank: SectDiscipleRank): number {
-    return {
-      registered: 5,
-      outer: 20,
-      inner: 40,
-      true: Number.MAX_SAFE_INTEGER,
-    }[rank];
+    return SECT_RANK_METHOD_CAP[rank];
   }
 
   requirement(
@@ -1004,7 +1007,10 @@ class StandardSectBenefitPolicy implements SectBenefitPolicy {
       1,
       Math.min(5, Math.floor(this.archiveLevel(levels))),
     );
-    return [0, 20, 40, 60, 80, 100][level] ?? 20;
+    return (
+      STANDARD_SECT_ARCHIVE_METHOD_CAP[level] ??
+      STANDARD_SECT_ARCHIVE_METHOD_CAP[1]
+    );
   }
 
   gardenLevel(levels: ReadonlyMap<string, number>): number {

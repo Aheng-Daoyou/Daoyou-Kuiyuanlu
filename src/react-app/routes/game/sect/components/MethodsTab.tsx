@@ -30,7 +30,7 @@ function getMethodDisabledReason(args: {
   };
 }) {
   const targetLevel = args.currentLevel + 1;
-  if (targetLevel > args.data.methodLevelCap) return '已达当前境界上限';
+  if (targetLevel > args.data.methodLevelCap) return '已达当前心法上限';
   const primary = args.data.definition?.methods.find(
     (method) => method.isPrimary,
   );

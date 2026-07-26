@@ -51,7 +51,20 @@ describe('LingxiaoOrganizationModule', () => {
   });
 
   it('owns rank, economy, task, and construction content', () => {
-    expect(LINGXIAO_ORGANIZATION.ranks.methodLevelCap('registered')).toBe(5);
+    expect(
+      (
+        ['registered', 'outer', 'inner', 'true'] as const
+      ).map((rank) => LINGXIAO_ORGANIZATION.ranks.methodLevelCap(rank)),
+    ).toEqual([45, 90, 135, 180]);
+    expect(LINGXIAO_ORGANIZATION.ranks.requirement('outer')).toMatchObject({
+      minRealm: '炼气',
+      contribution: 100,
+      dailyCompletions: 3,
+    });
+    expect(LINGXIAO_ORGANIZATION.ranks.requirement('inner')).toMatchObject({
+      minRealm: '筑基',
+      contribution: 500,
+    });
     expect(LINGXIAO_ORGANIZATION.ranks.requirement('true')).toMatchObject({
       minRealm: '金丹',
       contribution: 3000,
@@ -66,13 +79,20 @@ describe('LingxiaoOrganizationModule', () => {
     expect(LINGXIAO_ORGANIZATION.construction.facilityPriority[0]).toBe(
       'archive',
     );
+    expect(
+      [1, 2, 3, 4, 5].map((archiveLevel) =>
+        LINGXIAO_ORGANIZATION.benefits.methodLevelCap(
+          new Map([['archive', archiveLevel]]),
+        ),
+      ),
+    ).toEqual([40, 75, 110, 145, 180]);
     const levels = new Map([
       ['archive', 5],
       ['cultivation_room', 5],
       ['workshop', 5],
       ['spirit_vein', 5],
     ]);
-    expect(LINGXIAO_ORGANIZATION.benefits.methodLevelCap(levels)).toBe(100);
+    expect(LINGXIAO_ORGANIZATION.benefits.methodLevelCap(levels)).toBe(180);
     expect(
       LINGXIAO_ORGANIZATION.benefits.retreatMultiplier(levels, 'outer'),
     ).toBe(1.1);

@@ -9,18 +9,62 @@ import {
 import { HEAVY_SWORD_PATH, SWIFT_SWORD_PATH } from '../../content/lingxiao';
 
 describe('通用宗门成长', () => {
-  it('按目标等级的最低境界阶段计算修为与灵石', () => {
+  it('每个境界阶段开放五级并在渡劫圆满达到180级', () => {
+    expect(getSectMethodLevelCap('炼气', '初期')).toBe(5);
     expect(getSectMethodLevelCap('筑基', '初期')).toBe(25);
-    expect(getSectMethodTrainingCost(0, 1)).toEqual({
-      cultivationExp: 5,
-      comprehensionInsight: 0,
-      spiritStones: 50,
-    });
+    expect(getSectMethodLevelCap('渡劫', '圆满')).toBe(180);
+  });
+
+  it.each([
+    [1, 50, 200],
+    [50, 550, 1_700],
+    [100, 6_270, 18_900],
+    [120, 16_620, 49_900],
+    [150, 71_810, 215_500],
+    [180, 310_360, 931_100],
+  ])(
+    '%i级按独立指数曲线计算单级修为与灵石',
+    (level, cultivationExp, spiritStones) => {
+      expect(getSectMethodTrainingCost(level - 1, level)).toEqual({
+        cultivationExp,
+        comprehensionInsight: 0,
+        spiritStones,
+      });
+    },
+  );
+
+  it('逐级取整后累加跨级成本', () => {
     expect(getSectMethodTrainingCost(4, 6)).toEqual({
-      cultivationExp: 11,
+      cultivationExp: 140,
       comprehensionInsight: 0,
-      spiritStones: 100,
+      spiritStones: 600,
     });
+  });
+
+  it('1至180级累计成本与分段累加一致', () => {
+    const total = getSectMethodTrainingCost(0, 180);
+    const first = getSectMethodTrainingCost(0, 120);
+    const second = getSectMethodTrainingCost(120, 180);
+    expect(total).toEqual({
+      cultivationExp: 6_517_250,
+      comprehensionInsight: 0,
+      spiritStones: 19_560_400,
+    });
+    expect(total.cultivationExp).toBe(
+      first.cultivationExp + second.cultivationExp,
+    );
+    expect(total.spiritStones).toBe(
+      first.spiritStones + second.spiritStones,
+    );
+    expect(first.comprehensionInsight + second.comprehensionInsight).toBe(0);
+  });
+
+  it('所有可用等级的灵石成本均高于修为成本', () => {
+    for (let level = 1; level <= 180; level += 1) {
+      const cost = getSectMethodTrainingCost(level - 1, level);
+      expect(cost.spiritStones).toBeGreaterThan(cost.cultivationExp);
+      expect(cost.comprehensionInsight).toBe(0);
+    }
   });
 
   it('参悟只允许选择已解锁层且同层互斥', () => {
