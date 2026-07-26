@@ -45,23 +45,26 @@ function OpenSectTaskSubmissionDialog({
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const { busy, execute } = useSectTaskInteraction();
-  const load = useCallback(async (nextPage: number) => {
-    setLoading(true);
-    setError(undefined);
-    try {
-      setData(
-        await fetchSectSubmissionCandidates(
-          task.definitionId,
-          nextPage,
-          pageSize,
-        ),
-      );
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '交付候选读取失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [task.definitionId]);
+  const load = useCallback(
+    async (nextPage: number) => {
+      setLoading(true);
+      setError(undefined);
+      try {
+        setData(
+          await fetchSectSubmissionCandidates(
+            task.definitionId,
+            nextPage,
+            pageSize,
+          ),
+        );
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : '交付候选读取失败');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [task.definitionId],
+  );
   useEffect(() => {
     void fetchSectSubmissionCandidates(task.definitionId, 1, pageSize).then(
       (result) => {
@@ -93,6 +96,8 @@ function OpenSectTaskSubmissionDialog({
       loading={loading}
       error={error}
       busy={busy}
+      multiple={requirement.kind === 'material'}
+      targetQuantity={requirement.quantity}
       pagination={
         data
           ? {
@@ -108,11 +113,15 @@ function OpenSectTaskSubmissionDialog({
       }
       onClose={onClose}
       onRetry={() => void load(page)}
-      onConfirm={async (itemId) => {
+      onConfirm={async (items) => {
+        const first = items[0];
+        if (!first) return;
         const result = await execute(
           task,
           action,
-          { itemId, quantity: requirement.quantity },
+          requirement.kind === 'material'
+            ? { items }
+            : { itemId: first.itemId, quantity: requirement.quantity },
           `「${task.presentation.title}」回执已生成`,
         );
         if (result) onClose();

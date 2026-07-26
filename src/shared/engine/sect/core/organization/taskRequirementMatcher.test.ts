@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { matchSectDeliveryRequirement } from './taskRequirementMatcher';
+import {
+  matchSectDeliveryCandidate,
+  matchSectDeliveryRequirement,
+  matchSectMaterialDeliverySelection,
+  type SectMaterialSubmissionFacts,
+} from './taskRequirementMatcher';
 
 describe('sect delivery requirement matcher', () => {
   it('matches pill operations projected as stable traits', () => {
@@ -71,5 +76,72 @@ describe('sect delivery requirement matcher', () => {
         },
       ).violations.map((item) => item.code),
     ).toEqual(['item_equipped', 'perfect_affix_missing']);
+  });
+
+  it('allows multiple qualifying material stacks to satisfy one requirement', () => {
+    const requirement = {
+      kind: 'material' as const,
+      quantity: 3,
+      minQuality: '灵品' as const,
+      materialType: 'ore' as const,
+      element: '金' as const,
+    };
+    const first: SectMaterialSubmissionFacts = {
+      kind: 'material',
+      id: 'material-1',
+      name: '赤铜',
+      quality: '玄品',
+      quantity: 1,
+      materialType: 'ore',
+      element: '金',
+    };
+    const second: SectMaterialSubmissionFacts = {
+      kind: 'material',
+      id: 'material-2',
+      name: '玄铁',
+      quality: '玄品',
+      quantity: 2,
+      materialType: 'ore',
+      element: '金',
+    };
+
+    expect(matchSectDeliveryCandidate(requirement, first).eligible).toBe(true);
+    expect(
+      matchSectMaterialDeliverySelection(requirement, [
+        { item: first, quantity: 1 },
+        { item: second, quantity: 2 },
+      ]),
+    ).toEqual({ eligible: true, violations: [] });
+  });
+
+  it('rejects duplicate, mismatched, insufficient and incorrect-total material selections', () => {
+    const requirement = {
+      kind: 'material' as const,
+      quantity: 3,
+      minQuality: '玄品' as const,
+      materialType: 'ore' as const,
+    };
+    const item: SectMaterialSubmissionFacts = {
+      kind: 'material',
+      id: 'material-1',
+      name: '凡铁',
+      quality: '灵品',
+      quantity: 1,
+      materialType: 'herb',
+    };
+    const codes = matchSectMaterialDeliverySelection(requirement, [
+      { item, quantity: 2 },
+      { item, quantity: 1 },
+    ]).violations.map((violation) => violation.code);
+
+    expect(codes).toEqual(
+      expect.arrayContaining([
+        'quantity_too_high',
+        'quality_too_low',
+        'wrong_material_type',
+        'duplicate_item',
+        'total_mismatch',
+      ]),
+    );
   });
 });

@@ -8,6 +8,7 @@ import {
 import type { PillAppearanceGrade, PillFamily } from '@shared/types/consumable';
 import type {
   SectDeliveryRequirement,
+  SectMaterialDeliveryRequirement,
   SectPillTraitKey,
 } from './taskRequirements';
 
@@ -52,6 +53,10 @@ export type SectDeliveryViolationCode =
   | 'wrong_kind'
   | 'quality_too_low'
   | 'quantity_too_low'
+  | 'duplicate_item'
+  | 'invalid_quantity'
+  | 'quantity_too_high'
+  | 'total_mismatch'
   | 'wrong_family'
   | 'missing_trait'
   | 'appearance_mismatch'
@@ -69,6 +74,11 @@ export interface SectDeliveryViolation {
 export interface DeliveryMatchResult {
   eligible: boolean;
   violations: SectDeliveryViolation[];
+}
+
+export interface SectMaterialDeliverySelection {
+  item: SectMaterialSubmissionFacts;
+  quantity: number;
 }
 
 const APPEARANCE_ORDER: Record<PillAppearanceGrade, number> = {
@@ -130,6 +140,65 @@ export function matchSectDeliveryRequirement(
       add('wrong_material_type', '材料类型不符合要求');
     if (requirement.element && candidate.element !== requirement.element)
       add('wrong_element', '材料属性不符合要求');
+  }
+
+  return { eligible: violations.length === 0, violations };
+}
+
+export function matchSectDeliveryCandidate(
+  requirement: SectDeliveryRequirement,
+  candidate: SectSubmissionItemFacts,
+): DeliveryMatchResult {
+  return matchSectDeliveryRequirement(
+    requirement.kind === 'material'
+      ? { ...requirement, quantity: 1 }
+      : requirement,
+    candidate,
+  );
+}
+
+export function matchSectMaterialDeliverySelection(
+  requirement: SectMaterialDeliveryRequirement,
+  selections: readonly SectMaterialDeliverySelection[],
+): DeliveryMatchResult {
+  const violations: SectDeliveryViolation[] = [];
+  const ids = new Set<string>();
+  let total = 0;
+
+  for (const selection of selections) {
+    if (ids.has(selection.item.id)) {
+      violations.push({
+        code: 'duplicate_item',
+        message: '同一份材料不能重复选择',
+      });
+      continue;
+    }
+    ids.add(selection.item.id);
+
+    if (!Number.isInteger(selection.quantity) || selection.quantity <= 0) {
+      violations.push({
+        code: 'invalid_quantity',
+        message: '材料提交数量无效',
+      });
+      continue;
+    }
+    total += selection.quantity;
+    if (selection.quantity > selection.item.quantity) {
+      violations.push({
+        code: 'quantity_too_high',
+        message: `${selection.item.name}数量不足`,
+      });
+    }
+    violations.push(
+      ...matchSectDeliveryCandidate(requirement, selection.item).violations,
+    );
+  }
+
+  if (total !== requirement.quantity) {
+    violations.push({
+      code: 'total_mismatch',
+      message: `所选材料总数须为 ${requirement.quantity}`,
+    });
   }
 
   return { eligible: violations.length === 0, violations };

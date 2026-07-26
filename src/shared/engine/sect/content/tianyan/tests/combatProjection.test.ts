@@ -143,7 +143,7 @@ describe('天衍圣地战斗投影', () => {
     expect(
       TIANYAN_MODULE.organization.tasks.get('weekly_tournament')?.presentation
         .actionLabel,
-    ).toBe('参加小比');
+    ).toBe('参加宗门小比');
     expect(
       TIANYAN_MODULE.organization.tasks.get('elder_trial')?.presentation
         .actionLabel,

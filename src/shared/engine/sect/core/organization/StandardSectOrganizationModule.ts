@@ -137,6 +137,10 @@ const tasks: readonly SectTaskDefinition[] = [
     enrollment: 'manual',
     requiredCapability: 'sect.tasks.use',
     executorKey: 'sect.battle',
+    executionLocation: {
+      key: 'sect.spirit-vein',
+      travelReply: '弟子这就前往矿场巡视',
+    },
     reward: {
       policy: 'sect.reward.realm-task',
       input: { baseContribution: 30, frequencyBps: 10_000 },
@@ -145,7 +149,7 @@ const tasks: readonly SectTaskDefinition[] = [
     presentation: taskPresentation(
       '巡视矿场',
       '前往宗门矿脉驱逐侵扰妖兽。',
-      '前往迎战',
+      '开始巡逻',
       {
         offeredReply: '矿场巡视交给我',
         activeReply: '矿场那边的差事，请再说一遍',
@@ -262,6 +266,10 @@ const tasks: readonly SectTaskDefinition[] = [
     enrollment: 'manual',
     requiredCapability: 'sect.tasks.use',
     executorKey: 'sect.battle',
+    executionLocation: {
+      key: 'sect.arena',
+      travelReply: '弟子这就去演武场候教',
+    },
     reward: {
       policy: 'sect.reward.realm-task',
       input: { baseContribution: 40, frequencyBps: 30_000 },
@@ -270,7 +278,7 @@ const tasks: readonly SectTaskDefinition[] = [
     presentation: taskPresentation(
       '宗门小比',
       '在演武傀儡前验证本周修行。',
-      '参加小比',
+      '参加宗门小比',
       {
         offeredReply: '本周小比，我来应战',
         activeReply: '小比的安排，请再说一遍',

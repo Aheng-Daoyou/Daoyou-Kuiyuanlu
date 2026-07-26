@@ -1,6 +1,7 @@
 import type { SectTaskViewData } from '@shared/contracts/sect';
 import {
   resolveSectTaskDialogue,
+  resolveSectTaskExecutionLocationParameters,
   type SectTaskDefinition,
 } from '@shared/engine/sect';
 import type { SectTaskRecord } from './ports';
@@ -15,6 +16,9 @@ export function toSectTaskView(args: {
   disabledReason?: string;
 }): SectTaskViewData {
   const offer = args.record.payload.offer;
+  const executionLocation = resolveSectTaskExecutionLocationParameters(
+    args.definition,
+  );
   const actions =
     args.state === 'claimed'
       ? []
@@ -25,6 +29,7 @@ export function toSectTaskView(args: {
               renderer: 'sect.action.claim',
               label: '交回回执',
               enabled: args.enabled,
+              ...(executionLocation ? { parameters: executionLocation } : {}),
               ...(args.disabledReason
                 ? { disabledReason: args.disabledReason }
                 : {}),
@@ -37,6 +42,7 @@ export function toSectTaskView(args: {
                 renderer: 'sect.action.accept',
                 label: '接下此事',
                 enabled: args.enabled,
+                ...(executionLocation ? { parameters: executionLocation } : {}),
                 ...(args.disabledReason
                   ? { disabledReason: args.disabledReason }
                   : {}),

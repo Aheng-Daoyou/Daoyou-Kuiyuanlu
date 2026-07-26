@@ -5,13 +5,17 @@ import {
   type NpcConversationOption,
   type RoomActorView,
 } from '@app/components/feature/room';
-import { useSectPresentation } from '@app/components/feature/sect/SectQueryProvider';
+import {
+  useSectPresentation,
+  useSectResourceQuery,
+} from '@app/components/feature/sect/SectQueryProvider';
 import { SectTaskActionRenderer } from '@app/components/feature/sect/SectTaskActionRenderer';
 import { useSectTaskInteraction } from '@app/components/feature/sect/SectTaskInteractionProvider';
 import {
   decodeSectTaskOutcome,
   readRewardReceiptOutcome,
 } from '@app/components/feature/sect/sectTaskOutcomeRegistry';
+import { fetchSectTasks } from '@app/lib/sect/sectClient';
 import type { SectTaskViewData } from '@shared/contracts/sect';
 import type {
   SectAffairsTaskKind,
@@ -19,7 +23,7 @@ import type {
   SectTaskDialogueEmphasis,
   SectTaskDialogueSegment,
 } from '@shared/engine/sect';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const TASK_KINDS: readonly SectAffairsTaskKind[] = [
   'daily',
@@ -63,29 +67,6 @@ function sortTasks(tasks: readonly SectTaskViewData[]): SectTaskViewData[] {
 
 function visibleTasks(tasks: readonly SectTaskViewData[]): SectTaskViewData[] {
   return tasks.filter((task) => task.state !== 'locked');
-}
-
-function npcStatus(
-  tasks: readonly SectTaskViewData[],
-  kind: SectAffairsTaskKind,
-): RoomActorView['status'] {
-  const visible = visibleTasks(tasks);
-  if (visible.some((task) => task.state === 'claimable'))
-    return { label: '有事务待交回', tone: 'attention' };
-  if (visible.some((task) => task.state === 'active'))
-    return { label: '有事务正在办理', tone: 'active' };
-  if (visible.some((task) => task.state === 'offered')) {
-    const label =
-      kind === 'daily'
-        ? '有新的今日委托'
-        : kind === 'weekly'
-          ? '有新的本周事务'
-          : '可询问晋升事务';
-    return { label, tone: 'attention' };
-  }
-  if (visible.some((task) => task.state === 'claimed'))
-    return { label: '本期已结清', tone: 'muted' };
-  return { label: '暂无事务', tone: 'muted' };
 }
 
 function taskTitles(tasks: readonly SectTaskViewData[]): string {
@@ -144,26 +125,10 @@ function TaskInstruction({
   );
 }
 
-export function SectAffairsRoom({
-  tasks,
-}: {
-  tasks: readonly SectTaskViewData[];
-}) {
+export function SectAffairsRoom() {
   const presentation = useSectPresentation().affairsRoom;
   const interaction = useSectTaskInteraction();
   const [selectedKind, setSelectedKind] = useState<SectAffairsTaskKind>();
-  const [selectedTaskKey, setSelectedTaskKey] = useState<string>();
-
-  const groupedTasks = useMemo(
-    () =>
-      Object.fromEntries(
-        TASK_KINDS.map((kind) => [
-          kind,
-          sortTasks(tasks.filter((task) => task.kind === kind)),
-        ]),
-      ) as Record<SectAffairsTaskKind, SectTaskViewData[]>,
-    [tasks],
-  );
 
   const actors = useMemo<RoomActorView[]>(
     () =>
@@ -175,21 +140,14 @@ export function SectAffairsRoom({
           name: npc.name,
           identity: npc.identity,
           responsibility: npc.responsibility,
-          status: npcStatus(groupedTasks[kind], kind),
         };
       }),
-    [groupedTasks, presentation.taskNpcs],
+    [presentation.taskNpcs],
   );
 
   const selectedNpc = selectedKind
     ? presentation.taskNpcs[selectedKind]
     : undefined;
-  const selectedTask = selectedKind
-    ? groupedTasks[selectedKind].find(
-        (task) => taskKey(task) === selectedTaskKey,
-      )
-    : undefined;
-
   const selectActor = (actorId: string) => {
     const kind = TASK_KINDS.find(
       (candidate) => presentation.taskNpcs[candidate].id === actorId,
@@ -197,8 +155,60 @@ export function SectAffairsRoom({
     if (!kind) return;
     interaction.clearOutcome();
     setSelectedKind(kind);
-    setSelectedTaskKey(undefined);
   };
+
+  const leaveConversation = () => {
+    interaction.clearOutcome();
+    setSelectedKind(undefined);
+  };
+
+  return (
+    <RoomView
+      eyebrow="宗门公牍 · 当值录事"
+      description={presentation.description}
+      actors={actors}
+      selectedId={selectedNpc?.id}
+      onSelect={selectActor}
+      prompt="点击人物，与其交谈"
+      detail={
+        selectedNpc && selectedKind ? (
+          <SectAffairsNpcConversation
+            key={selectedKind}
+            kind={selectedKind}
+            npc={selectedNpc}
+            onExit={leaveConversation}
+          />
+        ) : undefined
+      }
+    />
+  );
+}
+
+function SectAffairsNpcConversation({
+  kind,
+  npc,
+  onExit,
+}: {
+  kind: SectAffairsTaskKind;
+  npc: SectRoomNpcPresentation;
+  onExit(): void;
+}) {
+  const interaction = useSectTaskInteraction();
+  const { data, loading, error, reload } = useSectResourceQuery(
+    'tasks',
+    fetchSectTasks,
+  );
+  const [selectedTaskKey, setSelectedTaskKey] = useState<string>();
+
+  useEffect(() => {
+    void reload();
+  }, [kind, reload]);
+
+  const tasks = useMemo(
+    () => sortTasks(data?.items.filter((task) => task.kind === kind) ?? []),
+    [data?.items, kind],
+  );
+  const selectedTask = tasks.find((task) => taskKey(task) === selectedTaskKey);
 
   const selectTask = async (task: SectTaskViewData) => {
     interaction.clearOutcome();
@@ -233,44 +243,40 @@ export function SectAffairsRoom({
     setSelectedTaskKey(taskKey(task));
   };
 
-  const leaveConversation = () => {
-    interaction.clearOutcome();
-    setSelectedKind(undefined);
-    setSelectedTaskKey(undefined);
-  };
+  if (!data && loading)
+    return (
+      <NpcConversation
+        actor={npc}
+        messages={[
+          {
+            id: 'loading',
+            speaker: npc.name,
+            body: '稍候，我查一查今日的功簿。',
+          },
+        ]}
+        busy
+        onSelectOption={() => undefined}
+      />
+    );
 
-  return (
-    <RoomView
-      eyebrow="宗门公牍 · 当值录事"
-      description={presentation.description}
-      actors={actors}
-      selectedId={selectedNpc?.id}
-      onSelect={selectActor}
-      prompt="点击人物，与其交谈"
-      detail={
-        selectedNpc && selectedKind ? (
-          selectedTask ? (
-            <TaskConversation
-              npc={selectedNpc}
-              task={selectedTask}
-              onExit={leaveConversation}
-              onBack={() => {
-                interaction.clearOutcome();
-                setSelectedTaskKey(undefined);
-              }}
-            />
-          ) : (
-            <TaskListConversation
-              npc={selectedNpc}
-              tasks={groupedTasks[selectedKind]}
-              busy={interaction.busy}
-              error={interaction.error}
-              onSelect={(task) => void selectTask(task)}
-              onExit={leaveConversation}
-            />
-          )
-        ) : undefined
-      }
+  return selectedTask ? (
+    <TaskConversation
+      npc={npc}
+      task={selectedTask}
+      onExit={onExit}
+      onBack={() => {
+        interaction.clearOutcome();
+        setSelectedTaskKey(undefined);
+      }}
+    />
+  ) : (
+    <TaskListConversation
+      npc={npc}
+      tasks={tasks}
+      busy={interaction.busy || loading}
+      error={interaction.error ?? error}
+      onSelect={(task) => void selectTask(task)}
+      onExit={onExit}
     />
   );
 }

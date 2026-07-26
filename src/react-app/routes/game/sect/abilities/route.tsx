@@ -3,6 +3,7 @@ import {
   useSectCurrentQuery,
   useSectPresentation,
 } from '@app/components/feature/sect/SectQueryProvider';
+import { SectTaskActivityEntry } from '@app/components/feature/sect/SectTaskActivityEntry';
 import { InkModal } from '@app/components/layout';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkCard, InkNotice } from '@app/components/ui';
@@ -169,6 +170,10 @@ function SectAbilitiesBody() {
         ) : undefined
       }
     >
+      <SectTaskActivityEntry
+        locationKey="sect.arena"
+        activeMessage="本周小比的演武傀儡已经就位，随时可以入场。"
+      />
       <div className="rounded-full border border-red-950/10 bg-white/20 p-2 sm:p-4">
         {!sect || !definition ? (
           <InkNotice>尚未拜入宗门。</InkNotice>

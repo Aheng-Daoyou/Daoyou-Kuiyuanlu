@@ -10,6 +10,11 @@ import type {
 } from '@shared/contracts/sect';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useSectPresentation } from './SectQueryProvider';
+import {
+  createSectTaskBattleHref,
+  getSectTaskActivityLocation,
+  resolveSectTaskActivityOrigin,
+} from './sectTaskActivityLocations';
 import { useSectTaskInteraction } from './SectTaskInteractionProvider';
 
 export function SweepSessionOutcome({
@@ -87,13 +92,19 @@ export function BattleOutcome({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const attemptId = searchParams.get('attemptId') ?? 'unknown';
+  const origin = resolveSectTaskActivityOrigin(searchParams.get('origin'));
+  const returnTarget = origin
+    ? getSectTaskActivityLocation(origin)
+    : {
+        route: '/game/sect/affairs',
+        returnLabel: presentation.terms.returnToAffairs,
+      };
   const battle = data as SectBattleOutcomeData;
   const playback = useBattlePlaybackState(battle.battle);
   const retry = () =>
-    navigate(
-      `/game/sect/tasks/${encodeURIComponent(task.definitionId)}/battle?attemptId=${crypto.randomUUID()}`,
-      { replace: true },
-    );
+    navigate(createSectTaskBattleHref(task.definitionId, origin), {
+      replace: true,
+    });
   return (
     <BattlePageLayout
       title={battle.challengeTitle}
@@ -105,8 +116,8 @@ export function BattleOutcome({
         battleResult={battle.battle}
         playback={playback}
         statusAction={{
-          label: presentation.terms.returnToAffairs,
-          onClick: () => navigate('/game/sect/affairs'),
+          label: returnTarget.returnLabel,
+          onClick: () => navigate(returnTarget.route),
         }}
       />
       <CombatResultDialog
@@ -114,15 +125,17 @@ export function BattleOutcome({
         dialogKey={`sect-task-${attemptId}`}
         open={playback.isPlaybackFinished}
         title={battle.won ? '宗门战局得胜' : '宗门战局失利'}
-        confirmLabel={presentation.terms.returnToAffairs}
+        confirmLabel={returnTarget.returnLabel}
         cancelLabel={battle.won ? '重看战局' : '重新挑战'}
-        onConfirm={() => navigate('/game/sect/affairs')}
+        onConfirm={() => navigate(returnTarget.route)}
         onCancel={battle.won ? playback.reset : retry}
         content={
           <p className="leading-8">
             {battle.won
               ? battle.taskFulfilled
-                ? '胜绩回执已成，请回事务堂领取赏赐。'
+                ? origin
+                  ? '胜绩回执已成，返回此地后便可回事务堂复命。'
+                  : '胜绩回执已成，请回事务堂领取赏赐。'
                 : '胜绩已经记入宗门卷宗。'
               : '此战未能压过残影，任务仍然保留，可整顿后再次挑战。'}
           </p>

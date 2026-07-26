@@ -80,6 +80,11 @@ export const SectTaskRecordPayloadSchema = z
     completionData: z
       .object({
         submittedItem: SectSubmittedItemSnapshotSchema.optional(),
+        submittedItems: z
+          .array(SectSubmittedItemSnapshotSchema)
+          .min(1)
+          .max(99)
+          .optional(),
       })
       .strict()
       .optional(),

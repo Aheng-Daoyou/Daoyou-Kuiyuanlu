@@ -1,6 +1,11 @@
 import { InkButton } from '@app/components/ui';
 import type { SectTaskViewData } from '@shared/contracts/sect';
 import { useState } from 'react';
+import {
+  createSectTaskBattleHref,
+  getSectTaskActivityLocation,
+  readSectTaskActivityLocation,
+} from './sectTaskActivityLocations';
 import { useSectTaskInteraction } from './SectTaskInteractionProvider';
 import { SectTaskSubmissionDialog } from './SectTaskSubmissionDialog';
 
@@ -78,20 +83,25 @@ export function BattleAction({
   display,
 }: SectTaskActionRendererProps) {
   const { busy, navigate } = useSectTaskInteraction();
+  const activityLocation = readSectTaskActivityLocation(action);
   return (
     <InkButton
       variant="primary"
       className={actionClassName(display)}
       disabled={busy || !action.enabled}
-      onClick={() =>
+      onClick={() => {
+        if (display === 'conversation' && activityLocation) {
+          navigate(getSectTaskActivityLocation(activityLocation.key).route);
+          return;
+        }
         navigate(
-          `/game/sect/tasks/${encodeURIComponent(task.definitionId)}/battle?attemptId=${crypto.randomUUID()}`,
-        )
-      }
+          createSectTaskBattleHref(task.definitionId, activityLocation?.key),
+        );
+      }}
     >
       {action.enabled
         ? display === 'conversation'
-          ? '我这就去应战'
+          ? (activityLocation?.travelReply ?? '我这就去应战')
           : action.label
         : (action.disabledReason ?? '尚未解锁')}
     </InkButton>

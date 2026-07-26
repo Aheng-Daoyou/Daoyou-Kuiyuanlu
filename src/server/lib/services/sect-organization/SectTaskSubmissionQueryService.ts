@@ -1,6 +1,6 @@
 import type { SectSubmissionCandidatesData } from '@shared/contracts/sect';
 import {
-  matchSectDeliveryRequirement,
+  matchSectDeliveryCandidate,
   type SectTaskDefinition,
 } from '@shared/engine/sect';
 import { SectError } from '../SectError';
@@ -54,7 +54,7 @@ export class SectTaskSubmissionQueryService {
     const matched = items
       .map((item) => ({
         item,
-        ...matchSectDeliveryRequirement(requirement, item),
+        ...matchSectDeliveryCandidate(requirement, item),
       }))
       .filter((candidate) =>
         input.eligible === 'all'

@@ -75,6 +75,18 @@ export interface SectTaskPresentationDefinition {
   dialogue: SectTaskDialogueDefinition;
 }
 
+export interface SectTaskExecutionLocationDefinition {
+  key: string;
+  travelReply: string;
+}
+
+export interface SectTaskExecutionLocationParameters extends Record<
+  string,
+  unknown
+> {
+  executionLocation: SectTaskExecutionLocationDefinition;
+}
+
 export interface SectTaskAvailabilityContext {
   dateKey: string;
   weekKey: string;
@@ -121,6 +133,7 @@ export interface SectTaskDefinition {
   enrollment: 'manual' | 'automatic';
   requiredCapability: SectCapabilityKey;
   executorKey: SectTaskExecutorKey;
+  executionLocation?: SectTaskExecutionLocationDefinition;
   presentation: SectTaskPresentationDefinition;
   availability?: SectTaskAvailabilityPolicy;
   offer?: SectTaskOfferPolicyDefinition;
@@ -129,6 +142,19 @@ export interface SectTaskDefinition {
   completionTags?: readonly string[];
   progress?: SectTaskProgressDefinition;
   target: number;
+}
+
+export function resolveSectTaskExecutionLocationParameters(
+  definition: SectTaskDefinition,
+): SectTaskExecutionLocationParameters | undefined {
+  const location = definition.executionLocation;
+  if (!location) return undefined;
+  return {
+    executionLocation: {
+      key: location.key,
+      travelReply: location.travelReply,
+    },
+  };
 }
 
 export interface SectTaskCatalog {

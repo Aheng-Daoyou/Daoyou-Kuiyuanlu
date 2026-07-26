@@ -1,4 +1,5 @@
 import { useSectCurrentQuery } from '@app/components/feature/sect/SectQueryProvider';
+import { SectTaskActivityEntry } from '@app/components/feature/sect/SectTaskActivityEntry';
 import { getSectBenefitMetric } from '@app/lib/sect/sectPresentation';
 import {
   SectPageLoading,
@@ -38,6 +39,10 @@ function SectSpiritVeinBody() {
         </div>
       }
     >
+      <SectTaskActivityEntry
+        locationKey="sect.spirit-vein"
+        activeMessage="矿道深处传来异响，巡逻封签仍在你手中。"
+      />
       <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
         <section className="relative min-h-64 overflow-hidden bg-slate-900/85 px-6 py-8 text-stone-100 shadow-inner">
           <div

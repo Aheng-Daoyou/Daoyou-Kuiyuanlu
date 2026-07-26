@@ -47,6 +47,7 @@ export function createItemSubmissionOptions(
       id: candidate.item.id,
       title: candidate.item.name,
       facts: itemFacts(candidate),
+      availableQuantity: candidate.item.quantity,
       eligible: candidate.eligible,
       reasons: candidate.violations.map((item) => item.message),
       ...(QUALITY_ORDER[candidate.item.quality] > QUALITY_ORDER[minimumQuality]

@@ -1,10 +1,21 @@
-import { useSectPresentation } from '@app/components/feature/sect/SectQueryProvider';
+import {
+  useSectCurrentQuery,
+  useSectPresentation,
+  useSectResourceQuery,
+} from '@app/components/feature/sect/SectQueryProvider';
+import {
+  getSectTaskActivityLocation,
+  resolveSectTaskActivityOrigin,
+} from '@app/components/feature/sect/sectTaskActivityLocations';
 import { decodeSectTaskOutcome } from '@app/components/feature/sect/sectTaskOutcomeRegistry';
 import { GameImmersiveLoading } from '@app/components/game-shell';
 import { InkButton } from '@app/components/ui';
 import { formatDocumentTitle } from '@app/lib/router/routeTitle';
 import { sectTaskRendererRegistry } from '@app/lib/sect/presentation/compositionRoot';
-import { startSectTaskBattleOnce } from '@app/lib/sect/sectClient';
+import {
+  fetchSectTasks,
+  startSectTaskBattleOnce,
+} from '@app/lib/sect/sectClient';
 import type { SectTaskActionData } from '@shared/contracts/sect';
 import { createElement, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
@@ -25,15 +36,25 @@ function SectTaskBattleBody() {
   const { taskId } = useParams();
   const [searchParams] = useSearchParams();
   const attemptId = searchParams.get('attemptId');
+  const origin = resolveSectTaskActivityOrigin(searchParams.get('origin'));
+  const returnTarget = origin
+    ? getSectTaskActivityLocation(origin)
+    : {
+        route: '/game/sect/affairs',
+        returnLabel: presentation.terms.returnToAffairs,
+      };
   const [result, setResult] = useState<SectTaskActionData>();
   const [error, setError] = useState<string>();
+  const { reload: reloadTasks } = useSectResourceQuery('tasks', fetchSectTasks);
+  const { invalidate: invalidateCurrent } = useSectCurrentQuery();
   const parameterError = !taskId || !attemptId ? '缺少宗门战斗标识' : undefined;
 
   useEffect(() => {
     let cancelled = false;
     if (!taskId || !attemptId) return;
     void startSectTaskBattleOnce(taskId, attemptId)
-      .then((data) => {
+      .then(async (data) => {
+        await Promise.allSettled([reloadTasks(), invalidateCurrent()]);
         if (!cancelled) setResult(data);
       })
       .catch((reason) => {
@@ -45,7 +66,7 @@ function SectTaskBattleBody() {
     return () => {
       cancelled = true;
     };
-  }, [attemptId, taskId]);
+  }, [attemptId, invalidateCurrent, reloadTasks, taskId]);
 
   if (error || parameterError)
     return (
@@ -54,8 +75,8 @@ function SectTaskBattleBody() {
         <div className="flex h-full items-center justify-center px-4 py-20">
           <div className="border-battle-rule-strong max-w-md border border-dashed bg-[rgba(248,243,230,0.92)] px-5 py-5 text-center">
             <p className="text-crimson mb-4">{error ?? parameterError}</p>
-            <InkButton onClick={() => navigate('/game/sect/affairs')}>
-              {presentation.terms.returnToAffairs}
+            <InkButton onClick={() => navigate(returnTarget.route)}>
+              {returnTarget.returnLabel}
             </InkButton>
           </div>
         </div>
@@ -83,8 +104,8 @@ function SectTaskBattleBody() {
             <p className="text-crimson mb-4">
               {decoded.ok ? '暂不支持此宗门战斗结果' : decoded.error}
             </p>
-            <InkButton onClick={() => navigate('/game/sect/affairs')}>
-              {presentation.terms.returnToAffairs}
+            <InkButton onClick={() => navigate(returnTarget.route)}>
+              {returnTarget.returnLabel}
             </InkButton>
           </div>
         </div>

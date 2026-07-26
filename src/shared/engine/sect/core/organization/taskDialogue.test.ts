@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { StandardSectOrganizationModule } from './StandardSectOrganizationModule';
+import { resolveSectTaskExecutionLocationParameters } from './contracts';
 import { resolveSectTaskDialogue } from './taskDialogue';
 import { createSectTaskOfferSnapshot } from './taskOffer';
 
@@ -82,5 +83,30 @@ describe('sect task dialogue presentation', () => {
     expect(definition.presentation.dialogue.instruction.text).toBe(
       '去山门步道清理落叶，完成一轮洒扫后回来复命。',
     );
+  });
+
+  it('assigns canonical execution locations to patrol and tournament tasks', () => {
+    const tasks = new StandardSectOrganizationModule().tasks;
+    expect(
+      resolveSectTaskExecutionLocationParameters(tasks.get('mine_patrol')!),
+    ).toEqual({
+      executionLocation: {
+        key: 'sect.spirit-vein',
+        travelReply: '弟子这就前往矿场巡视',
+      },
+    });
+    expect(
+      resolveSectTaskExecutionLocationParameters(
+        tasks.get('weekly_tournament')!,
+      ),
+    ).toEqual({
+      executionLocation: {
+        key: 'sect.arena',
+        travelReply: '弟子这就去演武场候教',
+      },
+    });
+    expect(
+      resolveSectTaskExecutionLocationParameters(tasks.get('weekly_bounty')!),
+    ).toBeUndefined();
   });
 });

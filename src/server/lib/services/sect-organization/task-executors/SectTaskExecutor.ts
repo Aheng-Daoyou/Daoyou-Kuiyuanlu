@@ -2,6 +2,8 @@ import type { SectTaskActionOutcome } from '@shared/contracts/sect';
 import {
   describeSectDeliveryRequirement,
   matchSectDeliveryRequirement,
+  matchSectMaterialDeliverySelection,
+  resolveSectTaskExecutionLocationParameters,
   SectTaskRecordPayloadSchema,
   simulateSweepMoves,
   SWEEP_DIRECTIONS,
@@ -66,6 +68,22 @@ const emptyInput = z.object({}).passthrough();
 const deliveryInput = z.object({
   itemId: z.string().uuid(),
   quantity: z.number().int().positive().max(99).default(1),
+});
+const materialDeliveryInput = z.object({
+  items: z
+    .array(
+      z.object({
+        itemId: z.string().uuid(),
+        quantity: z.number().int().positive().max(99),
+      }),
+    )
+    .min(1)
+    .max(99)
+    .refine(
+      (items) =>
+        new Set(items.map((item) => item.itemId)).size === items.length,
+      '同一份材料不能重复选择',
+    ),
 });
 const sweepCompleteInput = z.object({
   sessionId: z.string().uuid(),
@@ -202,6 +220,7 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
         key: 'execute',
         renderer: 'sect.action.battle',
         label: definition.presentation.actionLabel,
+        parameters: resolveSectTaskExecutionLocationParameters(definition),
       },
     ];
   }
@@ -256,10 +275,12 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
 
 type DeliveryInput = z.infer<typeof deliveryInput>;
 
-abstract class DeliveryTaskExecutor extends BaseTaskExecutor<DeliveryInput> {
+abstract class DeliveryTaskExecutor<
+  TInput = DeliveryInput,
+> extends BaseTaskExecutor<TInput> {
   protected abstract readonly itemKind: 'pill' | 'artifact' | 'material';
-  inputSchema(): ZodType<DeliveryInput> {
-    return deliveryInput;
+  inputSchema(): ZodType<TInput> {
+    return deliveryInput as unknown as ZodType<TInput>;
   }
   actions(
     definition: SectTaskDefinition,
@@ -379,39 +400,63 @@ export class ArtifactDeliveryTaskExecutor extends DeliveryTaskExecutor {
   }
 }
 
-export class MaterialDeliveryTaskExecutor extends DeliveryTaskExecutor {
+export class MaterialDeliveryTaskExecutor extends DeliveryTaskExecutor<
+  z.infer<typeof materialDeliveryInput>
+> {
   readonly key = 'sect.delivery.material';
   protected readonly itemKind = 'material' as const;
+  inputSchema(): ZodType<z.infer<typeof materialDeliveryInput>> {
+    return materialDeliveryInput;
+  }
   async execute(
     actionKey: string,
     context: SectTaskExecutionContext,
-    input: DeliveryInput,
+    input: z.infer<typeof materialDeliveryInput>,
   ) {
     if (actionKey !== 'execute') invalid('材料交付不支持该操作');
     const requirement = this.requirement(context.record);
-    if (input.quantity !== requirement.quantity)
-      invalid(`该委托须一次提交 ${requirement.quantity} 份`);
-    const item = await context.ports.submissionInventory.findSubmissionItem(
-      context.cultivatorId,
-      'material',
-      input.itemId,
+    if (requirement.kind !== 'material') invalid('任务材料要求缺失');
+    const selections = await Promise.all(
+      input.items.map(async (selection) => {
+        const item = await context.ports.submissionInventory.findSubmissionItem(
+          context.cultivatorId,
+          'material',
+          selection.itemId,
+        );
+        if (!item || item.kind !== 'material')
+          invalid('悬赏所需材料状态已经变化');
+        return { item, quantity: selection.quantity };
+      }),
     );
-    if (!item) invalid('悬赏所需材料不足');
-    const match = matchSectDeliveryRequirement(requirement, item);
+    const match = matchSectMaterialDeliverySelection(requirement, selections);
     if (!match.eligible)
       invalid(match.violations[0]?.message ?? '材料不符合要求');
-    if (
-      !(await context.ports.submissionInventory.consumeSubmissionItem({
-        cultivatorId: context.cultivatorId,
-        kind: 'material',
-        itemId: item.id,
-        quantity: requirement.quantity,
-      }))
-    )
-      invalid('材料状态已变化，请重试');
+    for (const selection of selections) {
+      if (
+        !(await context.ports.submissionInventory.consumeSubmissionItem({
+          cultivatorId: context.cultivatorId,
+          kind: 'material',
+          itemId: selection.item.id,
+          quantity: selection.quantity,
+        }))
+      )
+        invalid('材料状态已变化，请重试');
+    }
     return {
       completed: true,
-      payload: this.completedPayload(context, item, requirement.quantity),
+      payload: SectTaskRecordPayloadSchema.parse({
+        ...context.record.payload,
+        completionData: {
+          submittedItems: selections.map(({ item, quantity }) => ({
+            itemId: item.id,
+            kind: item.kind,
+            name: item.name,
+            quality: item.quality,
+            quantity,
+            matchedFacts: [describeSectDeliveryRequirement(requirement)],
+          })),
+        },
+      }),
       outcome: { renderer: 'sect.outcome.fulfilled', data: { success: true } },
     };
   }

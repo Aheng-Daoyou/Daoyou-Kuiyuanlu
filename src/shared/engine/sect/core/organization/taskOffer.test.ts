@@ -49,4 +49,40 @@ describe('sect task offer snapshot', () => {
       SectTaskRecordPayloadSchema.parse({ target: 1, offer, executorData: {} }),
     ).toThrow();
   });
+
+  it('parses legacy single-item and additive multi-item completion snapshots', () => {
+    const offer = build(1);
+    const item = {
+      itemId: 'material-1',
+      kind: 'material' as const,
+      name: '玄铁',
+      quality: '玄品',
+      quantity: 1,
+      matchedFacts: ['玄品以上矿石'],
+    };
+
+    expect(
+      SectTaskRecordPayloadSchema.parse({
+        schemaVersion: 1,
+        target: 1,
+        offer,
+        executorData: {},
+        completionData: { submittedItem: item },
+      }).completionData?.submittedItem,
+    ).toEqual(item);
+    expect(
+      SectTaskRecordPayloadSchema.parse({
+        schemaVersion: 1,
+        target: 1,
+        offer,
+        executorData: {},
+        completionData: {
+          submittedItems: [
+            item,
+            { ...item, itemId: 'material-2', name: '赤铜', quantity: 2 },
+          ],
+        },
+      }).completionData?.submittedItems,
+    ).toHaveLength(2);
+  });
 });
