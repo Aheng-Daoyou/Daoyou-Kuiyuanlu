@@ -11,6 +11,14 @@ import {
 } from '../../core';
 import { FIXTURE_SECT_MODULE } from './FixtureSectModule';
 
+const fixtureTaskDialogue = {
+  offeredReply: '这趟巡山交给我',
+  activeReply: '巡山的安排，请再说一遍',
+  claimableReply: '巡山已经完成，请查验',
+  claimedReply: '请替我查查巡山记录',
+  instruction: { text: '沿山路巡视一周，确认无事后回来复命。' },
+};
+
 const fixtureOrganization: SectOrganizationModule = {
   capabilities: new StandardSectCapabilityPolicy({
     'sect.hall.view': 'registered',
@@ -64,6 +72,7 @@ const fixtureOrganization: SectOrganizationModule = {
           title: '夹具巡山',
           description: '仅用于验证内容模块替换。',
           actionLabel: '开始巡山',
+          dialogue: fixtureTaskDialogue,
         },
         target: 1,
       },
@@ -87,6 +96,7 @@ const fixtureOrganization: SectOrganizationModule = {
               title: '夹具巡山',
               description: '仅用于验证内容模块替换。',
               actionLabel: '开始巡山',
+              dialogue: fixtureTaskDialogue,
             },
             target: 1,
           }

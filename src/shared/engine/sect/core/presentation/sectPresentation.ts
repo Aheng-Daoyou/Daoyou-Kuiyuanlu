@@ -41,6 +41,22 @@ export interface SectScenePresentation {
   permissionDeniedDescription: string;
 }
 
+export type SectAffairsTaskKind = 'daily' | 'weekly' | 'promotion';
+
+export interface SectRoomNpcPresentation {
+  id: string;
+  sigil: string;
+  name: string;
+  identity: string;
+  responsibility: string;
+  greeting: string;
+}
+
+export interface SectAffairsRoomPresentation {
+  description: string;
+  taskNpcs: Readonly<Record<SectAffairsTaskKind, SectRoomNpcPresentation>>;
+}
+
 export interface SectPresentationTerms {
   pathChanges: string;
   meridianPractice: string;
@@ -66,6 +82,12 @@ export interface SectPresentationTheme {
   facilityLabels?: Readonly<Record<string, string>>;
   lockedFacilities?: readonly string[];
   scenes?: Partial<Record<SectSceneKey, Partial<SectScenePresentation>>>;
+  affairsRoom?: {
+    description?: string;
+    taskNpcs?: Partial<
+      Record<SectAffairsTaskKind, Partial<SectRoomNpcPresentation>>
+    >;
+  };
   terms?: Partial<SectPresentationTerms>;
 }
 
@@ -80,6 +102,7 @@ export interface ResolvedSectPresentation {
   facilityLabels: Readonly<Record<string, string>>;
   lockedFacilities: readonly string[];
   scenes: Readonly<Record<SectSceneKey, SectScenePresentation>>;
+  affairsRoom: SectAffairsRoomPresentation;
   terms: Readonly<SectPresentationTerms>;
 }
 
@@ -299,6 +322,37 @@ const STANDARD_SCENES: Record<SectSceneKey, SectScenePresentation> = {
   taskBattle: scene('宗门战局', '完成当前宗门战斗事务。', '宗门战局推演中……'),
 };
 
+const STANDARD_AFFAIRS_ROOM: SectAffairsRoomPresentation = {
+  description:
+    '堂中卷宗分由三席执事经办。寻到对应执事，便可询问、接办或交回当前事务。',
+  taskNpcs: {
+    daily: {
+      id: 'daily-steward',
+      sigil: '执',
+      name: '值日执事',
+      identity: '值日执事',
+      responsibility: '登记山门勤务、巡视与日常交付。',
+      greeting: '今日事务都在这里。你要先看哪一件？',
+    },
+    weekly: {
+      id: 'weekly-steward',
+      sigil: '簿',
+      name: '功簿执事',
+      identity: '功簿执事',
+      responsibility: '查验本周功簿、小比与悬赏。',
+      greeting: '本周卷宗已经归拢，你可逐项查验。',
+    },
+    promotion: {
+      id: 'promotion-elder',
+      sigil: '传',
+      name: '传功长老',
+      identity: '传功长老',
+      responsibility: '核验身份进境与晋升试炼。',
+      greeting: '晋升不可躁进。先看看你当前应过的关。',
+    },
+  },
+};
+
 export const STANDARD_SECT_PRESENTATION: Omit<
   ResolvedSectPresentation,
   'sectId'
@@ -317,6 +371,7 @@ export const STANDARD_SECT_PRESENTATION: Omit<
   }),
   lockedFacilities: Object.freeze(['formation']),
   scenes: Object.freeze(STANDARD_SCENES),
+  affairsRoom: Object.freeze(STANDARD_AFFAIRS_ROOM),
   terms: Object.freeze({
     pathChanges: '流派变化',
     meridianPractice: '参悟进度',
@@ -352,6 +407,19 @@ export function resolveSectPresentation(
     ...theme?.map,
     hotspots: theme?.map?.hotspots ?? STANDARD_SECT_PRESENTATION.map.hotspots,
   };
+  const affairsTaskNpcs = Object.fromEntries(
+    (
+      Object.keys(
+        STANDARD_SECT_PRESENTATION.affairsRoom.taskNpcs,
+      ) as SectAffairsTaskKind[]
+    ).map((kind) => [
+      kind,
+      {
+        ...STANDARD_SECT_PRESENTATION.affairsRoom.taskNpcs[kind],
+        ...theme?.affairsRoom?.taskNpcs?.[kind],
+      },
+    ]),
+  ) as Record<SectAffairsTaskKind, SectRoomNpcPresentation>;
   const resolved: ResolvedSectPresentation = {
     sectId,
     onboarding: theme?.onboarding,
@@ -363,6 +431,12 @@ export function resolveSectPresentation(
     lockedFacilities:
       theme?.lockedFacilities ?? STANDARD_SECT_PRESENTATION.lockedFacilities,
     scenes,
+    affairsRoom: {
+      description:
+        theme?.affairsRoom?.description ??
+        STANDARD_SECT_PRESENTATION.affairsRoom.description,
+      taskNpcs: affairsTaskNpcs,
+    },
     terms: { ...STANDARD_SECT_PRESENTATION.terms, ...theme?.terms },
   };
 
@@ -376,6 +450,21 @@ export function resolveSectPresentation(
   }
   for (const [key, value] of Object.entries(resolved.terms)) {
     assertNonBlank(`宗门 ${sectId} 术语 ${key}`, value);
+  }
+  assertNonBlank(
+    `宗门 ${sectId} 事务堂房间描述`,
+    resolved.affairsRoom.description,
+  );
+  for (const [kind, npc] of Object.entries(resolved.affairsRoom.taskNpcs)) {
+    for (const [field, text] of Object.entries(npc)) {
+      assertNonBlank(`宗门 ${sectId} 事务堂 ${kind}.${field}`, text);
+    }
+  }
+  const affairsNpcIds = Object.values(resolved.affairsRoom.taskNpcs).map(
+    (npc) => npc.id,
+  );
+  if (new Set(affairsNpcIds).size !== affairsNpcIds.length) {
+    throw new Error(`宗门 ${sectId} 事务堂 NPC ID 不可重复`);
   }
   for (const facility of resolved.lockedFacilities) {
     assertNonBlank(`宗门 ${sectId} 锁定设施`, facility);

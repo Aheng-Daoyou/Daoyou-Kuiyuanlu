@@ -1,28 +1,10 @@
 import type { SectTaskViewData } from '@shared/contracts/sect';
 import {
-  describeSectDeliveryRequirement,
+  resolveSectTaskDialogue,
   type SectTaskDefinition,
-  type SectTaskOfferSnapshot,
 } from '@shared/engine/sect';
 import type { SectTaskRecord } from './ports';
 import type { SectTaskExecutor } from './task-executors/SectTaskExecutor';
-
-function taskMetadata(
-  definition: SectTaskDefinition,
-  offer: SectTaskOfferSnapshot,
-): string[] {
-  return [
-    definition.kind === 'daily'
-      ? '日常委托'
-      : definition.kind === 'weekly'
-        ? '周常委托'
-        : '晋升试炼',
-    `难度：${offer.difficulty}`,
-    ...(offer.requirement
-      ? [describeSectDeliveryRequirement(offer.requirement)]
-      : []),
-  ];
-}
 
 export function toSectTaskView(args: {
   definition: SectTaskDefinition;
@@ -41,7 +23,7 @@ export function toSectTaskView(args: {
             {
               key: 'claim',
               renderer: 'sect.action.claim',
-              label: '领取赏赐',
+              label: '交回回执',
               enabled: args.enabled,
               ...(args.disabledReason
                 ? { disabledReason: args.disabledReason }
@@ -53,7 +35,7 @@ export function toSectTaskView(args: {
               {
                 key: 'accept',
                 renderer: 'sect.action.accept',
-                label: '揭下告示',
+                label: '接下此事',
                 enabled: args.enabled,
                 ...(args.disabledReason
                   ? { disabledReason: args.disabledReason }
@@ -81,14 +63,23 @@ export function toSectTaskView(args: {
     },
     difficulty: offer.difficulty,
     requirement: offer.requirement,
-    reward: offer.reward,
+    ...(args.state === 'claimed' && offer.reward
+      ? { reward: offer.reward }
+      : {}),
     ...(args.state === 'offered' || args.state === 'locked'
       ? { offerRevision: offer.offerRevision }
       : {}),
     presentation: {
       title: args.definition.presentation.title,
       description: args.definition.presentation.description,
-      metadata: taskMetadata(args.definition, offer),
+      dialogue: resolveSectTaskDialogue({
+        definition: args.definition,
+        offer,
+        progress: {
+          current: args.record.progress,
+          target: args.record.payload.target,
+        },
+      }),
     },
     actions,
   };

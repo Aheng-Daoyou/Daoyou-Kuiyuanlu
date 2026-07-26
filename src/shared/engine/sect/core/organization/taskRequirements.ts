@@ -1,5 +1,10 @@
 import type { DailyTaskDifficulty } from '@shared/engine/cultivation/exp-gain-strategies/types';
 import {
+  getEquipmentSlotLabel,
+  getMaterialTypeLabel,
+} from '@shared/lib/gameConceptDisplay';
+import { getPillAppearanceLabel } from '@shared/lib/pillAppearance';
+import {
   EQUIPMENT_SLOT_VALUES,
   MATERIAL_TYPE_VALUES,
   QUALITY_ORDER,
@@ -13,10 +18,13 @@ import {
 import {
   PILL_APPEARANCE_GRADE_VALUES,
   PILL_FAMILY_VALUES,
-  type PillAppearanceGrade,
   type PillFamily,
 } from '@shared/types/consumable';
 import { z } from 'zod';
+import type {
+  SectTaskDialogueEmphasis,
+  SectTaskDialogueSegment,
+} from './contracts';
 
 export const SECT_PILL_TRAIT_KEYS = [
   'restore_hp',
@@ -32,6 +40,39 @@ export const SECT_PILL_TRAIT_KEYS = [
 
 export type SectPillTraitKey = (typeof SECT_PILL_TRAIT_KEYS)[number];
 export type SectSubmissionItemKind = 'pill' | 'artifact' | 'material';
+
+const SECT_PILL_FAMILY_LABELS: Record<PillFamily, string> = {
+  healing: '疗伤丹',
+  mana: '回元丹',
+  detox: '解毒丹',
+  cultivation: '修为丹',
+  insight: '悟性丹',
+  breakthrough: '破境辅助丹',
+  tempering: '淬体丹',
+  marrow_wash: '洗髓丹',
+  longevity: '延寿丹',
+  hybrid: '复合丹',
+};
+
+const SECT_PILL_TRAIT_LABELS: Record<SectPillTraitKey, string> = {
+  restore_hp: '恢复气血',
+  restore_mp: '恢复法力',
+  detox: '解毒祛浊',
+  gain_cultivation: '增加修为',
+  gain_insight: '增加感悟',
+  breakthrough_support: '辅助突破',
+  tempering: '淬炼体魄',
+  marrow_wash: '洗髓伐脉',
+  increase_lifespan: '增加寿元',
+};
+
+export function getSectPillFamilyLabel(family: PillFamily): string {
+  return SECT_PILL_FAMILY_LABELS[family];
+}
+
+export function getSectPillTraitLabel(trait: SectPillTraitKey): string {
+  return SECT_PILL_TRAIT_LABELS[trait];
+}
 
 const QualitySchema = z.enum(QUALITY_VALUES);
 const AppearanceSchema = z.enum(PILL_APPEARANCE_GRADE_VALUES);
@@ -311,35 +352,97 @@ export function calculateSectDeliveryDifficulty(
   return 'elite';
 }
 
-const QUALITY_LABEL = (quality: Quality) => `${quality}及以上`;
-const APPEARANCE_LABEL: Record<PillAppearanceGrade, string> = {
-  low: '下等',
-  middle: '中等',
-  high: '上等',
-  perfect: '完美',
-};
+function emphasized(
+  text: string,
+  emphasis: SectTaskDialogueEmphasis,
+): SectTaskDialogueSegment {
+  return { text, emphasis };
+}
+
+export function formatSectDeliveryRequirement(
+  requirement: SectDeliveryRequirement,
+): readonly SectTaskDialogueSegment[] {
+  const segments: SectTaskDialogueSegment[] = [
+    emphasized(
+      `${requirement.quantity}${requirement.kind === 'pill' ? '颗' : requirement.kind === 'artifact' ? '件' : '份'}`,
+      'quantity',
+    ),
+    emphasized(`${requirement.minQuality}以上`, 'quality'),
+  ];
+
+  if (requirement.kind === 'pill') {
+    if (requirement.trait) {
+      segments.push(
+        { text: '、具有' },
+        emphasized(getSectPillTraitLabel(requirement.trait), 'effect'),
+        { text: '功效' },
+      );
+    }
+    if (requirement.family) {
+      segments.push(
+        { text: '的' },
+        emphasized(getSectPillFamilyLabel(requirement.family), 'effect'),
+      );
+    } else {
+      segments.push({ text: '的丹药' });
+    }
+    if (requirement.appearance) {
+      segments.push(
+        {
+          text:
+            requirement.appearance.mode === 'exact'
+              ? '，品相须为'
+              : '，品相不可低于',
+        },
+        emphasized(
+          getPillAppearanceLabel(requirement.appearance.grade),
+          'appearance',
+        ),
+      );
+    }
+    return segments;
+  }
+
+  if (requirement.kind === 'artifact') {
+    segments.push({ text: '的' });
+    if (requirement.slot) {
+      segments.push(
+        emphasized(getEquipmentSlotLabel(requirement.slot), 'effect'),
+      );
+    } else {
+      segments.push({ text: '法宝' });
+    }
+    segments.push({ text: '，必须处于' }, emphasized('未装备', 'warning'), {
+      text: '状态',
+    });
+    if (requirement.minPerfectAffixCount) {
+      segments.push(
+        { text: '，并带有至少' },
+        emphasized(`${requirement.minPerfectAffixCount}条`, 'quantity'),
+        { text: '完美词条' },
+      );
+    }
+    return segments;
+  }
+
+  segments.push({ text: '的' });
+  if (requirement.materialType) {
+    segments.push(
+      emphasized(getMaterialTypeLabel(requirement.materialType), 'effect'),
+      { text: '类' },
+    );
+  }
+  if (requirement.element) {
+    segments.push(emphasized(`${requirement.element}属性`, 'effect'));
+  }
+  segments.push({ text: '材料' });
+  return segments;
+}
 
 export function describeSectDeliveryRequirement(
   requirement: SectDeliveryRequirement,
 ): string {
-  const details: string[] = [QUALITY_LABEL(requirement.minQuality)];
-  if (requirement.kind === 'pill') {
-    if (requirement.family) details.push(`丹类：${requirement.family}`);
-    if (requirement.trait) details.push(`功效：${requirement.trait}`);
-    if (requirement.appearance)
-      details.push(
-        `${requirement.appearance.mode === 'exact' ? '恰为' : '至少'}${APPEARANCE_LABEL[requirement.appearance.grade]}品相`,
-      );
-    return `${details.join('、')}的丹药 1 枚`;
-  }
-  if (requirement.kind === 'artifact') {
-    if (requirement.slot) details.push(`部位：${requirement.slot}`);
-    if (requirement.minPerfectAffixCount)
-      details.push(`至少 ${requirement.minPerfectAffixCount} 条完美词条`);
-    return `${details.join('、')}的未装备法宝 1 件`;
-  }
-  if (requirement.materialType)
-    details.push(`类型：${requirement.materialType}`);
-  if (requirement.element) details.push(`属性：${requirement.element}`);
-  return `${details.join('、')}的材料 ${requirement.quantity} 份`;
+  return formatSectDeliveryRequirement(requirement)
+    .map((segment) => segment.text)
+    .join('');
 }

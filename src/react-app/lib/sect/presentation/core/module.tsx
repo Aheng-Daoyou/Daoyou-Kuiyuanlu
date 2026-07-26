@@ -14,6 +14,7 @@ import {
 import type {
   SectBattleOutcomeData,
   SectSweepSessionData,
+  SectTaskRewardReceipt,
 } from '@shared/contracts/sect';
 import type { BattleRecord } from '@shared/types/battle';
 import { z } from 'zod';
@@ -139,5 +140,13 @@ export function readBattleOutcome(
 ): SectBattleOutcomeData | undefined {
   if (outcome.renderer !== 'sect.outcome.battle') return undefined;
   const parsed = battleOutcomeSchema.safeParse(outcome.data);
+  return parsed.success ? parsed.data : undefined;
+}
+
+export function readRewardReceiptOutcome(
+  outcome: DecodedSectTaskOutcome,
+): SectTaskRewardReceipt | undefined {
+  if (outcome.renderer !== 'sect.outcome.reward-claimed') return undefined;
+  const parsed = rewardReceiptSchema.safeParse(outcome.data);
   return parsed.success ? parsed.data : undefined;
 }

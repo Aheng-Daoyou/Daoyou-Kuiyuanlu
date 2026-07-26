@@ -12,9 +12,7 @@ export function SectTaskActionRenderer(props: SectTaskActionRendererProps) {
   const Renderer = getSectTaskActionRenderer(props.action.renderer);
   if (!Renderer)
     return (
-      <InkNotice className="mt-3">
-        暂不支持此任务交互：{props.action.renderer}
-      </InkNotice>
+      <InkNotice className="mt-3">这桩事务眼下无法办理，请稍后再试。</InkNotice>
     );
   return createElement(Renderer, props);
 }

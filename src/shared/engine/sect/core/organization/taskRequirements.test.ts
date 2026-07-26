@@ -5,6 +5,8 @@ import {
   SectTaskRandomSource,
   assertSectRealmQualityRules,
   calculateSectDeliveryDifficulty,
+  describeSectDeliveryRequirement,
+  formatSectDeliveryRequirement,
   generateSectDeliveryRequirement,
   pickSectTaskMinimumQuality,
 } from './taskRequirements';
@@ -95,4 +97,57 @@ describe('sect task requirement generation', () => {
       }),
     ).toBe('elite');
   });
+
+  it.each([
+    {
+      requirement: {
+        kind: 'pill' as const,
+        quantity: 1 as const,
+        minQuality: '玄品' as const,
+        family: 'longevity' as const,
+        trait: 'increase_lifespan' as const,
+        appearance: { mode: 'at_least' as const, grade: 'middle' as const },
+      },
+      text: '1颗玄品以上、具有增加寿元功效的延寿丹，品相不可低于中品',
+      rawTerms: ['longevity', 'increase_lifespan', 'middle'],
+      emphasis: ['quantity', 'quality', 'effect', 'effect', 'appearance'],
+    },
+    {
+      requirement: {
+        kind: 'artifact' as const,
+        quantity: 1 as const,
+        minQuality: '灵品' as const,
+        slot: 'weapon' as const,
+        minPerfectAffixCount: 2,
+      },
+      text: '1件灵品以上的攻击法宝，必须处于未装备状态，并带有至少2条完美词条',
+      rawTerms: ['weapon'],
+      emphasis: ['quantity', 'quality', 'effect', 'warning', 'quantity'],
+    },
+    {
+      requirement: {
+        kind: 'material' as const,
+        quantity: 3,
+        minQuality: '真品' as const,
+        materialType: 'ore' as const,
+        element: '火' as const,
+      },
+      text: '3份真品以上的矿石类火属性材料',
+      rawTerms: ['ore'],
+      emphasis: ['quantity', 'quality', 'effect', 'effect'],
+    },
+  ])(
+    'formats $requirement.kind requirements as player-facing Chinese',
+    ({ requirement, text, rawTerms, emphasis }) => {
+      expect(describeSectDeliveryRequirement(requirement)).toBe(text);
+      const segments = formatSectDeliveryRequirement(requirement);
+      expect(
+        segments
+          .filter((segment) => segment.emphasis)
+          .map((segment) => segment.emphasis),
+      ).toEqual(emphasis);
+      for (const rawTerm of rawTerms) expect(text).not.toContain(rawTerm);
+      expect(text).not.toContain('_');
+    },
+  );
 });

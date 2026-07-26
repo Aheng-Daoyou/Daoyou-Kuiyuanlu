@@ -38,10 +38,41 @@ export const SECT_CRAFT_CONTEXTS = {
 export type SectCraftContextKey =
   (typeof SECT_CRAFT_CONTEXTS)[keyof typeof SECT_CRAFT_CONTEXTS];
 
+export type SectTaskDialogueEmphasis =
+  'quantity' | 'quality' | 'effect' | 'appearance' | 'warning';
+
+export interface SectTaskDialogueSegment {
+  text: string;
+  emphasis?: SectTaskDialogueEmphasis;
+}
+
+export interface SectTaskDialogueInstructionDefinition {
+  text: string;
+  requirementPrefix?: string;
+  requirementSuffix?: string;
+}
+
+export interface SectTaskDialogueDefinition {
+  offeredReply: string;
+  activeReply: string;
+  claimableReply: string;
+  claimedReply: string;
+  instruction: SectTaskDialogueInstructionDefinition;
+}
+
+export interface SectTaskDialoguePresentation {
+  offeredReply: string;
+  activeReply: string;
+  claimableReply: string;
+  claimedReply: string;
+  instruction: readonly SectTaskDialogueSegment[];
+}
+
 export interface SectTaskPresentationDefinition {
   title: string;
   description: string;
   actionLabel: string;
+  dialogue: SectTaskDialogueDefinition;
 }
 
 export interface SectTaskAvailabilityContext {

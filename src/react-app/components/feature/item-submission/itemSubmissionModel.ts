@@ -1,4 +1,13 @@
 import type { SectSubmissionCandidateData } from '@shared/contracts/sect';
+import {
+  getSectPillFamilyLabel,
+  getSectPillTraitLabel,
+} from '@shared/engine/sect';
+import {
+  getEquipmentSlotLabel,
+  getMaterialTypeLabel,
+} from '@shared/lib/gameConceptDisplay';
+import { getPillAppearanceLabel } from '@shared/lib/pillAppearance';
 import { QUALITY_ORDER, type Quality } from '@shared/types/constants';
 import type { ItemSubmissionOption } from './ItemSubmissionDialog';
 
@@ -8,20 +17,22 @@ function itemFacts(candidate: SectSubmissionCandidateData): string[] {
   if (item.kind === 'pill')
     return [
       ...common,
-      `丹类 ${item.family}`,
-      ...(item.appearance ? [`品相 ${item.appearance}`] : []),
-      ...item.traits.map((trait) => `功效 ${trait}`),
+      `丹类 ${getSectPillFamilyLabel(item.family)}`,
+      ...(item.appearance
+        ? [`品相 ${getPillAppearanceLabel(item.appearance)}`]
+        : []),
+      ...item.traits.map((trait) => `功效 ${getSectPillTraitLabel(trait)}`),
     ];
   if (item.kind === 'artifact')
     return [
       ...common,
-      ...(item.slot ? [`部位 ${item.slot}`] : []),
+      ...(item.slot ? [`部位 ${getEquipmentSlotLabel(item.slot)}`] : []),
       `完美词条 ${item.perfectAffixCount}`,
       ...(item.isEquipped ? ['已装备'] : []),
     ];
   return [
     ...common,
-    `材料 ${item.materialType}`,
+    `材料 ${getMaterialTypeLabel(item.materialType)}`,
     ...(item.element ? [`属性 ${item.element}`] : []),
   ];
 }

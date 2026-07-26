@@ -9,6 +9,7 @@ import type {
   SectFacilityState,
   SectPermissionState,
   SectSubmissionItemFacts,
+  SectTaskDialoguePresentation,
   SectTaskRewardSnapshot,
 } from '@shared/engine/sect';
 import { StandardSectRules } from '@shared/engine/sect';
@@ -73,7 +74,7 @@ export interface SectTaskViewData {
   presentation: {
     title: string;
     description: string;
-    metadata: string[];
+    dialogue: SectTaskDialoguePresentation;
   };
   actions: Array<{
     key: string;

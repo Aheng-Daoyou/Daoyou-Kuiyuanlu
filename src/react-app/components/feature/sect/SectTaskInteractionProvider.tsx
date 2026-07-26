@@ -25,6 +25,7 @@ interface CurrentOutcome {
 
 interface SectTaskInteractionContextValue {
   busy: boolean;
+  error?: string;
   outcome?: CurrentOutcome;
   execute(
     task: SectTaskViewData,
@@ -53,6 +54,7 @@ export function SectTaskInteractionProvider({
   children: ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
   const [outcome, setOutcome] = useState<CurrentOutcome>();
   const { mutate } = usePlayerStateActions();
   const { pushToast } = useInkUI();
@@ -63,6 +65,7 @@ export function SectTaskInteractionProvider({
   const runRaw = useCallback(
     async <T,>(url: string, init: RequestInit, successMessage: string) => {
       setBusy(true);
+      setError(undefined);
       try {
         const result = await mutate<T>(fetch(url, init));
         await refreshTasks();
@@ -75,10 +78,10 @@ export function SectTaskInteractionProvider({
         } catch {
           // Keep the original mutation error as the player-facing failure.
         }
-        pushToast({
-          message: reason instanceof Error ? reason.message : '宗门事务失败',
-          tone: 'danger',
-        });
+        const message =
+          reason instanceof Error ? reason.message : '宗门事务失败';
+        setError(message);
+        pushToast({ message, tone: 'danger' });
         return undefined;
       } finally {
         setBusy(false);
@@ -94,6 +97,7 @@ export function SectTaskInteractionProvider({
       input: Record<string, unknown>,
       successMessage: string,
     ) => {
+      setOutcome(undefined);
       const result = await runRaw<SectTaskActionData>(
         `/api/sects/current/tasks/${encodeURIComponent(task.definitionId)}/actions/${encodeURIComponent(action.key)}`,
         {
@@ -115,14 +119,18 @@ export function SectTaskInteractionProvider({
   const value = useMemo<SectTaskInteractionContextValue>(
     () => ({
       busy,
+      error,
       outcome,
       execute,
       runRaw,
       navigate: routerNavigate,
-      clearOutcome: () => setOutcome(undefined),
+      clearOutcome: () => {
+        setOutcome(undefined);
+        setError(undefined);
+      },
       refreshTasks,
     }),
-    [busy, execute, outcome, refreshTasks, routerNavigate, runRaw],
+    [busy, error, execute, outcome, refreshTasks, routerNavigate, runRaw],
   );
   return (
     <SectTaskInteractionContext.Provider value={value}>

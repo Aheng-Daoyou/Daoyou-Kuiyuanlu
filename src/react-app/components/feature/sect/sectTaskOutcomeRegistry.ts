@@ -5,6 +5,7 @@ import type { ZodType } from 'zod';
 
 export {
   readBattleOutcome,
+  readRewardReceiptOutcome,
   readSweepSessionOutcome,
 } from '@app/lib/sect/presentation/core/module';
 export type {

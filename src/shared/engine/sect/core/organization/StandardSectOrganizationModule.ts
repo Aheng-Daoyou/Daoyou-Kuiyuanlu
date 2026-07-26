@@ -22,6 +22,7 @@ import {
   type SectShopDefinition,
   type SectTaskCatalog,
   type SectTaskDefinition,
+  type SectTaskDialogueDefinition,
 } from './contracts';
 
 const capabilities = new StandardSectCapabilityPolicy(
@@ -53,11 +54,13 @@ function taskPresentation(
   title: string,
   description: string,
   actionLabel: string,
+  dialogue: SectTaskDialogueDefinition,
 ) {
   return {
     title,
     description,
     actionLabel,
+    dialogue,
   };
 }
 
@@ -116,6 +119,15 @@ const tasks: readonly SectTaskDefinition[] = [
       '清扫山门',
       '清理山门步道，完成一轮宗门勤务。',
       '开始清扫',
+      {
+        offeredReply: '山门洒扫便交给我吧',
+        activeReply: '山门那桩洒扫，我再确认一遍',
+        claimableReply: '山门已经清扫妥当，请执事查验',
+        claimedReply: '请替我查查山门勤务的功簿',
+        instruction: {
+          text: '去山门步道清理落叶，完成一轮洒扫后回来复命。',
+        },
+      },
     ),
     target: 1,
   },
@@ -134,6 +146,15 @@ const tasks: readonly SectTaskDefinition[] = [
       '巡视矿场',
       '前往宗门矿脉驱逐侵扰妖兽。',
       '前往迎战',
+      {
+        offeredReply: '矿场巡视交给我',
+        activeReply: '矿场那边的差事，请再说一遍',
+        claimableReply: '矿场侵扰已经平息，请执事查验',
+        claimedReply: '请替我查查矿场巡视的功簿',
+        instruction: {
+          text: '去宗门矿脉巡视一趟，将侵扰矿场的妖兽驱逐干净，再回来复命。',
+        },
+      },
     ),
     target: 1,
   },
@@ -154,8 +175,19 @@ const tasks: readonly SectTaskDefinition[] = [
     fulfillment: taskFulfillment('daily'),
     presentation: taskPresentation(
       '丹药委托',
-      '按告示要求提交一枚丹药，补充宗门日常储备。',
+      '寻来符合要求的丹药，补充宗门日常储备。',
       '选择丹药',
+      {
+        offeredReply: '丹房所需之物，我来寻',
+        activeReply: '丹房那桩委托，请再说一遍',
+        claimableReply: '丹药已经带回，请执事查验',
+        claimedReply: '请替我查查丹药委托的功簿',
+        instruction: {
+          text: '替丹房寻来一枚合用的丹药，取得后直接带回事务堂即可。',
+          requirementPrefix: '替丹房寻来',
+          requirementSuffix: '，取得后直接带回事务堂即可。',
+        },
+      },
     ),
     target: 1,
   },
@@ -176,8 +208,19 @@ const tasks: readonly SectTaskDefinition[] = [
     fulfillment: taskFulfillment('daily'),
     presentation: taskPresentation(
       '法宝委托',
-      '按告示要求提交一件未装备法宝，交由宗门统一调度。',
+      '寻来符合要求且未装备的法宝，交由宗门统一调度。',
       '选择法宝',
+      {
+        offeredReply: '法宝调度一事，我可以接下',
+        activeReply: '法宝那桩委托，请再说一遍',
+        claimableReply: '法宝已经移交，请执事查验',
+        claimedReply: '请替我查查法宝委托的功簿',
+        instruction: {
+          text: '替宗门寻来一件合用的未装备法宝，带回事务堂核验。',
+          requirementPrefix: '替宗门寻来',
+          requirementSuffix: '，带回事务堂核验。',
+        },
+      },
     ),
     target: 1,
   },
@@ -196,6 +239,15 @@ const tasks: readonly SectTaskDefinition[] = [
       '勤务周录',
       '一周完成五次宗门日常。',
       '查看进度',
+      {
+        offeredReply: '本周勤务也记我一份',
+        activeReply: '本周勤务，我已经办到哪里了',
+        claimableReply: '本周勤务已经办足，请执事查验',
+        claimedReply: '请替我翻翻本周勤务的功簿',
+        instruction: {
+          text: '本周要完成五次宗门日常，功簿会逐次记下。',
+        },
+      },
     ),
     completionTags: ['weekly.diligence'],
     progress: {
@@ -219,6 +271,15 @@ const tasks: readonly SectTaskDefinition[] = [
       '宗门小比',
       '在演武傀儡前验证本周修行。',
       '参加小比',
+      {
+        offeredReply: '本周小比，我来应战',
+        activeReply: '小比的安排，请再说一遍',
+        claimableReply: '本周小比已经结束，请执事查验',
+        claimedReply: '请替我查查本周小比的功簿',
+        instruction: {
+          text: '去演武场参加本周小比，与试炼傀儡一战，取胜后再回来复命。',
+        },
+      },
     ),
     completionTags: ['promotion.tournament'],
     target: 1,
@@ -238,6 +299,17 @@ const tasks: readonly SectTaskDefinition[] = [
       '悬赏令',
       '追缉叛徒残影或交付稀有材料。',
       '执行悬赏',
+      {
+        offeredReply: '这份悬赏由我来办',
+        activeReply: '那份悬赏，请再交代一遍',
+        claimableReply: '悬赏已经办妥，请执事查验',
+        claimedReply: '请替我查查那份悬赏的功簿',
+        instruction: {
+          text: '循悬赏令所记线索追上目标，将其残影击溃后回来复命。',
+          requirementPrefix: '这份悬赏要验一件证物。替我寻来',
+          requirementSuffix: '，带回后我会核验其来路。',
+        },
+      },
     ),
     availability: bountyAvailability,
     completionTags: ['promotion.bounty'],
@@ -254,6 +326,15 @@ const tasks: readonly SectTaskDefinition[] = [
       '长老试炼',
       '击败传功长老化身，取得真传资格。',
       '挑战长老试炼',
+      {
+        offeredReply: '弟子愿受晋升试炼',
+        activeReply: '晋升试炼，请长老再作指点',
+        claimableReply: '试炼已经通过，请长老查验',
+        claimedReply: '请长老查验弟子的试炼记录',
+        instruction: {
+          text: '去试炼场迎战传功长老化身，胜过此关，才算取得真传资格。',
+        },
+      },
     ),
     completionTags: ['promotion.elder_trial'],
     target: 1,
@@ -265,13 +346,24 @@ class StandardSectTaskCatalog implements SectTaskCatalog {
   private readonly byId: ReadonlyMap<string, SectTaskDefinition>;
 
   constructor(theme: SectOrganizationTheme = {}) {
-    this.themedTasks = tasks.map((task) => ({
-      ...task,
-      presentation: {
-        ...task.presentation,
-        ...(theme.taskPresentation?.[task.id] ?? {}),
-      },
-    }));
+    this.themedTasks = tasks.map((task) => {
+      const override = theme.taskPresentation?.[task.id];
+      return {
+        ...task,
+        presentation: {
+          ...task.presentation,
+          ...override,
+          dialogue: {
+            ...task.presentation.dialogue,
+            ...override?.dialogue,
+            instruction: {
+              ...task.presentation.dialogue.instruction,
+              ...override?.dialogue?.instruction,
+            },
+          },
+        },
+      };
+    });
     this.byId = new Map(this.themedTasks.map((task) => [task.id, task]));
   }
 
@@ -957,10 +1049,16 @@ class StandardSectBenefitPolicy implements SectBenefitPolicy {
   }
 }
 
+export interface SectTaskPresentationOverride extends Partial<
+  Omit<SectTaskDefinition['presentation'], 'dialogue'>
+> {
+  dialogue?: Partial<Omit<SectTaskDialogueDefinition, 'instruction'>> & {
+    instruction?: Partial<SectTaskDialogueDefinition['instruction']>;
+  };
+}
+
 export interface SectOrganizationTheme {
-  taskPresentation?: Partial<
-    Record<string, Partial<SectTaskDefinition['presentation']>>
-  >;
+  taskPresentation?: Partial<Record<string, SectTaskPresentationOverride>>;
   shopGrants?: Partial<Record<string, Partial<SectShopDefinition['grant']>>>;
   opponents?: Partial<Record<string, { title?: string; name?: string }>>;
   facilityNames?: Partial<Record<string, string>>;
