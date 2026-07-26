@@ -342,41 +342,22 @@ const tasks: readonly SectTaskDefinition[] = [
 ];
 
 class StandardSectTaskCatalog implements SectTaskCatalog {
-  private readonly themedTasks: readonly SectTaskDefinition[];
   private readonly byId: ReadonlyMap<string, SectTaskDefinition>;
 
-  constructor(theme: SectOrganizationTheme = {}) {
-    this.themedTasks = tasks.map((task) => {
-      const override = theme.taskPresentation?.[task.id];
-      return {
-        ...task,
-        presentation: {
-          ...task.presentation,
-          ...override,
-          dialogue: {
-            ...task.presentation.dialogue,
-            ...override?.dialogue,
-            instruction: {
-              ...task.presentation.dialogue.instruction,
-              ...override?.dialogue?.instruction,
-            },
-          },
-        },
-      };
-    });
-    this.byId = new Map(this.themedTasks.map((task) => [task.id, task]));
+  constructor() {
+    this.byId = new Map(tasks.map((task) => [task.id, task]));
   }
 
   listDaily(): readonly SectTaskDefinition[] {
-    return this.themedTasks.filter((task) => task.kind === 'daily');
+    return tasks.filter((task) => task.kind === 'daily');
   }
 
   listWeekly(): readonly SectTaskDefinition[] {
-    return this.themedTasks.filter((task) => task.kind === 'weekly');
+    return tasks.filter((task) => task.kind === 'weekly');
   }
 
   listPromotion(): readonly SectTaskDefinition[] {
-    return this.themedTasks.filter((task) => task.kind === 'promotion');
+    return tasks.filter((task) => task.kind === 'promotion');
   }
 
   get(id: SectOrganizationTaskId): SectTaskDefinition | undefined {
@@ -384,7 +365,7 @@ class StandardSectTaskCatalog implements SectTaskCatalog {
   }
 
   findByCompletionTag(tag: string) {
-    return this.themedTasks.find((task) => task.completionTags?.includes(tag));
+    return tasks.find((task) => task.completionTags?.includes(tag));
   }
 }
 
@@ -808,14 +789,11 @@ const battleScenarioDefinitions = {
 class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
   private readonly scenarios: ReadonlyMap<string, SectOpponentFactory>;
 
-  constructor(theme: SectOrganizationTheme = {}) {
+  constructor() {
     this.scenarios = new Map(
       Object.entries(battleScenarioDefinitions).map(([taskId, definition]) => [
         taskId,
-        opponentFactory({
-          ...definition,
-          ...(theme.opponents?.[taskId] ?? {}),
-        }),
+        opponentFactory(definition),
       ]),
     );
   }
@@ -1049,18 +1027,8 @@ class StandardSectBenefitPolicy implements SectBenefitPolicy {
   }
 }
 
-export interface SectTaskPresentationOverride extends Partial<
-  Omit<SectTaskDefinition['presentation'], 'dialogue'>
-> {
-  dialogue?: Partial<Omit<SectTaskDialogueDefinition, 'instruction'>> & {
-    instruction?: Partial<SectTaskDialogueDefinition['instruction']>;
-  };
-}
-
 export interface SectOrganizationTheme {
-  taskPresentation?: Partial<Record<string, SectTaskPresentationOverride>>;
   shopGrants?: Partial<Record<string, Partial<SectShopDefinition['grant']>>>;
-  opponents?: Partial<Record<string, { title?: string; name?: string }>>;
   facilityNames?: Partial<Record<string, string>>;
   stipendGrantNames?: {
     herb?: string;
@@ -1079,9 +1047,9 @@ export class StandardSectOrganizationModule implements SectOrganizationModule {
   readonly benefits: SectBenefitPolicy;
 
   constructor(readonly theme: SectOrganizationTheme = {}) {
-    this.tasks = new StandardSectTaskCatalog(theme);
+    this.tasks = new StandardSectTaskCatalog();
     this.economy = new StandardSectEconomyPolicy(theme);
-    this.battles = new StandardSectBattleScenarioCatalog(theme);
+    this.battles = new StandardSectBattleScenarioCatalog();
     this.benefits = new StandardSectBenefitPolicy(theme);
   }
 }

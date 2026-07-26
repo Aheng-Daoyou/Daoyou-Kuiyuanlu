@@ -85,10 +85,15 @@ export interface SectPresentationTheme {
   affairsRoom?: {
     description?: string;
     taskNpcs?: Partial<
-      Record<SectAffairsTaskKind, Partial<SectRoomNpcPresentation>>
+      Record<
+        SectAffairsTaskKind,
+        Partial<Pick<SectRoomNpcPresentation, 'id' | 'name' | 'greeting'>>
+      >
     >;
   };
-  terms?: Partial<SectPresentationTerms>;
+  terms?: Partial<
+    Omit<SectPresentationTerms, 'sweepActivity' | 'sweepCanvasLabel'>
+  >;
 }
 
 export interface ResolvedSectPresentation {
@@ -331,7 +336,7 @@ const STANDARD_AFFAIRS_ROOM: SectAffairsRoomPresentation = {
       sigil: '执',
       name: '值日执事',
       identity: '值日执事',
-      responsibility: '登记山门勤务、巡视与日常交付。',
+      responsibility: '负责日常委托。',
       greeting: '今日事务都在这里。你要先看哪一件？',
     },
     weekly: {
@@ -339,7 +344,7 @@ const STANDARD_AFFAIRS_ROOM: SectAffairsRoomPresentation = {
       sigil: '簿',
       name: '功簿执事',
       identity: '功簿执事',
-      responsibility: '查验本周功簿、小比与悬赏。',
+      responsibility: '负责周常委托。',
       greeting: '本周卷宗已经归拢，你可逐项查验。',
     },
     promotion: {
@@ -347,7 +352,7 @@ const STANDARD_AFFAIRS_ROOM: SectAffairsRoomPresentation = {
       sigil: '传',
       name: '传功长老',
       identity: '传功长老',
-      responsibility: '核验身份进境与晋升试炼。',
+      responsibility: '负责晋升试炼。',
       greeting: '晋升不可躁进。先看看你当前应过的关。',
     },
   },
@@ -378,8 +383,8 @@ export const STANDARD_SECT_PRESENTATION: Omit<
     meridianLoadout: '参悟方案',
     abilityChanges: '神通变化',
     returnToAffairs: '返回事务堂',
-    sweepActivity: '宗门勤务',
-    sweepCanvasLabel: '宗门勤务游戏画布',
+    sweepActivity: '清扫山门',
+    sweepCanvasLabel: '清扫山门游戏画布',
   }),
 });
 
@@ -414,10 +419,16 @@ export function resolveSectPresentation(
       ) as SectAffairsTaskKind[]
     ).map((kind) => [
       kind,
-      {
-        ...STANDARD_SECT_PRESENTATION.affairsRoom.taskNpcs[kind],
-        ...theme?.affairsRoom?.taskNpcs?.[kind],
-      },
+      (() => {
+        const standard = STANDARD_SECT_PRESENTATION.affairsRoom.taskNpcs[kind];
+        const override = theme?.affairsRoom?.taskNpcs?.[kind];
+        return {
+          ...standard,
+          id: override?.id ?? standard.id,
+          name: override?.name ?? standard.name,
+          greeting: override?.greeting ?? standard.greeting,
+        };
+      })(),
     ]),
   ) as Record<SectAffairsTaskKind, SectRoomNpcPresentation>;
   const resolved: ResolvedSectPresentation = {
@@ -437,7 +448,12 @@ export function resolveSectPresentation(
         STANDARD_SECT_PRESENTATION.affairsRoom.description,
       taskNpcs: affairsTaskNpcs,
     },
-    terms: { ...STANDARD_SECT_PRESENTATION.terms, ...theme?.terms },
+    terms: {
+      ...STANDARD_SECT_PRESENTATION.terms,
+      ...theme?.terms,
+      sweepActivity: STANDARD_SECT_PRESENTATION.terms.sweepActivity,
+      sweepCanvasLabel: STANDARD_SECT_PRESENTATION.terms.sweepCanvasLabel,
+    },
   };
 
   for (const [key, value] of Object.entries(resolved.facilityLabels)) {

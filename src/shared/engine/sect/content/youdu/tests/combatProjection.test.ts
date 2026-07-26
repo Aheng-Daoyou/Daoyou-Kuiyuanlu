@@ -1,12 +1,6 @@
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import { describe, expect, it } from 'vitest';
 import {
-  PRODUCTION_SECT_IDS,
-  projectSectCombat,
-  resolveSectAbility,
-} from '../..';
-import { isListedSectAbility, SectStateValidator } from '../../../core';
-import {
   YOUDU_DECREE_PATH_ID,
   YOUDU_MODULE,
   YOUDU_SECT_PRESENTATION,
@@ -14,6 +8,12 @@ import {
   YOUDU_TIDE_PATH_ID,
   YOUDU_VISIBLE_ABILITY_IDS,
 } from '..';
+import {
+  PRODUCTION_SECT_IDS,
+  projectSectCombat,
+  resolveSectAbility,
+} from '../..';
+import { isListedSectAbility, SectStateValidator } from '../../../core';
 import { YOUDU_ORGANIZATION_THEME } from '../organization';
 import { youduState } from './testState';
 
@@ -22,10 +22,17 @@ describe('幽都战斗与展示投影', () => {
     const definition = YOUDU_MODULE.definition;
     expect(PRODUCTION_SECT_IDS).toContain('youdu');
     expect(definition.methods).toHaveLength(6);
-    expect(definition.methods.filter((method) => method.isPrimary)).toHaveLength(1);
-    expect(definition.abilities.filter(isListedSectAbility).map((ability) => ability.id))
-      .toEqual(YOUDU_VISIBLE_ABILITY_IDS);
-    expect(definition.abilities.filter((ability) => ability.kind === 'default')).toHaveLength(1);
+    expect(
+      definition.methods.filter((method) => method.isPrimary),
+    ).toHaveLength(1);
+    expect(
+      definition.abilities
+        .filter(isListedSectAbility)
+        .map((ability) => ability.id),
+    ).toEqual(YOUDU_VISIBLE_ABILITY_IDS);
+    expect(
+      definition.abilities.filter((ability) => ability.kind === 'default'),
+    ).toHaveLength(1);
     expect(definition.paths.map((path) => path.id)).toEqual([
       YOUDU_TIDE_PATH_ID,
       YOUDU_DECREE_PATH_ID,
@@ -34,10 +41,14 @@ describe('幽都战斗与展示投影', () => {
       expect(path.nodes).toHaveLength(18);
       expect(path.tactics).toHaveLength(3);
       for (const layer of path.layers) {
-        expect(path.nodes.filter((node) => node.layerId === layer.id)).toHaveLength(3);
+        expect(
+          path.nodes.filter((node) => node.layerId === layer.id),
+        ).toHaveLength(3);
       }
     }
-    const ids = definition.paths.flatMap((path) => path.nodes.map((node) => node.id));
+    const ids = definition.paths.flatMap((path) =>
+      path.nodes.map((node) => node.id),
+    );
     expect(new Set(ids).size).toBe(36);
   });
 
@@ -55,12 +66,18 @@ describe('幽都战斗与展示投影', () => {
       initialAbilityLoadout: ['soul-severing-call', null, null, null],
     });
     expect(YOUDU_SECT_PRESENTATION.onboarding?.script?.acts).toHaveLength(5);
-    expect(YOUDU_SECT_PRESENTATION.onboarding?.script?.backdrop.src)
-      .toBe('/assets/sect/onboarding/youdu.webp');
-    expect(YOUDU_SECT_PRESENTATION.map?.image).toBe('/assets/sect/youdu-map.webp');
+    expect(YOUDU_SECT_PRESENTATION.onboarding?.script?.backdrop.src).toBe(
+      '/assets/sect/onboarding/youdu.webp',
+    );
+    expect(YOUDU_SECT_PRESENTATION.map?.image).toBe(
+      '/assets/sect/youdu-map.webp',
+    );
     expect(YOUDU_SECT_PRESENTATION.map?.hotspots).toHaveLength(15);
-    expect(YOUDU_SECT_PRESENTATION.map?.hotspots?.find((spot) => spot.id === 'formation'))
-      .toMatchObject({ locked: true, facility: 'formation' });
+    expect(
+      YOUDU_SECT_PRESENTATION.map?.hotspots?.find(
+        (spot) => spot.id === 'formation',
+      ),
+    ).toMatchObject({ locked: true, facility: 'formation' });
     expect(YOUDU_SECT_PRESENTATION.facilityLabels).toMatchObject({
       alchemy: '还魂药庐',
       refinery: '镇铁炉',
@@ -71,11 +88,19 @@ describe('幽都战斗与展示投影', () => {
     '%s 可通过标准状态校验并投影唯一魂火资源',
     (pathId) => {
       const state = youduState(pathId);
-      expect(() => new SectStateValidator().validate(YOUDU_MODULE, state)).not.toThrow();
+      expect(() =>
+        new SectStateValidator().validate(YOUDU_MODULE, state),
+      ).not.toThrow();
       const projection = projectSectCombat({ sect: state, realm: '化神' })!;
-      expect(projection.resources).toEqual([{
-        id: YOUDU_SOUL_FIRE, name: '魂火', icon: '🔥', initial: 0, max: 3,
-      }]);
+      expect(projection.resources).toEqual([
+        {
+          id: YOUDU_SOUL_FIRE,
+          name: '魂火',
+          icon: '🔥',
+          initial: 0,
+          max: 3,
+        },
+      ]);
       expect(projection.selectionStrategy).toBeDefined();
       expect(projection.abilities.map((ability) => ability.slug)).not.toContain(
         `sect.youdu.${pathId}-runtime`,
@@ -95,17 +120,31 @@ describe('幽都战斗与展示投影', () => {
       'soul-shall-not-return': [80, 5],
     } as const;
     for (const [abilityId, [mpCost, cooldown]] of Object.entries(expected)) {
-      const config = resolveSectAbility({ sect: state, realm: '化神', abilityId }).config;
+      const config = resolveSectAbility({
+        sect: state,
+        realm: '化神',
+        abilityId,
+      }).config;
       expect(config.mpCost ?? 0).toBe(mpCost);
       expect(config.cooldown ?? 0).toBe(cooldown);
     }
-    const shadow = resolveSectAbility({ sect: state, realm: '化神', abilityId: 'reveal-shadow' }).config;
+    const shadow = resolveSectAbility({
+      sect: state,
+      realm: '化神',
+      abilityId: 'reveal-shadow',
+    }).config;
     expect(shadow.hitPolicy).toBe('guaranteed');
-    const finish = resolveSectAbility({ sect: state, realm: '化神', abilityId: 'soul-shall-not-return' }).config;
-    expect(finish.castConditions).toContainEqual(expect.objectContaining({
-      type: 'buff_layer_at_least',
-      params: expect.objectContaining({ value: 4 }),
-    }));
+    const finish = resolveSectAbility({
+      sect: state,
+      realm: '化神',
+      abilityId: 'soul-shall-not-return',
+    }).config;
+    expect(finish.castConditions).toContainEqual(
+      expect.objectContaining({
+        type: 'buff_layer_at_least',
+        params: expect.objectContaining({ value: 4 }),
+      }),
+    );
     expect(finish.tags).toContain(GameplayTags.ABILITY.CHANNEL.TRUE);
   });
 
@@ -231,13 +270,20 @@ describe('幽都战斗与展示投影', () => {
       'tide-hundred-ghosts',
       'tide-dream-invasion',
       'tide-last-ferry',
-    ].flatMap((nodeId) => resolveSectAbility({
-      sect: youduState(YOUDU_TIDE_PATH_ID, [nodeId]),
-      realm: '化神',
-      abilityId: 'one-sigh',
-    }).detailRows).join('；');
+    ]
+      .flatMap(
+        (nodeId) =>
+          resolveSectAbility({
+            sect: youduState(YOUDU_TIDE_PATH_ID, [nodeId]),
+            realm: '化神',
+            abilityId: 'one-sigh',
+          }).detailRows,
+      )
+      .join('；');
     const decreeRuntime = resolveSectAbility({
-      sect: decree, realm: '化神', abilityId: 'youdu-runtime',
+      sect: decree,
+      realm: '化神',
+      abilityId: 'youdu-runtime',
     }).detailRows.join('；');
 
     expect(tideRuntime).toContain('每回合首次忘川有效伤害获得1点魂火');
@@ -255,19 +301,26 @@ describe('幽都战斗与展示投影', () => {
       sect: youduState(YOUDU_DECREE_PATH_ID),
       realm: '化神',
     })!;
-    const listeners = projection.abilities.flatMap((ability) => ability.listeners ?? []);
+    const listeners = projection.abilities.flatMap(
+      (ability) => ability.listeners ?? [],
+    );
     const ids = listeners.map((listener) => listener.id).filter(Boolean);
 
     expect(new Set(ids).size).toBe(ids.length);
-    expect(listeners.filter((listener) =>
-      listener.budget?.group === 'sect.youdu.decree-control-response-fire'
-    )).toHaveLength(4);
+    expect(
+      listeners.filter(
+        (listener) =>
+          listener.budget?.group === 'sect.youdu.decree-control-response-fire',
+      ),
+    ).toHaveLength(4);
   });
 
-  it('组织主题覆盖全部任务、战斗对手、商店奖励与设施称谓', () => {
-    expect(Object.keys(YOUDU_ORGANIZATION_THEME.taskPresentation ?? {})).toHaveLength(8);
-    expect(Object.keys(YOUDU_ORGANIZATION_THEME.opponents ?? {})).toHaveLength(4);
-    expect(Object.keys(YOUDU_ORGANIZATION_THEME.shopGrants ?? {})).toHaveLength(6);
+  it('组织主题只覆盖非任务展示内容', () => {
+    expect(YOUDU_ORGANIZATION_THEME).not.toHaveProperty('taskPresentation');
+    expect(YOUDU_ORGANIZATION_THEME).not.toHaveProperty('opponents');
+    expect(Object.keys(YOUDU_ORGANIZATION_THEME.shopGrants ?? {})).toHaveLength(
+      6,
+    );
     expect(YOUDU_ORGANIZATION_THEME.facilityNames).toMatchObject({
       archive: '三魂阁',
       cultivation_room: '返照室',

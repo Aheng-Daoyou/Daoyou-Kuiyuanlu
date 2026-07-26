@@ -71,17 +71,13 @@ describe('sect task dialogue presentation', () => {
     );
   });
 
-  it('deep-merges sect dialogue overrides with standard instructions', () => {
+  it('keeps standard dialogue while applying non-task organization themes', () => {
     const definition = new StandardSectOrganizationModule({
-      taskPresentation: {
-        gate_sweep: {
-          dialogue: { offeredReply: '这段山路由我来扫' },
-        },
-      },
+      facilityNames: { archive: '宗门藏书阁' },
     }).tasks.get('gate_sweep')!;
 
     expect(definition.presentation.dialogue.offeredReply).toBe(
-      '这段山路由我来扫',
+      '山门洒扫便交给我吧',
     );
     expect(definition.presentation.dialogue.instruction.text).toBe(
       '去山门步道清理落叶，完成一轮洒扫后回来复命。',

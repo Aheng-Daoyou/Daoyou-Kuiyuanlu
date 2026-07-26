@@ -151,4 +151,20 @@ describe('LingxiaoOrganizationModule', () => {
     expect(first?.inventory.artifacts).toEqual([]);
     expect(first?.spiritual_roots).toEqual([]);
   });
+
+  it.each([
+    ['mine_patrol', '矿场巡视', '矿脉侵扰妖兽'],
+    ['weekly_tournament', '宗门小比', '同门演武傀儡'],
+    ['weekly_bounty', '悬赏残影战', '叛徒残影'],
+    ['elder_trial', '长老试炼', '传功长老化身'],
+  ])('uses canonical copy for %s battle opponents', (taskId, title, name) => {
+    const result = LINGXIAO_ORGANIZATION.battles.get(taskId)?.create({
+      player: playerFixture(),
+      mirror: playerFixture({ id: 'mirror', name: '同门' }),
+      opponentId: `npc-${taskId}`,
+    });
+
+    expect(result?.title).toBe(title);
+    expect(result?.opponent.name).toBe(name);
+  });
 });

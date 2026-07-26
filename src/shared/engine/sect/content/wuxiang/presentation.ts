@@ -319,26 +319,17 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
     taskNpcs: {
       daily: {
         id: 'wuxiang-mingchen',
-        sigil: '尘',
-        name: '明尘',
-        identity: '知客僧',
-        responsibility: '洒扫、问身与日用交付。',
+        name: '法明',
         greeting: '白榜上的日务都在这里，肯做哪一件便说。',
       },
       weekly: {
         id: 'wuxiang-zhaoye',
-        sigil: '业',
-        name: '照业',
-        identity: '记功僧',
-        responsibility: '周勤、校身与宗门外契。',
+        name: '慧觉',
         greeting: '功簿只记所行，不替人评说，你可自行查问。',
       },
       promotion: {
         id: 'wuxiang-due',
-        sigil: '戒',
-        name: '渡厄',
-        identity: '戒律师',
-        responsibility: '三问照业与晋升考校。',
+        name: '空慈方丈',
         greeting: '要过此关，先要肯照见自己带来的业。',
       },
     },
@@ -349,7 +340,5 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
     meridianLoadout: '参悟方案',
     abilityChanges: '三相神通',
     returnToAffairs: '返回知客寮',
-    sweepActivity: '照壁拂尘',
-    sweepCanvasLabel: '照壁拂尘游戏画布',
   },
 };

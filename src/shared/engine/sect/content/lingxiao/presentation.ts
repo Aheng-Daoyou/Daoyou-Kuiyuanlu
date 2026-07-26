@@ -325,30 +325,21 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
   },
   affairsRoom: {
     description:
-      '旧剑与归宗名册分列堂中，三席录事各守一案。寻到经办之人，便可当面接下或交回事务。',
+      '旧剑与功簿分列堂中，三席经办之人各守一案。寻到对应之人，便可当面接下或交回事务。',
     taskNpcs: {
       daily: {
         id: 'lingxiao-lin-yanqiu',
-        sigil: '录',
-        name: '林砚秋',
-        identity: '外务录事',
-        responsibility: '山门勤务、矿场巡视与丹器交付。',
-        greeting: '今日外务已经理清，你先说想办哪一桩。',
+        name: '陆青崖',
+        greeting: '今日事务已经理清，你先说想办哪一桩。',
       },
       weekly: {
         id: 'lingxiao-gu-wenfeng',
-        sigil: '簿',
-        name: '顾闻锋',
-        identity: '功簿录事',
-        responsibility: '周勤、试剑与宗门悬赏。',
+        name: '裴守拙',
         greeting: '本周功簿在此，小比与悬赏也都记着。',
       },
       promotion: {
         id: 'lingxiao-xie-tingyun',
-        sigil: '剑',
-        name: '谢停云',
-        identity: '传功长老',
-        responsibility: '三式问剑与真传考校。',
+        name: '听剑老人',
         greeting: '晋升问的不是锋芒多少，而是这一剑为何而出。',
       },
     },
@@ -359,7 +350,5 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
     meridianLoadout: '参悟方案',
     abilityChanges: '神通变化',
     returnToAffairs: '返回执事堂',
-    sweepActivity: '山阶扫叶',
-    sweepCanvasLabel: '山阶扫叶游戏画布',
   },
 };
