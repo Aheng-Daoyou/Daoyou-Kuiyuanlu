@@ -309,23 +309,148 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       description: '庐舍门前各悬一灯，灯在便知主人形神安稳。',
     },
   },
-  affairsRoom: {
-    description: '招魂司内灯影不灭，日常、周常与晋升事务各由一席经办。',
-    taskNpcs: {
-      daily: {
-        id: 'youdu-shen-zhaodeng',
-        name: '照灯',
-        greeting: '今日卷宗都在灯下，你想办哪一件，直说便是。',
+  rooms: {
+    affairs: {
+      description: '招魂司内灯影不灭，日常、周常与晋升事务各由一席经办。',
+      actors: {
+        daily: {
+          id: 'youdu-shen-zhaodeng',
+          name: '照灯',
+          greeting: '今日卷宗都在灯下，你想办哪一件，直说便是。',
+        },
+        weekly: {
+          id: 'youdu-bai-shoubu',
+          name: '守簿翁',
+          greeting: '本周功簿已经归拢，你可逐项查验。',
+        },
+        promotion: {
+          id: 'youdu-chu-yingui',
+          name: '归魂婆婆',
+          greeting: '晋升这一关，先要记得自己为何而来。',
+        },
       },
-      weekly: {
-        id: 'youdu-bai-shoubu',
-        name: '守簿翁',
-        greeting: '本周功簿已经归拢，你可逐项查验。',
+    },
+    hall: {
+      actors: {
+        registry: {
+          id: 'youdu-luming',
+          name: '录命生',
+          greeting: '你的名字仍在水上，玉牒与名录都可查。',
+        },
+        stipend: {
+          id: 'youdu-fafeng',
+          name: '发俸婆',
+          greeting: '本周该得之物已经备齐，不会少你一份。',
+        },
       },
-      promotion: {
-        id: 'youdu-chu-yingui',
-        name: '归魂婆婆',
-        greeting: '晋升这一关，先要记得自己为何而来。',
+    },
+    treasury: {
+      actors: {
+        keeper: {
+          id: 'youdu-shoucang',
+          name: '守藏婆',
+          greeting: '库门已开，灯下这些东西都可以功簿支取。',
+        },
+      },
+    },
+    industries: {
+      actors: {
+        construction: {
+          id: 'youdu-zhuming',
+          name: '筑冥翁',
+          greeting: '阴桥、暗阁与灯台都有工册，本周工程也在其中。',
+        },
+        donation: {
+          id: 'youdu-duwu',
+          name: '度物',
+          greeting: '东西带来先过灯照，合用才可入册。',
+        },
+      },
+    },
+    archive: {
+      actors: {
+        keeper: {
+          id: 'youdu-zhaojuan',
+          name: '照卷翁',
+          greeting: '魂灯一照，六卷心法都能显字。',
+        },
+      },
+    },
+    paths: {
+      actors: {
+        guide: {
+          id: 'youdu-yindeng',
+          name: '引灯人',
+          greeting: '七魄各有归处，你想先照哪一条路？',
+        },
+      },
+    },
+    arena: {
+      actors: {
+        instructor: {
+          id: 'youdu-shihun',
+          name: '试魂翁',
+          greeting: '影上每一道术痕都清楚，正好重排神通。',
+        },
+        marshal: {
+          id: 'youdu-shouchang',
+          name: '守场鬼',
+          greeting: '黑水已经平静，有小比便在此照影。',
+        },
+      },
+    },
+    cultivation: {
+      actors: {
+        keeper: {
+          id: 'youdu-shoudeng',
+          name: '守灯婆',
+          greeting: '魂灯不摇，返照室今日适合闭关。',
+        },
+      },
+    },
+    alchemy: {
+      actors: {
+        keeper: {
+          id: 'youdu-huansheng',
+          name: '还生药师',
+          greeting: '药庐香火未断，今日可以开炉。',
+        },
+      },
+    },
+    refinery: {
+      actors: {
+        keeper: {
+          id: 'youdu-zhentie',
+          name: '镇铁翁',
+          greeting: '低焰正稳，黑水旧铁也已归位。',
+        },
+      },
+    },
+    spiritVein: {
+      actors: {
+        keeper: {
+          id: 'youdu-tingyin',
+          name: '听阴',
+          greeting: '黑水阴脉没有异动，巡灯封签仍在这里。',
+        },
+      },
+    },
+    herbGarden: {
+      actors: {
+        keeper: {
+          id: 'youdu-bianhua',
+          name: '彼岸花婆',
+          greeting: '两岸花叶都安静，今日长势无需忧心。',
+        },
+      },
+    },
+    gate: {
+      actors: {
+        keeper: {
+          id: 'youdu-shouguan',
+          name: '守关人',
+          greeting: '三盏魂灯都亮着，今日关前事务在这里交接。',
+        },
       },
     },
   },

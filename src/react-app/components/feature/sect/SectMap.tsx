@@ -321,8 +321,6 @@ export function SectMap({
                       permissions,
                     );
                     const selected = spot.id === selectedId;
-                    const level = state.facility?.level;
-
                     return (
                       <div
                         key={spot.id}
@@ -335,7 +333,7 @@ export function SectMap({
                             type="button"
                             disabled={!state.selectable}
                             aria-pressed={selected}
-                            aria-label={`${spot.label}${level ? `，${level}级` : ''}${state.locked ? '，未开放' : ''}`}
+                            aria-label={`${spot.label}${state.locked ? '，未开放' : ''}`}
                             onClick={() => {
                               if (state.selectable) {
                                 setSelectedId(spot.id);
@@ -427,11 +425,6 @@ export function SectMap({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline gap-x-2">
                       <strong className="text-sm">{selectedSpot.label}</strong>
-                      {selectedState.facility && !selectedSpot.locked ? (
-                        <span className="text-ink-secondary text-xs">
-                          {selectedState.facility.level}级
-                        </span>
-                      ) : null}
                       {selectedState.locked ? (
                         <span className="text-crimson/75 text-xs">未开放</span>
                       ) : null}
@@ -498,11 +491,6 @@ export function SectMap({
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-baseline gap-x-2">
                     <strong className="text-sm">{spot.label}</strong>
-                    {state.facility && !spot.locked ? (
-                      <span className="text-ink-secondary text-xs">
-                        {state.facility.level}级
-                      </span>
-                    ) : null}
                     {state.locked ? (
                       <span className="text-crimson/75 text-xs">未开放</span>
                     ) : null}

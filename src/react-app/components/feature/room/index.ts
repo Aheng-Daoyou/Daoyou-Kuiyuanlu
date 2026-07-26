@@ -11,3 +11,10 @@ export {
   type RoomActorView,
   type RoomViewProps,
 } from './RoomView';
+export {
+  useConversationSession,
+  type ConversationSessionActionContext,
+  type ConversationSessionPhase,
+  type ConversationSessionState,
+  type UseConversationSessionOptions,
+} from './useConversationSession';

@@ -52,9 +52,30 @@ export interface SectRoomNpcPresentation {
   greeting: string;
 }
 
-export interface SectAffairsRoomPresentation {
+export interface SectRoomConversationDefinition {
+  renderer: string;
+  parameters?: Readonly<Record<string, unknown>>;
+}
+
+export interface SectRoomActorDefinition extends SectRoomNpcPresentation {
+  roleKey: string;
+  conversation: SectRoomConversationDefinition;
+}
+
+export interface SectRoomDefinition {
+  key: string;
   description: string;
-  taskNpcs: Readonly<Record<SectAffairsTaskKind, SectRoomNpcPresentation>>;
+  actors: readonly SectRoomActorDefinition[];
+}
+
+export interface SectRoomThemeOverride {
+  description?: string;
+  actors?: Readonly<
+    Record<
+      string,
+      Partial<Pick<SectRoomActorDefinition, 'id' | 'name' | 'greeting'>>
+    >
+  >;
 }
 
 export interface SectPresentationTerms {
@@ -82,15 +103,7 @@ export interface SectPresentationTheme {
   facilityLabels?: Readonly<Record<string, string>>;
   lockedFacilities?: readonly string[];
   scenes?: Partial<Record<SectSceneKey, Partial<SectScenePresentation>>>;
-  affairsRoom?: {
-    description?: string;
-    taskNpcs?: Partial<
-      Record<
-        SectAffairsTaskKind,
-        Partial<Pick<SectRoomNpcPresentation, 'id' | 'name' | 'greeting'>>
-      >
-    >;
-  };
+  rooms?: Readonly<Record<string, SectRoomThemeOverride>>;
   terms?: Partial<
     Omit<SectPresentationTerms, 'sweepActivity' | 'sweepCanvasLabel'>
   >;
@@ -107,7 +120,7 @@ export interface ResolvedSectPresentation {
   facilityLabels: Readonly<Record<string, string>>;
   lockedFacilities: readonly string[];
   scenes: Readonly<Record<SectSceneKey, SectScenePresentation>>;
-  affairsRoom: SectAffairsRoomPresentation;
+  rooms: Readonly<Record<string, SectRoomDefinition>>;
   terms: Readonly<SectPresentationTerms>;
 }
 
@@ -327,36 +340,328 @@ const STANDARD_SCENES: Record<SectSceneKey, SectScenePresentation> = {
   taskBattle: scene('宗门战局', '完成当前宗门战斗事务。', '宗门战局推演中……'),
 };
 
-const STANDARD_AFFAIRS_ROOM: SectAffairsRoomPresentation = {
-  description:
-    '堂中卷宗分由三席执事经办。寻到对应执事，便可询问、接办或交回当前事务。',
-  taskNpcs: {
-    daily: {
-      id: 'daily-steward',
-      sigil: '执',
-      name: '值日执事',
-      identity: '值日执事',
-      responsibility: '负责日常委托。',
-      greeting: '今日事务都在这里。你要先看哪一件？',
+const roomActor = (
+  roleKey: string,
+  sigil: string,
+  name: string,
+  identity: string,
+  responsibility: string,
+  greeting: string,
+  renderer: string,
+  parameters?: Readonly<Record<string, unknown>>,
+  id = roleKey,
+): SectRoomActorDefinition => ({
+  roleKey,
+  id,
+  sigil,
+  name,
+  identity,
+  responsibility,
+  greeting,
+  conversation: { renderer, parameters },
+});
+
+const STANDARD_ROOMS: Readonly<Record<string, SectRoomDefinition>> =
+  Object.freeze({
+    affairs: {
+      key: 'affairs',
+      description:
+        '堂中卷宗分由三席执事经办。寻到对应执事，便可询问、接办或交回当前事务。',
+      actors: [
+        roomActor(
+          'daily',
+          '执',
+          '值日执事',
+          '值日执事',
+          '负责日常委托。',
+          '今日事务都在这里。你要先看哪一件？',
+          'sect.affairs.tasks',
+          { kind: 'daily' satisfies SectAffairsTaskKind },
+          'daily-steward',
+        ),
+        roomActor(
+          'weekly',
+          '簿',
+          '功簿执事',
+          '功簿执事',
+          '负责周常委托。',
+          '本周卷宗已经归拢，你可逐项查验。',
+          'sect.affairs.tasks',
+          { kind: 'weekly' satisfies SectAffairsTaskKind },
+          'weekly-steward',
+        ),
+        roomActor(
+          'promotion',
+          '传',
+          '传功长老',
+          '传功长老',
+          '负责晋升试炼。',
+          '晋升不可躁进。先看看你当前应过的关。',
+          'sect.affairs.tasks',
+          { kind: 'promotion' satisfies SectAffairsTaskKind },
+          'promotion-elder',
+        ),
+      ],
     },
-    weekly: {
-      id: 'weekly-steward',
-      sigil: '簿',
-      name: '功簿执事',
-      identity: '功簿执事',
-      responsibility: '负责周常委托。',
-      greeting: '本周卷宗已经归拢，你可逐项查验。',
+    hall: {
+      key: 'hall',
+      description: '玉牒、俸册与同门名录分案收存。寻到对应执事，便可当面查验。',
+      actors: [
+        roomActor(
+          'registry',
+          '掌',
+          '掌籍执事',
+          '掌籍执事',
+          '负责弟子身份与同门名录。',
+          '身份玉牒与同门名录都在这里，你想查哪一项？',
+          'sect.hall.registry',
+        ),
+        roomActor(
+          'stipend',
+          '俸',
+          '俸禄执事',
+          '俸禄执事',
+          '负责核算和发放宗门周俸。',
+          '本周俸册已经核清，你可来查验或领取。',
+          'sect.hall.stipend',
+        ),
+      ],
     },
-    promotion: {
-      id: 'promotion-elder',
-      sigil: '传',
-      name: '传功长老',
-      identity: '传功长老',
-      responsibility: '负责晋升试炼。',
-      greeting: '晋升不可躁进。先看看你当前应过的关。',
+    treasury: {
+      key: 'treasury',
+      description: '库架依次封存常备物资与轮换珍材，司库执事正在案前清点。',
+      actors: [
+        roomActor(
+          'keeper',
+          '库',
+          '司库执事',
+          '司库执事',
+          '负责宝库库存与贡献兑换。',
+          '宝库今日已经开封。你想查看哪一类物资？',
+          'sect.treasury.shop',
+        ),
+      ],
     },
-  },
-};
+    industries: {
+      key: 'industries',
+      description: '工程长卷与物料清单分列两案，宗门建设由两席执事共同经办。',
+      actors: [
+        roomActor(
+          'construction',
+          '造',
+          '营造执事',
+          '营造执事',
+          '负责公共工程与设施进度。',
+          '本周工程与各处设施都有记录，你想先问哪一项？',
+          'sect.industries.construction',
+        ),
+        roomActor(
+          'donation',
+          '料',
+          '物料执事',
+          '物料执事',
+          '负责建设物资核验与入册。',
+          '今日所需物料已经列好，你若有意捐献便来核对。',
+          'sect.industries.donation',
+        ),
+      ],
+    },
+    archive: {
+      key: 'archive',
+      description: '传承经卷依次归架，守阁之人静候案前，为弟子查卷授业。',
+      actors: [
+        roomActor(
+          'keeper',
+          '阁',
+          '守阁长老',
+          '守阁长老',
+          '负责心法经卷与研习。',
+          '阁中经卷各有次第，你想研习哪一门心法？',
+          'sect.archive.methods',
+        ),
+      ],
+    },
+    paths: {
+      key: 'paths',
+      description: '道痕在静处交汇，引道长老在此为弟子辨明流派与参悟次第。',
+      actors: [
+        roomActor(
+          'guide',
+          '引',
+          '引道长老',
+          '引道长老',
+          '负责流派选择与参悟引导。',
+          '道途不可只看名目。你想从哪一脉开始问？',
+          'sect.paths.guidance',
+        ),
+      ],
+    },
+    arena: {
+      key: 'arena',
+      description:
+        '演武阵纹铺陈场中，教习与值场执事分守两侧，各自经办修习和小比。',
+      actors: [
+        roomActor(
+          'instructor',
+          '武',
+          '演武教习',
+          '演武教习',
+          '负责神通配置与自动战术。',
+          '你的神通与战术都可在此调整，想先看哪一项？',
+          'sect.arena.loadout',
+        ),
+        roomActor(
+          'marshal',
+          '场',
+          '值场执事',
+          '值场执事',
+          '负责演武场秩序与宗门小比。',
+          '演武场已经清过场，你若有小比在身便可入阵。',
+          'sect.arena.tournament',
+          { locationKey: 'sect.arena' },
+        ),
+      ],
+    },
+    cultivation: {
+      key: 'cultivation',
+      description: '聚灵阵息在静室中缓缓流转，守阵执事候在阵枢旁。',
+      actors: [
+        roomActor(
+          'keeper',
+          '阵',
+          '守阵执事',
+          '守阵执事',
+          '负责聚灵阵与闭关安排。',
+          '阵息平稳。你要查问此地灵效，还是就此入静？',
+          'sect.cultivation.retreat',
+        ),
+      ],
+    },
+    alchemy: {
+      key: 'alchemy',
+      description: '丹炉灵焰未熄，药柜依次封存。丹房执事正在炉前值守。',
+      actors: [
+        roomActor(
+          'keeper',
+          '丹',
+          '丹房执事',
+          '丹房执事',
+          '负责丹房状态与炼丹安排。',
+          '炉火正稳。你要先问丹房灵效，还是直接开炉？',
+          'sect.alchemy.craft',
+          {
+            facilityKey: 'workshop',
+            effectKey: 'alchemy',
+            workspaceHref: '/game/sect/alchemy?workspace=craft',
+            statusReply: '请执事说说丹房灵效',
+            workspaceReply: '有劳执事为我开炉炼丹',
+          },
+        ),
+      ],
+    },
+    refinery: {
+      key: 'refinery',
+      description: '地火沿炉道升起，锻台已经清空。器坊执事守在火口旁。',
+      actors: [
+        roomActor(
+          'keeper',
+          '器',
+          '器坊执事',
+          '器坊执事',
+          '负责器坊状态与炼器安排。',
+          '地火可用。你要先问器坊灵效，还是就此开炉？',
+          'sect.refinery.craft',
+          {
+            facilityKey: 'workshop',
+            effectKey: 'refinery',
+            workspaceHref: '/game/sect/refinery?workspace=craft',
+            statusReply: '请执事说说器坊灵效',
+            workspaceReply: '有劳执事为我开炉炼器',
+          },
+        ),
+      ],
+    },
+    spiritVein: {
+      key: 'spiritVein',
+      description: '矿道灵辉沿岩隙流转，守脉执事在井口查验脉息与巡逻封签。',
+      actors: [
+        roomActor(
+          'keeper',
+          '脉',
+          '守脉执事',
+          '守脉执事',
+          '负责灵脉状态与矿场巡视。',
+          '矿道脉息尚稳。你是来查问灵脉，还是接手巡视？',
+          'sect.spirit-vein.status',
+          {
+            facilityKey: 'spirit_vein',
+            effectKey: 'spirit_vein',
+            locationKey: 'sect.spirit-vein',
+            statusReply: '请执事说说灵脉近况',
+            detail: '灵石收益会随周俸一并核算，无需在矿场另行采收。',
+          },
+        ),
+      ],
+    },
+    herbGarden: {
+      key: 'herbGarden',
+      description: '灵泉沿畦垄缓缓流过，药园执事正在田边查验草木长势。',
+      actors: [
+        roomActor(
+          'keeper',
+          '药',
+          '药园执事',
+          '药园执事',
+          '负责药田状态与周期产出。',
+          '今日草木长势平稳。你想问药田灵效，还是看看近况？',
+          'sect.herb-garden.status',
+          {
+            facilityKey: 'herb_garden',
+            effectKey: 'herb_garden',
+            statusReply: '请执事说说药田近况',
+            detail: '成熟灵草会随周俸一并发放，无需弟子另行采收。',
+            stages: [
+              '新畦初醒',
+              '灵苗成行',
+              '药香盈陌',
+              '四时不歇',
+              '百草丰登',
+            ],
+          },
+        ),
+      ],
+    },
+    gate: {
+      key: 'gate',
+      description: '山门内外人声往来，守山执事在门侧核对勤务与当日动静。',
+      actors: [
+        roomActor(
+          'keeper',
+          '门',
+          '守山执事',
+          '守山执事',
+          '负责山门动态与现场勤务。',
+          '山门今日一切如常。你若有勤务在身，便在这里交接。',
+          'sect.gate.duties',
+        ),
+      ],
+    },
+    formation: {
+      key: 'formation',
+      description: '护宗阵枢仍在封禁之中。',
+      actors: [
+        roomActor(
+          'warden',
+          '护',
+          '护阵长老',
+          '护阵长老',
+          '负责护宗阵法管理。',
+          '阵枢尚未开放，今日无需入内。',
+          'sect.formation.status',
+        ),
+      ],
+    },
+  });
 
 export const STANDARD_SECT_PRESENTATION: Omit<
   ResolvedSectPresentation,
@@ -376,7 +681,7 @@ export const STANDARD_SECT_PRESENTATION: Omit<
   }),
   lockedFacilities: Object.freeze(['formation']),
   scenes: Object.freeze(STANDARD_SCENES),
-  affairsRoom: Object.freeze(STANDARD_AFFAIRS_ROOM),
+  rooms: STANDARD_ROOMS,
   terms: Object.freeze({
     pathChanges: '流派变化',
     meridianPractice: '参悟进度',
@@ -412,25 +717,30 @@ export function resolveSectPresentation(
     ...theme?.map,
     hotspots: theme?.map?.hotspots ?? STANDARD_SECT_PRESENTATION.map.hotspots,
   };
-  const affairsTaskNpcs = Object.fromEntries(
-    (
-      Object.keys(
-        STANDARD_SECT_PRESENTATION.affairsRoom.taskNpcs,
-      ) as SectAffairsTaskKind[]
-    ).map((kind) => [
-      kind,
-      (() => {
-        const standard = STANDARD_SECT_PRESENTATION.affairsRoom.taskNpcs[kind];
-        const override = theme?.affairsRoom?.taskNpcs?.[kind];
-        return {
-          ...standard,
-          id: override?.id ?? standard.id,
-          name: override?.name ?? standard.name,
-          greeting: override?.greeting ?? standard.greeting,
-        };
-      })(),
-    ]),
-  ) as Record<SectAffairsTaskKind, SectRoomNpcPresentation>;
+  const rooms = Object.fromEntries(
+    Object.entries(STANDARD_SECT_PRESENTATION.rooms).map(
+      ([roomKey, standardRoom]) => {
+        const roomOverride = theme?.rooms?.[roomKey];
+        const actors = standardRoom.actors.map((standardActor) => {
+          const override = roomOverride?.actors?.[standardActor.roleKey];
+          return {
+            ...standardActor,
+            id: override?.id ?? standardActor.id,
+            name: override?.name ?? standardActor.name,
+            greeting: override?.greeting ?? standardActor.greeting,
+          };
+        });
+        return [
+          roomKey,
+          {
+            ...standardRoom,
+            description: roomOverride?.description ?? standardRoom.description,
+            actors,
+          },
+        ];
+      },
+    ),
+  ) as Record<string, SectRoomDefinition>;
   const resolved: ResolvedSectPresentation = {
     sectId,
     onboarding: theme?.onboarding,
@@ -442,12 +752,7 @@ export function resolveSectPresentation(
     lockedFacilities:
       theme?.lockedFacilities ?? STANDARD_SECT_PRESENTATION.lockedFacilities,
     scenes,
-    affairsRoom: {
-      description:
-        theme?.affairsRoom?.description ??
-        STANDARD_SECT_PRESENTATION.affairsRoom.description,
-      taskNpcs: affairsTaskNpcs,
-    },
+    rooms,
     terms: {
       ...STANDARD_SECT_PRESENTATION.terms,
       ...theme?.terms,
@@ -467,20 +772,51 @@ export function resolveSectPresentation(
   for (const [key, value] of Object.entries(resolved.terms)) {
     assertNonBlank(`宗门 ${sectId} 术语 ${key}`, value);
   }
-  assertNonBlank(
-    `宗门 ${sectId} 事务堂房间描述`,
-    resolved.affairsRoom.description,
-  );
-  for (const [kind, npc] of Object.entries(resolved.affairsRoom.taskNpcs)) {
-    for (const [field, text] of Object.entries(npc)) {
-      assertNonBlank(`宗门 ${sectId} 事务堂 ${kind}.${field}`, text);
+  for (const [roomKey, room] of Object.entries(resolved.rooms)) {
+    assertNonBlank(`宗门 ${sectId} 房间 ${roomKey}.key`, room.key);
+    assertNonBlank(
+      `宗门 ${sectId} 房间 ${roomKey}.description`,
+      room.description,
+    );
+    const actorIds = new Set<string>();
+    const roleKeys = new Set<string>();
+    for (const actor of room.actors) {
+      for (const field of [
+        'roleKey',
+        'id',
+        'sigil',
+        'name',
+        'identity',
+        'responsibility',
+        'greeting',
+      ] as const) {
+        assertNonBlank(
+          `宗门 ${sectId} 房间 ${roomKey}.${actor.roleKey}.${field}`,
+          actor[field],
+        );
+      }
+      assertNonBlank(
+        `宗门 ${sectId} 房间 ${roomKey}.${actor.roleKey}.renderer`,
+        actor.conversation.renderer,
+      );
+      if (actorIds.has(actor.id))
+        throw new Error(`宗门 ${sectId} 房间 ${roomKey} NPC ID 不可重复`);
+      if (roleKeys.has(actor.roleKey))
+        throw new Error(`宗门 ${sectId} 房间 ${roomKey} 角色标识不可重复`);
+      actorIds.add(actor.id);
+      roleKeys.add(actor.roleKey);
     }
   }
-  const affairsNpcIds = Object.values(resolved.affairsRoom.taskNpcs).map(
-    (npc) => npc.id,
-  );
-  if (new Set(affairsNpcIds).size !== affairsNpcIds.length) {
-    throw new Error(`宗门 ${sectId} 事务堂 NPC ID 不可重复`);
+  for (const [roomKey, override] of Object.entries(theme?.rooms ?? {})) {
+    const standard = STANDARD_SECT_PRESENTATION.rooms[roomKey];
+    if (!standard) throw new Error(`宗门 ${sectId} 覆盖了未知房间：${roomKey}`);
+    const roleKeys = new Set(standard.actors.map((actor) => actor.roleKey));
+    for (const roleKey of Object.keys(override.actors ?? {})) {
+      if (!roleKeys.has(roleKey))
+        throw new Error(
+          `宗门 ${sectId} 房间 ${roomKey} 覆盖了未知角色：${roleKey}`,
+        );
+    }
   }
   for (const facility of resolved.lockedFacilities) {
     assertNonBlank(`宗门 ${sectId} 锁定设施`, facility);

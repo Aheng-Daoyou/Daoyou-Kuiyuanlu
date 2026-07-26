@@ -122,9 +122,20 @@ function OpenSectTaskSubmissionDialog({
           requirement.kind === 'material'
             ? { items }
             : { itemId: first.itemId, quantity: requirement.quantity },
-          `「${task.presentation.title}」已经结清`,
+          undefined,
         );
-        if (result) onClose();
+        if (!result) return;
+        const claimAction = result.task.actions.find(
+          (candidate) => candidate.key === 'claim' && candidate.enabled,
+        );
+        if (result.task.state === 'claimable' && claimAction)
+          await execute(
+            result.task,
+            claimAction,
+            {},
+            `「${task.presentation.title}」已经结清`,
+          );
+        onClose();
       }}
     />
   );

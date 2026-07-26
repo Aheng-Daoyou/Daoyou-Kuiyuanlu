@@ -81,7 +81,7 @@ export function RoomView({
 
           <div
             aria-label="房间中的人物"
-            className="mx-auto my-10 grid w-full max-w-3xl flex-1 content-center gap-5 sm:grid-cols-3 sm:gap-6"
+            className="mx-auto my-10 grid w-full max-w-3xl flex-1 grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),16rem))] content-center justify-center gap-5 sm:gap-6"
           >
             {actors.map((actor) => {
               const tone = actor.status?.tone ?? 'neutral';

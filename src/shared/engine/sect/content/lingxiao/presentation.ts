@@ -323,24 +323,149 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
       loadingText: '洞府石门映入云间……',
     },
   },
-  affairsRoom: {
-    description:
-      '旧剑与功簿分列堂中，三席经办之人各守一案。寻到对应之人，便可当面接下或交回事务。',
-    taskNpcs: {
-      daily: {
-        id: 'lingxiao-lin-yanqiu',
-        name: '陆青崖',
-        greeting: '今日事务已经理清，你先说想办哪一桩。',
+  rooms: {
+    affairs: {
+      description:
+        '旧剑与功簿分列堂中，三席经办之人各守一案。寻到对应之人，便可当面接下或交回事务。',
+      actors: {
+        daily: {
+          id: 'lingxiao-lin-yanqiu',
+          name: '陆青崖',
+          greeting: '今日事务已经理清，你先说想办哪一桩。',
+        },
+        weekly: {
+          id: 'lingxiao-gu-wenfeng',
+          name: '裴守拙',
+          greeting: '本周功簿在此，小比与悬赏也都记着。',
+        },
+        promotion: {
+          id: 'lingxiao-xie-tingyun',
+          name: '听剑老人',
+          greeting: '晋升问的不是锋芒多少，而是这一剑为何而出。',
+        },
       },
-      weekly: {
-        id: 'lingxiao-gu-wenfeng',
-        name: '裴守拙',
-        greeting: '本周功簿在此，小比与悬赏也都记着。',
+    },
+    hall: {
+      actors: {
+        registry: {
+          id: 'lingxiao-shen-chijian',
+          name: '沈持简',
+          greeting: '你的身份玉牒在案，同门名录也已归整。',
+        },
+        stipend: {
+          id: 'lingxiao-wen-fenglu',
+          name: '温奉禄',
+          greeting: '本周俸册已经核清，剑宗不会短门人一分用度。',
+        },
       },
-      promotion: {
-        id: 'lingxiao-xie-tingyun',
-        name: '听剑老人',
-        greeting: '晋升问的不是锋芒多少，而是这一剑为何而出。',
+    },
+    treasury: {
+      actors: {
+        keeper: {
+          id: 'lingxiao-cangfeng-weng',
+          name: '藏锋翁',
+          greeting: '库中物资各有去处，你看中哪件便报来。',
+        },
+      },
+    },
+    industries: {
+      actors: {
+        construction: {
+          id: 'lingxiao-zhu-baigong',
+          name: '祝百工',
+          greeting: '山上每一梁一石都有账，本周工程也不例外。',
+        },
+        donation: {
+          id: 'lingxiao-shi-sanjin',
+          name: '石三斤',
+          greeting: '物料先过秤再入册，你带了什么便拿来核验。',
+        },
+      },
+    },
+    archive: {
+      actors: {
+        keeper: {
+          id: 'lingxiao-xie-guanjian',
+          name: '谢观剑',
+          greeting: '六卷剑录都在架上，你想从哪一卷问起？',
+        },
+      },
+    },
+    paths: {
+      actors: {
+        guide: {
+          id: 'lingxiao-wenjian-sou',
+          name: '问剑叟',
+          greeting: '剑路快慢不在名目，先说你想看清哪一道。',
+        },
+      },
+    },
+    arena: {
+      actors: {
+        instructor: {
+          id: 'lingxiao-fu-shifeng',
+          name: '傅试锋',
+          greeting: '神通贵在合手，你的剑路与招式可在此重排。',
+        },
+        marshal: {
+          id: 'lingxiao-chen-shoutai',
+          name: '陈守台',
+          greeting: '试剑台已经清场，有小比在身便可入阵。',
+        },
+      },
+    },
+    cultivation: {
+      actors: {
+        keeper: {
+          id: 'lingxiao-su-jing',
+          name: '素静',
+          greeting: '养剑室阵息平稳，今日适合收心入静。',
+        },
+      },
+    },
+    alchemy: {
+      actors: {
+        keeper: {
+          id: 'lingxiao-yan-danshi',
+          name: '晏丹师',
+          greeting: '炉温正好，问过火候便可开炉。',
+        },
+      },
+    },
+    refinery: {
+      actors: {
+        keeper: {
+          id: 'lingxiao-ou-yeqing',
+          name: '欧冶青',
+          greeting: '地火未歇，想铸什么先把话说明白。',
+        },
+      },
+    },
+    spiritVein: {
+      actors: {
+        keeper: {
+          id: 'lingxiao-luo-tingmai',
+          name: '罗听脉',
+          greeting: '矿道青光平稳，东侧巡签还在案上。',
+        },
+      },
+    },
+    herbGarden: {
+      actors: {
+        keeper: {
+          id: 'lingxiao-he-caowei',
+          name: '何草微',
+          greeting: '晨露刚退，药田今日长势不错。',
+        },
+      },
+    },
+    gate: {
+      actors: {
+        keeper: {
+          id: 'lingxiao-zhou-shanmen',
+          name: '周山门',
+          greeting: '山下人声已起，今日门前勤务都在这里交接。',
+        },
       },
     },
   },

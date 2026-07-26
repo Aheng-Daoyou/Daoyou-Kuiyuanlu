@@ -1,9 +1,18 @@
+import {
+  NpcConversation,
+  useConversationSession,
+} from '@app/components/feature/room';
 import { SectAbilityDetails } from '@app/components/feature/sect/SectAbilityDetails';
 import {
   useSectCurrentQuery,
   useSectPresentation,
 } from '@app/components/feature/sect/SectQueryProvider';
-import { SectTaskActivityEntry } from '@app/components/feature/sect/SectTaskActivityEntry';
+import {
+  SectManagedRoom,
+  SectNpcConversationRegistry,
+  SectTaskLocationConversation,
+  type SectNpcConversationRendererProps,
+} from '@app/components/feature/sect/room';
 import { InkModal } from '@app/components/layout';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkCard, InkNotice } from '@app/components/ui';
@@ -18,6 +27,7 @@ import {
 } from '@shared/engine/sect';
 import { resolveSectAbilities } from '@shared/engine/sect/content';
 import { useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
 import {
   SectPageLoading,
   SectPermissionBoundary,
@@ -37,8 +47,74 @@ const json = (method: string, body: unknown): RequestInit => ({
 export default function SectAbilitiesPage() {
   return (
     <SectPermissionBoundary permission="sect.arena.use" sceneKey="arena">
-      <SectAbilitiesBody />
+      <SectArenaBody />
     </SectPermissionBoundary>
+  );
+}
+
+const arenaRegistry = new SectNpcConversationRegistry([
+  { key: 'sect.arena.loadout', renderer: ArenaInstructorConversation },
+  { key: 'sect.arena.tournament', renderer: SectTaskLocationConversation },
+]);
+
+function SectArenaBody() {
+  const [searchParams] = useSearchParams();
+  if (searchParams.get('workspace') === 'loadout') return <SectAbilitiesBody />;
+  return (
+    <SectScene sceneKey="arena" mood="arena">
+      <SectManagedRoom
+        roomKey="arena"
+        registry={arenaRegistry}
+        eyebrow="演武阵台 · 神通校验"
+      />
+    </SectScene>
+  );
+}
+
+function ArenaInstructorConversation({
+  actor,
+  onExit,
+}: SectNpcConversationRendererProps) {
+  const current = useSectCurrentQuery();
+  const navigate = useNavigate();
+  const session = useConversationSession({
+    sessionKey: actor.id,
+    snapshot: current.data,
+    load: current.reload,
+    perform: async () => undefined,
+  });
+  const sect = current.data?.sect;
+  const selectedAbilityCount =
+    sect?.abilityLoadout.filter((id): id is string => Boolean(id)).length ?? 0;
+  return (
+    <NpcConversation
+      actor={actor}
+      messages={[
+        { id: 'greeting', speaker: actor.name, body: actor.greeting },
+        ...(sect
+          ? [
+              {
+                id: 'loadout',
+                speaker: actor.name,
+                body: selectedAbilityCount
+                  ? `你当前主动栏中已有${selectedAbilityCount}门神通，自动战术也可一并校正。`
+                  : '你的主动神通栏尚空，可以入阵重新配置。',
+              } as const,
+            ]
+          : []),
+      ]}
+      options={[
+        { id: 'workspace', label: '请教习为我开启演武阵' },
+        { id: 'leave', label: '弟子告退', tone: 'muted' },
+      ]}
+      busy={session.phase === 'loading'}
+      error={session.error ?? current.error}
+      onSelectOption={(optionId) => {
+        if (optionId === 'leave') onExit();
+        else if (optionId === 'workspace')
+          navigate('/game/sect/arena?workspace=loadout');
+      }}
+    />
   );
 }
 
@@ -56,6 +132,7 @@ function SectAbilitiesBody() {
   const cultivator = useActiveCultivatorProfile();
   const { mutate } = usePlayerStateActions();
   const { pushToast } = useInkUI();
+  const navigate = useNavigate();
 
   const realm = cultivator?.realm ?? '炼气';
   const sect = data?.sect;
@@ -170,10 +247,11 @@ function SectAbilitiesBody() {
         ) : undefined
       }
     >
-      <SectTaskActivityEntry
-        locationKey="sect.arena"
-        activeMessage="本周小比的演武傀儡已经就位，随时可以入场。"
-      />
+      <div className="flex justify-end">
+        <InkButton onClick={() => navigate('/game/sect/arena')}>
+          退出演武阵
+        </InkButton>
+      </div>
       <div className="rounded-full border border-red-950/10 bg-white/20 p-2 sm:p-4">
         {!sect || !definition ? (
           <InkNotice>尚未拜入宗门。</InkNotice>

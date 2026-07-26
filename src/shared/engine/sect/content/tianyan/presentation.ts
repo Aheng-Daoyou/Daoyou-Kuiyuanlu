@@ -323,23 +323,148 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '洞府散在玄冥、青华二峰之间。每处门前都嵌一片集露白铜，清晨水痕会留下不同走向，提醒主人今日的判断也会随明日天光改变。',
     },
   },
-  affairsRoom: {
-    description: '司算院长卷依时辰铺开，日常、周常与晋升事务各归一席。',
-    taskNpcs: {
-      daily: {
-        id: 'tianyan-ji-sichen',
-        name: '知微',
-        greeting: '今日时序已经排定，眼下可办的差事都在这里。',
+  rooms: {
+    affairs: {
+      description: '司算院长卷依时辰铺开，日常、周常与晋升事务各归一席。',
+      actors: {
+        daily: {
+          id: 'tianyan-ji-sichen',
+          name: '知微',
+          greeting: '今日时序已经排定，眼下可办的差事都在这里。',
+        },
+        weekly: {
+          id: 'tianyan-xu-hengzhang',
+          name: '玄衡道人',
+          greeting: '本周诸事已有定数，但落子之人仍要你自己选。',
+        },
+        promotion: {
+          id: 'tianyan-rong-guanlan',
+          name: '观澜真人',
+          greeting: '晋升试炼不求捷径，只看你能否辨清下一步。',
+        },
       },
-      weekly: {
-        id: 'tianyan-xu-hengzhang',
-        name: '玄衡道人',
-        greeting: '本周诸事已有定数，但落子之人仍要你自己选。',
+    },
+    hall: {
+      actors: {
+        registry: {
+          id: 'tianyan-siming',
+          name: '司命',
+          greeting: '玉牒与名录已经校正，你要核验哪一项？',
+        },
+        stipend: {
+          id: 'tianyan-duzhi',
+          name: '度支道人',
+          greeting: '本周俸数已经推定，来取之前可先核对。',
+        },
       },
-      promotion: {
-        id: 'tianyan-rong-guanlan',
-        name: '观澜真人',
-        greeting: '晋升试炼不求捷径，只看你能否辨清下一步。',
+    },
+    treasury: {
+      actors: {
+        keeper: {
+          id: 'tianyan-tianku',
+          name: '天库道人',
+          greeting: '常备与轮换之物各有定数，你想看哪一类？',
+        },
+      },
+    },
+    industries: {
+      actors: {
+        construction: {
+          id: 'tianyan-banji',
+          name: '班机道人',
+          greeting: '五峰工程都在图上，本周进度可以逐项说明。',
+        },
+        donation: {
+          id: 'tianyan-ducai',
+          name: '度材',
+          greeting: '物性与数量都要核准，合用之物方可入册。',
+        },
+      },
+    },
+    archive: {
+      actors: {
+        keeper: {
+          id: 'tianyan-yanshu',
+          name: '衍书真人',
+          greeting: '六卷真经各循其序，你想先推演哪一卷？',
+        },
+      },
+    },
+    paths: {
+      actors: {
+        guide: {
+          id: 'tianyan-heluozhi',
+          name: '河洛子',
+          greeting: '图与局都在眼前，先说你想辨哪条道途。',
+        },
+      },
+    },
+    arena: {
+      actors: {
+        instructor: {
+          id: 'tianyan-douheng',
+          name: '斗衡真人',
+          greeting: '神通次序与战术落点都可在中宫重新校验。',
+        },
+        marshal: {
+          id: 'tianyan-jiaochang',
+          name: '校场使',
+          greeting: '演法台已经归零，有小比便可重新起局。',
+        },
+      },
+    },
+    cultivation: {
+      actors: {
+        keeper: {
+          id: 'tianyan-shouyi',
+          name: '守一',
+          greeting: '太初灵气归于一线，正宜静心闭关。',
+        },
+      },
+    },
+    alchemy: {
+      actors: {
+        keeper: {
+          id: 'tianyan-qinghe',
+          name: '青禾药师',
+          greeting: '水温与炉火都已记下，今日可以开炉。',
+        },
+      },
+    },
+    refinery: {
+      actors: {
+        keeper: {
+          id: 'tianyan-baishi',
+          name: '白石铸师',
+          greeting: '金石与地火都已归位，你要炼什么便说。',
+        },
+      },
+    },
+    spiritVein: {
+      actors: {
+        keeper: {
+          id: 'tianyan-kunyuan',
+          name: '坤元使',
+          greeting: '地脉承托五峰，今日脉息尚在常数之内。',
+        },
+      },
+    },
+    herbGarden: {
+      actors: {
+        keeper: {
+          id: 'tianyan-mushi',
+          name: '木时',
+          greeting: '水位与日照已经记下，长生圃今日无碍。',
+        },
+      },
+    },
+    gate: {
+      actors: {
+        keeper: {
+          id: 'tianyan-guanxing',
+          name: '观星使',
+          greeting: '山门天象与今日勤务都已记在石侧。',
+        },
       },
     },
   },

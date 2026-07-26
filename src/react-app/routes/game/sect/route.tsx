@@ -7,11 +7,7 @@ import {
 import { GameSceneFrame, GameSceneLoading } from '@app/components/game-shell';
 import { formatDocumentTitle } from '@app/lib/router/routeTitle';
 import { fetchSectCatalog } from '@app/lib/sect/sectClient';
-import {
-  getSectFacilityLabel,
-  getSectPresentation,
-} from '@app/lib/sect/sectPresentation';
-import { SECT_RANK_LABELS } from '@shared/engine/sect';
+import { getSectPresentation } from '@app/lib/sect/sectPresentation';
 import { useMemo } from 'react';
 import { Navigate, useNavigate } from 'react-router';
 import { SectQueryError } from './components/SectScene';
@@ -50,7 +46,6 @@ export default function SectPage() {
     return <Navigate to="/game/sect/onboarding" replace />;
   }
 
-  const rank = data.sect.discipleRank ?? 'registered';
   const presentation = getSectPresentation(data.definition.id);
   const mapScene = presentation.scenes.map;
   return (
@@ -61,18 +56,6 @@ export default function SectPage() {
         label: mapScene.title,
         summary: mapScene.description,
       }}
-      aside={
-        <div className="space-y-2 text-sm leading-7">
-          <p>身份：{SECT_RANK_LABELS[rank]}</p>
-          <p>贡献：{data.sect.contribution}</p>
-          <p>
-            本周工程：
-            {data.overview?.project
-              ? `${getSectFacilityLabel(data.definition!.id, data.overview.project.facilityKey)}升至 ${data.overview.project.targetLevel} 级`
-              : '长老议定中'}
-          </p>
-        </div>
-      }
       contentClassName="lg:max-w-none"
     >
       <title>{formatDocumentTitle(mapScene.title)}</title>
@@ -88,9 +71,6 @@ export default function SectPage() {
       ) : (
         <div className="border-ink/15 bg-ink/10 grid gap-px border sm:grid-cols-2 lg:grid-cols-3">
           {presentation.map.hotspots.map((spot) => {
-            const facility = spot.facility
-              ? facilities.get(spot.facility)
-              : undefined;
             const access = spot.permission
               ? data.overview?.permissions?.[spot.permission]
               : undefined;
@@ -104,10 +84,7 @@ export default function SectPage() {
                 onClick={() => spot.route && navigate(spot.route)}
                 className="bg-paper/90 min-h-24 p-4 text-left transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <strong>
-                  {spot.label}
-                  {facility ? ` · ${facility.level}级` : ''}
-                </strong>
+                <strong>{spot.label}</strong>
                 <p className="text-ink-secondary mt-2 text-sm">
                   {access?.granted === false ? access.reason : spot.note}
                 </p>

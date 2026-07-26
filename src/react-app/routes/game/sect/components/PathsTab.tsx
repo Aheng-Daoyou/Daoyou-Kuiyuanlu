@@ -73,12 +73,14 @@ export function PathsTab({
   action,
   realm,
   stage,
+  onDirtyChange,
 }: {
   data: SectCurrentData;
   busy: boolean;
   action: SectAction;
   realm: RealmType;
   stage: RealmStage;
+  onDirtyChange?(dirty: boolean): void;
 }) {
   const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
   if (!data.sect || !data.definition)
@@ -150,6 +152,7 @@ export function PathsTab({
           realm={realm}
           stage={stage}
           onClose={() => setSelectedPathId(null)}
+          onDirtyChange={onDirtyChange}
         />
       ) : null}
     </>
@@ -166,6 +169,7 @@ function PathDrawer({
   realm,
   stage,
   onClose,
+  onDirtyChange,
 }: {
   path: SectPathDefinition;
   state?: CultivatorSectPathState;
@@ -176,6 +180,7 @@ function PathDrawer({
   realm: RealmType;
   stage: RealmStage;
   onClose: () => void;
+  onDirtyChange?(dirty: boolean): void;
 }) {
   const presentation = useSectPresentation();
   const terms = presentation.terms;
@@ -246,6 +251,15 @@ function PathDrawer({
     spiritStones,
   });
   const anyDirty = hasDirtyMeridianDraft(drafts, saved);
+  useEffect(() => {
+    onDirtyChange?.(anyDirty);
+  }, [anyDirty, onDirtyChange]);
+  useEffect(
+    () => () => {
+      onDirtyChange?.(false);
+    },
+    [onDirtyChange],
+  );
   const meridianFooterAction = state
     ? getMeridianFooterAction({
         drafts,

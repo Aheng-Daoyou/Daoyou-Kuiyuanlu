@@ -1,17 +1,20 @@
 import {
   NpcConversation,
-  RoomView,
+  useConversationSession,
   type NpcConversationMessage,
   type NpcConversationOption,
-  type RoomActorView,
 } from '@app/components/feature/room';
 import {
   useSectCurrentQuery,
-  useSectPresentation,
   useSectResourceQuery,
 } from '@app/components/feature/sect/SectQueryProvider';
 import { SectTaskActionRenderer } from '@app/components/feature/sect/SectTaskActionRenderer';
 import { useSectTaskInteraction } from '@app/components/feature/sect/SectTaskInteractionProvider';
+import {
+  SectManagedRoom,
+  SectNpcConversationRegistry,
+  type SectNpcConversationRendererProps,
+} from '@app/components/feature/sect/room';
 import {
   decodeSectTaskOutcome,
   readRewardReceiptOutcome,
@@ -20,8 +23,10 @@ import { fetchSectTasks } from '@app/lib/sect/sectClient';
 import type { SectTaskViewData } from '@shared/contracts/sect';
 import {
   describeSectPromotionStatus,
+  SECT_RANK_LABELS,
   type SectAffairsTaskKind,
-  type SectRoomNpcPresentation,
+  type SectDiscipleRank,
+  type SectRoomActorDefinition,
   type SectTaskDialogueEmphasis,
   type SectTaskDialogueSegment,
 } from '@shared/engine/sect';
@@ -51,6 +56,7 @@ const SEGMENT_CLASS: Record<SectTaskDialogueEmphasis, string> = {
 
 const LEAVE_CONVERSATION_OPTION = 'leave-conversation';
 const RETURN_TO_TASKS_OPTION = 'return-to-tasks';
+const PROMOTE_OPTION = 'promote-disciple';
 
 function taskKey(task: SectTaskViewData): string {
   return `${task.periodKey}:${task.definitionId}`;
@@ -76,7 +82,7 @@ function taskTitles(tasks: readonly SectTaskViewData[]): string {
 }
 
 function npcOpening(
-  npc: SectRoomNpcPresentation,
+  npc: SectRoomActorDefinition,
   tasks: readonly SectTaskViewData[],
   guidance?: string,
 ): string {
@@ -131,63 +137,52 @@ function TaskInstruction({
   );
 }
 
+const affairsConversationRegistry = new SectNpcConversationRegistry([
+  {
+    key: 'sect.affairs.tasks',
+    renderer: SectAffairsNpcConversationRenderer,
+  },
+]);
+
 export function SectAffairsRoom() {
-  const presentation = useSectPresentation().affairsRoom;
-  const interaction = useSectTaskInteraction();
-  const [selectedKind, setSelectedKind] = useState<SectAffairsTaskKind>();
-
-  const actors = useMemo<RoomActorView[]>(
-    () =>
-      TASK_KINDS.map((kind) => {
-        const npc = presentation.taskNpcs[kind];
-        return {
-          id: npc.id,
-          sigil: npc.sigil,
-          name: npc.name,
-          identity: npc.identity,
-          responsibility: npc.responsibility,
-        };
-      }),
-    [presentation.taskNpcs],
-  );
-
-  const selectedNpc = selectedKind
-    ? presentation.taskNpcs[selectedKind]
-    : undefined;
-  const selectActor = (actorId: string) => {
-    const kind = TASK_KINDS.find(
-      (candidate) => presentation.taskNpcs[candidate].id === actorId,
-    );
-    if (!kind) return;
-    interaction.clearOutcome();
-    setSelectedKind(kind);
-  };
-
-  const leaveConversation = () => {
-    interaction.clearOutcome();
-    setSelectedKind(undefined);
-  };
-
   return (
-    <RoomView
+    <SectManagedRoom
+      roomKey="affairs"
+      registry={affairsConversationRegistry}
       eyebrow="宗门公牍 · 当值录事"
-      description={presentation.description}
-      actors={actors}
-      selectedId={selectedNpc?.id}
-      onSelect={selectActor}
       prompt="点击人物，与其交谈"
-      detail={
-        selectedNpc && selectedKind ? (
-          <SectAffairsNpcConversation
-            key={selectedKind}
-            kind={selectedKind}
-            npc={selectedNpc}
-            onExit={leaveConversation}
-          />
-        ) : undefined
-      }
     />
   );
+}
+
+function SectAffairsNpcConversationRenderer({
+  actor,
+  parameters,
+  onExit,
+}: SectNpcConversationRendererProps) {
+  const interaction = useSectTaskInteraction();
+  const kind = TASK_KINDS.find((candidate) => candidate === parameters.kind);
+  const clearOutcome = interaction.clearOutcome;
+  useEffect(() => {
+    clearOutcome();
+  }, [clearOutcome]);
+  if (!kind)
+    return (
+      <NpcConversation
+        actor={actor}
+        messages={[
+          {
+            id: 'invalid-kind',
+            speaker: actor.name,
+            body: '这册事务暂时无法查验，请稍后再来。',
+            tone: 'attention',
+          },
+        ]}
+        options={[{ id: 'leave', label: '弟子告退', tone: 'muted' }]}
+        onSelectOption={onExit}
+      />
+    );
+  return <SectAffairsNpcConversation kind={kind} npc={actor} onExit={onExit} />;
 }
 
 function SectAffairsNpcConversation({
@@ -196,7 +191,7 @@ function SectAffairsNpcConversation({
   onExit,
 }: {
   kind: SectAffairsTaskKind;
-  npc: SectRoomNpcPresentation;
+  npc: SectRoomActorDefinition;
   onExit(): void;
 }) {
   const interaction = useSectTaskInteraction();
@@ -206,12 +201,23 @@ function SectAffairsNpcConversation({
     fetchSectTasks,
   );
   const [selectedTaskKey, setSelectedTaskKey] = useState<string>();
+  const [promotionResult, setPromotionResult] = useState<string>();
   const reloadCurrent = current.reload;
-
-  useEffect(() => {
-    void reload();
-    if (kind === 'promotion') void reloadCurrent();
-  }, [kind, reload, reloadCurrent]);
+  const session = useConversationSession({
+    sessionKey: `${npc.id}:${kind}`,
+    snapshot: data,
+    load: async () => {
+      await Promise.all([
+        reload(),
+        kind === 'promotion' ? reloadCurrent() : Promise.resolve(),
+      ]);
+    },
+    perform: async () => undefined,
+    onReset: () => {
+      setSelectedTaskKey(undefined);
+      setPromotionResult(undefined);
+    },
+  });
 
   const tasks = useMemo(
     () => sortTasks(data?.items.filter((task) => task.kind === kind) ?? []),
@@ -225,6 +231,30 @@ function SectAffairsNpcConversation({
           missingRequirements: current.data.overview.promotionMissing,
         })
       : undefined;
+  const nextRank =
+    kind === 'promotion' ? current.data?.overview?.nextRank : null;
+  const canPromote =
+    Boolean(nextRank) && current.data?.overview?.promotionMissing.length === 0;
+
+  const promote = async () => {
+    if (!nextRank || !canPromote) return;
+    const result = await interaction.runRaw<{
+      sect: { discipleRank?: SectDiscipleRank };
+    }>(
+      '/api/sects/current/promotion',
+      {
+        method: 'POST',
+        headers: {
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+      },
+      `已晋升${SECT_RANK_LABELS[nextRank]}`,
+    );
+    if (result)
+      setPromotionResult(
+        `你的身份玉牒已经改录为${SECT_RANK_LABELS[result.sect.discipleRank ?? nextRank]}。`,
+      );
+  };
 
   const selectTask = async (task: SectTaskViewData) => {
     interaction.clearOutcome();
@@ -290,15 +320,22 @@ function SectAffairsNpcConversation({
       npc={npc}
       tasks={tasks}
       guidance={promotionGuidance}
+      promotionResult={promotionResult}
+      nextRank={canPromote ? nextRank : null}
       busy={
-        interaction.busy || loading || (kind === 'promotion' && current.loading)
+        interaction.busy ||
+        loading ||
+        session.phase === 'loading' ||
+        (kind === 'promotion' && current.loading)
       }
       error={
         interaction.error ??
+        session.error ??
         error ??
         (kind === 'promotion' ? current.error : undefined)
       }
       onSelect={(task) => void selectTask(task)}
+      onPromote={() => void promote()}
       onExit={onExit}
     />
   );
@@ -308,17 +345,23 @@ function TaskListConversation({
   npc,
   tasks,
   guidance,
+  promotionResult,
+  nextRank,
   busy,
   error,
   onSelect,
+  onPromote,
   onExit,
 }: {
-  npc: SectRoomNpcPresentation;
+  npc: SectRoomActorDefinition;
   tasks: readonly SectTaskViewData[];
   guidance?: string;
+  promotionResult?: string;
+  nextRank?: SectDiscipleRank | null;
   busy: boolean;
   error?: string;
   onSelect(task: SectTaskViewData): void;
+  onPromote(): void;
   onExit(): void;
 }) {
   const visible = visibleTasks(tasks);
@@ -333,6 +376,15 @@ function TaskListConversation({
             ? ('muted' as const)
             : ('normal' as const),
     })),
+    ...(nextRank
+      ? [
+          {
+            id: PROMOTE_OPTION,
+            label: `请长老为弟子晋升${SECT_RANK_LABELS[nextRank]}`,
+            tone: 'primary' as const,
+          },
+        ]
+      : []),
     {
       id: LEAVE_CONVERSATION_OPTION,
       label: '弟子告退',
@@ -346,6 +398,13 @@ function TaskListConversation({
       body: npcOpening(npc, tasks, guidance),
     },
   ];
+  if (promotionResult)
+    messages.push({
+      id: 'promotion-result',
+      speaker: npc.name,
+      body: promotionResult,
+      tone: 'attention',
+    });
   const taskByKey = new Map(visible.map((task) => [taskKey(task), task]));
 
   return (
@@ -358,6 +417,10 @@ function TaskListConversation({
       onSelectOption={(optionId) => {
         if (optionId === LEAVE_CONVERSATION_OPTION) {
           onExit();
+          return;
+        }
+        if (optionId === PROMOTE_OPTION) {
+          onPromote();
           return;
         }
         const task = taskByKey.get(optionId);
@@ -373,7 +436,7 @@ function TaskConversation({
   onBack,
   onExit,
 }: {
-  npc: SectRoomNpcPresentation;
+  npc: SectRoomActorDefinition;
   task: SectTaskViewData;
   onBack(): void;
   onExit(): void;

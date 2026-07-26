@@ -47,11 +47,11 @@ describe('production sect affairs presentations', () => {
     expect(presentations).toHaveLength(4);
     expect(
       presentations.map((presentation) =>
-        Object.values(presentation.affairsRoom.taskNpcs).map((npc) => npc.name),
+        presentation.rooms.affairs.actors.map((npc) => npc.name),
       ),
     ).toEqual(expectedNames);
     for (const presentation of presentations) {
-      const npcs = Object.values(presentation.affairsRoom.taskNpcs);
+      const npcs = presentation.rooms.affairs.actors;
       expect(new Set(npcs.map((npc) => npc.id)).size).toBe(3);
       expect(npcs).toMatchObject(canonicalNpcRoles);
       for (const npc of npcs) expect(npc.greeting.trim()).not.toBe('');
@@ -68,6 +68,36 @@ describe('production sect affairs presentations', () => {
         expect(module.organization.tasks.get(taskId)?.presentation).toEqual(
           standard.tasks.get(taskId)?.presentation,
         );
+      }
+    }
+  });
+
+  it('provides themed names while keeping managed room roles canonical', () => {
+    const expectedRooms = [
+      'hall',
+      'treasury',
+      'industries',
+      'archive',
+      'paths',
+      'arena',
+      'cultivation',
+      'alchemy',
+      'refinery',
+      'spiritVein',
+      'herbGarden',
+      'gate',
+    ];
+    for (const presentation of Object.values(PRODUCTION_SECT_PRESENTATIONS)) {
+      for (const roomKey of expectedRooms) {
+        const room = presentation.rooms[roomKey];
+        expect(room).toBeDefined();
+        for (const actor of room.actors) {
+          expect(actor.name.trim()).not.toBe('');
+          expect(actor.greeting.trim()).not.toBe('');
+          expect(actor.identity.trim()).not.toBe('');
+          expect(actor.responsibility.trim()).not.toBe('');
+          expect(actor.conversation.renderer).toMatch(/^sect\./u);
+        }
       }
     }
   });

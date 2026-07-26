@@ -313,24 +313,149 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
       description: '石窟里没有装饰，只有前人留下的坐痕与指印。',
     },
   },
-  affairsRoom: {
-    description:
-      '晨钟余音尚在，白榜上的差事由三位僧人分掌；领下一事，便结下一段今日之因。',
-    taskNpcs: {
-      daily: {
-        id: 'wuxiang-mingchen',
-        name: '法明',
-        greeting: '白榜上的日务都在这里，肯做哪一件便说。',
+  rooms: {
+    affairs: {
+      description:
+        '晨钟余音尚在，白榜上的差事由三位僧人分掌；领下一事，便结下一段今日之因。',
+      actors: {
+        daily: {
+          id: 'wuxiang-mingchen',
+          name: '法明',
+          greeting: '白榜上的日务都在这里，肯做哪一件便说。',
+        },
+        weekly: {
+          id: 'wuxiang-zhaoye',
+          name: '慧觉',
+          greeting: '功簿只记所行，不替人评说，你可自行查问。',
+        },
+        promotion: {
+          id: 'wuxiang-due',
+          name: '空慈方丈',
+          greeting: '要过此关，先要肯照见自己带来的业。',
+        },
       },
-      weekly: {
-        id: 'wuxiang-zhaoye',
-        name: '慧觉',
-        greeting: '功簿只记所行，不替人评说，你可自行查问。',
+    },
+    hall: {
+      actors: {
+        registry: {
+          id: 'wuxiang-huiming',
+          name: '慧明',
+          greeting: '玉牒与僧录都在镜下，你要查什么便问。',
+        },
+        stipend: {
+          id: 'wuxiang-mingji',
+          name: '明济',
+          greeting: '本周供养已经分好，领取前可先核对。',
+        },
       },
-      promotion: {
-        id: 'wuxiang-due',
-        name: '空慈方丈',
-        greeting: '要过此关，先要肯照见自己带来的业。',
+    },
+    treasury: {
+      actors: {
+        keeper: {
+          id: 'wuxiang-kongzang',
+          name: '空藏禅师',
+          greeting: '藏中诸物只待有用之人，你想看哪一件？',
+        },
+      },
+    },
+    industries: {
+      actors: {
+        construction: {
+          id: 'wuxiang-mingzhu',
+          name: '明筑',
+          greeting: '一砖一木皆是因缘，本周工程已有次第。',
+        },
+        donation: {
+          id: 'wuxiang-xingcang',
+          name: '行仓',
+          greeting: '所施之物先验明白，再记入功德册。',
+        },
+      },
+    },
+    archive: {
+      actors: {
+        keeper: {
+          id: 'wuxiang-kongdu',
+          name: '空渡禅师',
+          greeting: '贝叶六匣皆在此，你想先读哪一卷？',
+        },
+      },
+    },
+    paths: {
+      actors: {
+        guide: {
+          id: 'wuxiang-huizhao',
+          name: '慧照',
+          greeting: '壁有明暗两面，你想先照见哪一面？',
+        },
+      },
+    },
+    arena: {
+      actors: {
+        instructor: {
+          id: 'wuxiang-jiefeng',
+          name: '戒锋禅师',
+          greeting: '神通由身心而发，今日可重新调理次第。',
+        },
+        marshal: {
+          id: 'wuxiang-huiwu',
+          name: '慧武',
+          greeting: '木人已经归位，有小比便入场问身。',
+        },
+      },
+    },
+    cultivation: {
+      actors: {
+        keeper: {
+          id: 'wuxiang-zhiguan',
+          name: '止观',
+          greeting: '一席一灯都已备好，随时可以入静。',
+        },
+      },
+    },
+    alchemy: {
+      actors: {
+        keeper: {
+          id: 'wuxiang-faming-yaoshi',
+          name: '法净药师',
+          greeting: '药性不分净秽，炉火此刻正稳。',
+        },
+      },
+    },
+    refinery: {
+      actors: {
+        keeper: {
+          id: 'wuxiang-huoyuan',
+          name: '火缘',
+          greeting: '火供已起，想炼何物便先验明材料。',
+        },
+      },
+    },
+    spiritVein: {
+      actors: {
+        keeper: {
+          id: 'wuxiang-shouyu',
+          name: '守玉',
+          greeting: '骨玉窟脉息平顺，巡签也已备下。',
+        },
+      },
+    },
+    herbGarden: {
+      actors: {
+        keeper: {
+          id: 'wuxiang-huilian',
+          name: '慧莲',
+          greeting: '池水无波，今晨血莲长势安稳。',
+        },
+      },
+    },
+    gate: {
+      actors: {
+        keeper: {
+          id: 'wuxiang-mingmen',
+          name: '明门',
+          greeting: '钟声已过，今日门前勤务在此交接。',
+        },
       },
     },
   },

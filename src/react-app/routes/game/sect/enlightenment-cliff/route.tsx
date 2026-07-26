@@ -1,12 +1,27 @@
+import {
+  NpcConversation,
+  useConversationSession,
+  type NpcConversationMessage,
+} from '@app/components/feature/room';
 import { useSectCurrentQuery } from '@app/components/feature/sect/SectQueryProvider';
+import {
+  SectManagedRoom,
+  SectNpcConversationRegistry,
+  type SectNpcConversationRendererProps,
+} from '@app/components/feature/sect/room';
+import { InkButton } from '@app/components/ui';
 import { useActiveCultivatorProfile } from '@app/lib/player-state/selectors';
+import { useCallback, useState } from 'react';
 import { PathsTab } from '../components/PathsTab';
 import {
-  SectPageLoading,
   SectPermissionBoundary,
   SectScene,
   useSectMutation,
 } from '../components/SectScene';
+
+const registry = new SectNpcConversationRegistry([
+  { key: 'sect.paths.guidance', renderer: PathsConversation },
+]);
 
 export default function SectEnlightenmentCliffPage() {
   return (
@@ -14,35 +29,131 @@ export default function SectEnlightenmentCliffPage() {
       permission="sect.enlightenment.use"
       sceneKey="paths"
     >
-      <SectEnlightenmentCliffBody />
+      <SectScene sceneKey="paths" mood="cliff">
+        <SectManagedRoom
+          roomKey="paths"
+          registry={registry}
+          eyebrow="道痕分流 · 参悟留痕"
+        />
+      </SectScene>
     </SectPermissionBoundary>
   );
 }
 
-function SectEnlightenmentCliffBody() {
-  const { data, error, invalidate: reload } = useSectCurrentQuery();
+function PathsConversation({
+  actor,
+  onExit,
+}: SectNpcConversationRendererProps) {
+  const current = useSectCurrentQuery();
   const cultivator = useActiveCultivatorProfile();
-  const { busy, run } = useSectMutation(reload);
-
-  if (!data) return <SectPageLoading sceneKey="paths" />;
-
-  return (
-    <SectScene sceneKey="paths" error={error} mood="cliff">
-      <div className="relative border-l-2 border-sky-900/15 bg-white/25 px-4 py-5 sm:px-7">
-        <span
-          aria-hidden="true"
-          className="absolute top-0 bottom-0 left-3 border-l border-dashed border-sky-950/10"
-        />
+  const mutation = useSectMutation(current.reload);
+  const [workspace, setWorkspace] = useState(false);
+  const [workspaceDirty, setWorkspaceDirty] = useState(false);
+  const [confirmExit, setConfirmExit] = useState(false);
+  const handleWorkspaceDirtyChange = useCallback((dirty: boolean) => {
+    setWorkspaceDirty(dirty);
+    if (!dirty) setConfirmExit(false);
+  }, []);
+  const session = useConversationSession({
+    sessionKey: actor.id,
+    snapshot: current.data,
+    load: current.reload,
+    perform: async () => undefined,
+    onReset: () => {
+      setWorkspace(false);
+      setWorkspaceDirty(false);
+      setConfirmExit(false);
+    },
+  });
+  const data = current.data;
+  if (workspace && data)
+    return (
+      <div className="min-h-[34rem] px-5 py-7 sm:px-8 md:px-10">
+        <div className="mb-5 flex flex-wrap items-center justify-end gap-3 border-b border-current/10 pb-4">
+          {confirmExit ? (
+            <>
+              <p className="text-crimson text-sm">
+                参悟方案尚未保存，是否放弃本次修改？
+              </p>
+              <InkButton onClick={() => setConfirmExit(false)}>
+                继续参悟
+              </InkButton>
+              <InkButton
+                variant="primary"
+                onClick={() => {
+                  setWorkspace(false);
+                  setWorkspaceDirty(false);
+                  setConfirmExit(false);
+                  void session.reload();
+                }}
+              >
+                放弃修改
+              </InkButton>
+            </>
+          ) : (
+            <InkButton
+              onClick={() => {
+                if (workspaceDirty) {
+                  setConfirmExit(true);
+                  return;
+                }
+                setWorkspace(false);
+                void session.reload();
+              }}
+            >
+              退出参悟
+            </InkButton>
+          )}
+        </div>
         <PathsTab
           data={data}
-          busy={busy}
+          busy={mutation.busy}
           action={async (url, init) => {
-            await run(url, init, '流派参悟已更新');
+            await mutation.run(url, init, '流派参悟已更新');
           }}
           realm={cultivator?.realm ?? '炼气'}
           stage={cultivator?.realm_stage ?? '初期'}
+          onDirtyChange={handleWorkspaceDirtyChange}
         />
       </div>
-    </SectScene>
+    );
+  const path = data?.definition?.paths.find(
+    (candidate) => candidate.id === data.sect?.activePathId,
+  );
+  const messages: NpcConversationMessage[] = [
+    { id: 'greeting', speaker: actor.name, body: actor.greeting },
+  ];
+  if (data?.definition)
+    messages.push({
+      id: 'paths',
+      speaker: actor.name,
+      body: (
+        <>
+          此处可参悟
+          {data.definition.paths
+            .map((candidate) => `「${candidate.name}」`)
+            .join('与')}
+          。
+          {path
+            ? `你当前行的是「${path.name}」，若要更改或继续深入，需先静心入定。`
+            : '你尚未择定当前流派。'}
+        </>
+      ),
+    });
+  return (
+    <NpcConversation
+      actor={actor}
+      messages={messages}
+      options={[
+        { id: 'workspace', label: '请长老引我入定参悟' },
+        { id: 'leave', label: '弟子告退', tone: 'muted' },
+      ]}
+      busy={session.phase === 'loading'}
+      error={session.error ?? current.error}
+      onSelectOption={(optionId) => {
+        if (optionId === 'leave') onExit();
+        else if (optionId === 'workspace') setWorkspace(true);
+      }}
+    />
   );
 }

@@ -66,6 +66,7 @@ export type RefineSceneProps = {
     discountPercent: number;
     facilityLabel: string;
     scene: import('@shared/engine/sect').SectScenePresentation;
+    onExit?(): void;
   };
 };
 
@@ -289,10 +290,14 @@ export function RefineScene({ sectContext }: RefineSceneProps) {
           <div className="space-y-3">
             {sectContext ? (
               <InkButton
-                onClick={() => navigate('/game/sect')}
+                onClick={() =>
+                  sectContext.onExit
+                    ? sectContext.onExit()
+                    : navigate('/game/sect')
+                }
                 variant="secondary"
               >
-                返回宗门总视图
+                返回器坊执事
               </InkButton>
             ) : null}
             {note ? (
@@ -305,16 +310,6 @@ export function RefineScene({ sectContext }: RefineSceneProps) {
       }
       aside={
         <>
-          {sectContext ? (
-            <GameSceneAsideSection title={sectContext.scene.title}>
-              <div className="space-y-2 text-sm leading-7">
-                <p>
-                  {sectContext.facilityLabel}等级：{sectContext.facilityLevel}级
-                </p>
-                <p>当前灵石减免：{sectContext.discountPercent}%</p>
-              </div>
-            </GameSceneAsideSection>
-          ) : null}
           <GameSceneAsideSection title="炼制摘要">
             <div className="space-y-2 text-sm leading-7">
               <p>

@@ -31,12 +31,12 @@ interface SectTaskInteractionContextValue {
     task: SectTaskViewData,
     action: SectTaskViewAction,
     input: Record<string, unknown>,
-    successMessage: string,
+    successMessage?: string,
   ): Promise<SectTaskActionData | undefined>;
   runRaw<T>(
     url: string,
     init: RequestInit,
-    successMessage: string,
+    successMessage?: string,
   ): Promise<T | undefined>;
   navigate(path: string, options?: { replace?: boolean }): void;
   clearOutcome(): void;
@@ -63,14 +63,15 @@ export function SectTaskInteractionProvider({
   const routerNavigate = useNavigate();
 
   const runRaw = useCallback(
-    async <T,>(url: string, init: RequestInit, successMessage: string) => {
+    async <T,>(url: string, init: RequestInit, successMessage?: string) => {
       setBusy(true);
       setError(undefined);
       try {
         const result = await mutate<T>(fetch(url, init));
         await refreshTasks();
         await invalidateCurrent();
-        pushToast({ message: successMessage, tone: 'success' });
+        if (successMessage)
+          pushToast({ message: successMessage, tone: 'success' });
         return result;
       } catch (reason) {
         try {
@@ -95,7 +96,7 @@ export function SectTaskInteractionProvider({
       task: SectTaskViewData,
       action: SectTaskViewAction,
       input: Record<string, unknown>,
-      successMessage: string,
+      successMessage?: string,
     ) => {
       setOutcome(undefined);
       const result = await runRaw<SectTaskActionData>(
@@ -115,6 +116,10 @@ export function SectTaskInteractionProvider({
     },
     [runRaw],
   );
+  const clearOutcome = useCallback(() => {
+    setOutcome(undefined);
+    setError(undefined);
+  }, []);
 
   const value = useMemo<SectTaskInteractionContextValue>(
     () => ({
@@ -124,13 +129,19 @@ export function SectTaskInteractionProvider({
       execute,
       runRaw,
       navigate: routerNavigate,
-      clearOutcome: () => {
-        setOutcome(undefined);
-        setError(undefined);
-      },
+      clearOutcome,
       refreshTasks,
     }),
-    [busy, error, execute, outcome, refreshTasks, routerNavigate, runRaw],
+    [
+      busy,
+      clearOutcome,
+      error,
+      execute,
+      outcome,
+      refreshTasks,
+      routerNavigate,
+      runRaw,
+    ],
   );
   return (
     <SectTaskInteractionContext.Provider value={value}>

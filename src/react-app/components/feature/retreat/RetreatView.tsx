@@ -419,6 +419,7 @@ export type RetreatViewProps = {
     experienceBonusPercent: number;
     facilityLabel: string;
     scene: import('@shared/engine/sect').SectScenePresentation;
+    onExit?(): void;
   };
 };
 
@@ -459,8 +460,13 @@ export function RetreatView({ sectContext }: RetreatViewProps) {
     sectContext || note ? (
       <div className="space-y-3">
         {sectContext ? (
-          <InkButton onClick={() => navigate('/game/sect')} variant="secondary">
-            返回宗门总视图
+          <InkButton
+            onClick={() =>
+              sectContext.onExit ? sectContext.onExit() : navigate('/game/sect')
+            }
+            variant="secondary"
+          >
+            返回守阵执事
           </InkButton>
         ) : null}
         {note ? (
@@ -554,16 +560,7 @@ export function RetreatView({ sectContext }: RetreatViewProps) {
           : undefined
       }
       headerMeta={headerMeta}
-      aside={
-        sectContext ? (
-          <div className="space-y-2 text-sm leading-7">
-            <p>
-              {sectContext.facilityLabel}等级：{sectContext.facilityLevel}级
-            </p>
-            <p>闭关修为加成：+{sectContext.experienceBonusPercent}%</p>
-          </div>
-        ) : undefined
-      }
+      aside={undefined}
       contentClassName={
         sectContext
           ? 'bg-[radial-gradient(circle_at_50%_18%,rgba(64,148,135,0.16)_0_10%,transparent_11%_25%,rgba(64,148,135,0.08)_26%_27%,transparent_28%),linear-gradient(180deg,rgba(205,228,215,0.22),transparent_55%)] px-3 py-4 sm:px-5'
