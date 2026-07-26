@@ -1,4 +1,5 @@
-import { InkButton } from '@app/components/ui';
+import { InkButton } from '@app/components/ui/InkButton';
+import { InkDetailDrawer } from '@app/components/ui/InkDetailDrawer';
 import type {
   SectFacilityState,
   SectMapHotspot,
@@ -6,6 +7,7 @@ import type {
 } from '@shared/engine/sect';
 import { cn } from '@shared/lib/cn';
 import {
+  useCallback,
   useRef,
   useState,
   type ButtonHTMLAttributes,
@@ -208,12 +210,21 @@ export function SectMap({
 }: SectMapProps) {
   const transformRef = useRef<ReactZoomPanPinchContentRef | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mobileView, setMobileView] = useState<'map' | 'list'>('map');
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [gestureHintVisible, setGestureHintVisible] = useState(true);
   const selectedSpot =
     hotspots.find((hotspot) => hotspot.id === selectedId) ?? null;
   const selectedState = selectedSpot
     ? resolveSectMapHotspotState(selectedSpot, mode, facilities, permissions)
     : null;
+
+  const dismissGestureHint = useCallback(() => {
+    setGestureHintVisible(false);
+  }, []);
+
+  const closeDirectory = useCallback(() => {
+    setDirectoryOpen(false);
+  }, []);
 
   const selectFromList = (spot: SectMapHotspot) => {
     const state = resolveSectMapHotspotState(
@@ -224,7 +235,8 @@ export function SectMap({
     );
     if (!state.selectable) return;
     setSelectedId(spot.id);
-    setMobileView('map');
+    setDirectoryOpen(false);
+    dismissGestureHint();
     window.requestAnimationFrame(() => {
       transformRef.current?.zoomToElement(
         `sect-map-hotspot-${spot.id}`,
@@ -264,49 +276,11 @@ export function SectMap({
 
     event.stopPropagation();
     setSelectedId(closest.id);
+    dismissGestureHint();
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-ink-secondary hidden text-sm md:block">
-          {mode === 'visitor'
-            ? '拖动或缩放舆图，可在山门与护山阵法外驻足查看。'
-            : '拖动或缩放舆图，点选设施查看职司。'}
-        </p>
-        <div
-          className="border-ink/15 flex border-b border-dashed md:hidden"
-          aria-label="宗门舆图浏览方式"
-        >
-          <button
-            type="button"
-            aria-pressed={mobileView === 'map'}
-            onClick={() => setMobileView('map')}
-            className={cn(
-              'px-2.5 py-2 text-sm transition-colors',
-              mobileView === 'map'
-                ? 'text-crimson font-semibold'
-                : 'text-ink-secondary',
-            )}
-          >
-            舆图
-          </button>
-          <button
-            type="button"
-            aria-pressed={mobileView === 'list'}
-            onClick={() => setMobileView('list')}
-            className={cn(
-              'px-2.5 py-2 text-sm transition-colors',
-              mobileView === 'list'
-                ? 'text-crimson font-semibold'
-                : 'text-ink-secondary',
-            )}
-          >
-            设施名录
-          </button>
-        </div>
-      </div>
-
+    <div>
       <TransformWrapper
         ref={transformRef}
         initialScale={1}
@@ -319,19 +293,100 @@ export function SectMap({
           velocityDisabled: true,
           excluded: ['sect-map-marker'],
         }}
+        onPanningStart={dismissGestureHint}
+        onZoomStart={dismissGestureHint}
       >
         {({ zoomIn, zoomOut, resetTransform }) => (
-          <>
-            <div
-              className={cn(
-                'items-center justify-between gap-3',
-                mobileView === 'map' ? 'flex' : 'hidden md:flex',
-              )}
-            >
-              <p className="text-ink-secondary text-xs md:hidden">
-                单指拖动，双指缩放
+          <div className="relative">
+            <div className="border-ink/15 relative overflow-hidden border bg-[#e9e1cf] shadow-inner">
+              <TransformComponent
+                wrapperClass="!w-full !h-[min(56svh,427px)] !min-h-[320px] md:!h-auto md:!min-h-0 md:aspect-[1672/941] cursor-grab active:cursor-grabbing"
+                contentClass="!w-max !h-max md:!w-full md:!h-full"
+              >
+                <div
+                  className="relative aspect-[1672/941] w-[760px] md:w-full"
+                  onClickCapture={handleHotspotClickCapture}
+                >
+                  <img
+                    src={image}
+                    alt={alt}
+                    className="pointer-events-none block h-full w-full select-none"
+                    draggable={false}
+                  />
+                  {hotspots.map((spot) => {
+                    const state = resolveSectMapHotspotState(
+                      spot,
+                      mode,
+                      facilities,
+                      permissions,
+                    );
+                    const selected = spot.id === selectedId;
+                    const level = state.facility?.level;
+
+                    return (
+                      <div
+                        key={spot.id}
+                        style={{ left: spot.left, top: spot.top }}
+                        className="absolute -translate-x-1/2 -translate-y-1/2"
+                      >
+                        <KeepScale>
+                          <button
+                            id={`sect-map-hotspot-${spot.id}`}
+                            type="button"
+                            disabled={!state.selectable}
+                            aria-pressed={selected}
+                            aria-label={`${spot.label}${level ? `，${level}级` : ''}${state.locked ? '，未开放' : ''}`}
+                            onClick={() => {
+                              if (state.selectable) {
+                                setSelectedId(spot.id);
+                                dismissGestureHint();
+                              }
+                            }}
+                            className={cn(
+                              'sect-map-marker group focus-visible:outline-crimson relative flex size-7 transform-gpu items-center justify-center rounded-full transition-transform duration-150 focus-visible:outline-2 focus-visible:outline-offset-2',
+                              selected ? 'z-20 scale-[1.08]' : '',
+                              !state.selectable &&
+                                'cursor-not-allowed opacity-55',
+                            )}
+                          >
+                            <FacilityMarkerGlyph
+                              locked={state.locked}
+                              selected={selected}
+                            />
+                            <span
+                              style={MAP_LABEL_STYLE}
+                              className={cn(
+                                'pointer-events-none absolute top-1/2 left-1/2 z-20 -translate-x-1/2 translate-y-[13px] px-1 py-0.5 text-[11px] leading-4 font-semibold tracking-[0.08em] whitespace-nowrap',
+                                state.locked
+                                  ? 'text-ink-secondary'
+                                  : 'text-crimson',
+                              )}
+                            >
+                              {spot.label}
+                            </span>
+                          </button>
+                        </KeepScale>
+                      </div>
+                    );
+                  })}
+                </div>
+              </TransformComponent>
+            </div>
+
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-2 p-2.5 md:p-3">
+              <button
+                type="button"
+                onClick={() => setDirectoryOpen(true)}
+                className="border-ink/15 bg-paper/85 text-ink hover:text-crimson focus-visible:outline-crimson pointer-events-auto flex min-h-10 items-center border px-3 text-sm shadow-sm backdrop-blur-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 md:hidden"
+              >
+                设施名录
+              </button>
+              <p className="bg-paper/80 text-ink-secondary hidden max-w-[calc(100%-9rem)] px-2.5 py-2 text-sm shadow-sm backdrop-blur-sm md:block">
+                {mode === 'visitor'
+                  ? '拖动或缩放舆图，可在山门与护山阵法外驻足查看。'
+                  : '拖动或缩放舆图，点选设施查看职司。'}
               </p>
-              <div className="border-ink/15 bg-paper/70 ml-auto flex border shadow-sm backdrop-blur-sm">
+              <div className="border-ink/15 bg-paper/85 pointer-events-auto ml-auto flex shrink-0 border shadow-sm backdrop-blur-sm">
                 <MapControlButton
                   label="缩小宗门舆图"
                   onClick={() => zoomOut()}
@@ -352,196 +407,123 @@ export function SectMap({
               </div>
             </div>
 
-            <div
+            <p
               className={cn(
-                'relative',
-                mobileView === 'map' ? 'block' : 'hidden md:block',
+                'bg-paper/85 text-ink-secondary pointer-events-none absolute bottom-2.5 left-2.5 z-10 px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-sm transition-opacity duration-200 md:hidden',
+                gestureHintVisible && !selectedSpot
+                  ? 'opacity-100'
+                  : 'opacity-0',
               )}
             >
-              <div className="border-ink/15 relative overflow-hidden border bg-[#e9e1cf] shadow-inner">
-                <TransformComponent
-                  wrapperClass="!w-full !h-[min(56svh,427px)] !min-h-[320px] md:!h-auto md:!min-h-0 md:aspect-[1672/941] cursor-grab active:cursor-grabbing"
-                  contentClass="!w-max !h-max md:!w-full md:!h-full"
-                >
-                  <div
-                    className="relative aspect-[1672/941] w-[760px] md:w-full"
-                    onClickCapture={handleHotspotClickCapture}
-                  >
-                    <img
-                      src={image}
-                      alt={alt}
-                      className="pointer-events-none block h-full w-full select-none"
-                      draggable={false}
-                    />
-                    {hotspots.map((spot) => {
-                      const state = resolveSectMapHotspotState(
-                        spot,
-                        mode,
-                        facilities,
-                        permissions,
-                      );
-                      const selected = spot.id === selectedId;
-                      const level = state.facility?.level;
+              单指拖动 · 双指缩放
+            </p>
 
-                      return (
-                        <div
-                          key={spot.id}
-                          style={{ left: spot.left, top: spot.top }}
-                          className="absolute -translate-x-1/2 -translate-y-1/2"
-                        >
-                          <KeepScale>
-                            <button
-                              id={`sect-map-hotspot-${spot.id}`}
-                              type="button"
-                              disabled={!state.selectable}
-                              aria-pressed={selected}
-                              aria-label={`${spot.label}${level ? `，${level}级` : ''}${state.locked ? '，未开放' : ''}`}
-                              onClick={() => {
-                                if (state.selectable) setSelectedId(spot.id);
-                              }}
-                              className={cn(
-                                'sect-map-marker group focus-visible:outline-crimson relative flex size-7 transform-gpu items-center justify-center rounded-full transition-transform duration-150 focus-visible:outline-2 focus-visible:outline-offset-2',
-                                selected ? 'z-20 scale-[1.08]' : '',
-                                !state.selectable &&
-                                  'cursor-not-allowed opacity-55',
-                              )}
-                            >
-                              <FacilityMarkerGlyph
-                                locked={state.locked}
-                                selected={selected}
-                              />
-                              <span
-                                style={MAP_LABEL_STYLE}
-                                className={cn(
-                                  'pointer-events-none absolute top-1/2 left-1/2 z-20 -translate-x-1/2 translate-y-[13px] px-1 py-0.5 text-[11px] leading-4 font-semibold tracking-[0.08em] whitespace-nowrap',
-                                  state.locked
-                                    ? 'text-ink-secondary'
-                                    : 'text-crimson',
-                                )}
-                              >
-                                {spot.label}
-                              </span>
-                            </button>
-                          </KeepScale>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </TransformComponent>
-              </div>
-
-              {selectedSpot && selectedState ? (
-                <section
-                  aria-live="polite"
-                  className="border-crimson/45 bg-paper/95 absolute right-3 bottom-3 left-3 z-20 border-l-2 px-3 py-2.5 shadow-sm backdrop-blur-sm md:right-auto md:w-[min(22rem,calc(100%-1.5rem))]"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline gap-x-2">
-                        <strong className="text-sm">
-                          {selectedSpot.label}
-                        </strong>
-                        {selectedState.facility && !selectedSpot.locked ? (
-                          <span className="text-ink-secondary text-xs">
-                            {selectedState.facility.level}级
-                          </span>
-                        ) : null}
-                        {selectedState.locked ? (
-                          <span className="text-crimson/75 text-xs">
-                            未开放
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="text-ink-secondary mt-1 text-xs leading-5">
-                        {selectedState.reason ?? selectedSpot.note}
-                      </p>
+            {selectedSpot && selectedState ? (
+              <section
+                aria-live="polite"
+                className="border-crimson/45 bg-paper/95 absolute right-3 bottom-3 left-3 z-20 border-l-2 px-3 py-2.5 shadow-sm backdrop-blur-sm md:right-auto md:w-[min(22rem,calc(100%-1.5rem))]"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <strong className="text-sm">{selectedSpot.label}</strong>
+                      {selectedState.facility && !selectedSpot.locked ? (
+                        <span className="text-ink-secondary text-xs">
+                          {selectedState.facility.level}级
+                        </span>
+                      ) : null}
+                      {selectedState.locked ? (
+                        <span className="text-crimson/75 text-xs">未开放</span>
+                      ) : null}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(null)}
-                      aria-label="关闭设施详情"
-                      className="text-ink-secondary hover:text-ink focus-visible:outline-crimson -mr-1 flex size-8 shrink-0 items-center justify-center focus-visible:outline-2"
-                    >
-                      <CloseIcon />
-                    </button>
+                    <p className="text-ink-secondary mt-1 text-xs leading-5">
+                      {selectedState.reason ?? selectedSpot.note}
+                    </p>
                   </div>
-                  {mode === 'member' &&
-                  !selectedState.locked &&
-                  selectedSpot.route &&
-                  onNavigate ? (
-                    <div className="mt-1.5">
-                      <InkButton
-                        variant="primary"
-                        onClick={() => onNavigate(selectedSpot.route!)}
-                      >
-                        进入{selectedSpot.label}
-                      </InkButton>
-                    </div>
-                  ) : null}
-                </section>
-              ) : null}
-            </div>
-
-            <div
-              className={cn(
-                'border-ink/15 divide-ink/10 divide-y divide-dashed border-y md:hidden',
-                mobileView === 'list' ? 'block' : 'hidden',
-              )}
-            >
-              {hotspots.map((spot) => {
-                const state = resolveSectMapHotspotState(
-                  spot,
-                  mode,
-                  facilities,
-                  permissions,
-                );
-                return (
                   <button
-                    key={spot.id}
                     type="button"
-                    disabled={!state.selectable}
-                    onClick={() => selectFromList(spot)}
-                    className={cn(
-                      'focus-visible:outline-crimson group flex w-full items-center gap-3 px-1 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2',
-                      state.selectable
-                        ? 'hover:bg-ink/5'
-                        : 'cursor-not-allowed opacity-55',
-                    )}
+                    onClick={() => setSelectedId(null)}
+                    aria-label="关闭设施详情"
+                    className="text-ink-secondary hover:text-ink focus-visible:outline-crimson -mr-1 flex size-8 shrink-0 items-center justify-center focus-visible:outline-2"
                   >
-                    <FacilityMarkerGlyph locked={state.locked} />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-baseline gap-x-2">
-                        <strong className="text-sm">{spot.label}</strong>
-                        {state.facility && !spot.locked ? (
-                          <span className="text-ink-secondary text-xs">
-                            {state.facility.level}级
-                          </span>
-                        ) : null}
-                        {state.locked ? (
-                          <span className="text-crimson/75 text-xs">
-                            未开放
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="text-ink-secondary mt-0.5 block truncate text-xs">
-                        {state.reason ?? spot.note}
-                      </span>
-                    </span>
-                    {state.selectable ? (
-                      <span
-                        aria-hidden="true"
-                        className="text-ink-secondary pr-1 text-sm"
-                      >
-                        →
-                      </span>
-                    ) : null}
+                    <CloseIcon />
                   </button>
-                );
-              })}
-            </div>
-          </>
+                </div>
+                {mode === 'member' &&
+                !selectedState.locked &&
+                selectedSpot.route &&
+                onNavigate ? (
+                  <div className="mt-1.5">
+                    <InkButton
+                      variant="primary"
+                      onClick={() => onNavigate(selectedSpot.route!)}
+                    >
+                      进入{selectedSpot.label}
+                    </InkButton>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+          </div>
         )}
       </TransformWrapper>
+
+      <InkDetailDrawer
+        isOpen={directoryOpen}
+        onClose={closeDirectory}
+        title="设施名录"
+      >
+        <div className="divide-ink/10 divide-y divide-dashed">
+          {hotspots.map((spot) => {
+            const state = resolveSectMapHotspotState(
+              spot,
+              mode,
+              facilities,
+              permissions,
+            );
+            return (
+              <button
+                key={spot.id}
+                type="button"
+                disabled={!state.selectable}
+                onClick={() => selectFromList(spot)}
+                className={cn(
+                  'focus-visible:outline-crimson group flex w-full items-center gap-3 px-1 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2',
+                  state.selectable
+                    ? 'hover:bg-ink/5'
+                    : 'cursor-not-allowed opacity-55',
+                )}
+              >
+                <FacilityMarkerGlyph locked={state.locked} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-baseline gap-x-2">
+                    <strong className="text-sm">{spot.label}</strong>
+                    {state.facility && !spot.locked ? (
+                      <span className="text-ink-secondary text-xs">
+                        {state.facility.level}级
+                      </span>
+                    ) : null}
+                    {state.locked ? (
+                      <span className="text-crimson/75 text-xs">未开放</span>
+                    ) : null}
+                  </span>
+                  <span className="text-ink-secondary mt-0.5 block truncate text-xs">
+                    {state.reason ?? spot.note}
+                  </span>
+                </span>
+                {state.selectable ? (
+                  <span
+                    aria-hidden="true"
+                    className="text-ink-secondary pr-1 text-sm"
+                  >
+                    →
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </InkDetailDrawer>
     </div>
   );
 }
