@@ -24,6 +24,7 @@ const fixtureExecutor: SectTaskExecutor<z.infer<typeof fixtureInput>> = {
   ],
   execute: async (_actionKey, _context, input) => ({
     completed: input.pass,
+    completionSettlement: 'deferred',
     outcome: { renderer: 'fixture-sect.outcome', data: { pass: input.pass } },
   }),
 };

@@ -39,8 +39,16 @@ export interface SectTaskExecutionContext {
   ports: SectCommandContext;
 }
 
+export type SectTaskCompletionSettlement = 'deferred' | 'claim-reward';
+
 export interface SectTaskExecutionDecision {
   completed: boolean;
+  /**
+   * Controls what the application layer does after a successful completion.
+   * Executors declare the interaction semantic; the handler owns fulfillment
+   * and reward transactions.
+   */
+  completionSettlement: SectTaskCompletionSettlement;
   outcome: SectTaskActionOutcome;
   payload?: SectTaskRecordPayload;
 }
@@ -157,6 +165,7 @@ export class SweepGameTaskExecutor extends BaseTaskExecutor<
       };
       return {
         completed: false,
+        completionSettlement: 'deferred',
         payload,
         outcome: {
           renderer: 'sect.outcome.sweep-session',
@@ -202,6 +211,7 @@ export class SweepGameTaskExecutor extends BaseTaskExecutor<
     }
     return {
       completed: true,
+      completionSettlement: 'deferred',
       outcome: { renderer: 'sect.outcome.fulfilled', data: { success: true } },
     };
   }
@@ -260,6 +270,7 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
     const won = battle.winner.id === player.id;
     return {
       completed: won,
+      completionSettlement: 'deferred',
       outcome: {
         renderer: 'sect.outcome.battle',
         data: {
@@ -333,7 +344,7 @@ export class PillDeliveryTaskExecutor extends DeliveryTaskExecutor {
     actionKey: string,
     context: SectTaskExecutionContext,
     input: DeliveryInput,
-  ) {
+  ): Promise<SectTaskExecutionDecision> {
     if (actionKey !== 'execute') invalid('丹药交付不支持该操作');
     const requirement = this.requirement(context.record);
     if (input.quantity !== requirement.quantity)
@@ -358,6 +369,7 @@ export class PillDeliveryTaskExecutor extends DeliveryTaskExecutor {
       invalid('丹药数量不足');
     return {
       completed: true,
+      completionSettlement: 'claim-reward',
       payload: this.completedPayload(context, item, requirement.quantity),
       outcome: { renderer: 'sect.outcome.fulfilled', data: { success: true } },
     };
@@ -371,7 +383,7 @@ export class ArtifactDeliveryTaskExecutor extends DeliveryTaskExecutor {
     actionKey: string,
     context: SectTaskExecutionContext,
     input: DeliveryInput,
-  ) {
+  ): Promise<SectTaskExecutionDecision> {
     if (actionKey !== 'execute') invalid('法宝交付不支持该操作');
     const requirement = this.requirement(context.record);
     const item = await context.ports.submissionInventory.findSubmissionItem(
@@ -394,6 +406,7 @@ export class ArtifactDeliveryTaskExecutor extends DeliveryTaskExecutor {
       invalid('法宝状态已变化，请重试');
     return {
       completed: true,
+      completionSettlement: 'claim-reward',
       payload: this.completedPayload(context, item, 1),
       outcome: { renderer: 'sect.outcome.fulfilled', data: { success: true } },
     };
@@ -412,7 +425,7 @@ export class MaterialDeliveryTaskExecutor extends DeliveryTaskExecutor<
     actionKey: string,
     context: SectTaskExecutionContext,
     input: z.infer<typeof materialDeliveryInput>,
-  ) {
+  ): Promise<SectTaskExecutionDecision> {
     if (actionKey !== 'execute') invalid('材料交付不支持该操作');
     const requirement = this.requirement(context.record);
     if (requirement.kind !== 'material') invalid('任务材料要求缺失');
@@ -444,6 +457,7 @@ export class MaterialDeliveryTaskExecutor extends DeliveryTaskExecutor<
     }
     return {
       completed: true,
+      completionSettlement: 'claim-reward',
       payload: SectTaskRecordPayloadSchema.parse({
         ...context.record.payload,
         completionData: {

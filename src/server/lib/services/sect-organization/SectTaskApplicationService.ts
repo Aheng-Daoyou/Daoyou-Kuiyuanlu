@@ -233,6 +233,8 @@ export class ExecuteSectTaskActionHandler {
       },
       parsed.data,
     );
+    if (!decision.completed && decision.completionSettlement === 'claim-reward')
+      invalidSectTask('未达成的宗门任务不能结算奖励', 500);
     if (decision.payload) {
       const updated = await context.tasks.updatePayload(
         record.id,
@@ -241,7 +243,7 @@ export class ExecuteSectTaskActionHandler {
       if (!updated) invalidSectTask('任务状态已经变化，请重试');
       record = updated;
     }
-    if (decision.completed)
+    if (decision.completed) {
       record = await this.fulfillment.execute({
         userId: command.userId,
         cultivatorId: command.cultivatorId,
@@ -250,6 +252,16 @@ export class ExecuteSectTaskActionHandler {
         record,
         context,
       });
+      if (decision.completionSettlement === 'claim-reward')
+        return this.claims.execute({
+          command,
+          context,
+          membership,
+          definition,
+          executor,
+          record,
+        });
+    }
     return {
       task: toSectTaskView({
         definition,

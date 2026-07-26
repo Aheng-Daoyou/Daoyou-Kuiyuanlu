@@ -122,7 +122,7 @@ function OpenSectTaskSubmissionDialog({
           requirement.kind === 'material'
             ? { items }
             : { itemId: first.itemId, quantity: requirement.quantity },
-          `「${task.presentation.title}」回执已生成`,
+          `「${task.presentation.title}」已经结清`,
         );
         if (result) onClose();
       }}

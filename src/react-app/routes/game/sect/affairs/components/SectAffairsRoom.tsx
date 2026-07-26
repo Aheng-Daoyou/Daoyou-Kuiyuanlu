@@ -6,6 +6,7 @@ import {
   type RoomActorView,
 } from '@app/components/feature/room';
 import {
+  useSectCurrentQuery,
   useSectPresentation,
   useSectResourceQuery,
 } from '@app/components/feature/sect/SectQueryProvider';
@@ -17,11 +18,12 @@ import {
 } from '@app/components/feature/sect/sectTaskOutcomeRegistry';
 import { fetchSectTasks } from '@app/lib/sect/sectClient';
 import type { SectTaskViewData } from '@shared/contracts/sect';
-import type {
-  SectAffairsTaskKind,
-  SectRoomNpcPresentation,
-  SectTaskDialogueEmphasis,
-  SectTaskDialogueSegment,
+import {
+  describeSectPromotionStatus,
+  type SectAffairsTaskKind,
+  type SectRoomNpcPresentation,
+  type SectTaskDialogueEmphasis,
+  type SectTaskDialogueSegment,
 } from '@shared/engine/sect';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -76,6 +78,7 @@ function taskTitles(tasks: readonly SectTaskViewData[]): string {
 function npcOpening(
   npc: SectRoomNpcPresentation,
   tasks: readonly SectTaskViewData[],
+  guidance?: string,
 ): string {
   const visible = visibleTasks(tasks);
   const clauses = [
@@ -90,10 +93,13 @@ function npcOpening(
       : undefined,
   ].filter((clause): clause is string => Boolean(clause));
 
-  if (clauses.length > 0) return `${npc.greeting} ${clauses.join('；')}。`;
-  if (visible.some((task) => task.state === 'claimed'))
-    return `${npc.greeting} 本期差事都已结清，若要查账便问我。`;
-  return `${npc.greeting} 眼下没有需要你经办的事务。`;
+  const taskStatus =
+    clauses.length > 0
+      ? `${clauses.join('；')}。`
+      : visible.some((task) => task.state === 'claimed')
+        ? '本期差事都已结清，若要查账便问我。'
+        : '眼下没有需要你经办的事务。';
+  return [npc.greeting, taskStatus, guidance].filter(Boolean).join(' ');
 }
 
 function taskReply(task: SectTaskViewData): string {
@@ -194,21 +200,31 @@ function SectAffairsNpcConversation({
   onExit(): void;
 }) {
   const interaction = useSectTaskInteraction();
+  const current = useSectCurrentQuery();
   const { data, loading, error, reload } = useSectResourceQuery(
     'tasks',
     fetchSectTasks,
   );
   const [selectedTaskKey, setSelectedTaskKey] = useState<string>();
+  const reloadCurrent = current.reload;
 
   useEffect(() => {
     void reload();
-  }, [kind, reload]);
+    if (kind === 'promotion') void reloadCurrent();
+  }, [kind, reload, reloadCurrent]);
 
   const tasks = useMemo(
     () => sortTasks(data?.items.filter((task) => task.kind === kind) ?? []),
     [data?.items, kind],
   );
   const selectedTask = tasks.find((task) => taskKey(task) === selectedTaskKey);
+  const promotionGuidance =
+    kind === 'promotion' && current.data?.overview
+      ? describeSectPromotionStatus({
+          nextRank: current.data.overview.nextRank,
+          missingRequirements: current.data.overview.promotionMissing,
+        })
+      : undefined;
 
   const selectTask = async (task: SectTaskViewData) => {
     interaction.clearOutcome();
@@ -273,8 +289,15 @@ function SectAffairsNpcConversation({
     <TaskListConversation
       npc={npc}
       tasks={tasks}
-      busy={interaction.busy || loading}
-      error={interaction.error ?? error}
+      guidance={promotionGuidance}
+      busy={
+        interaction.busy || loading || (kind === 'promotion' && current.loading)
+      }
+      error={
+        interaction.error ??
+        error ??
+        (kind === 'promotion' ? current.error : undefined)
+      }
       onSelect={(task) => void selectTask(task)}
       onExit={onExit}
     />
@@ -284,6 +307,7 @@ function SectAffairsNpcConversation({
 function TaskListConversation({
   npc,
   tasks,
+  guidance,
   busy,
   error,
   onSelect,
@@ -291,6 +315,7 @@ function TaskListConversation({
 }: {
   npc: SectRoomNpcPresentation;
   tasks: readonly SectTaskViewData[];
+  guidance?: string;
   busy: boolean;
   error?: string;
   onSelect(task: SectTaskViewData): void;
@@ -318,7 +343,7 @@ function TaskListConversation({
     {
       id: 'greeting',
       speaker: npc.name,
-      body: npcOpening(npc, tasks),
+      body: npcOpening(npc, tasks, guidance),
     },
   ];
   const taskByKey = new Map(visible.map((task) => [taskKey(task), task]));
