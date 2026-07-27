@@ -11,13 +11,10 @@
     "build": "bun run build:client && bun run build:server",
     "build:client": "tsc -b tsconfig.app.json && vite build --mode client",
     "build:server": "tsc -b tsconfig.node.json && vite build --mode server",
-    "check": "bun run build",
     "dev": "bun scripts/dev.ts",
     "dev:api": "bun scripts/dev-api.ts",
     "dev:web": "vite",
     "lint": "eslint .",
-    "preview": "bun run build && bun run dist/index.js",
-    "start": "bun run dist/index.js",
     "test": "vitest run"
   },
   "dependencies": {
