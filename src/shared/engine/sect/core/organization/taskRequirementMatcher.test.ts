@@ -38,6 +38,8 @@ describe('sect delivery requirement matcher', () => {
           kind: 'pill',
           quantity: 1,
           minQuality: '灵品',
+          family: 'healing',
+          trait: 'restore_hp',
           appearance: { mode: 'exact', grade: 'perfect' },
         },
         {
@@ -62,6 +64,7 @@ describe('sect delivery requirement matcher', () => {
           quantity: 1,
           minQuality: '玄品',
           slot: 'weapon',
+          mustBeUnequipped: true,
           minPerfectAffixCount: 1,
         },
         {

@@ -66,9 +66,7 @@ export class FulfillSectTaskHandler {
   }
 }
 
-const acceptInput = z.object({
-  offerRevision: z.string().min(16).max(64),
-});
+const acceptInput = z.object({}).strict();
 
 export class ExecuteSectTaskActionHandler {
   private readonly offers: SectTaskOfferService;
@@ -133,9 +131,7 @@ export class ExecuteSectTaskActionHandler {
         offer: execution.offer,
       });
       const parsed = acceptInput.safeParse(command.input);
-      if (!parsed.success) invalidSectTask('告示凭据无效', 400);
-      if (parsed.data.offerRevision !== offer.offerRevision)
-        invalidSectTask('告示内容已经更新，请刷新后重试');
+      if (!parsed.success) invalidSectTask('领取参数无效', 400);
       if (record) invalidSectTask('该宗门任务本周期已经领取');
       record = await context.tasks.create({
         membershipId: membership.id,

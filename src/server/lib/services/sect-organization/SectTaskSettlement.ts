@@ -1,12 +1,14 @@
 import type { DailyTaskDifficulty } from '@shared/engine/cultivation/exp-gain-strategies/types';
 import {
   assertSectRealmQualityRules,
+  assertStandardSectTaskRequirementCurve,
   calculateRealmSectTaskReward,
   calculateSectDeliveryDifficulty,
   generateSectDeliveryRequirement,
   type SectDeliveryRequirement,
   type SectDomainEvent,
   type SectTaskDefinition,
+  type SectTaskRewardCadence,
   type SectTaskRewardSnapshot,
 } from '@shared/engine/sect';
 import type { RealmStage, RealmType } from '@shared/types/constants';
@@ -84,6 +86,7 @@ export class DeliverySectTaskOfferPolicy implements SectTaskOfferPolicy<
 
   constructor() {
     assertSectRealmQualityRules();
+    assertStandardSectTaskRequirementCurve();
   }
 
   create(
@@ -111,6 +114,7 @@ export interface SectTaskRewardPolicyContext {
   realm: RealmType;
   realmStage: RealmStage;
   difficulty: DailyTaskDifficulty;
+  cadence: SectTaskRewardCadence;
 }
 
 export interface SectTaskRewardPolicy<TInput = unknown> {
@@ -131,14 +135,13 @@ export class SectTaskRewardPolicyRegistry extends Registry<SectTaskRewardPolicy>
 
 const realmRewardInput = z.object({
   baseContribution: z.number().int().nonnegative(),
-  frequencyBps: z.number().int().positive().max(100_000),
 });
 
 export class RealmSectTaskRewardPolicy implements SectTaskRewardPolicy<
   z.infer<typeof realmRewardInput>
 > {
   readonly key = 'sect.reward.realm-task';
-  readonly version = 1;
+  readonly version = 3;
   readonly inputSchema = realmRewardInput;
 
   calculate(

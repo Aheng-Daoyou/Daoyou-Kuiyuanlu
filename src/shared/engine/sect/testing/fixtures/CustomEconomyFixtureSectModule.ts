@@ -65,7 +65,7 @@ const fixtureOrganization: SectOrganizationModule = {
         executorKey: 'fixture-sect.battle',
         reward: {
           policy: 'sect.reward.realm-task',
-          input: { baseContribution: 3, frequencyBps: 10_000 },
+          input: { baseContribution: 3 },
         },
         fulfillment: [],
         presentation: {
@@ -89,7 +89,7 @@ const fixtureOrganization: SectOrganizationModule = {
             executorKey: 'fixture-sect.battle',
             reward: {
               policy: 'sect.reward.realm-task',
-              input: { baseContribution: 3, frequencyBps: 10_000 },
+              input: { baseContribution: 3 },
             },
             fulfillment: [],
             presentation: {

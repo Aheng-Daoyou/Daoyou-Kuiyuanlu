@@ -9,8 +9,6 @@ describe('sect task offer snapshot', () => {
   const build = (rulesVersion: number) =>
     createSectTaskOfferSnapshot({
       rulesVersion,
-      membershipId: 'membership-1',
-      taskId: 'pill_delivery',
       anchorRealm: '金丹',
       anchorRealmStage: '中期',
       periodKey: '2026-07-23',
@@ -19,38 +17,42 @@ describe('sect task offer snapshot', () => {
         kind: 'pill',
         quantity: 1,
         minQuality: '玄品',
+        family: 'longevity',
         trait: 'increase_lifespan',
+        appearance: { mode: 'at_least', grade: 'middle' },
       },
       difficulty: 'hard',
       reward: calculateRealmSectTaskReward({
         realm: '金丹',
         realmStage: '中期',
         difficulty: 'hard',
-        reward: { baseContribution: 35, frequencyBps: 10_000 },
+        cadence: 'daily',
+        reward: { baseContribution: 35 },
       }),
     });
 
-  it('creates stable revisions and changes them with rulesVersion', () => {
+  it('creates a strict v2 snapshot without a pre-accept revision', () => {
     expect(build(1)).toEqual(build(1));
-    expect(build(2).offerRevision).not.toBe(build(1).offerRevision);
+    expect(build(2).rulesVersion).not.toBe(build(1).rulesVersion);
+    expect(build(1)).not.toHaveProperty('offerRevision');
   });
 
   it('strictly parses the current payload shape', () => {
     const offer = build(1);
     expect(
       SectTaskRecordPayloadSchema.parse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         target: 1,
         offer,
         executorData: {},
-      }).offer.offerRevision,
-    ).toBe(offer.offerRevision);
+      }).offer,
+    ).toEqual(offer);
     expect(() =>
       SectTaskRecordPayloadSchema.parse({ target: 1, offer, executorData: {} }),
     ).toThrow();
   });
 
-  it('parses legacy single-item and additive multi-item completion snapshots', () => {
+  it('parses single-item and multi-item completion snapshots', () => {
     const offer = build(1);
     const item = {
       itemId: 'material-1',
@@ -63,7 +65,7 @@ describe('sect task offer snapshot', () => {
 
     expect(
       SectTaskRecordPayloadSchema.parse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         target: 1,
         offer,
         executorData: {},
@@ -72,7 +74,7 @@ describe('sect task offer snapshot', () => {
     ).toEqual(item);
     expect(
       SectTaskRecordPayloadSchema.parse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         target: 1,
         offer,
         executorData: {},

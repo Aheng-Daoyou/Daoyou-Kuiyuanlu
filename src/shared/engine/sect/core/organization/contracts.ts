@@ -1,4 +1,5 @@
 import type { Quality } from '@shared/types/constants';
+import type { DailyTaskDifficulty } from '@shared/engine/cultivation/exp-gain-strategies/types';
 import type { PillSpec } from '@shared/types/consumable';
 import type { Cultivator } from '@shared/types/cultivator';
 import type {
@@ -133,6 +134,8 @@ export interface SectTaskDefinition {
   enrollment: 'manual' | 'automatic';
   requiredCapability: SectCapabilityKey;
   executorKey: SectTaskExecutorKey;
+  /** Task-wide difficulty floor; generated offer difficulty may only raise it. */
+  minimumDifficulty?: DailyTaskDifficulty;
   executionLocation?: SectTaskExecutionLocationDefinition;
   presentation: SectTaskPresentationDefinition;
   availability?: SectTaskAvailabilityPolicy;

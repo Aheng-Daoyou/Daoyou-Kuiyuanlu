@@ -2,8 +2,10 @@ import { QUALITY_ORDER, REALM_VALUES } from '@shared/types/constants';
 import { describe, expect, it } from 'vitest';
 import {
   SECT_REALM_QUALITY_RULES,
+  STANDARD_SECT_TASK_REQUIREMENT_CURVE,
   SectTaskRandomSource,
   assertSectRealmQualityRules,
+  assertStandardSectTaskRequirementCurve,
   calculateSectDeliveryDifficulty,
   describeSectDeliveryRequirement,
   formatSectDeliveryRequirement,
@@ -12,6 +14,36 @@ import {
 } from './taskRequirements';
 
 describe('sect task requirement generation', () => {
+  it('centralizes requirement generation and difficulty tuning', () => {
+    expect(() => assertStandardSectTaskRequirementCurve()).not.toThrow();
+    expect(STANDARD_SECT_TASK_REQUIREMENT_CURVE).toMatchObject({
+      quantity: {
+        pill: 1,
+        artifact: 1,
+        material: {
+          min: 1,
+          max: 3,
+          highQuality: 1,
+          highQualityThreshold: '地品',
+        },
+      },
+      pillAppearanceWeights: [
+        { grade: 'low', weight: 30 },
+        { grade: 'middle', weight: 45 },
+        { grade: 'high', weight: 20 },
+        { grade: 'perfect', weight: 5 },
+      ],
+      optionalConditionChance: {
+        artifactPerfectAffix: 0.45,
+        materialElement: 0.35,
+      },
+      difficulty: {
+        qualityScoreMultiplier: 2,
+        maximumScore: { easy: 3, normal: 6, hard: 10 },
+      },
+    });
+  });
+
   it('validates explicit realm quality weights', () => {
     expect(() => assertSectRealmQualityRules()).not.toThrow();
     for (const rule of Object.values(SECT_REALM_QUALITY_RULES))
@@ -43,6 +75,93 @@ describe('sect task requirement generation', () => {
         seed: 'member:task-b:2026-07-23:1',
       }),
     ).not.toEqual(first);
+  });
+
+  it('always generates the core delivery constraints', () => {
+    for (const realm of REALM_VALUES) {
+      for (let index = 0; index < 500; index += 1) {
+        const pill = generateSectDeliveryRequirement({
+          kind: 'pill',
+          realm,
+          seed: `${realm}:pill:${index}`,
+        });
+        const artifact = generateSectDeliveryRequirement({
+          kind: 'artifact',
+          realm,
+          seed: `${realm}:artifact:${index}`,
+        });
+        const material = generateSectDeliveryRequirement({
+          kind: 'material',
+          realm,
+          seed: `${realm}:material:${index}`,
+        });
+        expect(pill.kind).toBe('pill');
+        if (pill.kind === 'pill') {
+          expect(pill.family).toBeDefined();
+          expect(pill.trait).toBeDefined();
+          expect(pill.appearance).toBeDefined();
+        }
+        expect(artifact.kind).toBe('artifact');
+        if (artifact.kind === 'artifact') {
+          expect(artifact.slot).toBeDefined();
+          expect(artifact.mustBeUnequipped).toBe(true);
+        }
+        expect(material.kind).toBe('material');
+        if (material.kind === 'material')
+          expect(material.materialType).toBeDefined();
+      }
+    }
+  });
+
+  it('uses the natural pill appearance distribution for requirements', () => {
+    const samples = 20_000;
+    const counts = { low: 0, middle: 0, high: 0, perfect: 0 };
+    for (let index = 0; index < samples; index += 1) {
+      const requirement = generateSectDeliveryRequirement({
+        kind: 'pill',
+        realm: '金丹',
+        seed: `appearance:${index}`,
+      });
+      if (requirement.kind !== 'pill' || !requirement.appearance)
+        throw new Error('丹药委托缺少品相要求');
+      counts[requirement.appearance.grade] += 1;
+      expect(requirement.appearance.mode).toBe(
+        requirement.appearance.grade === 'perfect' ? 'exact' : 'at_least',
+      );
+    }
+    expect(counts.low / samples).toBeGreaterThan(0.28);
+    expect(counts.low / samples).toBeLessThan(0.32);
+    expect(counts.middle / samples).toBeGreaterThan(0.43);
+    expect(counts.middle / samples).toBeLessThan(0.47);
+    expect(counts.high / samples).toBeGreaterThan(0.18);
+    expect(counts.high / samples).toBeLessThan(0.22);
+    expect(counts.perfect / samples).toBeGreaterThan(0.04);
+    expect(counts.perfect / samples).toBeLessThan(0.06);
+  });
+
+  it('keeps perfect-affix and elemental constraints optional', () => {
+    const samples = 10_000;
+    let affixCount = 0;
+    let elementCount = 0;
+    for (let index = 0; index < samples; index += 1) {
+      const artifact = generateSectDeliveryRequirement({
+        kind: 'artifact',
+        realm: '元婴',
+        seed: `artifact-extra:${index}`,
+      });
+      const material = generateSectDeliveryRequirement({
+        kind: 'material',
+        realm: '元婴',
+        seed: `material-extra:${index}`,
+      });
+      if (artifact.kind === 'artifact' && artifact.minPerfectAffixCount)
+        affixCount += 1;
+      if (material.kind === 'material' && material.element) elementCount += 1;
+    }
+    expect(affixCount / samples).toBeGreaterThan(0.43);
+    expect(affixCount / samples).toBeLessThan(0.47);
+    expect(elementCount / samples).toBeGreaterThan(0.33);
+    expect(elementCount / samples).toBeLessThan(0.37);
   });
 
   it('never generates below 玄品 from 金丹 or above 仙品', () => {
@@ -84,6 +203,9 @@ describe('sect task requirement generation', () => {
         kind: 'pill',
         quantity: 1,
         minQuality: '凡品',
+        family: 'healing',
+        trait: 'restore_hp',
+        appearance: { mode: 'at_least', grade: 'low' },
       }),
     ).toBe('easy');
     expect(
@@ -118,6 +240,7 @@ describe('sect task requirement generation', () => {
         quantity: 1 as const,
         minQuality: '灵品' as const,
         slot: 'weapon' as const,
+        mustBeUnequipped: true as const,
         minPerfectAffixCount: 2,
       },
       text: '1件灵品以上的攻击法宝，必须处于未装备状态，并带有至少2条完美词条',

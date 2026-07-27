@@ -1,10 +1,12 @@
 import {
   createSectTaskOfferSnapshot,
+  resolveSectTaskDifficulty,
   SectTaskRecordPayloadSchema,
   type SectTaskDefinition,
   type SectTaskOfferPolicyDefinition,
   type SectTaskOfferSnapshot,
   type SectTaskRecordPayload,
+  type SectTaskRewardCadence,
 } from '@shared/engine/sect';
 import type { RealmStage, RealmType } from '@shared/types/constants';
 import { organizationError } from './applicationSupport';
@@ -12,6 +14,17 @@ import type {
   SectTaskOfferPolicyRegistry,
   SectTaskRewardPolicyRegistry,
 } from './SectTaskSettlement';
+
+function resolveRewardCadence(
+  definition: SectTaskDefinition,
+): SectTaskRewardCadence {
+  if (definition.kind === 'daily' || definition.kind === 'weekly')
+    return definition.kind;
+  return organizationError(
+    `晋升任务 ${definition.id} 不支持周期型经济奖励`,
+    500,
+  );
+}
 
 export class SectTaskOfferService {
   constructor(
@@ -61,6 +74,10 @@ export class SectTaskOfferService {
           );
         })()
       : { difficulty: 'easy' as const };
+    const difficulty = resolveSectTaskDifficulty(
+      input.definition.minimumDifficulty,
+      offerResult.difficulty,
+    );
     const reward = rewardPolicy
       ? (() => {
           const parsed = rewardPolicy.inputSchema.safeParse(
@@ -75,7 +92,8 @@ export class SectTaskOfferService {
             {
               realm: input.realm,
               realmStage: input.realmStage,
-              difficulty: offerResult.difficulty,
+              difficulty,
+              cadence: resolveRewardCadence(input.definition),
             },
             parsed.data,
           );
@@ -83,14 +101,12 @@ export class SectTaskOfferService {
       : undefined;
     return createSectTaskOfferSnapshot({
       rulesVersion,
-      membershipId: input.membershipId,
-      taskId: input.definition.id,
       anchorRealm: input.realm,
       anchorRealmStage: input.realmStage,
       periodKey: input.periodKey,
       executorKey: input.executorKey,
       requirement: offerResult.requirement,
-      difficulty: offerResult.difficulty,
+      difficulty,
       reward,
     });
   }
@@ -100,7 +116,7 @@ export class SectTaskOfferService {
     offer: SectTaskOfferSnapshot,
   ): SectTaskRecordPayload {
     return SectTaskRecordPayloadSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       target: definition.target,
       offer,
       executorData: {},

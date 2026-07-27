@@ -118,9 +118,10 @@ const tasks: readonly SectTaskDefinition[] = [
     enrollment: 'manual',
     requiredCapability: 'sect.tasks.use',
     executorKey: 'sect.sweep',
+    minimumDifficulty: 'easy',
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 25, frequencyBps: 10_000 },
+      input: { baseContribution: 25 },
     },
     fulfillment: taskFulfillment('daily'),
     presentation: taskPresentation(
@@ -145,13 +146,14 @@ const tasks: readonly SectTaskDefinition[] = [
     enrollment: 'manual',
     requiredCapability: 'sect.tasks.use',
     executorKey: 'sect.battle',
+    minimumDifficulty: 'normal',
     executionLocation: {
       key: 'sect.spirit-vein',
       travelReply: '弟子这就前往矿场巡视',
     },
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 30, frequencyBps: 10_000 },
+      input: { baseContribution: 30 },
     },
     fulfillment: taskFulfillment('daily'),
     presentation: taskPresentation(
@@ -176,13 +178,14 @@ const tasks: readonly SectTaskDefinition[] = [
     enrollment: 'manual',
     requiredCapability: 'sect.task.pill_delivery.accept',
     executorKey: 'sect.delivery.pill',
+    minimumDifficulty: 'easy',
     offer: {
       policy: 'sect.offer.delivery',
       input: { kind: 'pill' },
     },
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 35, frequencyBps: 10_000 },
+      input: { baseContribution: 35 },
     },
     fulfillment: taskFulfillment('daily'),
     presentation: taskPresentation(
@@ -209,13 +212,14 @@ const tasks: readonly SectTaskDefinition[] = [
     enrollment: 'manual',
     requiredCapability: 'sect.task.artifact_delivery.accept',
     executorKey: 'sect.delivery.artifact',
+    minimumDifficulty: 'easy',
     offer: {
       policy: 'sect.offer.delivery',
       input: { kind: 'artifact' },
     },
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 45, frequencyBps: 10_000 },
+      input: { baseContribution: 45 },
     },
     fulfillment: taskFulfillment('daily'),
     presentation: taskPresentation(
@@ -242,9 +246,10 @@ const tasks: readonly SectTaskDefinition[] = [
     enrollment: 'automatic',
     requiredCapability: 'sect.tasks.use',
     executorKey: 'sect.progress',
+    minimumDifficulty: 'easy',
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 60, frequencyBps: 30_000 },
+      input: { baseContribution: 60 },
     },
     fulfillment: [],
     presentation: taskPresentation(
@@ -274,13 +279,14 @@ const tasks: readonly SectTaskDefinition[] = [
     enrollment: 'manual',
     requiredCapability: 'sect.tasks.use',
     executorKey: 'sect.battle',
+    minimumDifficulty: 'hard',
     executionLocation: {
       key: 'sect.arena',
       travelReply: '弟子这就去演武场候教',
     },
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 40, frequencyBps: 30_000 },
+      input: { baseContribution: 40 },
     },
     fulfillment: [],
     presentation: taskPresentation(
@@ -306,9 +312,10 @@ const tasks: readonly SectTaskDefinition[] = [
     enrollment: 'manual',
     requiredCapability: 'sect.tasks.use',
     executorKey: 'sect.battle',
+    minimumDifficulty: 'hard',
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 60, frequencyBps: 30_000 },
+      input: { baseContribution: 60 },
     },
     fulfillment: [],
     presentation: taskPresentation(

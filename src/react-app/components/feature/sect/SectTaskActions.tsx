@@ -35,12 +35,12 @@ export function AcceptAction({
     <InkButton
       variant="primary"
       className={actionClassName(display)}
-      disabled={busy || !action.enabled || !task.offerRevision}
+      disabled={busy || !action.enabled}
       onClick={() =>
         void execute(
           task,
           action,
-          { offerRevision: task.offerRevision },
+          {},
           `已接下「${task.presentation.title}」`,
         )
       }

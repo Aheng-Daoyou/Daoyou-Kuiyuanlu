@@ -263,11 +263,11 @@ function SectAffairsNpcConversation({
       const action = task.actions.find(
         (candidate) => candidate.key === 'accept',
       );
-      if (!action?.enabled || !task.offerRevision) return;
+      if (!action?.enabled) return;
       const result = await interaction.execute(
         task,
         action,
-        { offerRevision: task.offerRevision },
+        {},
         `已接下「${task.presentation.title}」`,
       );
       if (result) setSelectedTaskKey(taskKey(result.task));

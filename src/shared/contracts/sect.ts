@@ -67,10 +67,9 @@ export interface SectTaskViewData {
   state: 'offered' | 'active' | 'claimable' | 'claimed' | 'locked';
   periodKey: string;
   progress: { current: number; target: number };
-  difficulty: 'easy' | 'normal' | 'hard' | 'elite';
+  difficulty?: 'easy' | 'normal' | 'hard' | 'elite';
   requirement?: SectDeliveryRequirement;
   reward?: SectTaskRewardSnapshot;
-  offerRevision?: string;
   presentation: {
     title: string;
     description: string;

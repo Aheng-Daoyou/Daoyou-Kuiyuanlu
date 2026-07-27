@@ -106,23 +106,21 @@ export function matchSectDeliveryRequirement(
     add('quantity_too_low', `数量不足 ${requirement.quantity}`);
 
   if (requirement.kind === 'pill' && candidate.kind === 'pill') {
-    if (requirement.family && candidate.family !== requirement.family)
+    if (candidate.family !== requirement.family)
       add('wrong_family', '丹药类别不符合要求');
-    if (requirement.trait && !candidate.traits.includes(requirement.trait))
+    if (!candidate.traits.includes(requirement.trait))
       add('missing_trait', '丹药不具备指定功效');
-    if (requirement.appearance) {
-      const actual = candidate.appearance;
-      const matches =
-        actual !== undefined &&
-        (requirement.appearance.mode === 'exact'
-          ? actual === requirement.appearance.grade
-          : APPEARANCE_ORDER[actual] >=
-            APPEARANCE_ORDER[requirement.appearance.grade]);
-      if (!matches) add('appearance_mismatch', '丹药品相不符合要求');
-    }
+    const actual = candidate.appearance;
+    const matches =
+      actual !== undefined &&
+      (requirement.appearance.mode === 'exact'
+        ? actual === requirement.appearance.grade
+        : APPEARANCE_ORDER[actual] >=
+          APPEARANCE_ORDER[requirement.appearance.grade]);
+    if (!matches) add('appearance_mismatch', '丹药品相不符合要求');
   } else if (requirement.kind === 'artifact' && candidate.kind === 'artifact') {
     if (candidate.isEquipped) add('item_equipped', '已装备法宝不能提交');
-    if (requirement.slot && candidate.slot !== requirement.slot)
+    if (candidate.slot !== requirement.slot)
       add('wrong_slot', '法宝部位不符合要求');
     if (
       requirement.minPerfectAffixCount &&
@@ -133,10 +131,7 @@ export function matchSectDeliveryRequirement(
         `完美词条少于 ${requirement.minPerfectAffixCount} 条`,
       );
   } else if (requirement.kind === 'material' && candidate.kind === 'material') {
-    if (
-      requirement.materialType &&
-      candidate.materialType !== requirement.materialType
-    )
+    if (candidate.materialType !== requirement.materialType)
       add('wrong_material_type', '材料类型不符合要求');
     if (requirement.element && candidate.element !== requirement.element)
       add('wrong_element', '材料属性不符合要求');

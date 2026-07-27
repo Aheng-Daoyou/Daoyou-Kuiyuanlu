@@ -17,6 +17,7 @@ import {
 } from '@shared/types/constants';
 import {
   PILL_APPEARANCE_GRADE_VALUES,
+  type PillAppearanceGrade,
   PILL_FAMILY_VALUES,
   type PillFamily,
 } from '@shared/types/consumable';
@@ -74,31 +75,151 @@ export function getSectPillTraitLabel(trait: SectPillTraitKey): string {
   return SECT_PILL_TRAIT_LABELS[trait];
 }
 
+export const STANDARD_SECT_TASK_REQUIREMENT_CURVE = {
+  quantity: {
+    pill: 1,
+    artifact: 1,
+    material: {
+      min: 1,
+      max: 3,
+      highQuality: 1,
+      highQualityThreshold: '地品',
+    },
+  },
+  pillAppearanceWeights: [
+    { grade: 'low', weight: 30 },
+    { grade: 'middle', weight: 45 },
+    { grade: 'high', weight: 20 },
+    { grade: 'perfect', weight: 5 },
+  ],
+  optionalConditionChance: {
+    artifactPerfectAffix: 0.45,
+    materialElement: 0.35,
+  },
+  difficulty: {
+    qualityScoreMultiplier: 2,
+    conditionScore: {
+      pillCore: 3,
+      exactAppearance: 3,
+      highAppearance: 2,
+      artifactCore: 1,
+      perfectAffix: 3,
+      materialCore: 1,
+      element: 1,
+    },
+    maximumScore: {
+      easy: 3,
+      normal: 6,
+      hard: 10,
+    },
+  },
+} as const satisfies {
+  quantity: {
+    pill: 1;
+    artifact: 1;
+    material: {
+      min: number;
+      max: number;
+      highQuality: number;
+      highQualityThreshold: Quality;
+    };
+  };
+  pillAppearanceWeights: readonly {
+    grade: PillAppearanceGrade;
+    weight: number;
+  }[];
+  optionalConditionChance: {
+    artifactPerfectAffix: number;
+    materialElement: number;
+  };
+  difficulty: {
+    qualityScoreMultiplier: number;
+    conditionScore: {
+      pillCore: number;
+      exactAppearance: number;
+      highAppearance: number;
+      artifactCore: number;
+      perfectAffix: number;
+      materialCore: number;
+      element: number;
+    };
+    maximumScore: Record<Exclude<DailyTaskDifficulty, 'elite'>, number>;
+  };
+};
+
+export function assertStandardSectTaskRequirementCurve(): void {
+  const curve = STANDARD_SECT_TASK_REQUIREMENT_CURVE;
+  const materialQuantity = curve.quantity.material;
+  if (
+    !Number.isInteger(materialQuantity.min) ||
+    !Number.isInteger(materialQuantity.max) ||
+    !Number.isInteger(materialQuantity.highQuality) ||
+    materialQuantity.min <= 0 ||
+    materialQuantity.min > materialQuantity.max ||
+    materialQuantity.highQuality < materialQuantity.min ||
+    materialQuantity.highQuality > materialQuantity.max
+  )
+    throw new Error('宗门任务交付数量配置无效');
+
+  const appearanceWeights = curve.pillAppearanceWeights;
+  if (
+    new Set(appearanceWeights.map((entry) => entry.grade)).size !==
+      appearanceWeights.length ||
+    appearanceWeights.some(
+      (entry) => !Number.isInteger(entry.weight) || entry.weight <= 0,
+    ) ||
+    appearanceWeights.reduce((sum, entry) => sum + entry.weight, 0) !== 100
+  )
+    throw new Error('宗门任务丹药品相权重配置无效');
+
+  if (
+    Object.values(curve.optionalConditionChance).some(
+      (chance) => !Number.isFinite(chance) || chance < 0 || chance > 1,
+    )
+  )
+    throw new Error('宗门任务可选条件概率配置无效');
+
+  const scoreValues = [
+    curve.difficulty.qualityScoreMultiplier,
+    ...Object.values(curve.difficulty.conditionScore),
+  ];
+  const maximumScore = curve.difficulty.maximumScore;
+  if (
+    scoreValues.some(
+      (score) => !Number.isInteger(score) || score < 0,
+    ) ||
+    !(
+      maximumScore.easy < maximumScore.normal &&
+      maximumScore.normal < maximumScore.hard
+    )
+  )
+    throw new Error('宗门任务难度评分配置无效');
+}
+
 const QualitySchema = z.enum(QUALITY_VALUES);
 const AppearanceSchema = z.enum(PILL_APPEARANCE_GRADE_VALUES);
 
 export const SectPillDeliveryRequirementSchema = z
   .object({
     kind: z.literal('pill'),
-    quantity: z.literal(1),
+    quantity: z.literal(STANDARD_SECT_TASK_REQUIREMENT_CURVE.quantity.pill),
     minQuality: QualitySchema,
-    family: z.enum(PILL_FAMILY_VALUES).optional(),
-    trait: z.enum(SECT_PILL_TRAIT_KEYS).optional(),
-    appearance: z
-      .object({
-        mode: z.enum(['at_least', 'exact']),
-        grade: AppearanceSchema,
-      })
-      .optional(),
+    family: z.enum(PILL_FAMILY_VALUES),
+    trait: z.enum(SECT_PILL_TRAIT_KEYS),
+    appearance: z.object({
+      mode: z.enum(['at_least', 'exact']),
+      grade: AppearanceSchema,
+    }),
   })
   .strict();
 
 export const SectArtifactDeliveryRequirementSchema = z
   .object({
     kind: z.literal('artifact'),
-    quantity: z.literal(1),
+    quantity: z.literal(STANDARD_SECT_TASK_REQUIREMENT_CURVE.quantity.artifact),
     minQuality: QualitySchema,
-    slot: z.enum(EQUIPMENT_SLOT_VALUES).optional(),
+    slot: z.enum(EQUIPMENT_SLOT_VALUES),
+    mustBeUnequipped: z.literal(true),
     minPerfectAffixCount: z.number().int().min(1).max(8).optional(),
   })
   .strict();
@@ -106,9 +227,13 @@ export const SectArtifactDeliveryRequirementSchema = z
 export const SectMaterialDeliveryRequirementSchema = z
   .object({
     kind: z.literal('material'),
-    quantity: z.number().int().min(1).max(3),
+    quantity: z
+      .number()
+      .int()
+      .min(STANDARD_SECT_TASK_REQUIREMENT_CURVE.quantity.material.min)
+      .max(STANDARD_SECT_TASK_REQUIREMENT_CURVE.quantity.material.max),
     minQuality: QualitySchema,
-    materialType: z.enum(MATERIAL_TYPE_VALUES).optional(),
+    materialType: z.enum(MATERIAL_TYPE_VALUES),
     element: z
       .enum(['金', '木', '水', '火', '土', '风', '雷', '冰'])
       .optional(),
@@ -270,8 +395,22 @@ const ELEMENTS: readonly ElementType[] = [
   '冰',
 ];
 
-function compoundChance(realm: RealmType): number {
-  return Math.min(0.65, 0.15 + REALM_ORDER[realm] * 0.065);
+function pickPillAppearanceRequirement(
+  random: SectTaskRandomSource,
+): NonNullable<SectPillDeliveryRequirement['appearance']> {
+  const roll = random.next() * 100;
+  let cumulative = 0;
+  const weights =
+    STANDARD_SECT_TASK_REQUIREMENT_CURVE.pillAppearanceWeights;
+  for (const entry of weights) {
+    cumulative += entry.weight;
+    if (roll < cumulative)
+      return {
+        mode: entry.grade === 'perfect' ? 'exact' : 'at_least',
+        grade: entry.grade,
+      };
+  }
+  return { mode: 'exact', grade: 'perfect' };
 }
 
 export function generateSectDeliveryRequirement(input: {
@@ -279,76 +418,81 @@ export function generateSectDeliveryRequirement(input: {
   realm: RealmType;
   seed: string;
 }): SectDeliveryRequirement {
+  const curve = STANDARD_SECT_TASK_REQUIREMENT_CURVE;
   const random = new SectTaskRandomSource(input.seed);
   const minQuality = pickSectTaskMinimumQuality(input.realm, random);
-  const compound = random.next() < compoundChance(input.realm);
 
   if (input.kind === 'pill') {
-    if (!compound) return { kind: 'pill', quantity: 1, minQuality };
     const template = random.pick(PILL_TRAIT_TEMPLATES);
-    const appearanceRoll = random.next();
-    const appearance =
-      appearanceRoll < 0.2
-        ? { mode: 'exact' as const, grade: 'perfect' as const }
-        : appearanceRoll < 0.55
-          ? { mode: 'at_least' as const, grade: 'high' as const }
-          : undefined;
     return {
       kind: 'pill',
-      quantity: 1,
+      quantity: curve.quantity.pill,
       minQuality,
       family: template.family,
       trait: template.trait,
-      ...(appearance ? { appearance } : {}),
+      appearance: pickPillAppearanceRequirement(random),
     };
   }
 
   if (input.kind === 'artifact') {
-    if (!compound) return { kind: 'artifact', quantity: 1, minQuality };
+    const slot = random.pick(EQUIPMENT_SLOT_VALUES);
+    const includePerfectAffix =
+      random.next() < curve.optionalConditionChance.artifactPerfectAffix;
     return {
       kind: 'artifact',
-      quantity: 1,
+      quantity: curve.quantity.artifact,
       minQuality,
-      slot: random.pick(EQUIPMENT_SLOT_VALUES),
-      ...(random.next() < 0.45 ? { minPerfectAffixCount: 1 } : {}),
+      slot,
+      mustBeUnequipped: true,
+      ...(includePerfectAffix ? { minPerfectAffixCount: 1 } : {}),
     };
   }
 
-  const highQuality = QUALITY_ORDER[minQuality] >= QUALITY_ORDER['地品'];
+  const materialQuantity = curve.quantity.material;
+  const highQuality =
+    QUALITY_ORDER[minQuality] >=
+    QUALITY_ORDER[materialQuantity.highQualityThreshold];
+  const quantity = highQuality
+    ? materialQuantity.highQuality
+    : materialQuantity.min +
+      Math.floor(
+        random.next() * (materialQuantity.max - materialQuantity.min + 1),
+      );
+  const materialType = random.pick(MATERIAL_TYPES);
+  const includeElement =
+    random.next() < curve.optionalConditionChance.materialElement;
   return {
     kind: 'material',
-    quantity: highQuality ? 1 : 1 + Math.floor(random.next() * 3),
+    quantity,
     minQuality,
-    ...(compound ? { materialType: random.pick(MATERIAL_TYPES) } : {}),
-    ...(compound && random.next() < 0.35
-      ? { element: random.pick(ELEMENTS) }
-      : {}),
+    materialType,
+    ...(includeElement ? { element: random.pick(ELEMENTS) } : {}),
   };
 }
 
 export function calculateSectDeliveryDifficulty(
   requirement: SectDeliveryRequirement,
 ): DailyTaskDifficulty {
-  let score = QUALITY_ORDER[requirement.minQuality] * 2;
+  const curve = STANDARD_SECT_TASK_REQUIREMENT_CURVE.difficulty;
+  let score =
+    QUALITY_ORDER[requirement.minQuality] * curve.qualityScoreMultiplier;
   if (requirement.kind === 'pill') {
-    if (requirement.family) score += 1;
-    if (requirement.trait) score += 2;
-    if (requirement.appearance?.mode === 'exact') score += 3;
-    else if (
-      requirement.appearance &&
-      ['high', 'perfect'].includes(requirement.appearance.grade)
-    )
-      score += 2;
+    score += curve.conditionScore.pillCore;
+    if (requirement.appearance.mode === 'exact')
+      score += curve.conditionScore.exactAppearance;
+    else if (['high', 'perfect'].includes(requirement.appearance.grade))
+      score += curve.conditionScore.highAppearance;
   } else if (requirement.kind === 'artifact') {
-    if (requirement.slot) score += 1;
-    if ((requirement.minPerfectAffixCount ?? 0) > 0) score += 3;
+    score += curve.conditionScore.artifactCore;
+    if ((requirement.minPerfectAffixCount ?? 0) > 0)
+      score += curve.conditionScore.perfectAffix;
   } else {
-    if (requirement.materialType) score += 1;
-    if (requirement.element) score += 1;
+    score += curve.conditionScore.materialCore;
+    if (requirement.element) score += curve.conditionScore.element;
   }
-  if (score <= 3) return 'easy';
-  if (score <= 6) return 'normal';
-  if (score <= 10) return 'hard';
+  if (score <= curve.maximumScore.easy) return 'easy';
+  if (score <= curve.maximumScore.normal) return 'normal';
+  if (score <= curve.maximumScore.hard) return 'hard';
   return 'elite';
 }
 
@@ -371,47 +515,30 @@ export function formatSectDeliveryRequirement(
   ];
 
   if (requirement.kind === 'pill') {
-    if (requirement.trait) {
-      segments.push(
-        { text: '、具有' },
-        emphasized(getSectPillTraitLabel(requirement.trait), 'effect'),
-        { text: '功效' },
-      );
-    }
-    if (requirement.family) {
-      segments.push(
-        { text: '的' },
-        emphasized(getSectPillFamilyLabel(requirement.family), 'effect'),
-      );
-    } else {
-      segments.push({ text: '的丹药' });
-    }
-    if (requirement.appearance) {
-      segments.push(
-        {
-          text:
-            requirement.appearance.mode === 'exact'
-              ? '，品相须为'
-              : '，品相不可低于',
-        },
-        emphasized(
-          getPillAppearanceLabel(requirement.appearance.grade),
-          'appearance',
-        ),
-      );
-    }
+    segments.push(
+      { text: '、具有' },
+      emphasized(getSectPillTraitLabel(requirement.trait), 'effect'),
+      { text: '功效的' },
+      emphasized(getSectPillFamilyLabel(requirement.family), 'effect'),
+      {
+        text:
+          requirement.appearance.mode === 'exact'
+            ? '，品相须为'
+            : '，品相不可低于',
+      },
+      emphasized(
+        getPillAppearanceLabel(requirement.appearance.grade),
+        'appearance',
+      ),
+    );
     return segments;
   }
 
   if (requirement.kind === 'artifact') {
-    segments.push({ text: '的' });
-    if (requirement.slot) {
-      segments.push(
-        emphasized(getEquipmentSlotLabel(requirement.slot), 'effect'),
-      );
-    } else {
-      segments.push({ text: '法宝' });
-    }
+    segments.push(
+      { text: '的' },
+      emphasized(getEquipmentSlotLabel(requirement.slot), 'effect'),
+    );
     segments.push({ text: '，必须处于' }, emphasized('未装备', 'warning'), {
       text: '状态',
     });
@@ -425,13 +552,11 @@ export function formatSectDeliveryRequirement(
     return segments;
   }
 
-  segments.push({ text: '的' });
-  if (requirement.materialType) {
-    segments.push(
-      emphasized(getMaterialTypeLabel(requirement.materialType), 'effect'),
-      { text: '类' },
-    );
-  }
+  segments.push(
+    { text: '的' },
+    emphasized(getMaterialTypeLabel(requirement.materialType), 'effect'),
+    { text: '类' },
+  );
   if (requirement.element) {
     segments.push(emphasized(`${requirement.element}属性`, 'effect'));
   }

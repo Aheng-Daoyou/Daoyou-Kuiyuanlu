@@ -15,35 +15,10 @@ import {
   type SectTaskRewardSnapshot,
 } from './taskRewards';
 
-function canonicalize(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
-  if (value && typeof value === 'object')
-    return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalize(item)}`)
-      .join(',')}}`;
-  return JSON.stringify(value);
-}
-
-function revisionHash(value: unknown): string {
-  const source = canonicalize(value);
-  let first = 2166136261;
-  let second = 2246822519;
-  for (let index = 0; index < source.length; index += 1) {
-    const code = source.charCodeAt(index);
-    first = Math.imul(first ^ code, 16777619);
-    second = Math.imul(second ^ code, 3266489917);
-  }
-  return `${(first >>> 0).toString(16).padStart(8, '0')}${(second >>> 0)
-    .toString(16)
-    .padStart(8, '0')}`;
-}
-
 export const SectTaskOfferSnapshotSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     rulesVersion: z.number().int().positive(),
-    offerRevision: z.string().min(16).max(64),
     anchorRealm: z.enum(REALM_VALUES),
     anchorRealmStage: z.enum(REALM_STAGE_VALUES),
     periodKey: z.string().min(1).max(32),
@@ -73,7 +48,7 @@ export type SectSubmittedItemSnapshot = z.infer<
 
 export const SectTaskRecordPayloadSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     target: z.number().int().positive(),
     offer: SectTaskOfferSnapshotSchema,
     executorData: z.record(z.string(), z.unknown()),
@@ -95,8 +70,6 @@ export type SectTaskRecordPayload = z.infer<typeof SectTaskRecordPayloadSchema>;
 
 export function createSectTaskOfferSnapshot(input: {
   rulesVersion: number;
-  membershipId: string;
-  taskId: string;
   anchorRealm: RealmType;
   anchorRealmStage: RealmStage;
   periodKey: string;
@@ -105,8 +78,8 @@ export function createSectTaskOfferSnapshot(input: {
   difficulty: DailyTaskDifficulty;
   reward?: SectTaskRewardSnapshot;
 }): SectTaskOfferSnapshot {
-  const base = {
-    schemaVersion: 1 as const,
+  return SectTaskOfferSnapshotSchema.parse({
+    schemaVersion: 2,
     rulesVersion: input.rulesVersion,
     anchorRealm: input.anchorRealm,
     anchorRealmStage: input.anchorRealmStage,
@@ -115,13 +88,5 @@ export function createSectTaskOfferSnapshot(input: {
     ...(input.requirement ? { requirement: input.requirement } : {}),
     difficulty: input.difficulty,
     ...(input.reward ? { reward: input.reward } : {}),
-  };
-  return SectTaskOfferSnapshotSchema.parse({
-    ...base,
-    offerRevision: revisionHash({
-      ...base,
-      membershipId: input.membershipId,
-      taskId: input.taskId,
-    }),
   });
 }

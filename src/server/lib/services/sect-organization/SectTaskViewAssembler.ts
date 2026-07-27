@@ -7,6 +7,64 @@ import {
 import type { SectTaskRecord } from './ports';
 import type { SectTaskExecutor } from './task-executors/SectTaskExecutor';
 
+function genericDialogue(
+  definition: SectTaskDefinition,
+): SectTaskViewData['presentation']['dialogue'] {
+  const dialogue = definition.presentation.dialogue;
+  return {
+    offeredReply: dialogue.offeredReply,
+    activeReply: dialogue.activeReply,
+    claimableReply: dialogue.claimableReply,
+    claimedReply: dialogue.claimedReply,
+    instruction: [{ text: definition.presentation.description }],
+  };
+}
+
+export function toUnpersistedSectTaskView(args: {
+  definition: SectTaskDefinition;
+  periodKey: string;
+  state: 'offered' | 'active' | 'locked';
+  executor?: SectTaskExecutor;
+  enabled: boolean;
+  disabledReason?: string;
+}): SectTaskViewData {
+  const actions =
+    args.definition.enrollment === 'manual' &&
+    (args.state === 'offered' || args.state === 'locked')
+      ? [
+          {
+            key: 'accept',
+            renderer: 'sect.action.accept',
+            label: '接下此事',
+            enabled: args.enabled,
+            ...(args.disabledReason
+              ? { disabledReason: args.disabledReason }
+              : {}),
+          },
+        ]
+      : (args.executor?.actions(args.definition) ?? []).map((action) => ({
+          ...action,
+          enabled: args.enabled,
+          ...(args.disabledReason
+            ? { disabledReason: args.disabledReason }
+            : {}),
+        }));
+  return {
+    id: `unpersisted:${args.definition.id}`,
+    definitionId: args.definition.id,
+    kind: args.definition.kind,
+    state: args.state,
+    periodKey: args.periodKey,
+    progress: { current: 0, target: args.definition.target },
+    presentation: {
+      title: args.definition.presentation.title,
+      description: args.definition.presentation.description,
+      dialogue: genericDialogue(args.definition),
+    },
+    actions,
+  };
+}
+
 export function toSectTaskView(args: {
   definition: SectTaskDefinition;
   record: SectTaskRecord;
@@ -49,7 +107,7 @@ export function toSectTaskView(args: {
               },
             ]
           : args.executor
-              .actions(args.definition, args.record)
+              .actions(args.definition)
               .map((action) => ({
                 ...action,
                 enabled: args.enabled,
@@ -69,12 +127,7 @@ export function toSectTaskView(args: {
     },
     difficulty: offer.difficulty,
     requirement: offer.requirement,
-    ...(args.state === 'claimed' && offer.reward
-      ? { reward: offer.reward }
-      : {}),
-    ...(args.state === 'offered' || args.state === 'locked'
-      ? { offerRevision: offer.offerRevision }
-      : {}),
+    ...(offer.reward ? { reward: offer.reward } : {}),
     presentation: {
       title: args.definition.presentation.title,
       description: args.definition.presentation.description,

@@ -5,7 +5,6 @@ import { resolveSectTaskDialogue } from './taskDialogue';
 import { createSectTaskOfferSnapshot } from './taskOffer';
 
 function offer(args: {
-  taskId: string;
   executorKey: string;
   requirement?: Parameters<
     typeof createSectTaskOfferSnapshot
@@ -13,8 +12,6 @@ function offer(args: {
 }) {
   return createSectTaskOfferSnapshot({
     rulesVersion: 1,
-    membershipId: 'membership-1',
-    taskId: args.taskId,
     anchorRealm: '金丹',
     anchorRealmStage: '中期',
     periodKey: '2026-07-26',
@@ -32,7 +29,6 @@ describe('sect task dialogue presentation', () => {
     const dialogue = resolveSectTaskDialogue({
       definition,
       offer: offer({
-        taskId: definition.id,
         executorKey: definition.executorKey,
         requirement: {
           kind: 'pill',
@@ -61,7 +57,6 @@ describe('sect task dialogue presentation', () => {
     const dialogue = resolveSectTaskDialogue({
       definition,
       offer: offer({
-        taskId: definition.id,
         executorKey: definition.executorKey,
       }),
       progress: { current: 2, target: 5 },

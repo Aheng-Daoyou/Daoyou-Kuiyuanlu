@@ -43,12 +43,7 @@ const plugins = composeSectOrganizationPlugins({
 const application = new SectOrganizationFacade({
   membership: new SectMembershipApplicationService(benefits, plugins.events),
   tasks: {
-    queries: new GetSectTasksQueryHandler(
-      plugins.executors,
-      plugins.progress,
-      plugins.offerPolicies,
-      plugins.rewardPolicies,
-    ),
+    queries: new GetSectTasksQueryHandler(plugins.executors),
     submissions: new SectTaskSubmissionQueryService(),
     actions: new ExecuteSectTaskActionHandler(
       plugins.executors,

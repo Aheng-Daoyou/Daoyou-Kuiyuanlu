@@ -57,10 +57,7 @@ export interface SectTaskExecutor<TInput = unknown> {
   readonly key: string;
   inputSchema(actionKey: string): ZodType<TInput>;
   requiredCapability(definition: SectTaskDefinition): string;
-  actions(
-    definition: SectTaskDefinition,
-    record: SectTaskRecord,
-  ): readonly SectTaskActionDescriptor[];
+  actions(definition: SectTaskDefinition): readonly SectTaskActionDescriptor[];
   execute(
     actionKey: string,
     context: SectTaskExecutionContext,
@@ -106,7 +103,6 @@ abstract class BaseTaskExecutor<
   abstract inputSchema(actionKey: string): ZodType<TInput>;
   abstract actions(
     definition: SectTaskDefinition,
-    record: SectTaskRecord,
   ): readonly SectTaskActionDescriptor[];
   abstract execute(
     actionKey: string,
@@ -295,9 +291,7 @@ abstract class DeliveryTaskExecutor<
   }
   actions(
     definition: SectTaskDefinition,
-    record: SectTaskRecord,
   ): readonly SectTaskActionDescriptor[] {
-    void record;
     return [
       {
         key: 'execute',

@@ -217,8 +217,6 @@ export function createSectsRouter(
         data: await sectOrganizationFacade.tasks.queries.execute(
           {
             cultivatorId: cultivator.id,
-            realm: cultivator.realm as RealmType,
-            realmStage: cultivator.realm_stage as RealmStage,
           },
           createPostgresSectQueryContext({
             q: getExecutor(),
