@@ -20,7 +20,7 @@ const HEAVY_SWORD_DEFINITION: SectPathDefinitionWithoutNodes = {
   description:
     '重剑不争一时之快，以身承势，以守养锋；剑意未足时稳住自身，剑意既成后，以一剑决定胜负。',
   minRealm: '筑基',
-  minRealmStage: '初期',
+  minRealmStage: '中期',
   layers: [...STANDARD_PATH_LAYERS],
   defaultTacticId: 'heavy-break',
   presentation: {

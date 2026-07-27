@@ -97,6 +97,21 @@ export function validateMeridianNodeIds(args: {
   return uniqueIds;
 }
 
+export function validateMeridianLoadoutUpdate(args: {
+  path: SectPathDefinition;
+  currentNodeIds: string[];
+  nodeIds: string[];
+  unlockedLayerIds: string[];
+  methods: Partial<Record<SectMethodId, number>>;
+}): string[] {
+  const validated = validateMeridianNodeIds(args);
+  const nextNodeIds = new Set(validated);
+  if (args.currentNodeIds.some((nodeId) => !nextNodeIds.has(nodeId))) {
+    throw new Error('已保存参悟节点不可更改，重置功能尚未开放');
+  }
+  return validated;
+}
+
 export function assertMethodTrainingTarget(args: {
   definition: SectDefinition;
   methodId: SectMethodId;

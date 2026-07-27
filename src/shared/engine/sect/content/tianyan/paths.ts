@@ -29,7 +29,7 @@ const hetuDefinition: SectPathDefinitionWithoutNodes = {
   description:
     '河图示其流，前法不灭，后法由此而生。三数成图之后，伤势、气血与法力都在同一轮转中得到续接。',
   minRealm: '筑基',
-  minRealmStage: '初期',
+  minRealmStage: '中期',
   layers: [...STANDARD_PATH_LAYERS],
   defaultTacticId: 'small-cycle',
   tactics: [
@@ -55,7 +55,7 @@ const luoshuDefinition: SectPathDefinitionWithoutNodes = {
   description:
     '洛书定其位，不等万法自然流转。移一宫、断一势、藏一印，在敌势真正成形之前先改写它的去处。',
   minRealm: '筑基',
-  minRealmStage: '初期',
+  minRealmStage: '中期',
   layers: [...STANDARD_PATH_LAYERS],
   defaultTacticId: 'break-pattern',
   tactics: [

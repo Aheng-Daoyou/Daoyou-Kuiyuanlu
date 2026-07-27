@@ -20,7 +20,7 @@ const SWIFT_SWORD_DEFINITION: SectPathDefinitionWithoutNodes = {
   description:
     '剑随身走，身随势变；以迅疾剑式连缀攻势，在交锋之间留下剑痕，最终将诸般剑影收束于《此剑平生》。',
   minRealm: '筑基',
-  minRealmStage: '初期',
+  minRealmStage: '中期',
   layers: [...STANDARD_PATH_LAYERS],
   defaultTacticId: 'aggressive',
   presentation: {

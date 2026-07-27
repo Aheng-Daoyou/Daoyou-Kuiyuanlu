@@ -1,4 +1,3 @@
-import { EXP_CAP_TABLE } from '@shared/config/cultivationProgress';
 import { getRealmStageRank } from '@shared/config/realmProgression';
 import type { RealmStage, RealmType } from '@shared/types/constants';
 import type {
@@ -43,6 +42,13 @@ export const STANDARD_SECT_METHOD_COST_CURVE = {
   spiritStoneRoundUnit: 100,
 } as const;
 
+export const STANDARD_SECT_PATH_COST_CURVE = {
+  baseCultivationExp: 5_000,
+  growthMultiplier: 4,
+  spiritStoneMultiplier: 5,
+  comprehensionInsight: 100,
+} as const;
+
 function roundUpToUnit(value: number, unit: number): number {
   return Math.ceil(value / unit) * unit;
 }
@@ -64,16 +70,16 @@ function methodLevelTrainingCost(level: number): SectTrainingCost {
   };
 }
 
-function pathLayerCost(
-  realm: RealmType,
-  stage: RealmStage,
-  comprehensionInsight: number,
-): SectTrainingCost {
-  const cultivationExp = Math.ceil(EXP_CAP_TABLE[realm][stage] * 0.5);
+function pathLayerCost(order: number): SectTrainingCost {
+  const cultivationExp =
+    STANDARD_SECT_PATH_COST_CURVE.baseCultivationExp *
+    STANDARD_SECT_PATH_COST_CURVE.growthMultiplier ** (order - 1);
   return {
     cultivationExp,
-    comprehensionInsight,
-    spiritStones: cultivationExp * 10,
+    comprehensionInsight:
+      STANDARD_SECT_PATH_COST_CURVE.comprehensionInsight,
+    spiritStones:
+      cultivationExp * STANDARD_SECT_PATH_COST_CURVE.spiritStoneMultiplier,
   };
 }
 
@@ -83,48 +89,48 @@ export const STANDARD_PATH_LAYERS: readonly SectPathLayerDefinition[] = [
     order: 1,
     label: '第一层',
     minRealm: '筑基',
-    minRealmStage: '初期',
-    cost: pathLayerCost('筑基', '初期', 10),
+    minRealmStage: '中期',
+    cost: pathLayerCost(1),
   },
   {
     id: '2',
     order: 2,
     label: '第二层',
-    minRealm: '筑基',
+    minRealm: '金丹',
     minRealmStage: '圆满',
-    cost: pathLayerCost('筑基', '圆满', 15),
+    cost: pathLayerCost(2),
   },
   {
     id: '3',
     order: 3,
     label: '第三层',
-    minRealm: '金丹',
-    minRealmStage: '圆满',
-    cost: pathLayerCost('金丹', '圆满', 20),
+    minRealm: '化神',
+    minRealmStage: '中期',
+    cost: pathLayerCost(3),
   },
   {
     id: '4',
     order: 4,
     label: '第四层',
-    minRealm: '元婴',
+    minRealm: '炼虚',
     minRealmStage: '圆满',
-    cost: pathLayerCost('元婴', '圆满', 25),
+    cost: pathLayerCost(4),
   },
   {
     id: '5',
     order: 5,
     label: '第五层',
-    minRealm: '化神',
+    minRealm: '大乘',
     minRealmStage: '中期',
-    cost: pathLayerCost('化神', '中期', 30),
+    cost: pathLayerCost(5),
   },
   {
     id: 'ultimate',
     order: 6,
     label: '终式',
-    minRealm: '化神',
+    minRealm: '渡劫',
     minRealmStage: '圆满',
-    cost: pathLayerCost('化神', '圆满', 40),
+    cost: pathLayerCost(6),
   },
 ] as const;
 

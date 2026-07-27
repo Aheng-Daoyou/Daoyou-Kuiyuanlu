@@ -28,7 +28,7 @@ const mirrorDefinition: SectPathDefinitionWithoutNodes = {
   description:
     '以承受制造因，以魔相兑现果。来力不急于拒绝，只把每一道因果留在镜中；佛相立因，魔相现报，无相令因果同时照见。',
   minRealm: '筑基',
-  minRealmStage: '初期',
+  minRealmStage: '中期',
   layers: [...STANDARD_PATH_LAYERS],
   defaultTacticId: 'guard',
   tactics: [
@@ -93,7 +93,7 @@ const demonDefinition: SectPathDefinitionWithoutNodes = {
   description:
     '以佛相主动沉血，以魔相强渡两息，以无相令燃血与渡厄同时显化。气血不是怒气的别名，而是每一门神通真正支付的渡河之资。',
   minRealm: '筑基',
-  minRealmStage: '初期',
+  minRealmStage: '中期',
   layers: [...STANDARD_PATH_LAYERS],
   defaultTacticId: 'trial-fire',
   tactics: [

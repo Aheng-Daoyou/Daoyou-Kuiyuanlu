@@ -7,6 +7,7 @@ import {
   MeridianLoadoutSpecification,
   MethodTrainingSpecification,
   SectTradition,
+  StandardSectRules,
   type CultivatorSectState,
   type SectPathDefinition,
   type SectRuntime,
@@ -197,15 +198,19 @@ export class SectTraditionApplicationService {
     slot: number,
     nodeIds: string[],
   ) {
-    const normalizedSlot = this.requireSlot(slot);
+    const normalizedSlot = this.requireEnabledSlot(slot);
     const { sect, path, pathState } = await this.requirePath(
       cultivatorId,
       pathId,
     );
     let validated: string[];
     try {
-      validated = this.meridianLoadout.validate({
+      validated = this.meridianLoadout.validateUpdate({
         path,
+        currentNodeIds:
+          pathState.meridianLoadouts.find(
+            (loadout) => loadout.slot === normalizedSlot,
+          )?.nodeIds ?? [],
         nodeIds,
         unlockedLayerIds: pathState.unlockedLayerIds,
         methods: sect.methods,
@@ -236,7 +241,7 @@ export class SectTraditionApplicationService {
     pathId: string,
     slot: number,
   ) {
-    const normalizedSlot = this.requireSlot(slot);
+    const normalizedSlot = this.requireEnabledSlot(slot);
     const { sect } = await this.requirePath(cultivatorId, pathId);
     SectTradition.rehydrate(sect).activateMeridianLoadout(
       pathId,
@@ -325,9 +330,19 @@ export class SectTraditionApplicationService {
       );
   }
 
-  private requireSlot(slot: number): 1 | 2 | 3 {
+  private requireEnabledSlot(slot: number): 1 | 2 | 3 {
     if (slot !== 1 && slot !== 2 && slot !== 3)
       throw new SectError('SECT_INVALID_MERIDIAN', '经脉方案槽无效', 400);
+    if (
+      !(StandardSectRules.enabledMeridianLoadoutSlots as readonly number[]).includes(
+        slot,
+      )
+    )
+      throw new SectError(
+        'SECT_INVALID_MERIDIAN',
+        '参悟方案暂未开放',
+        400,
+      );
     return slot;
   }
 

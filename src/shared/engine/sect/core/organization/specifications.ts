@@ -16,6 +16,7 @@ import { createAbilitySlots } from '../presentation/abilityLoadout';
 import {
   assertMethodTrainingTarget,
   isAbilityUnlocked,
+  validateMeridianLoadoutUpdate,
   validateMeridianNodeIds,
 } from '../progression/progression';
 
@@ -159,6 +160,12 @@ export class MethodTrainingSpecification {
 export class MeridianLoadoutSpecification {
   validate(candidate: Parameters<typeof validateMeridianNodeIds>[0]): string[] {
     return validateMeridianNodeIds(candidate);
+  }
+
+  validateUpdate(
+    candidate: Parameters<typeof validateMeridianLoadoutUpdate>[0],
+  ): string[] {
+    return validateMeridianLoadoutUpdate(candidate);
   }
 }
 

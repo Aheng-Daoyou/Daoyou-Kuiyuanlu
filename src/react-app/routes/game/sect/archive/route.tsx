@@ -83,7 +83,7 @@ function ArchiveConversation({
     messages.push({
       id: 'catalog',
       speaker: actor.name,
-      body: `阁中现有${data.definition.methods.map((method) => `《${method.name}》`).join('、')}，都可逐卷查问。`,
+      body: `阁中现有${data.definition.methods.map((method) => `${method.name}`).join('、')}，都可逐卷查问。`,
     });
   if (topic === 'limit' && data)
     messages.push({

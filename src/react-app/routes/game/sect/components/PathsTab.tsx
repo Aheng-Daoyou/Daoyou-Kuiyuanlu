@@ -199,6 +199,7 @@ function PathDrawer({
     createMeridianDrafts(state),
   );
   const [confirmUnlock, setConfirmUnlock] = useState(false);
+  const [confirmSave, setConfirmSave] = useState(false);
   const [discardConfirm, setDiscardConfirm] = useState(false);
   const draftsRef = useRef(drafts);
   const savedRef = useRef(saved);
@@ -220,6 +221,7 @@ function PathDrawer({
       mergeFreshMeridianState(draftsRef.current, savedRef.current, fresh),
     );
     setSaved(fresh);
+    setConfirmSave(false);
     if (state) setSlot((current) => current ?? state.activeMeridianSlot);
   }, [state, stateSignature]);
 
@@ -289,6 +291,7 @@ function PathDrawer({
       sectJsonRequest('PUT', { nodeIds: drafts[slot] }),
     );
     setSaved((current) => ({ ...current, [slot]: [...drafts[slot]] }));
+    setConfirmSave(false);
   };
 
   const footer = discardConfirm ? (
@@ -349,6 +352,22 @@ function PathDrawer({
       busy={busy}
       onConfirm={() => void unlockLayer()}
     />
+  ) : meridianFooterAction === 'save' && confirmSave ? (
+    <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+      <p className="text-crimson">
+        本次选定保存后暂不可更改，重置功能尚未开放。
+      </p>
+      <div className="flex gap-2">
+        <InkButton onClick={() => setConfirmSave(false)}>返回检查</InkButton>
+        <InkButton
+          variant="primary"
+          disabled={busy}
+          onClick={() => void saveDraft()}
+        >
+          {busy ? '保存中' : '确认保存'}
+        </InkButton>
+      </div>
+    </div>
   ) : meridianFooterAction === 'save' ? (
     <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
       <p className="text-crimson">
@@ -358,9 +377,9 @@ function PathDrawer({
       <InkButton
         variant="primary"
         disabled={busy}
-        onClick={() => void saveDraft()}
+        onClick={() => setConfirmSave(true)}
       >
-        {busy ? '保存中' : `保存${terms.meridianLoadout}`}
+        {`保存${terms.meridianLoadout}`}
       </InkButton>
     </div>
   ) : meridianFooterAction === 'resolve-dirty' ? (
@@ -405,6 +424,7 @@ function PathDrawer({
         onChange={(value) => {
           setTab(value as DrawerTab);
           setConfirmUnlock(false);
+          setConfirmSave(false);
           setDiscardConfirm(false);
         }}
       />
@@ -520,18 +540,24 @@ function PathDrawer({
             )}
           </section>
 
-          {state ? (
+          {state &&
+          StandardSectRules.enabledMeridianLoadoutSlots.length > 1 ? (
             <InkTabs
-              items={StandardSectRules.meridianLoadoutSlots.map((value) => ({
-                value: String(value),
-                label: `${terms.meridianLoadout}${value}${state.activeMeridianSlot === value ? ' · 当前' : ''}${isMeridianDraftDirty(drafts, saved, value) ? ' · 未保存' : ''}`,
-              }))}
+              items={StandardSectRules.enabledMeridianLoadoutSlots.map(
+                (value) => ({
+                  value: String(value),
+                  label: `${terms.meridianLoadout}${value}${state.activeMeridianSlot === value ? ' · 当前' : ''}${isMeridianDraftDirty(drafts, saved, value) ? ' · 未保存' : ''}`,
+                }),
+              )}
               activeValue={String(slot)}
-              onChange={(value) => setSlot(Number(value) as MeridianSlot)}
+              onChange={(value) => {
+                setConfirmSave(false);
+                setSlot(Number(value) as MeridianSlot);
+              }}
             />
-          ) : (
+          ) : !state ? (
             <InkNotice>参悟第一层后，方可配置参悟方案。</InkNotice>
-          )}
+          ) : null}
 
           <div className="space-y-3">
             {[...path.layers]
@@ -550,13 +576,23 @@ function PathDrawer({
                         .filter((node) => node.layerId === layer.id)
                         .map((node) => {
                           const selected = drafts[slot].includes(node.id);
+                          const savedNodeId = saved[slot].find(
+                            (nodeId) =>
+                              path.nodes.find(
+                                (candidate) => candidate.id === nodeId,
+                              )?.layerId === layer.id,
+                          );
+                          const selectionLocked = Boolean(savedNodeId);
                           return (
                             <button
                               type="button"
                               key={node.id}
-                              disabled={!available || busy}
+                              disabled={
+                                !available || busy || selectionLocked
+                              }
                               onClick={() => {
                                 setDiscardConfirm(false);
+                                setConfirmSave(false);
                                 setDrafts((current) => ({
                                   ...current,
                                   [slot]: toggleMeridianNode({
@@ -566,9 +602,12 @@ function PathDrawer({
                                   }),
                                 }));
                               }}
-                              className={`flex h-full flex-col items-stretch justify-start p-3 text-left text-sm leading-6 ${selected ? 'bg-crimson/10 text-crimson' : 'bg-ink/5'} ${available ? '' : 'cursor-not-allowed opacity-50'}`}
+                              className={`flex h-full flex-col items-stretch justify-start p-3 text-left text-sm leading-6 ${selected ? 'bg-crimson/10 text-crimson' : 'bg-ink/5'} ${available && !selectionLocked ? '' : 'cursor-not-allowed opacity-50'}`}
                             >
-                              <strong className="block">{node.name}</strong>
+                              <strong className="block">
+                                {node.name}
+                                {savedNodeId === node.id ? ' · 已锁定' : ''}
+                              </strong>
                               <p className="mt-1">
                                 {preview.nodes.find(
                                   (previewNode) => previewNode.id === node.id,

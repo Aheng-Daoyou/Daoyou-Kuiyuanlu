@@ -3,7 +3,9 @@ import {
   getPathProgress,
   getSectMethodLevelCap,
   getSectMethodTrainingCost,
+  StandardSectRules,
   standardSectProgression,
+  validateMeridianLoadoutUpdate,
   validateMeridianNodeIds,
 } from '..';
 import { HEAVY_SWORD_PATH, SWIFT_SWORD_PATH } from '../../content/lingxiao';
@@ -95,38 +97,65 @@ describe('通用宗门成长', () => {
   });
 
   it('六层按顺序、境界和精确资源成本解锁', () => {
-    expect(HEAVY_SWORD_PATH.layers.map((layer) => layer.cost)).toEqual([
-      { cultivationExp: 950, comprehensionInsight: 10, spiritStones: 9_500 },
+    expect(
+      HEAVY_SWORD_PATH.layers.map((layer) => ({
+        realm: `${layer.minRealm}${layer.minRealmStage}`,
+        cost: layer.cost,
+      })),
+    ).toEqual([
       {
-        cultivationExp: 2_500,
-        comprehensionInsight: 15,
-        spiritStones: 25_000,
+        realm: '筑基中期',
+        cost: {
+          cultivationExp: 5_000,
+          comprehensionInsight: 100,
+          spiritStones: 25_000,
+        },
       },
       {
-        cultivationExp: 13_500,
-        comprehensionInsight: 20,
-        spiritStones: 135_000,
+        realm: '金丹圆满',
+        cost: {
+          cultivationExp: 20_000,
+          comprehensionInsight: 100,
+          spiritStones: 100_000,
+        },
       },
       {
-        cultivationExp: 47_000,
-        comprehensionInsight: 25,
-        spiritStones: 470_000,
+        realm: '化神中期',
+        cost: {
+          cultivationExp: 80_000,
+          comprehensionInsight: 100,
+          spiritStones: 400_000,
+        },
       },
       {
-        cultivationExp: 65_000,
-        comprehensionInsight: 30,
-        spiritStones: 650_000,
+        realm: '炼虚圆满',
+        cost: {
+          cultivationExp: 320_000,
+          comprehensionInsight: 100,
+          spiritStones: 1_600_000,
+        },
       },
       {
-        cultivationExp: 125_000,
-        comprehensionInsight: 40,
-        spiritStones: 1_250_000,
+        realm: '大乘中期',
+        cost: {
+          cultivationExp: 1_280_000,
+          comprehensionInsight: 100,
+          spiritStones: 6_400_000,
+        },
+      },
+      {
+        realm: '渡劫圆满',
+        cost: {
+          cultivationExp: 5_120_000,
+          comprehensionInsight: 100,
+          spiritStones: 25_600_000,
+        },
       },
     ]);
     const progress = getPathProgress({
       path: HEAVY_SWORD_PATH,
       unlockedLayerIds: ['1', '2', '3', '4'],
-      realm: '化神',
+      realm: '大乘',
       stage: '中期',
     });
     expect(progress.unlockedLayers.map((layer) => layer.id)).toEqual([
@@ -147,5 +176,128 @@ describe('通用宗门成长', () => {
         methods: {},
       }),
     ).toThrow('按顺序解锁');
+  });
+
+  it('六层在各自境界节点开放且不绑定心法', () => {
+    const gates = [
+      {
+        layerId: '1',
+        before: ['筑基', '初期'],
+        reached: ['筑基', '中期'],
+      },
+      {
+        layerId: '2',
+        before: ['金丹', '后期'],
+        reached: ['金丹', '圆满'],
+      },
+      {
+        layerId: '3',
+        before: ['化神', '初期'],
+        reached: ['化神', '中期'],
+      },
+      {
+        layerId: '4',
+        before: ['炼虚', '后期'],
+        reached: ['炼虚', '圆满'],
+      },
+      {
+        layerId: '5',
+        before: ['大乘', '初期'],
+        reached: ['大乘', '中期'],
+      },
+      {
+        layerId: 'ultimate',
+        before: ['渡劫', '后期'],
+        reached: ['渡劫', '圆满'],
+      },
+    ] as const;
+
+    for (const [index, gate] of gates.entries()) {
+      const unlockedLayerIds = HEAVY_SWORD_PATH.layers
+        .slice(0, index)
+        .map((layer) => layer.id);
+      const before = getPathProgress({
+        path: HEAVY_SWORD_PATH,
+        unlockedLayerIds,
+        realm: gate.before[0],
+        stage: gate.before[1],
+        methods: {},
+      });
+      const reached = getPathProgress({
+        path: HEAVY_SWORD_PATH,
+        unlockedLayerIds,
+        realm: gate.reached[0],
+        stage: gate.reached[1],
+        methods: {},
+      });
+      expect(before.nextLayer?.id).toBe(gate.layerId);
+      expect(before.nextLayerAvailable).toBe(false);
+      expect(reached.nextLayer?.id).toBe(gate.layerId);
+      expect(reached.nextLayerAvailable).toBe(true);
+    }
+  });
+
+  it('流派指数成本累计正确且每层均消耗满额道心感悟', () => {
+    const onePath = HEAVY_SWORD_PATH.layers.reduce(
+      (total, layer) => ({
+        cultivationExp: total.cultivationExp + layer.cost.cultivationExp,
+        comprehensionInsight:
+          total.comprehensionInsight + layer.cost.comprehensionInsight,
+        spiritStones: total.spiritStones + layer.cost.spiritStones,
+      }),
+      { cultivationExp: 0, comprehensionInsight: 0, spiritStones: 0 },
+    );
+    expect(onePath).toEqual({
+      cultivationExp: 6_825_000,
+      comprehensionInsight: 600,
+      spiritStones: 34_125_000,
+    });
+    expect({
+      cultivationExp: onePath.cultivationExp * 2,
+      comprehensionInsight: onePath.comprehensionInsight * 2,
+      spiritStones: onePath.spiritStones * 2,
+    }).toEqual({
+      cultivationExp: 13_650_000,
+      comprehensionInsight: 1_200,
+      spiritStones: 68_250_000,
+    });
+    for (const layer of HEAVY_SWORD_PATH.layers) {
+      expect(layer.cost.comprehensionInsight).toBe(100);
+      expect(layer.cost.spiritStones).toBeGreaterThan(
+        layer.cost.cultivationExp,
+      );
+    }
+  });
+
+  it('当前只开放方案一并保留三槽底层容量', () => {
+    expect(StandardSectRules.meridianLoadoutSlots).toEqual([1, 2, 3]);
+    expect(StandardSectRules.enabledMeridianLoadoutSlots).toEqual([1]);
+  });
+
+  it('已保存节点不可移除或替换，但可为新层级追加选择', () => {
+    const base = {
+      path: HEAVY_SWORD_PATH,
+      currentNodeIds: ['heavy-opening'],
+      unlockedLayerIds: ['1', '2'],
+      methods: {},
+    };
+    expect(
+      validateMeridianLoadoutUpdate({
+        ...base,
+        nodeIds: ['heavy-opening', 'heavy-triple-ridge'],
+      }),
+    ).toEqual(['heavy-opening', 'heavy-triple-ridge']);
+    expect(() =>
+      validateMeridianLoadoutUpdate({
+        ...base,
+        nodeIds: [],
+      }),
+    ).toThrow('重置功能尚未开放');
+    expect(() =>
+      validateMeridianLoadoutUpdate({
+        ...base,
+        nodeIds: ['heavy-hidden-weight'],
+      }),
+    ).toThrow('重置功能尚未开放');
   });
 });

@@ -4,6 +4,7 @@ export const StandardSectRules = Object.freeze({
   methodSlots: Object.freeze([1, 2, 3, 4, 5, 6] as const),
   activeAbilitySlotCount: 4,
   meridianLoadoutSlots: Object.freeze([1, 2, 3] as const),
+  enabledMeridianLoadoutSlots: Object.freeze([1] as Array<1 | 2 | 3>),
   meridianNodeTransportLimit: 64,
   combatResourceCount: 1,
 });

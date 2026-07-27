@@ -23,7 +23,7 @@ const tideDefinition: SectPathDefinitionWithoutNodes = {
   id: YOUDU_TIDE_PATH_ID,
   name: '招魂渡夜',
   description: '一声唤名落入黑水，千里游魂都听见自己的回音。此道让忘川一寸寸漫过归路。',
-  minRealm: '筑基', minRealmStage: '初期',
+  minRealm: '筑基', minRealmStage: '中期',
   layers: [...STANDARD_PATH_LAYERS],
   defaultTacticId: 'tide-cycle',
   tactics: [
@@ -48,7 +48,7 @@ const decreeDefinition: SectPathDefinitionWithoutNodes = {
   id: YOUDU_DECREE_PATH_ID,
   name: '镇魄司命',
   description: '见影而知魂，知魂而书名；铁钉落下之前，门人已量过每一道离身缝隙。',
-  minRealm: '筑基', minRealmStage: '初期',
+  minRealm: '筑基', minRealmStage: '中期',
   layers: [...STANDARD_PATH_LAYERS],
   defaultTacticId: 'pin-the-caster',
   tactics: [
