@@ -7,4 +7,6 @@ export {
   type SectNpcConversationRenderer,
   type SectNpcConversationRendererProps,
 } from './SectNpcConversationRegistry';
+export { SectRoutedRoom, type SectRoutedRoomProps } from './SectRoutedRoom';
 export { SectTaskLocationConversation } from './SectTaskLocationConversation';
+export { useSectRoomRouteSelection } from './useSectRoomRouteSelection';

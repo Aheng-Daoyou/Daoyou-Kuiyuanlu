@@ -55,4 +55,89 @@ describe('sect facility dialogue projection', () => {
     expect(text).toContain('已经完成50%');
     expect(text).not.toContain('archive');
   });
+
+  it('preserves zero benefits and falls back when the effect is absent', () => {
+    const zeroText = describeSectFacilityStatus({
+      facilityLabel: '修炼室',
+      facility: { key: 'cultivation_room', level: 1 },
+      effect: {
+        renderer: 'sect.benefit.retreat',
+        summary: '闭关修为提高 0%',
+        metrics: [
+          {
+            key: 'retreat_bonus',
+            label: '闭关修为加成',
+            value: 0,
+            format: 'percent',
+          },
+        ],
+      },
+    })
+      .map((segment) => segment.text)
+      .join('');
+    const fallbackText = describeSectFacilityStatus({
+      facilityLabel: '药田',
+      facility: { key: 'herb_garden', level: 2 },
+    })
+      .map((segment) => segment.text)
+      .join('');
+
+    expect(zeroText).toContain('闭关修为加成0%');
+    expect(fallbackText).toBe('药田如今是2级。');
+  });
+
+  it('drops internal identifiers and invalid metric values', () => {
+    const text = describeSectFacilityStatus({
+      facilityLabel: 'spirit_vein',
+      facility: { key: 'spirit_vein', level: 3 },
+      effect: {
+        renderer: 'sect.benefit.unknown',
+        summary: 'internal_metric',
+        metrics: [
+          {
+            key: 'internal_metric',
+            label: 'internal_metric',
+            value: 'unknown_renderer',
+            format: 'text',
+          },
+          {
+            key: 'invalid_number',
+            label: '无效数值',
+            value: Number.NaN,
+            format: 'number',
+          },
+        ],
+      },
+    })
+      .map((segment) => segment.text)
+      .join('');
+
+    expect(text).toBe('此处设施如今是3级。');
+    expect(text).not.toMatch(
+      /spirit_vein|internal_metric|unknown_renderer|renderer|NaN/u,
+    );
+  });
+
+  it('handles an invalid construction target without leaking its key', () => {
+    const text = describeSectConstructionProject({
+      facilityLabel: 'archive',
+      project: {
+        id: 'project',
+        sectId: 'sect',
+        facilityKey: 'archive',
+        targetLevel: 2,
+        progress: -50,
+        target: 0,
+        status: 'active',
+        startedWeekKey: '2026-W30',
+      },
+    })
+      .map((segment) => segment.text)
+      .join('');
+
+    expect(text).toContain('当前设施提升至2级');
+    expect(text).toContain('已经完成0%');
+    expect(text).toContain('现有0点，共需0点');
+    expect(text).not.toContain('archive');
+  });
 });

@@ -10,8 +10,8 @@ import {
   useSectResourceQuery,
 } from '@app/components/feature/sect/SectQueryProvider';
 import {
-  SectManagedRoom,
   SectNpcConversationRegistry,
+  SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
 import { InkButton, InkSelect } from '@app/components/ui';
@@ -30,6 +30,7 @@ import {
   describeSectConstructionProject,
   MaterialDeliverySpecification,
   PillDeliverySpecification,
+  STANDARD_SECT_PRESENTATION,
 } from '@shared/engine/sect';
 import { QUALITY_ORDER, type Quality } from '@shared/types/constants';
 import { useState } from 'react';
@@ -45,7 +46,7 @@ const registry = new SectNpcConversationRegistry([
     renderer: ConstructionConversation,
   },
   { key: 'sect.industries.donation', renderer: DonationConversation },
-]);
+]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.industries);
 
 export default function SectIndustriesPage() {
   return (
@@ -54,7 +55,7 @@ export default function SectIndustriesPage() {
       sceneKey="industries"
     >
       <SectScene sceneKey="industries" mood="industries">
-        <SectManagedRoom
+        <SectRoutedRoom
           roomKey="industries"
           registry={registry}
           eyebrow="公共工程 · 物料功簿"

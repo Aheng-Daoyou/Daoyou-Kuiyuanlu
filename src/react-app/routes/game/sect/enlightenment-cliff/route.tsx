@@ -5,12 +5,13 @@ import {
 } from '@app/components/feature/room';
 import { useSectCurrentQuery } from '@app/components/feature/sect/SectQueryProvider';
 import {
-  SectManagedRoom,
   SectNpcConversationRegistry,
+  SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
 import { InkButton } from '@app/components/ui';
 import { useActiveCultivatorProfile } from '@app/lib/player-state/selectors';
+import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
 import { useCallback, useState } from 'react';
 import { PathsTab } from '../components/PathsTab';
 import {
@@ -21,7 +22,7 @@ import {
 
 const registry = new SectNpcConversationRegistry([
   { key: 'sect.paths.guidance', renderer: PathsConversation },
-]);
+]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.paths);
 
 export default function SectEnlightenmentCliffPage() {
   return (
@@ -30,7 +31,7 @@ export default function SectEnlightenmentCliffPage() {
       sceneKey="paths"
     >
       <SectScene sceneKey="paths" mood="cliff">
-        <SectManagedRoom
+        <SectRoutedRoom
           roomKey="paths"
           registry={registry}
           eyebrow="道痕分流 · 参悟留痕"

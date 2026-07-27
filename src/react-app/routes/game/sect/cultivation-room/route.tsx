@@ -9,13 +9,17 @@ import {
   useSectPresentation,
 } from '@app/components/feature/sect/SectQueryProvider';
 import {
-  SectManagedRoom,
   SectNpcConversationRegistry,
+  SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
+import { createSectRoomNpcHref } from '@app/components/feature/sect/sectRoomNavigation';
 import { formatDocumentTitle } from '@app/lib/router/routeTitle';
 import { getSectBenefitMetric } from '@app/lib/sect/sectPresentation';
-import { describeSectFacilityStatus } from '@shared/engine/sect';
+import {
+  describeSectFacilityStatus,
+  STANDARD_SECT_PRESENTATION,
+} from '@shared/engine/sect';
 import { Suspense, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
@@ -26,7 +30,7 @@ import {
 
 const registry = new SectNpcConversationRegistry([
   { key: 'sect.cultivation.retreat', renderer: CultivationConversation },
-]);
+]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.cultivation);
 
 export default function SectCultivationRoomPage() {
   return (
@@ -62,7 +66,14 @@ function SectCultivationRoomBody() {
               experienceBonusPercent,
               facilityLabel: presentation.facilityLabels.cultivation_room,
               scene,
-              onExit: () => navigate('/game/sect/cultivation-room'),
+              onExit: () =>
+                navigate(
+                  createSectRoomNpcHref(
+                    '/game/sect/cultivation-room',
+                    'keeper',
+                  ),
+                  { replace: true },
+                ),
             }}
           />
         </Suspense>
@@ -70,7 +81,7 @@ function SectCultivationRoomBody() {
     );
   return (
     <SectScene sceneKey="cultivation" mood="cultivation">
-      <SectManagedRoom
+      <SectRoutedRoom
         roomKey="cultivation"
         registry={registry}
         eyebrow="聚灵阵枢 · 闭关名册"
@@ -129,7 +140,12 @@ function CultivationConversation({
         if (optionId === 'leave') onExit();
         else if (optionId === 'status') setShowStatus(true);
         else if (optionId === 'workspace')
-          navigate('/game/sect/cultivation-room?workspace=retreat');
+          navigate(
+            createSectRoomNpcHref(
+              '/game/sect/cultivation-room?workspace=retreat',
+              actor.roleKey,
+            ),
+          );
       }}
     />
   );

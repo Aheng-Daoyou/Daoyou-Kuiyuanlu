@@ -1,10 +1,12 @@
 import type { SectTaskViewData } from '@shared/contracts/sect';
+import { createSectRoomNpcHref } from './sectRoomNavigation';
 
 export type SectTaskActivityLocationKey = 'sect.spirit-vein' | 'sect.arena';
 
 interface SectTaskActivityLocation {
   route: string;
   returnLabel: string;
+  roleKey: string;
 }
 
 const LOCATIONS: Readonly<
@@ -13,10 +15,12 @@ const LOCATIONS: Readonly<
   'sect.spirit-vein': {
     route: '/game/sect/spirit-vein',
     returnLabel: '返回矿场',
+    roleKey: 'keeper',
   },
   'sect.arena': {
     route: '/game/sect/arena',
     returnLabel: '返回演武场',
+    roleKey: 'marshal',
   },
 };
 
@@ -47,7 +51,11 @@ export function readSectTaskActivityLocation(
 export function getSectTaskActivityLocation(
   key: SectTaskActivityLocationKey,
 ): SectTaskActivityLocation {
-  return LOCATIONS[key];
+  const location = LOCATIONS[key];
+  return {
+    ...location,
+    route: createSectRoomNpcHref(location.route, location.roleKey),
+  };
 }
 
 export function resolveSectTaskActivityOrigin(

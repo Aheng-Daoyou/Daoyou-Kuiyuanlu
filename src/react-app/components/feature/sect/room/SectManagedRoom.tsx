@@ -12,6 +12,10 @@ export interface SectManagedRoomProps {
   registry: SectNpcConversationRegistry;
   eyebrow?: string;
   prompt?: string;
+  selection?: {
+    roleKey: string | undefined;
+    onChange(roleKey: string | undefined): void;
+  };
 }
 
 export function SectManagedRoom({
@@ -19,9 +23,14 @@ export function SectManagedRoom({
   registry,
   eyebrow,
   prompt = '点击人物，与其交谈',
+  selection,
 }: SectManagedRoomProps) {
   const room = useSectPresentation().rooms[roomKey];
-  const [selectedRoleKey, setSelectedRoleKey] = useState<string>();
+  const [internalRoleKey, setInternalRoleKey] = useState<string>();
+  const selectedRoleKey = selection ? selection.roleKey : internalRoleKey;
+  const setSelectedRoleKey = selection
+    ? selection.onChange
+    : setInternalRoleKey;
   const actors = useMemo<RoomActorView[]>(
     () =>
       room?.actors.map((actor) => ({

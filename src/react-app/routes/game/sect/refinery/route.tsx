@@ -5,11 +5,13 @@ import {
 } from '@app/components/feature/sect/SectQueryProvider';
 import {
   SectFacilityWorkspaceConversation,
-  SectManagedRoom,
   SectNpcConversationRegistry,
+  SectRoutedRoom,
 } from '@app/components/feature/sect/room';
+import { createSectRoomNpcHref } from '@app/components/feature/sect/sectRoomNavigation';
 import { formatDocumentTitle } from '@app/lib/router/routeTitle';
 import { getSectBenefitMetric } from '@app/lib/sect/sectPresentation';
+import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
   SectPageLoading,
@@ -19,7 +21,7 @@ import {
 
 const registry = new SectNpcConversationRegistry([
   { key: 'sect.refinery.craft', renderer: SectFacilityWorkspaceConversation },
-]);
+]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.refinery);
 
 export default function SectRefineryPage() {
   return (
@@ -55,14 +57,17 @@ function SectRefineryBody() {
               presentation.facilityLabels.refinery ??
               presentation.facilityLabels.workshop,
             scene,
-            onExit: () => navigate('/game/sect/refinery'),
+            onExit: () =>
+              navigate(createSectRoomNpcHref('/game/sect/refinery', 'keeper'), {
+                replace: true,
+              }),
           }}
         />
       </>
     );
   return (
     <SectScene sceneKey="refinery" mood="refinery">
-      <SectManagedRoom
+      <SectRoutedRoom
         roomKey="refinery"
         registry={registry}
         eyebrow="地火炉道 · 锻台封签"

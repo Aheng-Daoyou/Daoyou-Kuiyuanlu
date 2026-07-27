@@ -5,12 +5,13 @@ import {
 } from '@app/components/feature/room';
 import { useSectCurrentQuery } from '@app/components/feature/sect/SectQueryProvider';
 import {
-  SectManagedRoom,
   SectNpcConversationRegistry,
+  SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
 import { InkButton } from '@app/components/ui';
 import { useActiveCultivatorProfile } from '@app/lib/player-state/selectors';
+import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
 import { useState } from 'react';
 import { MethodsTab } from '../components/MethodsTab';
 import {
@@ -21,13 +22,13 @@ import {
 
 const registry = new SectNpcConversationRegistry([
   { key: 'sect.archive.methods', renderer: ArchiveConversation },
-]);
+]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.archive);
 
 export default function SectArchivePage() {
   return (
     <SectPermissionBoundary permission="sect.archive.use" sceneKey="archive">
       <SectScene sceneKey="archive" mood="archive">
-        <SectManagedRoom
+        <SectRoutedRoom
           roomKey="archive"
           registry={registry}
           eyebrow="传承经卷 · 研习次第"

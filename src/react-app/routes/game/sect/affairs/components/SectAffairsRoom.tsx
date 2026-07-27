@@ -11,8 +11,8 @@ import {
 import { SectTaskActionRenderer } from '@app/components/feature/sect/SectTaskActionRenderer';
 import { useSectTaskInteraction } from '@app/components/feature/sect/SectTaskInteractionProvider';
 import {
-  SectManagedRoom,
   SectNpcConversationRegistry,
+  SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
 import {
@@ -24,6 +24,7 @@ import type { SectTaskViewData } from '@shared/contracts/sect';
 import {
   describeSectPromotionStatus,
   SECT_RANK_LABELS,
+  STANDARD_SECT_PRESENTATION,
   type SectAffairsTaskKind,
   type SectDiscipleRank,
   type SectRoomActorDefinition,
@@ -142,11 +143,11 @@ const affairsConversationRegistry = new SectNpcConversationRegistry([
     key: 'sect.affairs.tasks',
     renderer: SectAffairsNpcConversationRenderer,
   },
-]);
+]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.affairs);
 
 export function SectAffairsRoom() {
   return (
-    <SectManagedRoom
+    <SectRoutedRoom
       roomKey="affairs"
       registry={affairsConversationRegistry}
       eyebrow="宗门公牍 · 当值录事"

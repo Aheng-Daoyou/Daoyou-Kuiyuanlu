@@ -334,13 +334,13 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         registry: {
           id: 'youdu-luming',
-          name: '录命生',
-          greeting: '你的名字仍在水上，玉牒与名录都可查。',
+          name: '沈故衣',
+          greeting: '你的名字还清楚地留在册上，玉牒和同门名录都可查。',
         },
         stipend: {
           id: 'youdu-fafeng',
-          name: '发俸婆',
-          greeting: '本周该得之物已经备齐，不会少你一份。',
+          name: '温婆婆',
+          greeting: '本周该给你的已经备齐，要先核对也不妨。',
         },
       },
     },
@@ -348,8 +348,8 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'youdu-shoucang',
-          name: '守藏婆',
-          greeting: '库门已开，灯下这些东西都可以功簿支取。',
+          name: '阮秋声',
+          greeting: '架上的东西都清点过了，你慢慢看，选定再说。',
         },
       },
     },
@@ -357,13 +357,13 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         construction: {
           id: 'youdu-zhuming',
-          name: '筑冥翁',
-          greeting: '阴桥、暗阁与灯台都有工册，本周工程也在其中。',
+          name: '戚百岁',
+          greeting: '桥、阁与台上的工事都有记录，你想先问哪一处？',
         },
         donation: {
           id: 'youdu-duwu',
-          name: '度物',
-          greeting: '东西带来先过灯照，合用才可入册。',
+          name: '阿七',
+          greeting: '带来的东西放稳些，我替你一件件核。',
         },
       },
     },
@@ -371,8 +371,8 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'youdu-zhaojuan',
-          name: '照卷翁',
-          greeting: '魂灯一照，六卷心法都能显字。',
+          name: '褚先生',
+          greeting: '六卷心法都能查阅，你想先从哪一卷看起？',
         },
       },
     },
@@ -380,8 +380,8 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         guide: {
           id: 'youdu-yindeng',
-          name: '引灯人',
-          greeting: '七魄各有归处，你想先照哪一条路？',
+          name: '商无咎',
+          greeting: '路有来处，也有归处；你想先辨哪一条？',
         },
       },
     },
@@ -389,13 +389,13 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         instructor: {
           id: 'youdu-shihun',
-          name: '试魂翁',
-          greeting: '影上每一道术痕都清楚，正好重排神通。',
+          name: '迟归鹤',
+          greeting: '术痕都还留在场中，要调整神通便从当前配置说起。',
         },
         marshal: {
           id: 'youdu-shouchang',
-          name: '守场鬼',
-          greeting: '黑水已经平静，有小比便在此照影。',
+          name: '桑小满',
+          greeting: '场地已经安静下来，有小比在身便可开始。',
         },
       },
     },
@@ -403,8 +403,8 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'youdu-shoudeng',
-          name: '守灯婆',
-          greeting: '魂灯不摇，返照室今日适合闭关。',
+          name: '宁无恙',
+          greeting: '室中一切安稳，想先问灵效，还是现在闭关？',
         },
       },
     },
@@ -412,8 +412,8 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'youdu-huansheng',
-          name: '还生药师',
-          greeting: '药庐香火未断，今日可以开炉。',
+          name: '白蘅',
+          greeting: '香火未断，炉温也合适，要先问灵效还是开炉？',
         },
       },
     },
@@ -421,8 +421,8 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'youdu-zhentie',
-          name: '镇铁翁',
-          greeting: '低焰正稳，黑水旧铁也已归位。',
+          name: '祝余',
+          greeting: '低焰正稳，材料也都归位，要先问灵效还是炼器？',
         },
       },
     },
@@ -430,8 +430,8 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'youdu-tingyin',
-          name: '听阴',
-          greeting: '黑水阴脉没有异动，巡灯封签仍在这里。',
+          name: '贺寒川',
+          greeting: '矿道里没有异动，你想问近况，还是接手巡视？',
         },
       },
     },
@@ -439,8 +439,8 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'youdu-bianhua',
-          name: '彼岸花婆',
-          greeting: '两岸花叶都安静，今日长势无需忧心。',
+          name: '柳十三',
+          greeting: '两岸花叶都安稳，你想细问哪一处？',
         },
       },
     },
@@ -448,8 +448,8 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'youdu-shouguan',
-          name: '守关人',
-          greeting: '三盏魂灯都亮着，今日关前事务在这里交接。',
+          name: '顾长夜',
+          greeting: '关前今日无事，勤务与来往记录都在这里。',
         },
       },
     },

@@ -339,13 +339,13 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         registry: {
           id: 'wuxiang-huiming',
-          name: '慧明',
-          greeting: '玉牒与僧录都在镜下，你要查什么便问。',
+          name: '慧澄',
+          greeting: '玉牒与僧录皆在案前，想查哪一项便问。',
         },
         stipend: {
           id: 'wuxiang-mingji',
           name: '明济',
-          greeting: '本周供养已经分好，领取前可先核对。',
+          greeting: '本周供养已经分定，领取之前也可先核对。',
         },
       },
     },
@@ -353,8 +353,8 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'wuxiang-kongzang',
-          name: '空藏禅师',
-          greeting: '藏中诸物只待有用之人，你想看哪一件？',
+          name: '寂照禅师',
+          greeting: '诸物各待其用，你想看哪一件？',
         },
       },
     },
@@ -362,13 +362,13 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         construction: {
           id: 'wuxiang-mingzhu',
-          name: '明筑',
-          greeting: '一砖一木皆是因缘，本周工程已有次第。',
+          name: '行深',
+          greeting: '一砖一木皆有来处，本周工程可逐项说与你听。',
         },
         donation: {
           id: 'wuxiang-xingcang',
-          name: '行仓',
-          greeting: '所施之物先验明白，再记入功德册。',
+          name: '明简',
+          greeting: '所施之物先验清楚，再记入册中。',
         },
       },
     },
@@ -377,7 +377,7 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'wuxiang-kongdu',
           name: '空渡禅师',
-          greeting: '贝叶六匣皆在此，你想先读哪一卷？',
+          greeting: '贝叶六匣都在这里，你想先读哪一卷？',
         },
       },
     },
@@ -386,7 +386,7 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
         guide: {
           id: 'wuxiang-huizhao',
           name: '慧照',
-          greeting: '壁有明暗两面，你想先照见哪一面？',
+          greeting: '壁有明暗两面，你想先照见哪一条道途？',
         },
       },
     },
@@ -394,13 +394,13 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         instructor: {
           id: 'wuxiang-jiefeng',
-          name: '戒锋禅师',
-          greeting: '神通由身心而发，今日可重新调理次第。',
+          name: '法忍禅师',
+          greeting: '神通发于身心，若要调整，先看你当下如何运用。',
         },
         marshal: {
           id: 'wuxiang-huiwu',
-          name: '慧武',
-          greeting: '木人已经归位，有小比便入场问身。',
+          name: '行觉',
+          greeting: '木人已经归位，有小比在身便可入场。',
         },
       },
     },
@@ -408,8 +408,8 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'wuxiang-zhiguan',
-          name: '止观',
-          greeting: '一席一灯都已备好，随时可以入静。',
+          name: '寂然禅师',
+          greeting: '一席一灯都已备好，想先问灵效，还是就此入静？',
         },
       },
     },
@@ -417,8 +417,8 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'wuxiang-faming-yaoshi',
-          name: '法净药师',
-          greeting: '药性不分净秽，炉火此刻正稳。',
+          name: '明恕',
+          greeting: '药性无分净秽，炉火正稳，要问灵效还是开炉？',
         },
       },
     },
@@ -426,8 +426,8 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'wuxiang-huoyuan',
-          name: '火缘',
-          greeting: '火供已起，想炼何物便先验明材料。',
+          name: '法圆',
+          greeting: '火候已足，材料也可查验，要问灵效还是炼器？',
         },
       },
     },
@@ -435,8 +435,8 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'wuxiang-shouyu',
-          name: '守玉',
-          greeting: '骨玉窟脉息平顺，巡签也已备下。',
+          name: '慧海',
+          greeting: '窟中今日平稳，你想查问近况，还是接手巡视？',
         },
       },
     },
@@ -444,8 +444,8 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'wuxiang-huilian',
-          name: '慧莲',
-          greeting: '池水无波，今晨血莲长势安稳。',
+          name: '行愿',
+          greeting: '池水无波，草木各循时生长，你想问哪一处？',
         },
       },
     },
@@ -453,8 +453,8 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'wuxiang-mingmen',
-          name: '明门',
-          greeting: '钟声已过，今日门前勤务在此交接。',
+          name: '道安禅师',
+          greeting: '钟声已过，今日勤务与山门近况都可在此问。',
         },
       },
     },

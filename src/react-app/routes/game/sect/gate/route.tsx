@@ -9,11 +9,12 @@ import {
   useSectResourceQuery,
 } from '@app/components/feature/sect/SectQueryProvider';
 import {
-  SectManagedRoom,
   SectNpcConversationRegistry,
+  SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
 import { fetchSectTasks } from '@app/lib/sect/sectClient';
+import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { SectPermissionBoundary, SectScene } from '../components/SectScene';
@@ -25,13 +26,13 @@ import { requestSweepImmersiveMode } from './sweep/sweepImmersive';
 
 const registry = new SectNpcConversationRegistry([
   { key: 'sect.gate.duties', renderer: GateConversation },
-]);
+]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.gate);
 
 export default function SectGatePage() {
   return (
     <SectPermissionBoundary permission="sect.gate.view" sceneKey="gate">
       <SectScene sceneKey="gate" mood="gate">
-        <SectManagedRoom
+        <SectRoutedRoom
           roomKey="gate"
           registry={registry}
           eyebrow="山门值录 · 当日勤务"

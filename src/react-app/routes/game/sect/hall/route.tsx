@@ -9,15 +9,18 @@ import {
   useSectResourceQuery,
 } from '@app/components/feature/sect/SectQueryProvider';
 import {
-  SectManagedRoom,
   SectNpcConversationRegistry,
+  SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
 import { InkButton } from '@app/components/ui';
 import { usePlayerStateActions } from '@app/lib/player-state/store';
 import { fetchSectMembers } from '@app/lib/sect/sectClient';
 import type { SectMembersData } from '@shared/contracts/sect';
-import { SECT_RANK_LABELS } from '@shared/engine/sect';
+import {
+  SECT_RANK_LABELS,
+  STANDARD_SECT_PRESENTATION,
+} from '@shared/engine/sect';
 import { useState } from 'react';
 import {
   postJson,
@@ -31,13 +34,13 @@ const fetchFirstMembersPage = (signal: AbortSignal) =>
 const registry = new SectNpcConversationRegistry([
   { key: 'sect.hall.registry', renderer: HallRegistryConversation },
   { key: 'sect.hall.stipend', renderer: HallStipendConversation },
-]);
+]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.hall);
 
 export default function SectHallPage() {
   return (
     <SectPermissionBoundary permission="sect.hall.view" sceneKey="hall">
       <SectScene sceneKey="hall" mood="hall">
-        <SectManagedRoom
+        <SectRoutedRoom
           roomKey="hall"
           registry={registry}
           eyebrow="身份玉牒 · 俸册名录"

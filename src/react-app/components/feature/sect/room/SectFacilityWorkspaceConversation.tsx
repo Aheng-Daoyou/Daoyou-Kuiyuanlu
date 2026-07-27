@@ -7,6 +7,7 @@ import {
   useSectCurrentQuery,
   useSectPresentation,
 } from '@app/components/feature/sect/SectQueryProvider';
+import { createSectRoomNpcHref } from '@app/components/feature/sect/sectRoomNavigation';
 import { describeSectFacilityStatus } from '@shared/engine/sect';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -91,7 +92,7 @@ export function SectFacilityWorkspaceConversation({
         if (optionId === 'leave') onExit();
         else if (optionId === 'status') setShowStatus(true);
         else if (optionId === 'workspace' && workspaceHref)
-          navigate(workspaceHref);
+          navigate(createSectRoomNpcHref(workspaceHref, actor.roleKey));
       }}
     />
   );

@@ -1,4 +1,7 @@
-import type { SectRoomActorDefinition } from '@shared/engine/sect';
+import type {
+  SectRoomActorDefinition,
+  SectRoomDefinition,
+} from '@shared/engine/sect';
 import type { ComponentType } from 'react';
 
 export interface SectNpcConversationRendererProps {
@@ -36,5 +39,20 @@ export class SectNpcConversationRegistry {
 
   has(key: string): boolean {
     return this.renderers.has(key);
+  }
+
+  assertRoom(room: SectRoomDefinition): this {
+    for (const actor of room.actors) {
+      if (this.has(actor.conversation.renderer)) continue;
+      throw new Error(
+        `宗门房间 ${room.key} 的角色 ${actor.roleKey} 引用了未注册的 NPC 会话展示器：${actor.conversation.renderer}`,
+      );
+    }
+    return this;
+  }
+
+  assertRooms(rooms: readonly SectRoomDefinition[]): this {
+    for (const room of rooms) this.assertRoom(room);
+    return this;
   }
 }

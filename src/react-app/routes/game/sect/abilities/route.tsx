@@ -8,11 +8,12 @@ import {
   useSectPresentation,
 } from '@app/components/feature/sect/SectQueryProvider';
 import {
-  SectManagedRoom,
   SectNpcConversationRegistry,
+  SectRoutedRoom,
   SectTaskLocationConversation,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
+import { createSectRoomNpcHref } from '@app/components/feature/sect/sectRoomNavigation';
 import { InkModal } from '@app/components/layout';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkCard, InkNotice } from '@app/components/ui';
@@ -21,6 +22,7 @@ import { usePlayerStateActions } from '@app/lib/player-state/store';
 import {
   createAbilitySlots,
   isListedSectAbility,
+  STANDARD_SECT_PRESENTATION,
   StandardSectRules,
   type CultivatorSectState,
   type SectAbilitySlots,
@@ -55,14 +57,14 @@ export default function SectAbilitiesPage() {
 const arenaRegistry = new SectNpcConversationRegistry([
   { key: 'sect.arena.loadout', renderer: ArenaInstructorConversation },
   { key: 'sect.arena.tournament', renderer: SectTaskLocationConversation },
-]);
+]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.arena);
 
 function SectArenaBody() {
   const [searchParams] = useSearchParams();
   if (searchParams.get('workspace') === 'loadout') return <SectAbilitiesBody />;
   return (
     <SectScene sceneKey="arena" mood="arena">
-      <SectManagedRoom
+      <SectRoutedRoom
         roomKey="arena"
         registry={arenaRegistry}
         eyebrow="演武阵台 · 神通校验"
@@ -112,7 +114,12 @@ function ArenaInstructorConversation({
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (optionId === 'workspace')
-          navigate('/game/sect/arena?workspace=loadout');
+          navigate(
+            createSectRoomNpcHref(
+              '/game/sect/arena?workspace=loadout',
+              actor.roleKey,
+            ),
+          );
       }}
     />
   );
@@ -248,7 +255,13 @@ function SectAbilitiesBody() {
       }
     >
       <div className="flex justify-end">
-        <InkButton onClick={() => navigate('/game/sect/arena')}>
+        <InkButton
+          onClick={() =>
+            navigate(createSectRoomNpcHref('/game/sect/arena', 'instructor'), {
+              replace: true,
+            })
+          }
+        >
           退出演武阵
         </InkButton>
       </div>

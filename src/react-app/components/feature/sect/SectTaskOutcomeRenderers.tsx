@@ -10,6 +10,7 @@ import type {
 } from '@shared/contracts/sect';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useSectPresentation } from './SectQueryProvider';
+import { createSectRoomNpcHref } from './sectRoomNavigation';
 import {
   createSectTaskBattleHref,
   getSectTaskActivityLocation,
@@ -26,7 +27,11 @@ export function SweepSessionOutcome({
       「{task.presentation.title}」勤务场已在山门开启。
       <InkButton
         variant="secondary"
-        onClick={() => interaction.navigate('/game/sect/gate/sweep')}
+        onClick={() =>
+          interaction.navigate(
+            createSectRoomNpcHref('/game/sect/gate', 'keeper'),
+          )
+        }
       >
         前往山门
       </InkButton>

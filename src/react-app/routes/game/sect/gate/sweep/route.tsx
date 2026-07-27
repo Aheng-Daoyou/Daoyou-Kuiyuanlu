@@ -3,6 +3,7 @@ import {
   useSectPresentation,
   useSectResourceQuery,
 } from '@app/components/feature/sect/SectQueryProvider';
+import { createSectRoomNpcHref } from '@app/components/feature/sect/sectRoomNavigation';
 import {
   decodeSectTaskOutcome,
   readSweepSessionOutcome,
@@ -234,7 +235,9 @@ export default function SectGateSweepPage() {
 
   const exit = async () => {
     await releaseSweepImmersiveMode();
-    navigate('/game/sect/gate', { replace: true });
+    navigate(createSectRoomNpcHref('/game/sect/gate', 'keeper'), {
+      replace: true,
+    });
   };
 
   const reset = () => {

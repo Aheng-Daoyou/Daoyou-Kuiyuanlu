@@ -9,14 +9,17 @@ import {
   useSectResourceQuery,
 } from '@app/components/feature/sect/SectQueryProvider';
 import {
-  SectManagedRoom,
   SectNpcConversationRegistry,
+  SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
 import { usePlayerStateActions } from '@app/lib/player-state/store';
 import { fetchSectShop } from '@app/lib/sect/sectClient';
 import type { SectShopItemData } from '@shared/contracts/sect';
-import { SECT_RANK_LABELS } from '@shared/engine/sect';
+import {
+  SECT_RANK_LABELS,
+  STANDARD_SECT_PRESENTATION,
+} from '@shared/engine/sect';
 import { useState } from 'react';
 import {
   postJson,
@@ -26,13 +29,13 @@ import {
 
 const registry = new SectNpcConversationRegistry([
   { key: 'sect.treasury.shop', renderer: TreasuryConversation },
-]);
+]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.treasury);
 
 export default function SectTreasuryPage() {
   return (
     <SectPermissionBoundary permission="sect.shop.use" sceneKey="treasury">
       <SectScene sceneKey="treasury" mood="treasury">
-        <SectManagedRoom
+        <SectRoutedRoom
           roomKey="treasury"
           registry={registry}
           eyebrow="贡献支取 · 库藏封签"

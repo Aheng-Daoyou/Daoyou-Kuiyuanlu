@@ -5,11 +5,13 @@ import {
 } from '@app/components/feature/sect/SectQueryProvider';
 import {
   SectFacilityWorkspaceConversation,
-  SectManagedRoom,
   SectNpcConversationRegistry,
+  SectRoutedRoom,
 } from '@app/components/feature/sect/room';
+import { createSectRoomNpcHref } from '@app/components/feature/sect/sectRoomNavigation';
 import { formatDocumentTitle } from '@app/lib/router/routeTitle';
 import { getSectBenefitMetric } from '@app/lib/sect/sectPresentation';
+import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
   SectPageLoading,
@@ -19,7 +21,7 @@ import {
 
 const registry = new SectNpcConversationRegistry([
   { key: 'sect.alchemy.craft', renderer: SectFacilityWorkspaceConversation },
-]);
+]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.alchemy);
 
 export default function SectAlchemyPage() {
   return (
@@ -55,14 +57,17 @@ function SectAlchemyBody() {
               presentation.facilityLabels.alchemy ??
               presentation.facilityLabels.workshop,
             scene,
-            onExit: () => navigate('/game/sect/alchemy'),
+            onExit: () =>
+              navigate(createSectRoomNpcHref('/game/sect/alchemy', 'keeper'), {
+                replace: true,
+              }),
           }}
         />
       </>
     );
   return (
     <SectScene sceneKey="alchemy" mood="alchemy">
-      <SectManagedRoom
+      <SectRoutedRoom
         roomKey="alchemy"
         registry={registry}
         eyebrow="丹炉火候 · 药柜封签"

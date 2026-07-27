@@ -18,6 +18,7 @@ export interface UseConversationSessionOptions<TSnapshot, TIntent, TResult> {
   ): Promise<TResult>;
   mapError?(reason: unknown): string;
   onReset?(): void;
+  onDispose?(): void;
 }
 
 export interface ConversationSessionState<TSnapshot, TIntent, TResult> {
@@ -44,6 +45,7 @@ export function useConversationSession<TSnapshot, TIntent, TResult>({
   perform,
   mapError = defaultErrorMessage,
   onReset,
+  onDispose,
 }: UseConversationSessionOptions<
   TSnapshot,
   TIntent,
@@ -58,13 +60,15 @@ export function useConversationSession<TSnapshot, TIntent, TResult>({
   const performRef = useRef(perform);
   const mapErrorRef = useRef(mapError);
   const resetRef = useRef(onReset);
+  const disposeRef = useRef(onDispose);
 
   useEffect(() => {
     loadRef.current = load;
     performRef.current = perform;
     mapErrorRef.current = mapError;
     resetRef.current = onReset;
-  }, [load, mapError, onReset, perform]);
+    disposeRef.current = onDispose;
+  }, [load, mapError, onDispose, onReset, perform]);
 
   const cancelCurrent = useCallback(() => {
     operationRef.current?.abort();
@@ -141,7 +145,9 @@ export function useConversationSession<TSnapshot, TIntent, TResult>({
     });
     return () => {
       active = false;
+      generationRef.current += 1;
       cancelCurrent();
+      disposeRef.current?.();
     };
   }, [cancelCurrent, reload, sessionKey]);
 

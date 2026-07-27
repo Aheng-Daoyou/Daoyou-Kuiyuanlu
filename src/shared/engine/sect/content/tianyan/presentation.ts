@@ -348,13 +348,13 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         registry: {
           id: 'tianyan-siming',
-          name: '司命',
-          greeting: '玉牒与名录已经校正，你要核验哪一项？',
+          name: '含章真人',
+          greeting: '玉牒与名录已经复核，你可以从任何一项开始查验。',
         },
         stipend: {
           id: 'tianyan-duzhi',
-          name: '度支道人',
-          greeting: '本周俸数已经推定，来取之前可先核对。',
+          name: '清和',
+          greeting: '本周俸数已按实录核定，领取前也可再核一遍。',
         },
       },
     },
@@ -362,8 +362,8 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'tianyan-tianku',
-          name: '天库道人',
-          greeting: '常备与轮换之物各有定数，你想看哪一类？',
+          name: '怀谷道人',
+          greeting: '常备与轮换库存已经清点，你想先看哪一类？',
         },
       },
     },
@@ -371,13 +371,13 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         construction: {
           id: 'tianyan-banji',
-          name: '班机道人',
-          greeting: '五峰工程都在图上，本周进度可以逐项说明。',
+          name: '鸣谦道人',
+          greeting: '各处工程都有实数可查，你想先听哪一项进展？',
         },
         donation: {
           id: 'tianyan-ducai',
-          name: '度材',
-          greeting: '物性与数量都要核准，合用之物方可入册。',
+          name: '履霜',
+          greeting: '物性与数量须逐项相合，带来的东西可以依次核验。',
         },
       },
     },
@@ -385,8 +385,8 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'tianyan-yanshu',
-          name: '衍书真人',
-          greeting: '六卷真经各循其序，你想先推演哪一卷？',
+          name: '既白真人',
+          greeting: '六卷真经都已归位，你想从哪一卷开始研习？',
         },
       },
     },
@@ -394,8 +394,8 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         guide: {
           id: 'tianyan-heluozhi',
-          name: '河洛子',
-          greeting: '图与局都在眼前，先说你想辨哪条道途。',
+          name: '观复真人',
+          greeting: '推演先看已有之势，你想从哪条道途开始辨明？',
         },
       },
     },
@@ -403,13 +403,13 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         instructor: {
           id: 'tianyan-douheng',
-          name: '斗衡真人',
-          greeting: '神通次序与战术落点都可在中宫重新校验。',
+          name: '玄同道人',
+          greeting: '神通次序与战术都可重排，先把当前配置展开吧。',
         },
         marshal: {
           id: 'tianyan-jiaochang',
-          name: '校场使',
-          greeting: '演法台已经归零，有小比便可重新起局。',
+          name: '景初',
+          greeting: '演武场已经归整，有小比记录便可开场。',
         },
       },
     },
@@ -417,8 +417,8 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'tianyan-shouyi',
-          name: '守一',
-          greeting: '太初灵气归于一线，正宜静心闭关。',
+          name: '抱一真人',
+          greeting: '阵中灵气已经归稳，想先查灵效，还是开始闭关？',
         },
       },
     },
@@ -426,8 +426,8 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'tianyan-qinghe',
-          name: '青禾药师',
-          greeting: '水温与炉火都已记下，今日可以开炉。',
+          name: '允中道人',
+          greeting: '炉温与水候均在合宜范围，要查灵效还是开炉？',
         },
       },
     },
@@ -435,8 +435,8 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'tianyan-baishi',
-          name: '白石铸师',
-          greeting: '金石与地火都已归位，你要炼什么便说。',
+          name: '松乔道人',
+          greeting: '金石与地火都已就位，要查灵效还是开始炼器？',
         },
       },
     },
@@ -444,8 +444,8 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'tianyan-kunyuan',
-          name: '坤元使',
-          greeting: '地脉承托五峰，今日脉息尚在常数之内。',
+          name: '见素',
+          greeting: '今日观测未见异常，你要查看灵脉，还是开始巡视？',
         },
       },
     },
@@ -453,8 +453,8 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'tianyan-mushi',
-          name: '木时',
-          greeting: '水位与日照已经记下，长生圃今日无碍。',
+          name: '元吉',
+          greeting: '水位、日照与长势都已记下，你想先问哪一项？',
         },
       },
     },
@@ -462,8 +462,8 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
       actors: {
         keeper: {
           id: 'tianyan-guanxing',
-          name: '观星使',
-          greeting: '山门天象与今日勤务都已记在石侧。',
+          name: '望舒',
+          greeting: '今日山门记录已经补全，勤务与近况都可查问。',
         },
       },
     },

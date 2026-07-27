@@ -1,6 +1,7 @@
 import { InkButton } from '@app/components/ui';
 import type { SectTaskViewData } from '@shared/contracts/sect';
 import { useState } from 'react';
+import { createSectRoomNpcHref } from './sectRoomNavigation';
 import {
   createSectTaskBattleHref,
   getSectTaskActivityLocation,
@@ -118,7 +119,9 @@ export function SweepEntryAction({
       variant="primary"
       className={actionClassName(display)}
       disabled={busy || !action.enabled}
-      onClick={() => navigate('/game/sect/gate')}
+      onClick={() =>
+        navigate(createSectRoomNpcHref('/game/sect/gate', 'keeper'))
+      }
     >
       {action.enabled
         ? display === 'conversation'
