@@ -11,8 +11,8 @@
     "build": "bun run build:client && bun run build:server",
     "build:client": "tsc -b tsconfig.app.json && vite build --mode client",
     "build:server": "tsc -b tsconfig.node.json && vite build --mode server",
-    "dev": "bun scripts/dev.ts",
-    "dev:api": "bun scripts/dev-api.ts",
+    "dev": "bun run --parallel dev:api dev:web",
+    "dev:api": "bun run --watch src/index.ts",
     "dev:web": "vite",
     "lint": "eslint .",
     "test": "vitest run"

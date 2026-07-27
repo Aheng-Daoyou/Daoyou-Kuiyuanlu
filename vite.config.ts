@@ -10,7 +10,7 @@ const alias = {
   '@server': fileURLToPath(new URL('./src/server', import.meta.url)),
   '@shared': fileURLToPath(new URL('./src/shared', import.meta.url)),
 };
-const devApiTarget = () => `http://localhost:${process.env.API_PORT ?? 3000}`;
+const devApiTarget = () => `http://localhost:${process.env.PORT ?? 3000}`;
 
 const applyEnvToProcess = (mode: string) => {
   const env = loadEnv(mode, process.cwd(), '');
