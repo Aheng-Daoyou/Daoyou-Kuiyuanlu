@@ -29,9 +29,13 @@ export class GetSectTasksQueryHandler {
       membership.discipleRank,
       'sect.tasks.use',
     );
-    const records = await context.tasks.list(membership.id);
     const dateKey = context.clock.dateKey();
     const weekKey = context.clock.weekKey();
+    const records = await context.tasks.list(membership.id, [
+      dateKey,
+      weekKey,
+      'permanent',
+    ]);
     const definitions = [
       ...organization.tasks.listDaily(),
       ...organization.tasks.listWeekly(),

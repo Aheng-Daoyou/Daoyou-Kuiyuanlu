@@ -21,6 +21,7 @@ import {
 } from './applicationSupport';
 import type {
   SectConstructionCommandContext,
+  SectConstructionProjectRecord,
   SectConstructionQueryContext,
 } from './ports';
 import { mergeSectCommandEffects } from './SectCommandEffects';
@@ -35,10 +36,13 @@ export class SectConstructionApplicationService {
   private async ensureCurrentProject(
     sectId: string,
     context: SectConstructionCommandContext,
-  ) {
+  ): Promise<{
+    project: SectConstructionProjectRecord | null;
+    created: boolean;
+  }> {
     await context.facilities.ensure(sectId);
-    const active = await context.construction.findActiveProject(sectId);
-    if (active) return active;
+    const active = await context.construction.lockActiveProject(sectId);
+    if (active) return { project: active, created: false };
     const weekKey = context.clock.weekKey();
     const latest =
       await context.construction.findLatestCompletedProject(sectId);
@@ -46,7 +50,7 @@ export class SectConstructionApplicationService {
       latest?.completedAt &&
       context.clock.weekKey(latest.completedAt) === weekKey
     )
-      return null;
+      return { project: null, created: false };
     const facilities = await context.facilities.list(sectId);
     const policy = organizationFor(context.modules, sectId).construction;
     const upgradeable = new Set(
@@ -60,7 +64,7 @@ export class SectConstructionApplicationService {
         .map((row) => [row.facilityKey, row.level]),
     );
     const next = policy.nextProject(levels);
-    if (!next) return null;
+    if (!next) return { project: null, created: false };
     const activeMembers = Math.max(
       1,
       Math.min(
@@ -71,27 +75,34 @@ export class SectConstructionApplicationService {
         ),
       ),
     );
-    return context.construction.createProject({
+    const created = await context.construction.createProject({
       sectId,
       facilityKey: next.facilityKey,
       targetLevel: next.targetLevel,
       target: policy.projectBaseTarget(next.targetLevel) * activeMembers,
       startedWeekKey: weekKey,
     });
+    if (!created.project || created.created) return created;
+    return {
+      project:
+        (await context.construction.lockActiveProject(sectId)) ??
+        created.project,
+      created: false,
+    };
   }
 
   async ensureWeeklyProjectCommand(
     sectId: string,
     context: SectConstructionCommandContext,
   ): Promise<{
-    result: Awaited<
-      ReturnType<SectConstructionApplicationService['ensureCurrentProject']>
-    >;
+    result: SectConstructionProjectRecord | null;
     resourceChanges: ResourceChangeDescriptor[];
   }> {
-    const existing = await context.construction.findActiveProject(sectId);
-    const project = await this.ensureCurrentProject(sectId, context);
-    if (!project || existing?.id === project.id) {
+    const { project, created } = await this.ensureCurrentProject(
+      sectId,
+      context,
+    );
+    if (!project || !created) {
       return { result: project, resourceChanges: [] };
     }
     const dateKey = context.clock.dateKey();
@@ -258,7 +269,7 @@ export class SectConstructionApplicationService {
       'sect.construction.donate',
       context.modules,
     );
-    const projectRecord = await this.ensureCurrentProject(
+    const { project: projectRecord } = await this.ensureCurrentProject(
       membership.sectId,
       context,
     );

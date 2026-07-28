@@ -47,10 +47,18 @@ import type {
   SectCommandContext,
   SectConstructionCommandContext,
   SectConstructionProjectRecord,
+  SectConstructionQueryContext,
+  SectConstructionReadRepository,
+  SectConstructionRepository,
   SectEconomyCommandContext,
   SectEconomyQueryContext,
+  SectEconomyReadRepository,
+  SectEconomyRepository,
+  SectFacilityReadRepository,
   SectFacilityRepository,
   SectMembershipCommandContext,
+  SectMembershipQueryContext,
+  SectMembershipQueryRepository,
   SectMembershipRepository,
   SectQueryContext,
   SectTaskRecord,
@@ -266,9 +274,9 @@ function mapProject(
     : null;
 }
 
-function membershipAdapter(
+function membershipQueryAdapter(
   q: DbExecutor | DbTransaction,
-): SectMembershipRepository {
+): SectMembershipQueryRepository {
   return {
     async findByCultivator(cultivatorId) {
       const row = await memberships.findMembership(cultivatorId, q);
@@ -288,12 +296,6 @@ function membershipAdapter(
       organization.hasCompletedSectTask(membershipId, taskId, q),
     loadState: (cultivatorId) =>
       memberships.loadCultivatorSectState(cultivatorId, q),
-    async promote(membershipId, rank) {
-      if (!('rollback' in q)) throw new Error('宗门晋升必须在事务中执行');
-      return Boolean(
-        await organization.promoteSectMembership(membershipId, rank, q),
-      );
-    },
     async listMembers(sectId, page, pageSize) {
       const result = await organization.listSectMembers(
         sectId,
@@ -312,18 +314,39 @@ function membershipAdapter(
   };
 }
 
-function facilityAdapter(
+function membershipCommandAdapter(
+  tx: DbTransaction,
+): SectMembershipRepository {
+  return {
+    ...membershipQueryAdapter(tx),
+    async promote(membershipId, rank) {
+      return Boolean(
+        await organization.promoteSectMembership(membershipId, rank, tx),
+      );
+    },
+  };
+}
+
+function facilityReadAdapter(
   q: DbExecutor | DbTransaction,
+): SectFacilityReadRepository {
+  return {
+    list: (sectId) => organization.listSectFacilities(sectId, q),
+  };
+}
+
+function facilityCommandAdapter(
+  tx: DbTransaction,
   runtime: SectRuntime,
 ): SectFacilityRepository {
   return {
+    ...facilityReadAdapter(tx),
     ensure: (sectId) =>
       organization.ensureSectFacilities(
         sectId,
         runtime.registry.require(sectId).organization.construction.facilities,
-        q,
+        tx,
       ),
-    list: (sectId) => organization.listSectFacilities(sectId, q),
   };
 }
 
@@ -810,7 +833,9 @@ function rewardAdapter(
   };
 }
 
-function economyAdapter(q: DbExecutor | DbTransaction) {
+function economyReadAdapter(
+  q: DbExecutor | DbTransaction,
+): SectEconomyReadRepository {
   return {
     purchasedQuantity: (
       membershipId: string,
@@ -823,19 +848,26 @@ function economyAdapter(q: DbExecutor | DbTransaction) {
         itemId,
         q,
       ),
+    hasClaimedStipend: (membershipId: string, weekKey: string) =>
+      organization.hasClaimedSectStipend(membershipId, weekKey, q),
+  };
+}
+
+function economyCommandAdapter(tx: DbTransaction): SectEconomyRepository {
+  return {
+    ...economyReadAdapter(tx),
     async spendContribution(
       membershipId: string,
       amount: number,
       reason: string,
       referenceId: string,
     ) {
-      if (!('rollback' in q)) throw new Error('宗门贡献消费必须在事务中执行');
       return organization.spendSectContribution(
         membershipId,
         amount,
         reason,
         referenceId,
-        q,
+        tx,
       );
     },
     async recordPurchase(
@@ -844,7 +876,6 @@ function economyAdapter(q: DbExecutor | DbTransaction) {
       itemId: string,
       quantity: number,
     ) {
-      if (!('rollback' in q)) throw new Error('宗门兑换必须在事务中执行');
       return Boolean(
         await organization.addSectShopPurchase(
           membershipId,
@@ -852,40 +883,59 @@ function economyAdapter(q: DbExecutor | DbTransaction) {
           itemId,
           quantity,
           undefined,
-          q,
+          tx,
         ),
       );
     },
-    hasClaimedStipend: (membershipId: string, weekKey: string) =>
-      organization.hasClaimedSectStipend(membershipId, weekKey, q),
     async recordStipendClaim(input: {
       membershipId: string;
       weekKey: string;
       spiritStones: number;
       rewards: unknown[];
     }) {
-      if (!('rollback' in q)) throw new Error('宗门俸禄必须在事务中执行');
-      return Boolean(await organization.createSectStipendClaim(input, q));
+      return Boolean(await organization.createSectStipendClaim(input, tx));
     },
     async spendSpiritStones(cultivatorId: string, amount: number) {
-      if (!('rollback' in q)) throw new Error('宗门捐献必须在事务中执行');
-      return organization.spendCultivatorSpiritStones(cultivatorId, amount, q);
+      return organization.spendCultivatorSpiritStones(
+        cultivatorId,
+        amount,
+        tx,
+      );
     },
   };
 }
 
-function constructionAdapter(q: DbExecutor | DbTransaction) {
+function constructionReadAdapter(
+  q: DbExecutor | DbTransaction,
+): SectConstructionReadRepository {
   return {
     async findActiveProject(sectId: string) {
       return mapProject(
-        await ('rollback' in q
-          ? organization.lockActiveSectProject(sectId, q)
-          : organization.findActiveSectProject(sectId, q)),
+        await organization.findActiveSectProject(sectId, q),
       );
     },
     async findLatestCompletedProject(sectId: string) {
       return mapProject(
         await organization.findLatestCompletedSectProject(sectId, q),
+      );
+    },
+    countRecentlyActiveMembers: (sectId: string, since: Date) =>
+      organization.countRecentlyActiveSectMembers(sectId, since, q),
+    donatedContribution: (membershipId: string, dateKey: string) =>
+      organization.sumSectDonationContributionForDate(membershipId, dateKey, q),
+    listRecentDonations: (sectId: string, limit: number) =>
+      organization.listRecentSectDonations(sectId, limit, q),
+  };
+}
+
+function constructionCommandAdapter(
+  tx: DbTransaction,
+): SectConstructionRepository {
+  return {
+    ...constructionReadAdapter(tx),
+    async lockActiveProject(sectId: string) {
+      return mapProject(
+        await organization.lockActiveSectProject(sectId, tx),
       );
     },
     async createProject(input: {
@@ -895,38 +945,32 @@ function constructionAdapter(q: DbExecutor | DbTransaction) {
       target: number;
       startedWeekKey: string;
     }) {
-      return mapProject(
-        await organization.createSectProject(
-          {
-            ...input,
-            facilityKey: input.facilityKey,
-          },
-          q,
-        ),
-      );
+      const result = await organization.createSectProject(input, tx);
+      return {
+        project: mapProject(result.project),
+        created: result.created,
+      };
     },
-    countRecentlyActiveMembers: (sectId: string, since: Date) =>
-      organization.countRecentlyActiveSectMembers(sectId, since, q),
     async saveProjectProgress(projectId: string, progress: number) {
-      if (!('rollback' in q)) throw new Error('宗门建设必须在事务中执行');
       return mapProject(
-        await organization.saveSectProjectProgress(projectId, progress, q),
+        await organization.saveSectProjectProgress(projectId, progress, tx),
       );
     },
     async completeProject(projectId: string, completedAt: Date) {
-      if (!('rollback' in q)) throw new Error('宗门建设必须在事务中执行');
       return mapProject(
-        await organization.completeSectProject(projectId, completedAt, q),
+        await organization.completeSectProject(projectId, completedAt, tx),
       );
     },
     async upgradeFacility(sectId: string, facilityKey: string, level: number) {
-      if (!('rollback' in q)) throw new Error('宗门建设必须在事务中执行');
       return Boolean(
-        await organization.upgradeSectFacility(sectId, facilityKey, level, q),
+        await organization.upgradeSectFacility(
+          sectId,
+          facilityKey,
+          level,
+          tx,
+        ),
       );
     },
-    donatedContribution: (membershipId: string, dateKey: string) =>
-      organization.sumSectDonationContributionForDate(membershipId, dateKey, q),
     async recordDonation(input: {
       id: string;
       membershipId: string;
@@ -937,46 +981,57 @@ function constructionAdapter(q: DbExecutor | DbTransaction) {
       constructionPoints: number;
       itemSnapshot: Record<string, unknown>;
     }) {
-      if (!('rollback' in q)) throw new Error('宗门捐献必须在事务中执行');
-      return organization.insertSectDonation(input, q);
+      return organization.insertSectDonation(input, tx);
     },
-    listRecentDonations: (sectId: string, limit: number) =>
-      organization.listRecentSectDonations(sectId, limit, q),
     async grantContribution(
       membershipId: string,
       amount: number,
       reason: string,
       referenceId: string,
     ) {
-      if (!('rollback' in q)) throw new Error('宗门贡献发放必须在事务中执行');
       return organization.addSectContribution(
         membershipId,
         amount,
         reason,
         referenceId,
-        q,
+        tx,
       );
     },
   };
 }
 
-export function createPostgresSectMembershipContext(args: {
+export function createPostgresSectMembershipQueryContext(args: {
   q: DbExecutor | DbTransaction;
+  runtime: SectRuntime;
+  clock?: Clock;
+}): SectMembershipQueryContext {
+  return {
+    memberships: membershipQueryAdapter(args.q),
+    facilities: facilityReadAdapter(args.q),
+    economy: economyReadAdapter(args.q),
+    construction: constructionReadAdapter(args.q),
+    modules: moduleResolver(args.runtime),
+    clock: args.clock ?? systemSectClock,
+  };
+}
+
+export function createPostgresSectMembershipCommandContext(args: {
+  q: DbTransaction;
   runtime: SectRuntime;
   clock?: Clock;
 }): SectMembershipCommandContext {
   return {
-    memberships: membershipAdapter(args.q),
-    facilities: facilityAdapter(args.q, args.runtime),
-    economy: economyAdapter(args.q),
-    construction: constructionAdapter(args.q),
+    memberships: membershipCommandAdapter(args.q),
+    facilities: facilityReadAdapter(args.q),
+    economy: economyReadAdapter(args.q),
+    construction: constructionReadAdapter(args.q),
     modules: moduleResolver(args.runtime),
     clock: args.clock ?? systemSectClock,
   };
 }
 
 export function createPostgresSectEconomyContext(args: {
-  q: DbExecutor | DbTransaction;
+  q: DbTransaction;
   runtime: SectRuntime;
   userId: string;
   clock?: Clock;
@@ -997,31 +1052,48 @@ export function createPostgresSectEconomyContext(args: {
   ids?: IdGenerator;
 }): SectEconomyQueryContext | SectEconomyCommandContext {
   const base: SectEconomyQueryContext = {
-    memberships: membershipAdapter(args.q),
-    facilities: facilityAdapter(args.q, args.runtime),
-    economy: economyAdapter(args.q),
+    memberships: membershipQueryAdapter(args.q),
+    facilities: facilityReadAdapter(args.q),
+    economy: economyReadAdapter(args.q),
     modules: moduleResolver(args.runtime),
     clock: args.clock ?? systemSectClock,
   };
   if (!args.userId) return base;
+  const tx = requireTransaction(args.q);
   return {
     ...base,
-    rewards: rewardAdapter(args.q, args.userId),
+    facilities: facilityCommandAdapter(tx, args.runtime),
+    economy: economyCommandAdapter(tx),
+    rewards: rewardAdapter(tx, args.userId),
     ids: args.ids ?? cryptoSectIdGenerator,
   };
 }
 
-export function createPostgresSectConstructionContext(args: {
+export function createPostgresSectConstructionQueryContext(args: {
   q: DbExecutor | DbTransaction;
+  runtime: SectRuntime;
+  clock?: Clock;
+}): SectConstructionQueryContext {
+  return {
+    memberships: membershipQueryAdapter(args.q),
+    facilities: facilityReadAdapter(args.q),
+    construction: constructionReadAdapter(args.q),
+    modules: moduleResolver(args.runtime),
+    clock: args.clock ?? systemSectClock,
+  };
+}
+
+export function createPostgresSectConstructionCommandContext(args: {
+  q: DbTransaction;
   runtime: SectRuntime;
   clock?: Clock;
   ids?: IdGenerator;
 }): SectConstructionCommandContext {
   return {
-    memberships: membershipAdapter(args.q),
-    facilities: facilityAdapter(args.q, args.runtime),
-    construction: constructionAdapter(args.q),
-    economy: economyAdapter(args.q),
+    memberships: membershipQueryAdapter(args.q),
+    facilities: facilityCommandAdapter(args.q, args.runtime),
+    construction: constructionCommandAdapter(args.q),
+    economy: economyCommandAdapter(args.q),
     inventory: inventoryAdapter(args.q),
     modules: moduleResolver(args.runtime),
     clock: args.clock ?? systemSectClock,
@@ -1034,8 +1106,8 @@ export function createPostgresSectBenefitContext(args: {
   runtime: SectRuntime;
 }): SectBenefitQueryContext {
   return {
-    memberships: membershipAdapter(args.q),
-    facilities: facilityAdapter(args.q, args.runtime),
+    memberships: membershipQueryAdapter(args.q),
+    facilities: facilityReadAdapter(args.q),
     modules: moduleResolver(args.runtime),
   };
 }
@@ -1068,8 +1140,10 @@ export function createPostgresSectCommandContext(args: {
         organization.hasCompletedSectTask(membershipId, taskId, tx),
     },
     tasks: {
-      list: async (membershipId) =>
-        (await organization.listSectTaskRecords(membershipId, tx)).map(mapTask),
+      list: async (membershipId, periodKeys) =>
+        (
+          await organization.listSectTaskRecords(membershipId, periodKeys, tx)
+        ).map(mapTask),
       find: async (membershipId, periodKey, taskId) => {
         const row = await organization.findSectTaskRecord(
           membershipId,
@@ -1080,13 +1154,25 @@ export function createPostgresSectCommandContext(args: {
         return row ? mapTask(row) : null;
       },
       create: async (input) =>
-        mapTask(await organization.createSectTaskRecord(input, tx)),
+        mapTask(
+          await organization.createSectTaskRecord(
+            {
+              ...input,
+              payload: SectTaskRecordPayloadSchema.parse(input.payload),
+            },
+            tx,
+          ),
+        ),
       complete: async (id, progress) => {
         const row = await organization.completeSectTaskRecord(id, progress, tx);
         return row ? mapTask(row) : null;
       },
       updatePayload: async (id, payload) => {
-        const row = await organization.updateSectTaskPayload(id, payload, tx);
+        const row = await organization.updateSectTaskPayload(
+          id,
+          SectTaskRecordPayloadSchema.parse(payload),
+          tx,
+        );
         return row ? mapTask(row) : null;
       },
       claim: async (id, claimedAt) => {
@@ -1098,7 +1184,15 @@ export function createPostgresSectCommandContext(args: {
         return row ? mapTask(row) : null;
       },
       upsertProgress: async (input) =>
-        mapTask(await organization.upsertSectTaskProgress(input, tx)),
+        mapTask(
+          await organization.upsertSectTaskProgress(
+            {
+              ...input,
+              payload: SectTaskRecordPayloadSchema.parse(input.payload),
+            },
+            tx,
+          ),
+        ),
       countCompletedDailySince: (membershipId, periodKey) =>
         organization.countCompletedDailySectTasksSince(
           membershipId,
@@ -1164,10 +1258,14 @@ export function createPostgresSectQueryContext(args: {
         organization.hasCompletedSectTask(membershipId, taskId, args.q),
     },
     tasks: {
-      list: async (membershipId) =>
-        (await organization.listSectTaskRecords(membershipId, args.q)).map(
-          mapTask,
-        ),
+      list: async (membershipId, periodKeys) =>
+        (
+          await organization.listSectTaskRecords(
+            membershipId,
+            periodKeys,
+            args.q,
+          )
+        ).map(mapTask),
       find: async (membershipId, periodKey, taskId) => {
         const row = await organization.findSectTaskRecord(
           membershipId,

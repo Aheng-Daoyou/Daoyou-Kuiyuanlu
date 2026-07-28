@@ -48,11 +48,15 @@ describe('sect task offer snapshot', () => {
       }).offer,
     ).toEqual(offer);
     expect(() =>
-      SectTaskRecordPayloadSchema.parse({ target: 1, offer, executorData: {} }),
+      SectTaskRecordPayloadSchema.parse({
+        target: 1,
+        offer,
+        executorData: {},
+      }),
     ).toThrow();
   });
 
-  it('parses single-item and multi-item completion snapshots', () => {
+  it('only parses the v2 batch completion snapshot', () => {
     const offer = build(1);
     const item = {
       itemId: 'material-1',
@@ -63,15 +67,15 @@ describe('sect task offer snapshot', () => {
       matchedFacts: ['玄品以上矿石'],
     };
 
-    expect(
+    expect(() =>
       SectTaskRecordPayloadSchema.parse({
         schemaVersion: 2,
         target: 1,
         offer,
         executorData: {},
         completionData: { submittedItem: item },
-      }).completionData?.submittedItem,
-    ).toEqual(item);
+      }),
+    ).toThrow();
     expect(
       SectTaskRecordPayloadSchema.parse({
         schemaVersion: 2,
@@ -87,4 +91,5 @@ describe('sect task offer snapshot', () => {
       }).completionData?.submittedItems,
     ).toHaveLength(2);
   });
+
 });

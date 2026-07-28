@@ -1,7 +1,6 @@
 import {
   ContributionBalance,
   SectTask,
-  SectTaskRecordPayloadSchema,
   type SectDomainEvent,
 } from '@shared/engine/sect';
 import { organizationError } from './applicationSupport';
@@ -261,7 +260,7 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
               if (completedNow) aggregate.complete();
               let payload;
               if (existing) {
-                payload = SectTaskRecordPayloadSchema.parse(existing.payload);
+                payload = existing.payload;
               } else {
                 const progressFacts = await command.cultivators.loadProgress(
                   args.cultivatorId,

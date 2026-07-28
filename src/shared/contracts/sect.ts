@@ -37,6 +37,29 @@ export const SectTacticRequestSchema = z.object({
 export const SectTaskActionRequestSchema = z.object({
   input: z.record(z.string(), z.json()).default({}),
 }).strict();
+export const SectTaskSubmissionInputSchema = z
+  .object({
+    items: z
+      .array(
+        z
+          .object({
+            itemId: z.string().uuid(),
+            quantity: z.number().int().positive().max(99),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(99)
+      .refine(
+        (items) =>
+          new Set(items.map((item) => item.itemId)).size === items.length,
+        '同一份道具不能重复选择',
+      ),
+  })
+  .strict();
+export type SectTaskSubmissionInput = z.infer<
+  typeof SectTaskSubmissionInputSchema
+>;
 export const SectSubmissionCandidatesQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(30),

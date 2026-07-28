@@ -63,7 +63,6 @@ interface InventoryPagination {
 }
 
 export interface PaginatedInventoryResult<T extends InventoryType> {
-  type: T;
   items: InventoryItemByType[T][];
   pagination: InventoryPagination;
 }
@@ -184,7 +183,6 @@ export async function getPaginatedInventoryByType<T extends InventoryType>(
 
     const totalPages = Math.ceil(total / pageSize);
     return {
-      type: options.type,
       items: rows.map((artifact) =>
         mapArtifactRow(toArtifactFromProduct(artifact)),
       ) as InventoryItemByType[T][],
@@ -215,7 +213,6 @@ export async function getPaginatedInventoryByType<T extends InventoryType>(
 
     const totalPages = Math.ceil(total / pageSize);
     return {
-      type: options.type,
       items: rows.map(mapConsumableRow) as InventoryItemByType[T][],
       pagination: {
         page,
@@ -301,7 +298,6 @@ export async function getPaginatedInventoryByType<T extends InventoryType>(
 
   const totalPages = Math.ceil(total / pageSize);
   return {
-    type: options.type,
     items: pagedRows.map(mapMaterialRow) as InventoryItemByType[T][],
     pagination: {
       page,

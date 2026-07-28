@@ -114,16 +114,8 @@ function OpenSectTaskSubmissionDialog({
       onClose={onClose}
       onRetry={() => void load(page)}
       onConfirm={async (items) => {
-        const first = items[0];
-        if (!first) return;
-        const result = await execute(
-          task,
-          action,
-          requirement.kind === 'material'
-            ? { items }
-            : { itemId: first.itemId, quantity: requirement.quantity },
-          undefined,
-        );
+        if (items.length === 0) return;
+        const result = await execute(task, action, { items }, undefined);
         if (!result) return;
         const claimAction = result.primaryTask.actions.find(
           (candidate) => candidate.key === 'claim' && candidate.enabled,

@@ -177,6 +177,7 @@ function hydrateRolledAffix(
   stored: StoredAffixSlim,
   def: AffixDefinition,
 ): RolledAffix {
+  const modifierSelections = normalizeModifierSelections(stored);
   return {
     id: def.id,
     name: def.displayName,
@@ -185,19 +186,25 @@ function hydrateRolledAffix(
     rarity: def.rarity,
     match: def.match,
     tags: flattenAffixMatcherTags(def.match),
-    grantedAbilityTags: def.grantedAbilityTags,
+    ...(def.grantedAbilityTags
+      ? { grantedAbilityTags: def.grantedAbilityTags }
+      : {}),
     weight: def.weight,
     energyCost: def.energyCost,
-    exclusiveGroup: def.exclusiveGroup,
-    applicableArtifactSlots: def.applicableArtifactSlots,
-    targetPolicyConstraint: def.targetPolicyConstraint,
-    globalUnique: def.globalUnique,
+    ...(def.exclusiveGroup ? { exclusiveGroup: def.exclusiveGroup } : {}),
+    ...(def.applicableArtifactSlots
+      ? { applicableArtifactSlots: def.applicableArtifactSlots }
+      : {}),
+    ...(def.targetPolicyConstraint
+      ? { targetPolicyConstraint: def.targetPolicyConstraint }
+      : {}),
+    ...(def.globalUnique ? { globalUnique: def.globalUnique } : {}),
     effectTemplate: def.effectTemplate,
     rollScore: stored.rollScore,
     rollEfficiency: stored.rollEfficiency,
     finalMultiplier: stored.finalMultiplier,
     isPerfect: stored.isPerfect,
-    modifierSelections: normalizeModifierSelections(stored),
+    ...(modifierSelections ? { modifierSelections } : {}),
   };
 }
 

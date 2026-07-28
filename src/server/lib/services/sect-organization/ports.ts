@@ -184,7 +184,10 @@ export interface SectMemberRecord {
 }
 
 export interface SectTaskReadRepository {
-  list(membershipId: string): Promise<SectTaskRecord[]>;
+  list(
+    membershipId: string,
+    periodKeys: readonly string[],
+  ): Promise<SectTaskRecord[]>;
   find(
     membershipId: string,
     periodKey: string,
@@ -454,13 +457,19 @@ export interface SectConstructionReadRepository {
 }
 
 export interface SectConstructionRepository extends SectConstructionReadRepository {
+  lockActiveProject(
+    sectId: string,
+  ): Promise<SectConstructionProjectRecord | null>;
   createProject(input: {
     sectId: string;
     facilityKey: string;
     targetLevel: number;
     target: number;
     startedWeekKey: string;
-  }): Promise<SectConstructionProjectRecord | null>;
+  }): Promise<{
+    project: SectConstructionProjectRecord | null;
+    created: boolean;
+  }>;
   saveProjectProgress(
     projectId: string,
     progress: number,

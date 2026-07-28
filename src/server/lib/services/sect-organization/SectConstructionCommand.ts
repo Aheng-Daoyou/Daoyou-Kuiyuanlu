@@ -1,5 +1,5 @@
 import { sectOrganizationFacade } from '.';
-import { createPostgresSectConstructionContext } from './PostgresSectOrganizationAdapters';
+import { createPostgresSectConstructionCommandContext } from './PostgresSectOrganizationAdapters';
 import {
   executeSectPlayerCommand,
   type SectCommandArgs,
@@ -20,7 +20,7 @@ export function executeSectConstructionDonationCommand(
         itemId: args.itemId,
         quantity: args.quantity,
       },
-      createPostgresSectConstructionContext({
+      createPostgresSectConstructionCommandContext({
         q: tx,
         runtime: args.runtime,
       }),

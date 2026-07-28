@@ -4,7 +4,7 @@ import type { RealmStage, RealmType } from '@shared/types/constants';
 import { eq } from 'drizzle-orm';
 import { SectError } from '../SectError';
 import { sectOrganizationFacade } from '.';
-import { createPostgresSectMembershipContext } from './PostgresSectOrganizationAdapters';
+import { createPostgresSectMembershipCommandContext } from './PostgresSectOrganizationAdapters';
 import {
   executeSectPlayerCommand,
   type SectCommandArgs,
@@ -22,7 +22,10 @@ export function executeSectPromotionCommand(args: SectCommandArgs) {
         realm: cultivator.realm as RealmType,
         realm_stage: cultivator.realm_stage as RealmStage,
       },
-      createPostgresSectMembershipContext({ q: tx, runtime: args.runtime }),
+      createPostgresSectMembershipCommandContext({
+        q: tx,
+        runtime: args.runtime,
+      }),
     );
   });
 }

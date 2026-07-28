@@ -4,6 +4,7 @@ import {
   deserializeAndRehydrate,
   serializeProductModel,
 } from '@shared/engine/creation-v2/persistence/ProductPersistenceMapper';
+import { z } from 'zod';
 
 describe('ProductRehydrator', () => {
   it('rebuilds skill battleProjection from productModel only', () => {
@@ -33,6 +34,20 @@ describe('ProductRehydrator', () => {
     expect(rehydrated.battleProjection.effects).toHaveLength(
       model.battleProjection.effects.length,
     );
+  });
+
+  it('returns a JSON-safe runtime model without explicit undefined fields', () => {
+    const model = composeProductFromAffixIds({
+      productType: 'artifact',
+      element: '金',
+      name: '无漏法器',
+      affixIds: ['artifact-panel-atk'],
+      requestedSlot: 'accessory',
+    });
+
+    const rehydrated = deserializeAndRehydrate(serializeProductModel(model));
+
+    expect(z.json().safeParse(rehydrated).success).toBe(true);
   });
 
   it('preserves enemy pacing context when rebuilding skill battleProjection', () => {

@@ -24,9 +24,9 @@ import {
 } from '@server/lib/services/ResourceReadService';
 import { sectOrganizationFacade } from '@server/lib/services/sect-organization';
 import {
-  createPostgresSectConstructionContext,
+  createPostgresSectConstructionQueryContext,
   createPostgresSectEconomyContext,
-  createPostgresSectMembershipContext,
+  createPostgresSectMembershipQueryContext,
   createPostgresSectQueryContext,
 } from '@server/lib/services/sect-organization/PostgresSectOrganizationAdapters';
 import { SectError } from '@server/lib/services/SectError';
@@ -203,7 +203,7 @@ export function createSectsRouter(
               data:
                 await sectOrganizationFacade.membership.getInfrastructureResource(
                   ref.cultivatorId,
-                  createPostgresSectMembershipContext({ q, runtime }),
+                  createPostgresSectMembershipQueryContext({ q, runtime }),
                 ),
             };
           },
@@ -248,7 +248,7 @@ export function createSectsRouter(
       const data =
         await sectOrganizationFacade.membership.getStipendResource(
           ref.cultivatorId,
-          createPostgresSectMembershipContext({ q, runtime }),
+          createPostgresSectMembershipQueryContext({ q, runtime }),
         );
       return c.json(
         { success: true as const, data },
@@ -284,7 +284,7 @@ export function createSectsRouter(
               realm: cultivator.realm as RealmType,
               realm_stage: cultivator.realm_stage as RealmStage,
             },
-            createPostgresSectMembershipContext({ q, runtime }),
+            createPostgresSectMembershipQueryContext({ q, runtime }),
           );
         return c.json({ success: true as const, data });
       } catch (error) {
@@ -388,7 +388,7 @@ export function createSectsRouter(
                 data:
                   await sectOrganizationFacade.construction.getConstructionBoard(
                     ref.cultivatorId,
-                    createPostgresSectConstructionContext({ q, runtime }),
+                    createPostgresSectConstructionQueryContext({ q, runtime }),
                   ),
               };
             },
@@ -415,7 +415,7 @@ export function createSectsRouter(
             (q) =>
               sectOrganizationFacade.construction.getConstructionMember(
                 ref.cultivatorId,
-                createPostgresSectConstructionContext({ q, runtime }),
+                createPostgresSectConstructionQueryContext({ q, runtime }),
               ),
           ),
         );
@@ -452,7 +452,7 @@ export function createSectsRouter(
                   ref.cultivatorId,
                   query.page,
                   query.pageSize,
-                  createPostgresSectMembershipContext({ q, runtime }),
+                  createPostgresSectMembershipQueryContext({ q, runtime }),
                 ),
               };
             },

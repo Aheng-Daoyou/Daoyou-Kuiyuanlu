@@ -14,7 +14,7 @@ import {
   sectTaskRecords,
 } from '@server/lib/drizzle/schema';
 import type { SectDiscipleRank, SectOffice } from '@shared/engine/sect';
-import { and, asc, count, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 
 export async function ensureSectFacilities(
   sectId: string,
@@ -110,10 +110,18 @@ export async function createSectProject(
     target: number;
     startedWeekKey: string;
   },
-  q: DbExecutor | DbTransaction,
+  q: DbTransaction,
 ) {
-  await q.insert(sectConstructionProjects).values(input).onConflictDoNothing();
-  return findActiveSectProject(input.sectId, q);
+  const [created] = await q
+    .insert(sectConstructionProjects)
+    .values(input)
+    .onConflictDoNothing()
+    .returning();
+  if (created) return { project: created, created: true };
+  return {
+    project: await findActiveSectProject(input.sectId, q),
+    created: false,
+  };
 }
 
 export async function countRecentlyActiveSectMembers(
@@ -266,12 +274,19 @@ export async function promoteSectMembership(
 
 export async function listSectTaskRecords(
   membershipId: string,
+  periodKeys: readonly string[],
   q: DbExecutor | DbTransaction,
 ) {
+  if (periodKeys.length === 0) return [];
   return q
     .select()
     .from(sectTaskRecords)
-    .where(eq(sectTaskRecords.membershipId, membershipId))
+    .where(
+      and(
+        eq(sectTaskRecords.membershipId, membershipId),
+        inArray(sectTaskRecords.periodKey, [...new Set(periodKeys)]),
+      ),
+    )
     .orderBy(desc(sectTaskRecords.createdAt));
 }
 
@@ -302,7 +317,7 @@ export async function createSectTaskRecord(
     kind: 'daily' | 'weekly' | 'promotion';
     periodKey: string;
     progress?: number;
-    payload?: Record<string, unknown>;
+    payload: Record<string, unknown>;
   },
   tx: DbTransaction,
 ) {
@@ -311,7 +326,7 @@ export async function createSectTaskRecord(
     .values({
       ...input,
       progress: input.progress ?? 0,
-      payload: input.payload ?? {},
+      payload: input.payload,
     })
     .onConflictDoNothing()
     .returning();
@@ -384,7 +399,7 @@ export async function upsertSectTaskProgress(
     progress: number;
     target: number;
     completed: boolean;
-    payload?: Record<string, unknown>;
+    payload: Record<string, unknown>;
   },
   tx: DbTransaction,
 ) {
@@ -396,7 +411,7 @@ export async function upsertSectTaskProgress(
       kind: input.kind,
       periodKey: input.periodKey,
       progress: input.progress,
-      payload: input.payload ?? { target: input.target },
+      payload: input.payload,
       status: input.completed ? 'completed' : 'active',
       completedAt: input.completed ? new Date() : null,
     })
@@ -408,7 +423,7 @@ export async function upsertSectTaskProgress(
       ],
       set: {
         progress: input.progress,
-        payload: input.payload ?? { target: input.target },
+        payload: input.payload,
         status: input.completed ? 'completed' : 'active',
         completedAt: input.completed ? new Date() : null,
         updatedAt: new Date(),

@@ -29,7 +29,9 @@ export const SectTaskOfferSnapshotSchema = z
   })
   .strict();
 
-export type SectTaskOfferSnapshot = z.infer<typeof SectTaskOfferSnapshotSchema>;
+export type SectTaskOfferSnapshot = z.infer<
+  typeof SectTaskOfferSnapshotSchema
+>;
 
 export const SectSubmittedItemSnapshotSchema = z
   .object({
@@ -46,27 +48,28 @@ export type SectSubmittedItemSnapshot = z.infer<
   typeof SectSubmittedItemSnapshotSchema
 >;
 
+const SectTaskCompletionDataSchema = z
+  .object({
+    submittedItems: z
+      .array(SectSubmittedItemSnapshotSchema)
+      .min(1)
+      .max(99),
+  })
+  .strict();
+
 export const SectTaskRecordPayloadSchema = z
   .object({
     schemaVersion: z.literal(2),
     target: z.number().int().positive(),
     offer: SectTaskOfferSnapshotSchema,
     executorData: z.record(z.string(), z.unknown()),
-    completionData: z
-      .object({
-        submittedItem: SectSubmittedItemSnapshotSchema.optional(),
-        submittedItems: z
-          .array(SectSubmittedItemSnapshotSchema)
-          .min(1)
-          .max(99)
-          .optional(),
-      })
-      .strict()
-      .optional(),
+    completionData: SectTaskCompletionDataSchema.optional(),
   })
   .strict();
 
-export type SectTaskRecordPayload = z.infer<typeof SectTaskRecordPayloadSchema>;
+export type SectTaskRecordPayload = z.infer<
+  typeof SectTaskRecordPayloadSchema
+>;
 
 export function createSectTaskOfferSnapshot(input: {
   rulesVersion: number;

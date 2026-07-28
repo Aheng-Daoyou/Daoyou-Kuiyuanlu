@@ -31,7 +31,7 @@ import {
 import { systemCommandExecutor } from '@server/lib/services/CommandExecutors';
 import { sendWeeklyRankingRewardCommand } from '@server/lib/services/RankingApplicationService';
 import { sectOrganizationFacade } from '@server/lib/services/sect-organization';
-import { createPostgresSectConstructionContext } from '@server/lib/services/sect-organization/PostgresSectOrganizationAdapters';
+import { createPostgresSectConstructionCommandContext } from '@server/lib/services/sect-organization/PostgresSectOrganizationAdapters';
 import { towerEnemySetService } from '@server/lib/tower/enemySets';
 import { productionSectRuntime } from '@shared/engine/sect/content';
 import { RANKING_REWARDS, REALM_VALUES } from '@shared/types/constants';
@@ -316,7 +316,7 @@ export async function runSectConstructionWeeklyJob(): Promise<CronJobResult> {
         command: (tx) =>
           sectOrganizationFacade.construction.ensureWeeklyProjectCommand(
             sectId,
-            createPostgresSectConstructionContext({
+            createPostgresSectConstructionCommandContext({
               q: tx,
               runtime: productionSectRuntime,
             }),

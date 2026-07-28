@@ -1,4 +1,8 @@
-import type { SectTaskActionOutcome } from '@shared/contracts/sect';
+import {
+  SectTaskSubmissionInputSchema,
+  type SectTaskActionOutcome,
+  type SectTaskSubmissionInput,
+} from '@shared/contracts/sect';
 import {
   describeSectDeliveryRequirement,
   matchSectDeliveryRequirement,
@@ -76,26 +80,6 @@ function invalid(message: string, status = 400): never {
 }
 
 const emptyInput = z.object({}).strict();
-const deliveryInput = z.object({
-  itemId: z.string().uuid(),
-  quantity: z.number().int().positive().max(99).default(1),
-});
-const materialDeliveryInput = z.object({
-  items: z
-    .array(
-      z.object({
-        itemId: z.string().uuid(),
-        quantity: z.number().int().positive().max(99),
-      }),
-    )
-    .min(1)
-    .max(99)
-    .refine(
-      (items) =>
-        new Set(items.map((item) => item.itemId)).size === items.length,
-      '同一份材料不能重复选择',
-    ),
-});
 const sweepCompleteInput = z.object({
   sessionId: z.string().uuid(),
   rulesVersion: z.number().int().positive(),
@@ -286,14 +270,12 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
   }
 }
 
-type DeliveryInput = z.infer<typeof deliveryInput>;
-
-abstract class DeliveryTaskExecutor<
-  TInput = DeliveryInput,
-> extends BaseTaskExecutor<TInput> {
+abstract class DeliveryTaskExecutor extends BaseTaskExecutor<
+  SectTaskSubmissionInput
+> {
   protected abstract readonly itemKind: 'pill' | 'artifact' | 'material';
-  inputSchema(): ZodType<TInput> {
-    return deliveryInput as unknown as ZodType<TInput>;
+  inputSchema(): ZodType<SectTaskSubmissionInput> {
+    return SectTaskSubmissionInputSchema;
   }
   actions(
     definition: SectTaskDefinition,
@@ -315,23 +297,26 @@ abstract class DeliveryTaskExecutor<
   }
   protected completedPayload(
     context: SectTaskExecutionContext,
-    item: SectSubmissionItemFacts | null,
-    quantity: number,
+    selections: readonly {
+      item: SectSubmissionItemFacts;
+      quantity: number;
+    }[],
   ): SectTaskRecordPayload {
-    if (!item) invalid('交付物品不存在');
+    if (selections.length === 0) invalid('交付物品不存在');
+    const matchedFact = describeSectDeliveryRequirement(
+      this.requirement(context.record),
+    );
     return SectTaskRecordPayloadSchema.parse({
       ...context.record.payload,
       completionData: {
-        submittedItem: {
+        submittedItems: selections.map(({ item, quantity }) => ({
           itemId: item.id,
           kind: item.kind,
           name: item.name,
           quality: item.quality,
           quantity,
-          matchedFacts: [
-            describeSectDeliveryRequirement(this.requirement(context.record)),
-          ],
-        },
+          matchedFacts: [matchedFact],
+        })),
       },
     });
   }
@@ -343,16 +328,21 @@ export class PillDeliveryTaskExecutor extends DeliveryTaskExecutor {
   async execute(
     actionKey: string,
     context: SectTaskExecutionContext,
-    input: DeliveryInput,
+    input: SectTaskSubmissionInput,
   ): Promise<SectTaskExecutionDecision> {
     if (actionKey !== 'execute') invalid('丹药交付不支持该操作');
     const requirement = this.requirement(context.record);
-    if (input.quantity !== requirement.quantity)
+    const selection = input.items[0];
+    if (
+      input.items.length !== 1 ||
+      !selection ||
+      selection.quantity !== requirement.quantity
+    )
       invalid(`该委托须一次提交 ${requirement.quantity} 份`);
     const item = await context.ports.submissionInventory.findSubmissionItem(
       context.cultivatorId,
       'pill',
-      input.itemId,
+      selection.itemId,
     );
     if (!item) invalid('未找到所选丹药');
     const match = matchSectDeliveryRequirement(requirement, item);
@@ -363,14 +353,16 @@ export class PillDeliveryTaskExecutor extends DeliveryTaskExecutor {
         cultivatorId: context.cultivatorId,
         kind: 'pill',
         itemId: item.id,
-        quantity: requirement.quantity,
+        quantity: selection.quantity,
       });
     if (!settlement.consumed) invalid('丹药数量不足');
     const effects = inventorySettlementEffects(settlement);
     return {
       completed: true,
       completionSettlement: 'claim-reward',
-      payload: this.completedPayload(context, item, requirement.quantity),
+      payload: this.completedPayload(context, [
+        { item, quantity: selection.quantity },
+      ]),
       outcome: { renderer: 'sect.outcome.fulfilled', data: { success: true } },
       effects,
     };
@@ -383,14 +375,21 @@ export class ArtifactDeliveryTaskExecutor extends DeliveryTaskExecutor {
   async execute(
     actionKey: string,
     context: SectTaskExecutionContext,
-    input: DeliveryInput,
+    input: SectTaskSubmissionInput,
   ): Promise<SectTaskExecutionDecision> {
     if (actionKey !== 'execute') invalid('法宝交付不支持该操作');
     const requirement = this.requirement(context.record);
+    const selection = input.items[0];
+    if (
+      input.items.length !== 1 ||
+      !selection ||
+      selection.quantity !== requirement.quantity
+    )
+      invalid(`该委托须一次提交 ${requirement.quantity} 件`);
     const item = await context.ports.submissionInventory.findSubmissionItem(
       context.cultivatorId,
       'artifact',
-      input.itemId,
+      selection.itemId,
     );
     if (!item) invalid('未找到该法宝');
     const match = matchSectDeliveryRequirement(requirement, item);
@@ -401,32 +400,29 @@ export class ArtifactDeliveryTaskExecutor extends DeliveryTaskExecutor {
         cultivatorId: context.cultivatorId,
         kind: 'artifact',
         itemId: item.id,
-        quantity: 1,
+        quantity: selection.quantity,
       });
     if (!settlement.consumed) invalid('法宝状态已变化，请重试');
     const effects = inventorySettlementEffects(settlement);
     return {
       completed: true,
       completionSettlement: 'claim-reward',
-      payload: this.completedPayload(context, item, 1),
+      payload: this.completedPayload(context, [
+        { item, quantity: selection.quantity },
+      ]),
       outcome: { renderer: 'sect.outcome.fulfilled', data: { success: true } },
       effects,
     };
   }
 }
 
-export class MaterialDeliveryTaskExecutor extends DeliveryTaskExecutor<
-  z.infer<typeof materialDeliveryInput>
-> {
+export class MaterialDeliveryTaskExecutor extends DeliveryTaskExecutor {
   readonly key = 'sect.delivery.material';
   protected readonly itemKind = 'material' as const;
-  inputSchema(): ZodType<z.infer<typeof materialDeliveryInput>> {
-    return materialDeliveryInput;
-  }
   async execute(
     actionKey: string,
     context: SectTaskExecutionContext,
-    input: z.infer<typeof materialDeliveryInput>,
+    input: SectTaskSubmissionInput,
   ): Promise<SectTaskExecutionDecision> {
     if (actionKey !== 'execute') invalid('材料交付不支持该操作');
     const requirement = this.requirement(context.record);
@@ -464,19 +460,7 @@ export class MaterialDeliveryTaskExecutor extends DeliveryTaskExecutor<
     return {
       completed: true,
       completionSettlement: 'claim-reward',
-      payload: SectTaskRecordPayloadSchema.parse({
-        ...context.record.payload,
-        completionData: {
-          submittedItems: selections.map(({ item, quantity }) => ({
-            itemId: item.id,
-            kind: item.kind,
-            name: item.name,
-            quality: item.quality,
-            quantity,
-            matchedFacts: [describeSectDeliveryRequirement(requirement)],
-          })),
-        },
-      }),
+      payload: this.completedPayload(context, selections),
       outcome: { renderer: 'sect.outcome.fulfilled', data: { success: true } },
       effects,
     };
