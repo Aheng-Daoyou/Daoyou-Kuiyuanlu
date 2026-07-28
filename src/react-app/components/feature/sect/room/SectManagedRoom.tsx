@@ -23,7 +23,7 @@ export function SectManagedRoom({
   room,
   registry,
   eyebrow,
-  prompt = '点击人物，与其交谈',
+  prompt,
   selection,
 }: SectManagedRoomProps) {
   const [internalRoleKey, setInternalRoleKey] = useState<string>();
@@ -39,6 +39,7 @@ export function SectManagedRoom({
         name: actor.name,
         identity: actor.identity,
         responsibility: actor.responsibility,
+        appearance: actor.appearance,
       })) ?? [],
     [room],
   );
@@ -84,7 +85,12 @@ export function SectManagedRoom({
         const actor = room.actors.find((candidate) => candidate.id === actorId);
         if (actor) setSelectedRoleKey(actor.roleKey);
       }}
-      prompt={prompt}
+      prompt={
+        prompt ??
+        (room.actors.some((actor) => actor.appearance === 'facility')
+          ? '点击人物或设施，查看详情'
+          : '点击人物，与其交谈')
+      }
       detail={
         selectedActor ? (
           renderer ? (
@@ -107,7 +113,10 @@ export function SectManagedRoom({
               options={[
                 {
                   id: 'leave',
-                  label: '弟子告退',
+                  label:
+                    selectedActor.appearance === 'facility'
+                      ? '返回房间'
+                      : '弟子告退',
                   tone: 'muted',
                 },
               ]}

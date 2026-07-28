@@ -436,7 +436,12 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'wuxiang-shouyu',
           name: '慧海',
-          greeting: '窟中今日平稳，你想查问近况，还是接手巡视？',
+          greeting: '窟中今日平稳，巡视封签已经放在案前。',
+        },
+        facility: {
+          id: 'wuxiang-guyu-ku',
+          name: '骨玉窟',
+          greeting: '白色矿髓沿黑岩静静生长，窟中脉息未见异动。',
         },
       },
     },
@@ -445,7 +450,12 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'wuxiang-huilian',
           name: '行愿',
-          greeting: '池水无波，草木各循时生长，你想问哪一处？',
+          greeting: '池水无波，草木各循时生长，今日长势已经记下。',
+        },
+        facility: {
+          id: 'wuxiang-xuelian-chi',
+          name: '血莲池',
+          greeting: '暗红池水静映晨光，莲叶托着露珠缓缓舒展。',
         },
       },
     },
@@ -454,7 +464,12 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'wuxiang-mingmen',
           name: '道安禅师',
-          greeting: '钟声已过，今日勤务与山门近况都可在此问。',
+          greeting: '钟声已过，今日来往与山门近况都可在此问。',
+        },
+        facility: {
+          id: 'wuxiang-buer-men',
+          name: '不二门',
+          greeting: '未合的圆环立在雾中，门前石阶散着新落的叶片。',
         },
       },
     },

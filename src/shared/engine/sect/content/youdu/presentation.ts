@@ -431,7 +431,12 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'youdu-tingyin',
           name: '贺寒川',
-          greeting: '矿道里没有异动，你想问近况，还是接手巡视？',
+          greeting: '矿道里没有异动，巡视封签已经备妥。',
+        },
+        facility: {
+          id: 'youdu-heishui-yinmai',
+          name: '黑水阴脉',
+          greeting: '湿冷岩层间灵光幽微，黑水映不出矿壁的深处。',
         },
       },
     },
@@ -440,7 +445,12 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'youdu-bianhua',
           name: '柳十三',
-          greeting: '两岸花叶都安稳，你想细问哪一处？',
+          greeting: '两岸花叶都安稳，今日长势已经记入值录。',
+        },
+        facility: {
+          id: 'youdu-bian-pu',
+          name: '彼岸圃',
+          greeting: '深色花叶沿黑水两岸舒展，水气停在叶尖未散。',
         },
       },
     },
@@ -449,7 +459,12 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'youdu-shouguan',
           name: '顾长夜',
-          greeting: '关前今日无事，勤务与来往记录都在这里。',
+          greeting: '关前今日无事，来往记录都已经归拢。',
+        },
+        facility: {
+          id: 'youdu-wuri-guan',
+          name: '无日关',
+          greeting: '三盏魂灯照着关前石路，阶上落叶仍待清理。',
         },
       },
     },

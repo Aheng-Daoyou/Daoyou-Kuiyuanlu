@@ -1,11 +1,13 @@
 import { cn } from '@shared/lib/cn';
 import type { ReactNode } from 'react';
+import type { RoomActorAppearance } from './RoomView';
 
 export interface NpcConversationActor {
   sigil: string;
   name: string;
   identity: string;
   responsibility: string;
+  appearance?: RoomActorAppearance;
 }
 
 export interface NpcConversationMessage {
@@ -51,12 +53,18 @@ export function NpcConversation({
   actions,
   onSelectOption,
 }: NpcConversationProps) {
+  const appearance = actor.appearance ?? 'person';
   return (
     <div className="grid min-h-[34rem] md:grid-cols-[13rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)]">
       <aside className="border-ink/10 bg-ink/[0.025] flex items-center gap-4 border-b px-5 py-4 md:flex-col md:justify-start md:border-r md:border-b-0 md:px-6 md:pt-14 md:text-center">
         <span
           aria-hidden="true"
-          className="font-heading text-ink w-16 shrink-0 text-center text-[3.75rem] leading-none md:w-auto md:text-[5.75rem]"
+          className={cn(
+            'text-ink w-16 shrink-0 text-center leading-none md:w-auto',
+            appearance === 'facility'
+              ? 'text-[3rem] md:text-[4.5rem]'
+              : 'font-heading text-[3.75rem] md:text-[5.75rem]',
+          )}
         >
           {actor.sigil}
         </span>
@@ -85,7 +93,7 @@ export function NpcConversation({
                 messageToneClass[message.tone ?? 'normal'],
               )}
             >
-              {message.speaker ? (
+              {message.speaker && appearance === 'person' ? (
                 <>
                   <span className="sr-only">{message.speaker}：</span>
                   <span aria-hidden="true">“</span>

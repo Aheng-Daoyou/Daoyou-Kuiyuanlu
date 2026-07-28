@@ -7,6 +7,7 @@ export {
 } from './NpcConversation';
 export {
   RoomView,
+  type RoomActorAppearance,
   type RoomActorStatusTone,
   type RoomActorView,
   type RoomViewProps,

@@ -2,6 +2,7 @@ import { cn } from '@shared/lib/cn';
 import { useEffect, useRef, type ReactNode } from 'react';
 
 export type RoomActorStatusTone = 'neutral' | 'active' | 'attention' | 'muted';
+export type RoomActorAppearance = 'person' | 'facility';
 
 export interface RoomActorView {
   id: string;
@@ -9,6 +10,7 @@ export interface RoomActorView {
   name: string;
   identity: string;
   responsibility: string;
+  appearance?: RoomActorAppearance;
   status?: {
     label: string;
     tone?: RoomActorStatusTone;
@@ -80,11 +82,16 @@ export function RoomView({
           </header>
 
           <div
-            aria-label="房间中的人物"
-            className="mx-auto my-10 grid w-full max-w-3xl flex-1 grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),16rem))] content-center justify-center gap-5 sm:gap-6"
+            aria-label={
+              actors.some((actor) => actor.appearance === 'facility')
+                ? '房间中的人物与设施'
+                : '房间中的人物'
+            }
+            className="mx-auto my-8 grid w-full max-w-3xl flex-1 grid-cols-2 content-center gap-3 sm:my-9 md:grid-cols-3 md:gap-4"
           >
             {actors.map((actor) => {
               const tone = actor.status?.tone ?? 'neutral';
+              const appearance = actor.appearance ?? 'person';
               return (
                 <button
                   key={actor.id}
@@ -92,30 +99,35 @@ export function RoomView({
                   disabled={actor.disabled}
                   onClick={() => onSelect(actor.id)}
                   className={cn(
-                    'border-ink/20 hover:border-crimson/35 focus-visible:outline-crimson group flex min-h-48 w-full flex-col items-center justify-center border border-dashed px-4 py-6 text-center transition-[color,border-color,background-color,transform] focus-visible:outline-2 focus-visible:outline-offset-4 sm:min-h-64',
-                    'cursor-pointer hover:bg-[rgba(248,243,230,0.6)] sm:hover:-translate-y-0.5',
+                    'border-ink/20 hover:border-crimson/35 focus-visible:outline-crimson group flex min-h-40 w-full min-w-0 flex-col items-center justify-center border border-dashed px-3 py-4 text-center transition-[color,border-color,background-color,transform] focus-visible:outline-2 focus-visible:outline-offset-4 md:min-h-48 md:px-4 md:py-5',
+                    'cursor-pointer hover:bg-[rgba(248,243,230,0.6)] md:hover:-translate-y-0.5',
                     actor.disabled && 'cursor-not-allowed opacity-50',
                   )}
                 >
                   <span
                     aria-hidden="true"
-                    className="font-heading text-ink group-hover:text-crimson text-[4.5rem] leading-none transition-colors sm:text-[5.25rem]"
+                    className={cn(
+                      'text-ink group-hover:text-crimson leading-none transition-colors',
+                      appearance === 'facility'
+                        ? 'text-[2.75rem] md:text-[3.25rem]'
+                        : 'font-heading text-[3.25rem] md:text-[3.75rem]',
+                    )}
                   >
                     {actor.sigil}
                   </span>
-                  <strong className="text-ink mt-4 text-lg font-normal sm:text-xl">
+                  <strong className="text-ink mt-3 min-w-0 max-w-full text-base font-normal break-words md:text-lg">
                     {actor.name}
                   </strong>
-                  <span className="text-ink-secondary mt-1 text-sm">
+                  <span className="text-ink-secondary mt-1 text-xs md:text-sm">
                     {actor.identity}
                   </span>
-                  <span className="text-ink-secondary mt-3 text-xs leading-5">
+                  <span className="text-ink-secondary mt-2 text-xs leading-5">
                     {actor.responsibility}
                   </span>
                   {actor.status ? (
                     <span
                       className={cn(
-                        'mt-4 flex items-center gap-2 text-sm',
+                        'mt-3 flex items-center gap-2 text-xs md:text-sm',
                         statusToneClass[tone],
                       )}
                     >

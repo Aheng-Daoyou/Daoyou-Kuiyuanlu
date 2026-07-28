@@ -42,6 +42,7 @@ export interface SectScenePresentation {
 }
 
 export type SectAffairsTaskKind = 'daily' | 'weekly' | 'promotion';
+export type SectRoomActorAppearance = 'person' | 'facility';
 
 export interface SectRoomNpcPresentation {
   id: string;
@@ -50,6 +51,7 @@ export interface SectRoomNpcPresentation {
   identity: string;
   responsibility: string;
   greeting: string;
+  appearance: SectRoomActorAppearance;
 }
 
 export interface SectRoomConversationDefinition {
@@ -350,6 +352,7 @@ const roomActor = (
   renderer: string,
   parameters?: Readonly<Record<string, unknown>>,
   id = roleKey,
+  appearance: SectRoomActorAppearance = 'person',
 ): SectRoomActorDefinition => ({
   roleKey,
   id,
@@ -358,6 +361,7 @@ const roomActor = (
   identity,
   responsibility,
   greeting,
+  appearance,
   conversation: { renderer, parameters },
 });
 
@@ -583,23 +587,35 @@ const STANDARD_ROOMS: Readonly<Record<string, SectRoomDefinition>> =
     },
     spiritVein: {
       key: 'spiritVein',
-      description: '矿道灵辉沿岩隙流转，守脉执事在井口查验脉息与巡逻封签。',
+      description: '矿道灵辉沿岩隙流转，守脉执事在井口整理今日的巡视封签。',
       actors: [
         roomActor(
           'keeper',
           '脉',
           '守脉执事',
           '守脉执事',
-          '负责灵脉状态与矿场巡视。',
-          '矿道脉息尚稳。你是来查问灵脉，还是接手巡视？',
+          '负责矿场巡视交接。',
+          '今日巡视封签已经备好，你若领了矿场差事便来核对。',
+          'sect.spirit-vein.patrol',
+          {
+            locationKey: 'sect.spirit-vein',
+          },
+        ),
+        roomActor(
+          'facility',
+          '⛏️',
+          '宗门灵脉',
+          '宗门设施',
+          '查看设施等级与灵石收益。',
+          '矿壁中的灵辉依旧沿岩隙缓缓流转。',
           'sect.spirit-vein.status',
           {
             facilityKey: 'spirit_vein',
             effectKey: 'spirit_vein',
-            locationKey: 'sect.spirit-vein',
-            statusReply: '请执事说说灵脉近况',
             detail: '灵石收益会随周俸一并核算，无需在矿场另行采收。',
           },
+          'spirit-vein-facility',
+          'facility',
         ),
       ],
     },
@@ -612,13 +628,11 @@ const STANDARD_ROOMS: Readonly<Record<string, SectRoomDefinition>> =
           '药',
           '药园执事',
           '药园执事',
-          '负责药田状态与周期产出。',
-          '今日草木长势平稳。你想问药田灵效，还是看看近况？',
-          'sect.herb-garden.status',
+          '负责草木长势与周期产出。',
+          '今日草木长势平稳，田间近况都已记在值录中。',
+          'sect.herb-garden.caretaker',
           {
             facilityKey: 'herb_garden',
-            effectKey: 'herb_garden',
-            statusReply: '请执事说说药田近况',
             detail: '成熟灵草会随周俸一并发放，无需弟子另行采收。',
             stages: [
               '新畦初醒',
@@ -629,20 +643,48 @@ const STANDARD_ROOMS: Readonly<Record<string, SectRoomDefinition>> =
             ],
           },
         ),
+        roomActor(
+          'facility',
+          '🌿',
+          '宗门药田',
+          '宗门设施',
+          '查看设施等级与灵草产出。',
+          '灵泉润过畦垄，草木依照时序生长。',
+          'sect.herb-garden.status',
+          {
+            facilityKey: 'herb_garden',
+            effectKey: 'herb_garden',
+            detail: '成熟灵草会随周俸一并发放，无需弟子另行采收。',
+          },
+          'herb-garden-facility',
+          'facility',
+        ),
       ],
     },
     gate: {
       key: 'gate',
-      description: '山门内外人声往来，守山执事在门侧核对勤务与当日动静。',
+      description: '山门内外人声往来，守山执事在门侧整理当日来往记录。',
       actors: [
         roomActor(
           'keeper',
           '门',
           '守山执事',
           '守山执事',
-          '负责山门动态与现场勤务。',
-          '山门今日一切如常。你若有勤务在身，便在这里交接。',
-          'sect.gate.duties',
+          '负责山门动态与来往记录。',
+          '今日来往记录已经理清，山门内外的动静都可查问。',
+          'sect.gate.news',
+        ),
+        roomActor(
+          'facility',
+          '⛰️',
+          '宗门山门',
+          '宗门设施',
+          '进入山门步道完成清扫。',
+          '门前石阶延入山道，零落枝叶仍待清理。',
+          'sect.gate.sweep',
+          undefined,
+          'gate-facility',
+          'facility',
         ),
       ],
     },
@@ -781,6 +823,10 @@ export function resolveSectPresentation(
     const actorIds = new Set<string>();
     const roleKeys = new Set<string>();
     for (const actor of room.actors) {
+      if (actor.appearance !== 'person' && actor.appearance !== 'facility')
+        throw new Error(
+          `宗门 ${sectId} 房间 ${roomKey}.${actor.roleKey}.appearance 无效`,
+        );
       for (const field of [
         'roleKey',
         'id',

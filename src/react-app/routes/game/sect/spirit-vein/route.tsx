@@ -2,6 +2,7 @@ import {
   SectFacilityStatusConversation,
   SectNpcConversationRegistry,
   SectRoutedRoom,
+  SectTaskLocationConversation,
 } from '@app/components/feature/sect/room';
 import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
 import { SectPermissionBoundary, SectScene } from '../components/SectScene';
@@ -10,6 +11,10 @@ const registry = new SectNpcConversationRegistry([
   {
     key: 'sect.spirit-vein.status',
     renderer: SectFacilityStatusConversation,
+  },
+  {
+    key: 'sect.spirit-vein.patrol',
+    renderer: SectTaskLocationConversation,
   },
 ]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.spiritVein);
 

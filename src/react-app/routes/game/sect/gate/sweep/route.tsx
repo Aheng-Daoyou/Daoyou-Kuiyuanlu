@@ -229,7 +229,7 @@ export default function SectGateSweepPage() {
 
   const exit = async () => {
     await releaseSweepImmersiveMode();
-    navigate(createSectRoomNpcHref('/game/sect/gate', 'keeper'), {
+    navigate(createSectRoomNpcHref('/game/sect/gate', 'facility'), {
       replace: true,
     });
   };

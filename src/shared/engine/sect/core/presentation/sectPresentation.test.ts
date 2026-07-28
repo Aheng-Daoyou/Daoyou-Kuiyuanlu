@@ -19,6 +19,7 @@ describe('sect presentation affairs room', () => {
     ]);
     expect(actorByRole.daily.name).toBe('值日执事');
     expect(actorByRole.daily.sigil).toBe('执');
+    expect(actorByRole.daily.appearance).toBe('person');
     expect(actorByRole.daily.responsibility).toBe('负责日常委托。');
     expect(actorByRole.weekly.name).toBe('功簿执事');
     expect(actorByRole.weekly.sigil).toBe('簿');
@@ -46,6 +47,14 @@ describe('sect presentation affairs room', () => {
               responsibility: '负责开采。',
               conversation: { renderer: 'unsafe.renderer' },
             },
+            facility: {
+              id: 'sample-spirit-vein',
+              name: '坤元地脉',
+              greeting: '地脉沉静。',
+              sigil: '矿',
+              appearance: 'person',
+              conversation: { renderer: 'unsafe.facility-renderer' },
+            },
           },
         },
       },
@@ -59,9 +68,73 @@ describe('sect presentation affairs room', () => {
       name: '听脉人',
       greeting: '今日脉息安稳。',
       sigil: '脉',
+      appearance: 'person',
       identity: '守脉执事',
-      responsibility: '负责灵脉状态与矿场巡视。',
+      responsibility: '负责矿场巡视交接。',
+      conversation: { renderer: 'sect.spirit-vein.patrol' },
+    });
+    expect(presentation.rooms.spiritVein.actors[1]).toMatchObject({
+      id: 'sample-spirit-vein',
+      name: '坤元地脉',
+      greeting: '地脉沉静。',
+      sigil: '⛏️',
+      appearance: 'facility',
+      identity: '宗门设施',
+      responsibility: '查看设施等级与灵石收益。',
       conversation: { renderer: 'sect.spirit-vein.status' },
+    });
+  });
+
+  it('models gate, spirit vein and herb garden facilities as display variants of NPCs', () => {
+    const presentation = resolveSectPresentation('sample-sect', {
+      sectId: 'sample-sect',
+      rooms: {
+        gate: {
+          actors: {
+            facility: { name: '观象门', greeting: '云气正在门前散去。' },
+          },
+        },
+        spiritVein: {
+          actors: {
+            facility: { name: '坤元地脉', greeting: '地脉灵辉稳定。' },
+          },
+        },
+        herbGarden: {
+          actors: {
+            facility: { name: '长生圃', greeting: '灵草依时生长。' },
+          },
+        },
+      },
+    });
+
+    expect(
+      presentation.rooms.gate.actors.map((actor) => [
+        actor.roleKey,
+        actor.appearance,
+        actor.conversation.renderer,
+      ]),
+    ).toEqual([
+      ['keeper', 'person', 'sect.gate.news'],
+      ['facility', 'facility', 'sect.gate.sweep'],
+    ]);
+    expect(
+      presentation.rooms.spiritVein.actors.find(
+        (actor) => actor.roleKey === 'facility',
+      ),
+    ).toMatchObject({
+      name: '坤元地脉',
+      sigil: '⛏️',
+      appearance: 'facility',
+    });
+    expect(
+      presentation.rooms.herbGarden.actors.find(
+        (actor) => actor.roleKey === 'facility',
+      ),
+    ).toMatchObject({
+      name: '长生圃',
+      sigil: '🌿',
+      appearance: 'facility',
+      conversation: { renderer: 'sect.herb-garden.status' },
     });
   });
 
@@ -90,6 +163,18 @@ describe('sect presentation affairs room', () => {
             actors: {
               registry: { id: 'same' },
               stipend: { id: 'same' },
+            },
+          },
+        },
+      }),
+    ).toThrow('NPC ID 不可重复');
+    expect(() =>
+      resolveSectPresentation('sample-sect', {
+        sectId: 'sample-sect',
+        rooms: {
+          gate: {
+            actors: {
+              facility: { id: 'keeper' },
             },
           },
         },
@@ -159,6 +244,7 @@ describe('sect presentation affairs room', () => {
       sigil: '执',
       identity: '值日执事',
       responsibility: '负责日常委托。',
+      appearance: 'person',
     });
     expect(presentation.terms.sweepActivity).toBe('清扫山门');
     expect(presentation.terms.sweepCanvasLabel).toBe('清扫山门游戏画布');

@@ -445,7 +445,12 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'tianyan-kunyuan',
           name: '见素',
-          greeting: '今日观测未见异常，你要查看灵脉，还是开始巡视？',
+          greeting: '今日观测未见异常，矿道巡视封签已经排好。',
+        },
+        facility: {
+          id: 'tianyan-kunyuan-dimai',
+          name: '坤元地脉',
+          greeting: '厚土地脉沉在五峰之下，灵辉沿测线缓缓明灭。',
         },
       },
     },
@@ -454,7 +459,12 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'tianyan-mushi',
           name: '元吉',
-          greeting: '水位、日照与长势都已记下，你想先问哪一项？',
+          greeting: '水位、日照与长势都已记下，今日值录可以查验。',
+        },
+        facility: {
+          id: 'tianyan-changsheng-pu',
+          name: '长生圃',
+          greeting: '田垄依照水位与日照铺开，新一季灵草正在生长。',
         },
       },
     },
@@ -463,7 +473,12 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'tianyan-guanxing',
           name: '望舒',
-          greeting: '今日山门记录已经补全，勤务与近况都可查问。',
+          greeting: '今日山门记录已经补全，来往与观象结果都可查问。',
+        },
+        facility: {
+          id: 'tianyan-guanxiang-men',
+          name: '观象门',
+          greeting: '门前云气刚散，石阶上还留着昨夜风雨卷来的落叶。',
         },
       },
     },

@@ -24,7 +24,8 @@ import {
 import { requestSweepImmersiveMode } from './sweep/sweepImmersive';
 
 const registry = new SectNpcConversationRegistry([
-  { key: 'sect.gate.duties', renderer: GateConversation },
+  { key: 'sect.gate.news', renderer: GateConversation },
+  { key: 'sect.gate.sweep', renderer: GateSweepConversation },
 ]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.gate);
 
 export default function SectGatePage() {
@@ -43,28 +44,16 @@ export default function SectGatePage() {
 
 function GateConversation({ actor, onExit }: SectNpcConversationRendererProps) {
   const infrastructure = useSectInfrastructureQuery();
-  const tasks = useSectTasksQuery();
-  const navigate = useNavigate();
   const [showNews, setShowNews] = useState(false);
-  const [entering, setEntering] = useState(false);
   const session = useConversationSession({
     sessionKey: actor.id,
-    snapshot: { infrastructure: infrastructure.data, tasks: tasks.data },
+    snapshot: infrastructure.data,
     perform: async () => undefined,
-    onReset: () => {
-      setShowNews(false);
-      setEntering(false);
-    },
+    onReset: () => setShowNews(false),
   });
-  const mode = resolveSweepActivityMode(tasks.data);
   const project = infrastructure.data?.project;
   const messages: NpcConversationMessage[] = [
     { id: 'greeting', speaker: actor.name, body: actor.greeting },
-    {
-      id: 'sweep',
-      speaker: actor.name,
-      body: sweepActivityMessage(mode),
-    },
   ];
   if (showNews)
     messages.push({
@@ -75,15 +64,6 @@ function GateConversation({ actor, onExit }: SectNpcConversationRendererProps) {
         : '今日山门内外无事，宗门工程尚在议定。',
     });
   const options: NpcConversationOption[] = [
-    {
-      id: 'sweep',
-      label:
-        mode.kind === 'reward'
-          ? '弟子这就开始今日勤务'
-          : '弟子想再练一遍山门洒扫',
-      tone: mode.kind === 'reward' ? 'primary' : 'normal',
-      disabled: entering,
-    },
     { id: 'news', label: '请执事说说今日山门动静' },
     { id: 'leave', label: '弟子告退', tone: 'muted' },
   ];
@@ -92,11 +72,56 @@ function GateConversation({ actor, onExit }: SectNpcConversationRendererProps) {
       actor={actor}
       messages={messages}
       options={options}
-      busy={session.phase === 'loading' || entering}
-      error={session.error ?? infrastructure.error ?? tasks.error}
+      busy={session.phase === 'loading'}
+      error={session.error ?? infrastructure.error}
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (optionId === 'news') setShowNews(true);
+      }}
+    />
+  );
+}
+
+function GateSweepConversation({
+  actor,
+  onExit,
+}: SectNpcConversationRendererProps) {
+  const tasks = useSectTasksQuery();
+  const navigate = useNavigate();
+  const [entering, setEntering] = useState(false);
+  const session = useConversationSession({
+    sessionKey: actor.id,
+    snapshot: tasks.data,
+    perform: async () => undefined,
+    onReset: () => setEntering(false),
+  });
+  const mode = resolveSweepActivityMode(tasks.data);
+  const messages: NpcConversationMessage[] = [
+    { id: 'greeting', body: actor.greeting },
+    { id: 'sweep', body: sweepActivityMessage(mode) },
+  ];
+  const options: NpcConversationOption[] = [
+    {
+      id: 'sweep',
+      label:
+        mode.kind === 'reward'
+          ? '开始今日清扫'
+          : '进入山门步道练习清扫',
+      tone: mode.kind === 'reward' ? 'primary' : 'normal',
+      disabled: entering,
+    },
+    { id: 'leave', label: '返回房间', tone: 'muted' },
+  ];
+
+  return (
+    <NpcConversation
+      actor={actor}
+      messages={messages}
+      options={options}
+      busy={session.phase === 'loading' || entering}
+      error={session.error ?? tasks.error}
+      onSelectOption={(optionId) => {
+        if (optionId === 'leave') onExit();
         else if (optionId === 'sweep') {
           setEntering(true);
           void requestSweepImmersiveMode().then(() =>

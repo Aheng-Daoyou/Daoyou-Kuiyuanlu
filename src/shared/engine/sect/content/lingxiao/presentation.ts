@@ -446,7 +446,12 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'lingxiao-luo-tingmai',
           name: '邵沉川',
-          greeting: '矿道今日安稳，想查灵脉近况，还是接手巡视？',
+          greeting: '矿道巡视封签已经备好，有差事便在这里核对。',
+        },
+        facility: {
+          id: 'lingxiao-lingmai-kuangchang',
+          name: '灵脉矿场',
+          greeting: '矿壁间青光沿岩隙缓缓游走，脉息沉稳如常。',
         },
       },
     },
@@ -455,7 +460,12 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'lingxiao-he-caowei',
           name: '秦晚晴',
-          greeting: '晨露刚退，田里长势不错，你想先看哪一处？',
+          greeting: '晨露刚退，田里长势不错，草木值录已经写好了。',
+        },
+        facility: {
+          id: 'lingxiao-zongmen-yaotian',
+          name: '宗门药田',
+          greeting: '层层药畦顺山势铺开，灵泉正沿石渠润过根须。',
         },
       },
     },
@@ -464,7 +474,12 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
         keeper: {
           id: 'lingxiao-zhou-shanmen',
           name: '骆长亭',
-          greeting: '山下已经有人来往，今日勤务和近况都可在这里问。',
+          greeting: '山下已经有人来往，今日来客与山门动静都记在这里。',
+        },
+        facility: {
+          id: 'lingxiao-shanmen',
+          name: '山门',
+          greeting: '门外石阶一路通向山下，晨风卷来几片新落的叶子。',
         },
       },
     },

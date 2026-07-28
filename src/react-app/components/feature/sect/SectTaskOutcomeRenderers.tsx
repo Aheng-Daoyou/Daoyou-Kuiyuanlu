@@ -32,7 +32,7 @@ export function SweepSessionOutcome({
         variant="secondary"
         onClick={() =>
           interaction.navigate(
-            createSectRoomNpcHref('/game/sect/gate', 'keeper'),
+            createSectRoomNpcHref('/game/sect/gate', 'facility'),
           )
         }
       >

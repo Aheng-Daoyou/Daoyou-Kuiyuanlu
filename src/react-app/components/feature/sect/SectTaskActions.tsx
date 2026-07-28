@@ -120,7 +120,7 @@ export function SweepEntryAction({
       className={actionClassName(display)}
       disabled={busy || !action.enabled}
       onClick={() =>
-        navigate(createSectRoomNpcHref('/game/sect/gate', 'keeper'))
+        navigate(createSectRoomNpcHref('/game/sect/gate', 'facility'))
       }
     >
       {action.enabled
