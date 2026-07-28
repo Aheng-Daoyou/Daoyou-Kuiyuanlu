@@ -32,8 +32,12 @@ import {
 } from '@app/components/ui';
 import { STARTER_ALCHEMY_PROMPT } from '@app/lib/alchemy/starterAlchemy';
 import { useTaskList } from '@app/lib/hooks/useTaskList';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import {
+  useCultivatorCurrency,
+  useCultivatorIdentity,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { findNextTutorialTask } from '@app/lib/tasks/taskClient';
 import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
 import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
@@ -853,8 +857,21 @@ export type AlchemySceneProps = {
 };
 
 export function AlchemyScene({ sectContext }: AlchemySceneProps) {
-  const { cultivator, note, isLoading } = usePlayerStateView();
-  const { mutate } = usePlayerStateActions();
+  const profile = useCultivatorIdentity();
+  const currency = useCultivatorCurrency();
+  const session = usePlayerSession();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity?.id && currency.data
+      ? {
+          id: identity.id,
+          realm: identity.realm,
+          spirit_stones: currency.data.spiritStones,
+        }
+      : null;
+  const note = session.data?.note;
+  const isLoading = profile.loading || currency.loading || session.loading;
+  const { mutate } = useResourceMutation();
   const cultivatorId = cultivator?.id ?? null;
   const { tasks } = useTaskList(cultivatorId ?? undefined);
   const [activeMode, setActiveMode] = useState<AlchemyMode>('improvised');
@@ -886,7 +903,6 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
     useState(false);
   const [dialog, setDialog] = useState<InkDialogState | null>(null);
   const [celebrationTick, setCelebrationTick] = useState(0);
-  const [materialsRefreshKey, setMaterialsRefreshKey] = useState(0);
   const [previewState, setPreviewState] = useState<PreviewState>(
     DEFAULT_PREVIEW_STATE,
   );
@@ -926,7 +942,10 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
           null),
     [formulas, selectedFormulaId, selectedFormulaSnapshot],
   );
-  const nextTutorialTask = useMemo(() => findNextTutorialTask(tasks), [tasks]);
+  const nextTutorialTask = useMemo(
+    () => (tasks ? findNextTutorialTask(tasks) : null),
+    [tasks],
+  );
   const isStarterAlchemyTask =
     nextTutorialTask?.definitionId === 'tutorial_first_alchemy';
   const formulaJudgmentMap = useMemo(
@@ -1522,7 +1541,6 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
           }
           setPreviewState(DEFAULT_PREVIEW_STATE);
           clearFormulaAnalysis();
-          setMaterialsRefreshKey((prev) => prev + 1);
         } catch (error) {
           if (
             error instanceof Error &&
@@ -1791,7 +1809,7 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
               <p>
                 已投入灵材：{selectedMaterialIds.length}/{MAX_MATERIALS}
               </p>
-              <p>灵石余额：{cultivator?.spirit_stones ?? 0}</p>
+              <p>灵石余额：{cultivator?.spirit_stones ?? '读取失败'}</p>
               {estimatedSpiritStones !== null ? (
                 <p>预计耗费：{estimatedSpiritStones} 灵石</p>
               ) : null}
@@ -2059,7 +2077,6 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
         isSubmitting={isSubmitting}
         pageSize={20}
         includeMaterialTypes={[...ALLOWED_MATERIAL_TYPES] as MaterialType[]}
-        refreshKey={materialsRefreshKey}
         loadingText="正在检索储物袋中的灵材，请稍候……"
         emptyNoticeText="暂无可用于炼丹的材料。"
         totalText={(total) => `共 ${total} 份可用于炼丹的材料`}

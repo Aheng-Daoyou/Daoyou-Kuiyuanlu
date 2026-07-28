@@ -64,7 +64,7 @@ export class RealtimeClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private channelRestartTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
-  private cultivatorId: string | null = null;
+  private identityKey: string | null = null;
   private enabledChannels = new Set<RealtimeChannel>();
   private intentionallyClosedSockets = new WeakSet<WebSocket>();
   private listeners = new Map<RealtimeServerEventType, Set<(event: RealtimeServerEvent) => void>>();
@@ -102,11 +102,11 @@ export class RealtimeClient {
     }
   }
 
-  setCultivatorId(cultivatorId: string | null) {
-    if (this.cultivatorId === cultivatorId) {
+  setIdentityKey(identityKey: string | null) {
+    if (this.identityKey === identityKey) {
       return;
     }
-    this.cultivatorId = cultivatorId;
+    this.identityKey = identityKey;
     this.reconnectAttempts = 0;
     this.clearConnectTimer();
     this.clearReconnectTimer();
@@ -129,7 +129,7 @@ export class RealtimeClient {
       state: this.status.connection === 'idle' ? 'idle' : this.status.connection,
     };
     this.emitStatus();
-    if (!this.cultivatorId) {
+    if (!this.identityKey) {
       return;
     }
     if (this.connectTimer) {
@@ -144,7 +144,7 @@ export class RealtimeClient {
     }
     this.status.channels[channel] = createChannelStatus(false);
     this.emitStatus();
-    if (!this.cultivatorId) {
+    if (!this.identityKey) {
       return;
     }
     if (!this.shouldConnect()) {
@@ -305,7 +305,7 @@ export class RealtimeClient {
   }
 
   private shouldConnect() {
-    return Boolean(this.cultivatorId && this.enabledChannels.size > 0);
+    return Boolean(this.identityKey && this.enabledChannels.size > 0);
   }
 
   private closeSocket() {

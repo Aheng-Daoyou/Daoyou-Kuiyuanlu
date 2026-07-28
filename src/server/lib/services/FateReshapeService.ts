@@ -6,13 +6,11 @@ import {
   withRedisLock,
   type RedisLeaseContext,
 } from '@server/lib/redis/lock';
-import { isTalismanConsumable } from '@shared/lib/consumables';
-import type { PreHeavenFate } from '@shared/types/cultivator';
 import type {
   FateReshapeSessionDTO,
   FateReshapeSessionStore,
 } from '@shared/types/fateReshape';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import {
   getExecutor,
   type DbExecutor,
@@ -21,13 +19,15 @@ import {
 import * as schema from '../drizzle/schema';
 import { FATE_RESHAPE_CANDIDATE_COUNT } from './FateConfig';
 import { FateEngine } from './FateEngine';
-import { mapConsumableRow, type ConsumableRow } from './consumablePersistence';
+import type { ConsumableRow } from './consumablePersistence';
 import {
   consumeConsumableById,
-  getPlayerRuntimeCultivatorById,
-  getPlayerRuntimeCultivatorByIdUnsafe,
+} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
+import { findActiveCultivatorOwnerId } from '@server/lib/repositories/cultivatorRepository';
+import {
+  getPlayerPreHeavenFates,
   replacePreHeavenFates,
-} from './cultivatorService';
+} from '@server/lib/services/cultivator/CultivatorProfileRepository';
 
 const FATE_RESHAPE_SESSION_TTL_SEC = 3600;
 const FATE_RESHAPE_SCENARIO = 'fate_reshape';
@@ -156,23 +156,14 @@ async function loadMatchingTalismanRows(
       and(
         eq(schema.consumables.cultivatorId, cultivatorId),
         eq(schema.consumables.type, '符箓'),
+        sql`${schema.consumables.quantity} > 0`,
+        sql`${schema.consumables.spec}->>'kind' = 'talisman'`,
+        sql`${schema.consumables.spec}->>'scenario' = ${FATE_RESHAPE_SCENARIO}`,
       ),
     )
-    .limit(100);
+    .orderBy(asc(schema.consumables.createdAt), asc(schema.consumables.id));
 
-  return rows
-    .filter((row) => {
-      if (row.quantity <= 0) return false;
-      const consumable = mapConsumableRow(row);
-      return (
-        isTalismanConsumable(consumable) &&
-        consumable.spec.scenario === FATE_RESHAPE_SCENARIO
-      );
-    })
-    .sort(
-      (left, right) =>
-        (left.createdAt?.getTime() ?? 0) - (right.createdAt?.getTime() ?? 0),
-    );
+  return rows;
 }
 
 export class FateReshapeServiceError extends Error {
@@ -194,13 +185,14 @@ export async function prepareFateReshapeStart(
     return {
       commit: async () => ({
         session: toSessionDto(existing),
+        consumption: null,
         afterCommit: async () => undefined,
       }),
     };
   }
 
-  const cultivator = await getPlayerRuntimeCultivatorById(userId, cultivatorId);
-  if (!cultivator) {
+  const currentFates = await getPlayerPreHeavenFates(userId, cultivatorId);
+  if (!currentFates) {
     throw new FateReshapeServiceError(404, '当前没有可重塑命格的角色');
   }
 
@@ -210,14 +202,14 @@ export async function prepareFateReshapeStart(
     throw new FateReshapeServiceError(400, '缺少天机逆命符，无法开启命格重塑');
   }
 
-  const currentCandidates = await FateEngine.generateCandidatePool(cultivator, {
+  const currentCandidates = await FateEngine.generateCandidatePool({
     candidateCount: FATE_RESHAPE_CANDIDATE_COUNT,
   });
   const createdAt = Date.now();
   const session: FateReshapeSessionStore = {
     sessionId: crypto.randomUUID(),
     cultivatorId,
-    originalFates: FateEngine.normalizeFates(cultivator.pre_heaven_fates),
+    originalFates: FateEngine.normalizeFates(currentFates),
     currentCandidates,
     rerollUsed: false,
     createdAt,
@@ -226,7 +218,7 @@ export async function prepareFateReshapeStart(
 
   return {
     async commit(tx: DbTransaction) {
-      await consumeConsumableById(
+      const consumption = await consumeConsumableById(
         userId,
         cultivatorId,
         availableTalisman.id!,
@@ -235,6 +227,10 @@ export async function prepareFateReshapeStart(
       );
       return {
         session: toSessionDto(session),
+        consumption: {
+          itemId: availableTalisman.id!,
+          ...consumption,
+        },
         afterCommit: async () => {
           await writeSession(cultivatorId, session);
         },
@@ -280,23 +276,6 @@ export const FateReshapeService = {
     return rows.reduce((sum, row) => sum + row.quantity, 0);
   },
 
-  async startSession(
-    userId: string,
-    cultivatorId: string,
-  ): Promise<FateReshapeSessionDTO> {
-    return withCultivatorLock(cultivatorId, async (lease) => {
-      const prepared = await prepareFateReshapeStart(userId, cultivatorId);
-      lease.assertHeld();
-      const committed = await getExecutor().transaction(async (tx) => {
-        const result = await prepared.commit(tx);
-        lease.assertHeld();
-        return result;
-      });
-      await committed.afterCommit();
-      return committed.session;
-    });
-  },
-
   async rerollSession(cultivatorId: string): Promise<FateReshapeSessionDTO> {
     return withCultivatorLock(cultivatorId, async (lease) => {
       const session = await requireSession(cultivatorId);
@@ -304,15 +283,13 @@ export const FateReshapeService = {
         throw new FateReshapeServiceError(400, '本次命格重塑已无法再重抽');
       }
 
-      const bundle = await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId);
-      if (!bundle?.cultivator) {
+      if (!(await findActiveCultivatorOwnerId(cultivatorId))) {
         throw new FateReshapeServiceError(404, '当前没有可重塑命格的角色');
       }
 
-      const currentCandidates = await FateEngine.generateCandidatePool(
-        bundle.cultivator,
-        { candidateCount: FATE_RESHAPE_CANDIDATE_COUNT },
-      );
+      const currentCandidates = await FateEngine.generateCandidatePool({
+        candidateCount: FATE_RESHAPE_CANDIDATE_COUNT,
+      });
 
       const nextSession: FateReshapeSessionStore = {
         ...session,
@@ -324,28 +301,6 @@ export const FateReshapeService = {
       await writeSession(cultivatorId, nextSession);
 
       return toSessionDto(nextSession);
-    });
-  },
-
-  async confirmSession(
-    userId: string,
-    cultivatorId: string,
-    selectedIndices: number[],
-  ): Promise<PreHeavenFate[]> {
-    return withCultivatorLock(cultivatorId, async (lease) => {
-      const prepared = await prepareFateReshapeConfirmation(
-        userId,
-        cultivatorId,
-        selectedIndices,
-      );
-      lease.assertHeld();
-      const committed = await getExecutor().transaction(async (tx) => {
-        const result = await prepared.commit(tx);
-        lease.assertHeld();
-        return result;
-      });
-      await committed.afterCommit();
-      return committed.selectedFates;
     });
   },
 

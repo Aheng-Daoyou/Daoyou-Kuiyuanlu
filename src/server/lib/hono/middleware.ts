@@ -331,40 +331,6 @@ export function requireAdmin(): MiddlewareHandler<AppEnv> {
   };
 }
 
-export function requireActiveCultivator(): MiddlewareHandler<AppEnv> {
-  return async (context, next) => {
-    const user = context.get('user') ?? (await resolveUser(context));
-
-    if (!user) {
-      context.res = errorBody('未授权访问', 401);
-      return;
-    }
-
-    const executor = getExecutor();
-    const cultivator = await executor.query.cultivators.findFirst({
-      where: and(
-        eq(cultivators.userId, user.id),
-        eq(cultivators.status, 'active'),
-      ),
-    });
-
-    if (!cultivator) {
-      context.res = errorBody('当前没有活跃角色', 404);
-      return;
-    }
-
-    context.set('user', user);
-    context.set('activeCultivatorRef', {
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      status: 'active',
-    });
-    context.set('cultivator', cultivator);
-    context.set('executor', executor);
-    await next();
-  };
-}
-
 export function requireActiveCultivatorRef(): MiddlewareHandler<AppEnv> {
   return async (context, next) => {
     const user = context.get('user') ?? (await resolveUser(context));
@@ -384,7 +350,6 @@ export function requireActiveCultivatorRef(): MiddlewareHandler<AppEnv> {
 
     context.set('user', user);
     context.set('activeCultivatorRef', ref);
-    context.set('executor', getExecutor());
     await next();
   };
 }

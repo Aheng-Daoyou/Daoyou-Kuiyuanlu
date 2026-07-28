@@ -3,12 +3,13 @@ import {
   RoomView,
   type RoomActorView,
 } from '@app/components/feature/room';
-import { useSectPresentation } from '@app/components/feature/sect/SectQueryProvider';
+import type { SectRoomDefinition } from '@shared/engine/sect';
 import { createElement, useMemo, useState } from 'react';
 import type { SectNpcConversationRegistry } from './SectNpcConversationRegistry';
 
 export interface SectManagedRoomProps {
   roomKey: string;
+  room?: SectRoomDefinition;
   registry: SectNpcConversationRegistry;
   eyebrow?: string;
   prompt?: string;
@@ -19,13 +20,12 @@ export interface SectManagedRoomProps {
 }
 
 export function SectManagedRoom({
-  roomKey,
+  room,
   registry,
   eyebrow,
   prompt = '点击人物，与其交谈',
   selection,
 }: SectManagedRoomProps) {
-  const room = useSectPresentation().rooms[roomKey];
   const [internalRoleKey, setInternalRoleKey] = useState<string>();
   const selectedRoleKey = selection ? selection.roleKey : internalRoleKey;
   const setSelectedRoleKey = selection

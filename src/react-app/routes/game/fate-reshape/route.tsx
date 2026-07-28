@@ -17,8 +17,11 @@ import {
   InkTag,
   ItemCard,
 } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import {
+  useCultivatorIdentity,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type { PreHeavenFate } from '@shared/types/cultivator';
 import type { FateReshapeSessionDTO } from '@shared/types/fateReshape';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -57,8 +60,12 @@ function formatExpireTime(expiresAt: number): string {
 }
 
 export default function FateReshapePage() {
-  const { cultivator, note, isLoading } = usePlayerStateView();
-  const { mutate } = usePlayerStateActions();
+  const profile = useCultivatorIdentity();
+  const playerSession = usePlayerSession();
+  const cultivator = profile.data?.cultivator;
+  const note = playerSession.data?.note;
+  const isLoading = profile.loading || playerSession.loading;
+  const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
   const [session, setSession] = useState<FateReshapeSessionDTO | null>(null);
   const [talismanCount, setTalismanCount] = useState(0);

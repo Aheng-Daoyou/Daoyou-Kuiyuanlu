@@ -66,6 +66,7 @@ import {
   type MaterialLibrarySampleRequest,
 } from './MaterialLibraryService';
 import { QiService } from './QiService';
+import { mapMaterialRow } from './cultivator/CultivatorInventoryRepository';
 
 // ─── Redis 键前缀 ───
 
@@ -100,8 +101,6 @@ export type BuyInput = {
   cultivatorId: string;
   cultivatorRealm: RealmType;
   fates?: PreHeavenFate[];
-  tx?: DbTransaction;
-  deferSideEffects?: boolean;
 };
 
 export type BatchBuyInput = {
@@ -112,15 +111,11 @@ export type BatchBuyInput = {
   cultivatorId: string;
   cultivatorRealm: RealmType;
   fates?: PreHeavenFate[];
-  tx?: DbTransaction;
-  deferSideEffects?: boolean;
 };
 
 type IdentifyInput = {
   materialId: string;
   cultivatorId: string;
-  tx?: DbTransaction;
-  deferSideEffects?: boolean;
 };
 
 export class MarketServiceError extends Error {
@@ -1029,7 +1024,7 @@ export async function getMarketListings(input: {
 }
 
 export async function prepareMarketItemPurchase(
-  input: Omit<BuyInput, 'tx' | 'deferSideEffects'>,
+  input: BuyInput,
 ) {
   const {
     nodeId,
@@ -1102,6 +1097,7 @@ export async function prepareMarketItemPurchase(
         throw new MarketServiceError(400, '囊中羞涩，灵石不足');
       }
 
+      let purchasedMaterial;
       if (item.isMystery) {
         if (!preparedHiddenReveal || !preparedMysteryId) {
           throw new MarketServiceError(503, '黑市鉴宝册缺页，请稍后再试');
@@ -1111,18 +1107,25 @@ export async function prepareMarketItemPurchase(
           mystery: buildMysteryDetails(item, preparedMysteryId),
         };
 
-        await tx.insert(materials).values({
-          cultivatorId,
-          name: item.mysteryMask?.disguisedName || item.name,
-          type: item.type,
-          rank: item.rank,
-          element: item.element,
-          description: item.description,
-          quantity,
-          details: withHiddenMysteryReveal(publicDetails, preparedHiddenReveal),
-        });
+        const [inserted] = await tx
+          .insert(materials)
+          .values({
+            cultivatorId,
+            name: item.mysteryMask?.disguisedName || item.name,
+            type: item.type,
+            rank: item.rank,
+            element: item.element,
+            description: item.description,
+            quantity,
+            details: withHiddenMysteryReveal(
+              publicDetails,
+              preparedHiddenReveal,
+            ),
+          })
+          .returning();
+        purchasedMaterial = mapMaterialRow(inserted);
       } else {
-        await addMaterialStackToInventory(
+        const stored = await addMaterialStackToInventory(
           cultivatorId,
           {
             name: item.name,
@@ -1135,6 +1138,18 @@ export async function prepareMarketItemPurchase(
           },
           tx,
         );
+        const [row] = await tx
+          .select()
+          .from(materials)
+          .where(
+            and(
+              eq(materials.id, stored.id),
+              eq(materials.cultivatorId, cultivatorId),
+            ),
+          )
+          .limit(1);
+        if (!row) throw new MarketServiceError(500, '坊市物品入库失败');
+        purchasedMaterial = mapMaterialRow(row);
       }
 
       return {
@@ -1143,28 +1158,15 @@ export async function prepareMarketItemPurchase(
           message: `成功购入 ${item.name} x${quantity}`,
           item: applyMarketPurchaseDiscount(sanitizeListing(item), input.fates),
         },
+        inventoryItems: [purchasedMaterial],
         afterCommit: markPurchased,
       };
     },
   };
 }
 
-export async function buyMarketItem(input: BuyInput) {
-  const prepared = await prepareMarketItemPurchase(input);
-  const committed = input.tx
-    ? await prepared.commit(input.tx)
-    : await getExecutor().transaction((tx) => prepared.commit(tx));
-  if (!input.deferSideEffects) {
-    await committed.afterCommit();
-  }
-  return {
-    ...committed.result,
-    afterCommit: input.deferSideEffects ? committed.afterCommit : undefined,
-  };
-}
-
 export async function prepareBatchMarketPurchase(
-  input: Omit<BatchBuyInput, 'tx' | 'deferSideEffects'>,
+  input: BatchBuyInput,
 ) {
   const { nodeId, layer, items, userId, cultivatorId, cultivatorRealm } = input;
 
@@ -1259,6 +1261,7 @@ export async function prepareBatchMarketPurchase(
         throw new MarketServiceError(400, '囊中羞涩，灵石不足');
       }
 
+      const inventoryItems = [];
       for (const { item, quantity } of processItems) {
         if (item.isMystery) {
           const preparedMystery = preparedMysteries.get(item.id);
@@ -1270,21 +1273,25 @@ export async function prepareBatchMarketPurchase(
             mystery: buildMysteryDetails(item, preparedMystery.mysteryId),
           };
 
-          await tx.insert(materials).values({
-            cultivatorId,
-            name: item.mysteryMask?.disguisedName || item.name,
-            type: item.type,
-            rank: item.rank,
-            element: item.element,
-            description: item.description,
-            quantity,
-            details: withHiddenMysteryReveal(
-              publicDetails,
-              preparedMystery.hiddenReveal,
-            ),
-          });
+          const [inserted] = await tx
+            .insert(materials)
+            .values({
+              cultivatorId,
+              name: item.mysteryMask?.disguisedName || item.name,
+              type: item.type,
+              rank: item.rank,
+              element: item.element,
+              description: item.description,
+              quantity,
+              details: withHiddenMysteryReveal(
+                publicDetails,
+                preparedMystery.hiddenReveal,
+              ),
+            })
+            .returning();
+          inventoryItems.push(mapMaterialRow(inserted));
         } else {
-          await addMaterialStackToInventory(
+          const stored = await addMaterialStackToInventory(
             cultivatorId,
             {
               name: item.name,
@@ -1297,6 +1304,18 @@ export async function prepareBatchMarketPurchase(
             },
             tx,
           );
+          const [row] = await tx
+            .select()
+            .from(materials)
+            .where(
+              and(
+                eq(materials.id, stored.id),
+                eq(materials.cultivatorId, cultivatorId),
+              ),
+            )
+            .limit(1);
+          if (!row) throw new MarketServiceError(500, '坊市物品入库失败');
+          inventoryItems.push(mapMaterialRow(row));
         }
       }
 
@@ -1306,30 +1325,17 @@ export async function prepareBatchMarketPurchase(
           message: `成功批量购入 ${processItems.length} 种物品`,
           totalCost,
         },
+        inventoryItems,
         afterCommit: markPurchased,
       };
     },
   };
 }
 
-export async function batchBuyMarketItems(input: BatchBuyInput) {
-  const prepared = await prepareBatchMarketPurchase(input);
-  const committed = input.tx
-    ? await prepared.commit(input.tx)
-    : await getExecutor().transaction((tx) => prepared.commit(tx));
-  if (!input.deferSideEffects) {
-    await committed.afterCommit();
-  }
-  return {
-    ...committed.result,
-    afterCommit: input.deferSideEffects ? committed.afterCommit : undefined,
-  };
-}
-
 // ─── 鉴定 ───
 
 export async function prepareMysteryMaterialIdentification(
-  input: Pick<IdentifyInput, 'materialId' | 'cultivatorId'>,
+  input: IdentifyInput,
 ) {
   const { materialId, cultivatorId } = input;
   const current = await getExecutor()
@@ -1418,7 +1424,7 @@ export async function prepareMysteryMaterialIdentification(
                   eq(materials.quantity, target.quantity),
                 ),
               )
-              .returning({ id: materials.id })
+              .returning()
           : await tx
               .delete(materials)
               .where(
@@ -1428,7 +1434,7 @@ export async function prepareMysteryMaterialIdentification(
                   eq(materials.quantity, target.quantity),
                 ),
               )
-              .returning({ id: materials.id });
+              .returning();
       if (consumed.length !== 1) {
         throw new MarketServiceError(409, '待鉴定物品已发生变化，请重试');
       }
@@ -1445,7 +1451,7 @@ export async function prepareMysteryMaterialIdentification(
           quantity: 1,
           details: sanitizeMaterialDetails(revealedMaterial.details) ?? {},
         })
-        .returning({ id: materials.id });
+        .returning();
       revealedMaterialId = insertedMaterial.id;
 
       await QiService.commitReservation({
@@ -1530,23 +1536,24 @@ export async function prepareMysteryMaterialIdentification(
           revealEffect:
             delta >= 2 ? '金光冲霄' : delta <= -2 ? '灵尘散尽' : '封印破除',
         },
+        inventoryChanges: [
+          target.quantity > 1
+            ? {
+                operation: 'upsert' as const,
+                item: mapMaterialRow(consumed[0]),
+              }
+            : {
+                operation: 'remove' as const,
+                id: target.id,
+              },
+          {
+            operation: 'upsert' as const,
+            item: mapMaterialRow(insertedMaterial),
+          },
+        ],
         afterCommit,
       };
     },
-  };
-}
-
-export async function identifyMysteryMaterial(input: IdentifyInput) {
-  const prepared = await prepareMysteryMaterialIdentification(input);
-  const committed = input.tx
-    ? await prepared.commit(input.tx)
-    : await getExecutor().transaction((tx) => prepared.commit(tx));
-  if (!input.deferSideEffects) {
-    await committed.afterCommit();
-  }
-  return {
-    ...committed.result,
-    afterCommit: input.deferSideEffects ? committed.afterCommit : undefined,
   };
 }
 

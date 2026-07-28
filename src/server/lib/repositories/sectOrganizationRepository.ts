@@ -569,10 +569,13 @@ export async function addCultivatorSpiritStones(
   amount: number,
   tx: DbTransaction,
 ) {
-  await tx
+  const [row] = await tx
     .update(cultivators)
     .set({ spirit_stones: sql`${cultivators.spirit_stones} + ${amount}` })
-    .where(eq(cultivators.id, cultivatorId));
+    .where(eq(cultivators.id, cultivatorId))
+    .returning({ spiritStones: cultivators.spirit_stones });
+  if (!row) throw new Error('修真者不存在');
+  return row.spiritStones;
 }
 
 export async function spendCultivatorSpiritStones(
@@ -589,8 +592,10 @@ export async function spendCultivatorSpiritStones(
         sql`${cultivators.spirit_stones} >= ${amount}`,
       ),
     )
-    .returning({ id: cultivators.id });
-  return Boolean(row);
+    .returning({ balance: cultivators.spirit_stones });
+  return row
+    ? { spent: true, balance: row.balance }
+    : { spent: false as const };
 }
 
 export async function findOwnedMaterial(
@@ -647,43 +652,69 @@ export async function findOwnedArtifact(
 
 export async function listOwnedSubmissionMaterials(
   cultivatorId: string,
+  page: number,
+  pageSize: number,
   q: DbExecutor | DbTransaction,
 ) {
-  return q
-    .select()
-    .from(materials)
-    .where(eq(materials.cultivatorId, cultivatorId))
-    .orderBy(desc(materials.createdAt), asc(materials.id));
+  const where = eq(materials.cultivatorId, cultivatorId);
+  const [rows, totals] = await Promise.all([
+    q
+      .select()
+      .from(materials)
+      .where(where)
+      .orderBy(desc(materials.createdAt), asc(materials.id))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    q.select({ total: count() }).from(materials).where(where),
+  ]);
+  return { rows, total: Number(totals[0]?.total ?? 0) };
 }
 
 export async function listOwnedSubmissionConsumables(
   cultivatorId: string,
+  page: number,
+  pageSize: number,
   q: DbExecutor | DbTransaction,
 ) {
   const condition = and(
     eq(consumables.cultivatorId, cultivatorId),
     eq(consumables.type, '丹药'),
+    sql`${consumables.spec} ->> 'kind' = 'pill'`,
   );
-  return q
-    .select()
-    .from(consumables)
-    .where(condition)
-    .orderBy(desc(consumables.createdAt), asc(consumables.id));
+  const [rows, totals] = await Promise.all([
+    q
+      .select()
+      .from(consumables)
+      .where(condition)
+      .orderBy(desc(consumables.createdAt), asc(consumables.id))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    q.select({ total: count() }).from(consumables).where(condition),
+  ]);
+  return { rows, total: Number(totals[0]?.total ?? 0) };
 }
 
 export async function listOwnedSubmissionArtifacts(
   cultivatorId: string,
+  page: number,
+  pageSize: number,
   q: DbExecutor | DbTransaction,
 ) {
   const condition = and(
     eq(creationProducts.cultivatorId, cultivatorId),
     eq(creationProducts.productType, 'artifact'),
   );
-  return q
-    .select()
-    .from(creationProducts)
-    .where(condition)
-    .orderBy(desc(creationProducts.createdAt), asc(creationProducts.id));
+  const [rows, totals] = await Promise.all([
+    q
+      .select()
+      .from(creationProducts)
+      .where(condition)
+      .orderBy(desc(creationProducts.createdAt), asc(creationProducts.id))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    q.select({ total: count() }).from(creationProducts).where(condition),
+  ]);
+  return { rows, total: Number(totals[0]?.total ?? 0) };
 }
 
 export async function consumeOwnedSubmissionMaterial(

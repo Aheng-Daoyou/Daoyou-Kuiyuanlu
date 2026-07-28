@@ -2,7 +2,7 @@ import type {
   RetreatResultData,
   RetreatStreamEvent,
 } from '@shared/contracts/retreat';
-import type { PlayerStateEvent } from '@shared/contracts/player';
+import type { PlayerResourceMutationMeta } from '@shared/contracts/player';
 
 export interface RetreatCultivatorSnapshot {
   name: string;
@@ -19,7 +19,7 @@ export interface ReincarnateContextData {
 
 interface RetreatStreamHandlers {
   onResult: (result: RetreatResultData) => void;
-  onStateEvents?: (events: PlayerStateEvent[]) => void;
+  onState?: (state: PlayerResourceMutationMeta) => void;
   onChunk?: (text: string) => void;
   onError?: (message: string) => void;
 }
@@ -27,7 +27,7 @@ interface RetreatStreamHandlers {
 interface ConsumeRetreatStreamHandlers {
   cultivatorSnapshot?: RetreatCultivatorSnapshot | null;
   onResult: (result: RetreatResultData) => void;
-  onStateEvents?: (events: PlayerStateEvent[]) => void;
+  onState?: (state: PlayerResourceMutationMeta) => void;
   onStoryUpdate?: (result: RetreatResultData) => void;
   onReincarnateContext?: (context: ReincarnateContextData | null) => void;
   onError?: (message: string) => void;
@@ -93,7 +93,7 @@ export async function consumeRetreatStream(
       syncReincarnateContext();
       handlers.onResult(result);
     },
-    onStateEvents: handlers.onStateEvents,
+    onState: handlers.onState,
     onChunk: (chunk) => {
       if (!latestResult) {
         return;
@@ -140,7 +140,7 @@ export async function readRetreatStream(
       }
 
       if (event.type === 'state') {
-        handlers.onStateEvents?.(event.events);
+        handlers.onState?.(event.state);
         continue;
       }
 

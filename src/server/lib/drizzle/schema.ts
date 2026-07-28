@@ -1,4 +1,8 @@
-import type { PlayerStateDomain } from '@shared/contracts/player';
+import type {
+  ResourceChangeOperation,
+  ResourceScopeKind,
+  ResourceTopic,
+} from '@shared/contracts/resources';
 import type {
   ItemLibraryEditorConfig,
   ItemLibraryPayload,
@@ -157,6 +161,7 @@ export const qiLogs = pgTable(
   ],
 );
 
+/** @deprecated Replaced by resourceScopes and resourceVersions. */
 export const cultivatorStateVersions = pgTable(
   'wanjiedaoyou_cultivator_state_versions',
   {
@@ -195,6 +200,55 @@ export const cultivatorStateVersions = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
+);
+
+export const resourceScopes = pgTable(
+  'wanjiedaoyou_resource_scopes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    scopeKind: varchar('scope_kind', { length: 24 })
+      .$type<ResourceScopeKind>()
+      .notNull(),
+    scopeKey: varchar('scope_key', { length: 128 }).notNull(),
+    scopeVersion: bigint('scope_version', { mode: 'number' })
+      .notNull()
+      .default(0),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('resource_scopes_kind_key_unique').on(
+      table.scopeKind,
+      table.scopeKey,
+    ),
+  ],
+);
+
+export const resourceVersions = pgTable(
+  'wanjiedaoyou_resource_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    scopeId: uuid('scope_id')
+      .references(() => resourceScopes.id, { onDelete: 'cascade' })
+      .notNull(),
+    resourceKey: varchar('resource_key', { length: 96 })
+      .$type<ResourceTopic>()
+      .notNull(),
+    version: bigint('version', { mode: 'number' }).notNull().default(0),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('resource_versions_scope_key_unique').on(
+      table.scopeId,
+      table.resourceKey,
+    ),
+    index('resource_versions_resource_idx').on(table.resourceKey),
+  ],
 );
 
 export const sectMemberships = pgTable(
@@ -536,6 +590,7 @@ export const sectDailyCommissions = pgTable(
   ],
 );
 
+/** @deprecated Replaced by resourceEvents. */
 export const playerStateEvents = pgTable(
   'wanjiedaoyou_player_state_events',
   {
@@ -548,15 +603,10 @@ export const playerStateEvents = pgTable(
     userId: uuid('user_id').notNull(),
     globalVersion: bigint('global_version', { mode: 'number' }).notNull(),
     domainVersion: bigint('domain_version', { mode: 'number' }).notNull(),
-    domain: varchar('domain', { length: 32 })
-      .$type<PlayerStateDomain>()
-      .notNull(),
+    domain: varchar('domain', { length: 32 }).notNull(),
     eventType: varchar('event_type', { length: 96 }).notNull(),
     patch: jsonb('patch').notNull().default({}),
-    invalidates: jsonb('invalidates')
-      .$type<PlayerStateDomain[]>()
-      .notNull()
-      .default([]),
+    invalidates: jsonb('invalidates').notNull().default([]),
     source: varchar('source', { length: 96 }).notNull(),
     requestId: varchar('request_id', { length: 128 }),
     createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -569,6 +619,54 @@ export const playerStateEvents = pgTable(
     ),
     index('player_state_events_user_idx').on(table.userId),
     index('player_state_events_created_idx').on(table.createdAt),
+  ],
+);
+
+export const resourceEvents = pgTable(
+  'wanjiedaoyou_resource_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    scopeId: uuid('scope_id')
+      .references(() => resourceScopes.id, { onDelete: 'cascade' })
+      .notNull(),
+    scopeVersion: bigint('scope_version', { mode: 'number' }).notNull(),
+    resourceVersion: bigint('resource_version', { mode: 'number' }).notNull(),
+    resourceKey: varchar('resource_key', { length: 96 })
+      .$type<ResourceTopic>()
+      .notNull(),
+    operation: varchar('operation', { length: 24 })
+      .$type<ResourceChangeOperation>()
+      .notNull(),
+    eventType: varchar('event_type', { length: 96 }).notNull(),
+    payload: jsonb('payload'),
+    actorCultivatorId: uuid('actor_cultivator_id').references(
+      () => cultivators.id,
+      { onDelete: 'set null' },
+    ),
+    actorUserId: uuid('actor_user_id'),
+    source: varchar('source', { length: 96 }).notNull(),
+    requestId: varchar('request_id', { length: 128 }),
+    mutationOrdinal: integer('mutation_ordinal').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('resource_events_scope_version_ordinal_unique').on(
+      table.scopeId,
+      table.scopeVersion,
+      table.mutationOrdinal,
+    ),
+    index('resource_events_scope_version_idx').on(
+      table.scopeId,
+      table.scopeVersion,
+      table.mutationOrdinal,
+    ),
+    index('resource_events_replay_idx').on(
+      table.actorCultivatorId,
+      table.source,
+      table.requestId,
+      table.mutationOrdinal,
+    ),
+    index('resource_events_created_idx').on(table.createdAt),
   ],
 );
 

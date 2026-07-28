@@ -4,13 +4,12 @@ import {
   type NpcConversationMessage,
   type NpcConversationOption,
 } from '@app/components/feature/room';
-import { useSectResourceQuery } from '@app/components/feature/sect/SectQueryProvider';
+import { useSectTasksQuery } from '@app/components/feature/sect/sectResources';
 import {
   createSectTaskBattleHref,
   isSectTaskActivityLocationKey,
   readSectTaskActivityLocation,
 } from '@app/components/feature/sect/sectTaskActivityLocations';
-import { fetchSectTasks } from '@app/lib/sect/sectClient';
 import { useNavigate } from 'react-router';
 import type { SectNpcConversationRendererProps } from './SectNpcConversationRegistry';
 
@@ -19,7 +18,7 @@ export function SectTaskLocationConversation({
   parameters,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const tasks = useSectResourceQuery('tasks', fetchSectTasks);
+  const tasks = useSectTasksQuery();
   const navigate = useNavigate();
   const rawLocationKey = parameters.locationKey;
   const locationKey = isSectTaskActivityLocationKey(rawLocationKey)
@@ -28,9 +27,6 @@ export function SectTaskLocationConversation({
   const session = useConversationSession({
     sessionKey: actor.id,
     snapshot: tasks.data,
-    load: async () => {
-      await tasks.reload();
-    },
     perform: async () => undefined,
   });
   const task = locationKey

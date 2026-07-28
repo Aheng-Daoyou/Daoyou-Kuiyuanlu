@@ -3,14 +3,19 @@ import {
   useConversationSession,
   type NpcConversationMessage,
 } from '@app/components/feature/room';
-import { useSectCurrentQuery } from '@app/components/feature/sect/SectQueryProvider';
+import {
+  buildSectProgressionState,
+  getSectDefinition,
+  useSectContextQuery,
+  useSectProgressionQuery,
+} from '@app/components/feature/sect/sectResources';
 import {
   SectNpcConversationRegistry,
   SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
 import { InkButton } from '@app/components/ui';
-import { useActiveCultivatorProfile } from '@app/lib/player-state/selectors';
+import { useCultivatorIdentity } from '@app/lib/resources/player';
 import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
 import { useCallback, useState } from 'react';
 import { PathsTab } from '../components/PathsTab';
@@ -45,9 +50,11 @@ function PathsConversation({
   actor,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const current = useSectCurrentQuery();
-  const cultivator = useActiveCultivatorProfile();
-  const mutation = useSectMutation(current.reload);
+  const context = useSectContextQuery();
+  const progression = useSectProgressionQuery();
+  const profile = useCultivatorIdentity();
+  const cultivator = profile.data?.cultivator;
+  const mutation = useSectMutation();
   const [workspace, setWorkspace] = useState(false);
   const [workspaceDirty, setWorkspaceDirty] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
@@ -57,8 +64,7 @@ function PathsConversation({
   }, []);
   const session = useConversationSession({
     sessionKey: actor.id,
-    snapshot: current.data,
-    load: current.reload,
+    snapshot: { context: context.data, progression: progression.data },
     perform: async () => undefined,
     onReset: () => {
       setWorkspace(false);
@@ -66,8 +72,24 @@ function PathsConversation({
       setConfirmExit(false);
     },
   });
-  const data = current.data;
-  if (workspace && data)
+  const data =
+    context.data && progression.data
+      ? {
+          definition: getSectDefinition(context.data),
+          sect: buildSectProgressionState(context.data, progression.data),
+          methodLevelCap: Number.POSITIVE_INFINITY,
+        }
+      : undefined;
+  if (workspace && data && !cultivator) {
+    return (
+      <div className="flex min-h-[34rem] items-center justify-center px-5 py-7">
+        <p className="loading-tip">
+          {profile.error ? '角色境界读取失败，请稍后重试。' : '正在读取角色境界……'}
+        </p>
+      </div>
+    );
+  }
+  if (workspace && data && cultivator)
     return (
       <div className="min-h-[34rem] px-5 py-7 sm:px-8 md:px-10">
         <div className="mb-5 flex flex-wrap items-center justify-end gap-3 border-b border-current/10 pb-4">
@@ -112,8 +134,8 @@ function PathsConversation({
           action={async (url, init) => {
             await mutation.run(url, init, '流派参悟已更新');
           }}
-          realm={cultivator?.realm ?? '炼气'}
-          stage={cultivator?.realm_stage ?? '初期'}
+          realm={cultivator.realm}
+          stage={cultivator.realm_stage}
           onDirtyChange={handleWorkspaceDirtyChange}
         />
       </div>
@@ -150,7 +172,7 @@ function PathsConversation({
         { id: 'leave', label: '弟子告退', tone: 'muted' },
       ]}
       busy={session.phase === 'loading'}
-      error={session.error ?? current.error}
+      error={session.error ?? context.error ?? progression.error}
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (optionId === 'workspace') setWorkspace(true);

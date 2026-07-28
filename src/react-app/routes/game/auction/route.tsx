@@ -25,8 +25,12 @@ import {
   InkSelect,
 } from '@app/components/ui';
 import { ItemCard } from '@app/components/ui/ItemCard';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import {
+  useCultivatorCurrency,
+  useCultivatorCondition,
+  useCultivatorIdentity,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   TEMP_DISABLED_MESSAGES,
   temporaryRestrictions,
@@ -169,10 +173,28 @@ function getQualityLabel(value: string | null) {
 }
 
 export default function AuctionPage() {
-  const { cultivator } = usePlayerStateView();
-  const { mutate } = usePlayerStateActions();
-  const { pushToast } = useInkUI();
   const [searchParams, setSearchParams] = useSearchParams();
+  const activeType = normalizeType(searchParams.get('itemType'));
+  const [showListModal, setShowListModal] = useState(false);
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition(
+    activeType === 'all' ||
+      activeType === 'consumable' ||
+      showListModal,
+  );
+  const currency = useCultivatorCurrency();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity?.id && currency.data
+      ? {
+          id: identity.id,
+          realm: identity.realm,
+          condition: condition.data,
+          spirit_stones: currency.data.spiritStones,
+        }
+      : null;
+  const { mutate } = useResourceMutation();
+  const { pushToast } = useInkUI();
   const [browseListings, setBrowseListings] = useState<AuctionListing[]>([]);
   const [myListings, setMyListings] = useState<AuctionListing[]>([]);
   const [pagination, setPagination] = useState<Record<AuctionScope, AuctionPagination>>({
@@ -183,14 +205,12 @@ export default function AuctionPage() {
   const [isLoadingMy, setIsLoadingMy] = useState(false);
   const [buyingId, setBuyingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
-  const [showListModal, setShowListModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ItemDetailPayload | null>(null);
   const [buyConfirmDialog, setBuyConfirmDialog] =
     useState<InkDialogState | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const activeTab = normalizeScope(searchParams.get('tab'));
-  const activeType = normalizeType(searchParams.get('itemType'));
   const categoryOptions = useMemo(() => getCategoryOptions(activeType), [activeType]);
   const itemCategory = searchParams.get('itemCategory') || 'all';
   const itemQuality = searchParams.get('itemQuality') || 'all';
@@ -809,7 +829,7 @@ export default function AuctionPage() {
             <div className="space-y-2 text-sm leading-7">
               <p>
                 {SPIRIT_STONES_INFO.label}余额：
-                {cultivator?.spirit_stones ?? 0}
+                {cultivator ? cultivator.spirit_stones : '读取中…'}
               </p>
               <p>当前页签：{activeTab === 'browse' ? '浏览拍卖' : '我的寄售'}</p>
               <p>当前筛选：{filterSummaryText}</p>

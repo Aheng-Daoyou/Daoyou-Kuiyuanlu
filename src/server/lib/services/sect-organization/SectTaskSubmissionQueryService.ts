@@ -47,11 +47,13 @@ export class SectTaskSubmissionQueryService {
       invalid('只有进行中的交付委托可以选择物品');
     const requirement = record.payload.offer.requirement;
     if (!requirement) invalid('该任务不是道具交付委托', 400);
-    const items = await context.submissionInventory.listSubmissionItems({
+    const page = await context.submissionInventory.listSubmissionItemsPage({
       cultivatorId: input.cultivatorId,
       kind: requirement.kind,
+      page: input.page,
+      pageSize: input.pageSize,
     });
-    const matched = items
+    const matched = page.items
       .map((item) => ({
         item,
         ...matchSectDeliveryCandidate(requirement, item),
@@ -62,13 +64,12 @@ export class SectTaskSubmissionQueryService {
           : candidate.eligible === (input.eligible === 'yes'),
       )
       .sort((left, right) => Number(right.eligible) - Number(left.eligible));
-    const offset = (input.page - 1) * input.pageSize;
     return {
       requirement,
-      items: matched.slice(offset, offset + input.pageSize),
+      items: matched,
       page: input.page,
       pageSize: input.pageSize,
-      total: matched.length,
+      total: page.total,
     };
   }
 }

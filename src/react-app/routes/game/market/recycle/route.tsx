@@ -13,10 +13,16 @@ import {
 } from '@app/components/ui';
 import { ArtifactListCard } from '@app/components/feature/products';
 import { TypewriterText } from '@app/components/ui/TypewriterText';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePaginatedInventoryArtifacts } from '@app/lib/hooks/usePaginatedInventoryArtifacts';
-import { usePaginatedInventoryMaterials } from '@app/lib/hooks/usePaginatedInventoryMaterials';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import {
+  useCultivatorCurrency,
+  usePlayerLoadout,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import {
+  useArtifactInventoryResource,
+  useMaterialInventoryResource,
+} from '@app/lib/resources/inventory';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { QUALITY_ORDER } from '@shared/types/constants';
 import type { Artifact, Material } from '@shared/types/cultivator';
 import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
@@ -26,28 +32,6 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react';
 
 
 interface SellApiError {
-  error?: string;
-}
-
-interface InventoryMaterialsApiPayload {
-  success: boolean;
-  data?: {
-    items?: Material[];
-    pagination?: {
-      hasMore: boolean;
-    };
-  };
-  error?: string;
-}
-
-interface InventoryArtifactsApiPayload {
-  success: boolean;
-  data?: {
-    items?: Artifact[];
-    pagination?: {
-      hasMore: boolean;
-    };
-  };
   error?: string;
 }
 
@@ -105,77 +89,32 @@ async function requestSellConfirm(
   );
 }
 
-async function fetchAllLowTierMaterialIds(): Promise<string[]> {
-  const ids: string[] = [];
-  let page = 1;
-  let hasMore = true;
-
-  while (hasMore) {
-    const params = new URLSearchParams({
-      type: 'materials',
-      page: String(page),
-      pageSize: '100',
-      materialRanks: '凡品,灵品,玄品',
-      materialSortBy: 'createdAt',
-      materialSortOrder: 'desc',
-    });
-    const response = await fetch(
-      `/api/cultivator/inventory?${params.toString()}`,
-    );
-    const payload = (await response.json()) as InventoryMaterialsApiPayload;
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.error || '检索可回收材料失败');
-    }
-    const items = payload.data?.items || [];
-    for (const item of items) {
-      if (isMysteryMaterial(item)) continue;
-      if (item.id) ids.push(item.id);
-    }
-    hasMore = Boolean(payload.data?.pagination?.hasMore);
-    page += 1;
+async function requestAllLowTierSellPreview(
+  itemType: SellItemType,
+): Promise<SellPreviewResponse> {
+  const response = await fetch('/api/market/sell', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      phase: 'preview',
+      itemType,
+      selection: 'low-tier-all',
+    }),
+  });
+  const payload = (await response.json()) as SellPreviewResponse & SellApiError;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || '检索可回收物品失败');
   }
-
-  return ids;
-}
-
-async function fetchAllLowTierArtifactIds(
-  equippedIds: Set<string>,
-): Promise<string[]> {
-  const ids: string[] = [];
-  let page = 1;
-  let hasMore = true;
-
-  while (hasMore) {
-    const params = new URLSearchParams({
-      type: 'artifacts',
-      page: String(page),
-      pageSize: '100',
-    });
-    const response = await fetch(
-      `/api/cultivator/inventory?${params.toString()}`,
-    );
-    const payload = (await response.json()) as InventoryArtifactsApiPayload;
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.error || '检索可回收法宝失败');
-    }
-    const items = payload.data?.items || [];
-    for (const item of items) {
-      if (!item.id || equippedIds.has(item.id)) continue;
-      const quality = item.quality || '凡品';
-      if (QUALITY_ORDER[quality] <= QUALITY_ORDER['玄品']) {
-        ids.push(item.id);
-      }
-    }
-    hasMore = Boolean(payload.data?.pagination?.hasMore);
-    page += 1;
-  }
-
-  return ids;
+  return payload;
 }
 
 export default function MarketRecyclePage() {
-  const { cultivator, equipped } = usePlayerStateView();
-  const { mutate } = usePlayerStateActions();
+  const session = usePlayerSession();
+  const currency = useCultivatorCurrency();
+  const loadout = usePlayerLoadout();
+  const cultivatorId = session.data?.activeCultivator?.id;
+  const equipped = loadout.data?.equipped;
+  const { mutate } = useResourceMutation();
   const [activeTab, setActiveTab] = useState<RecycleTab>('materials');
   const [dialog, setDialog] = useState<RecycleDialogState | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -192,37 +131,46 @@ export default function MarketRecyclePage() {
     [equipped?.accessory, equipped?.armor, equipped?.weapon],
   );
 
-  const {
-    materials,
-    pagination: materialPagination,
-    isLoading: materialLoading,
-    isRefreshing: materialRefreshing,
-    isInitialized: materialInitialized,
-    error: materialError,
-    refreshPage: refreshMaterialPage,
-    goPrevPage: goPrevMaterialPage,
-    goNextPage: goNextMaterialPage,
-  } = usePaginatedInventoryMaterials({
-    cultivatorId: cultivator?.id,
+  const materialInventory = useMaterialInventoryResource({
+    enabled: Boolean(cultivatorId),
     pageSize: 20,
     materialSortBy: 'createdAt',
     materialSortOrder: 'desc',
   });
-
-  const {
-    artifacts,
-    pagination: artifactPagination,
-    isLoading: artifactLoading,
-    isRefreshing: artifactRefreshing,
-    isInitialized: artifactInitialized,
-    error: artifactError,
-    refreshPage: refreshArtifactPage,
-    goPrevPage: goPrevArtifactPage,
-    goNextPage: goNextArtifactPage,
-  } = usePaginatedInventoryArtifacts({
-    cultivatorId: cultivator?.id,
+  const artifactInventory = useArtifactInventoryResource({
+    enabled: Boolean(cultivatorId),
     pageSize: 20,
   });
+  const materials = materialInventory.items ?? [];
+  const materialPagination = materialInventory.pagination ?? {
+    page: materialInventory.page,
+    pageSize: 20,
+    total: 0,
+    totalPages: 0,
+    hasMore: false,
+  };
+  const materialLoading = materialInventory.loading;
+  const materialRefreshing = materialInventory.isRefreshing;
+  const materialInitialized = materialInventory.data !== undefined;
+  const materialError = materialInventory.error;
+  const refreshMaterialPage = materialInventory.reload;
+  const goPrevMaterialPage = materialInventory.goPrevPage;
+  const goNextMaterialPage = materialInventory.goNextPage;
+  const artifacts = artifactInventory.items ?? [];
+  const artifactPagination = artifactInventory.pagination ?? {
+    page: artifactInventory.page,
+    pageSize: 20,
+    total: 0,
+    totalPages: 0,
+    hasMore: false,
+  };
+  const artifactLoading = artifactInventory.loading;
+  const artifactRefreshing = artifactInventory.isRefreshing;
+  const artifactInitialized = artifactInventory.data !== undefined;
+  const artifactError = artifactInventory.error;
+  const refreshArtifactPage = artifactInventory.reload;
+  const goPrevArtifactPage = artifactInventory.goPrevPage;
+  const goNextArtifactPage = artifactInventory.goNextPage;
 
   const closeDialog = useCallback(() => {
     if (isProcessing) return;
@@ -261,7 +209,6 @@ export default function MarketRecyclePage() {
           confirmLabel: '知晓',
           cancelLabel: '关闭',
         });
-        await refreshCurrentTab();
       } catch (err) {
         setDialog({
           id: 'sell-error',
@@ -280,7 +227,7 @@ export default function MarketRecyclePage() {
         setBulkLoading(false);
       }
     },
-    [mutate, refreshCurrentTab],
+    [mutate],
   );
 
   const openPreviewDialog = useCallback(
@@ -423,43 +370,13 @@ export default function MarketRecyclePage() {
     setBulkLoading(true);
     try {
       if (activeTab === 'materials') {
-        const ids = await fetchAllLowTierMaterialIds();
-        if (ids.length === 0) {
-          setBulkLoading(false);
-          setDialog({
-            id: 'empty-low-tier-materials',
-            title: '无可清理废料',
-            content: (
-              <p className="py-3 text-center">当前未检索到凡/灵/玄品材料。</p>
-            ),
-            confirmLabel: '知晓',
-            cancelLabel: '关闭',
-          });
-          return;
-        }
-        const preview = await requestSellPreview('material', ids);
+        const preview = await requestAllLowTierSellPreview('material');
         setBulkLoading(false);
         openPreviewDialog(preview);
         return;
       }
 
-      const ids = await fetchAllLowTierArtifactIds(equippedIds);
-      if (ids.length === 0) {
-        setBulkLoading(false);
-        setDialog({
-          id: 'empty-low-tier-artifacts',
-          title: '无可清理法宝',
-          content: (
-            <p className="py-3 text-center">
-              当前未检索到可回收的凡/灵/玄品法宝。
-            </p>
-          ),
-          confirmLabel: '知晓',
-          cancelLabel: '关闭',
-        });
-        return;
-      }
-      const preview = await requestSellPreview('artifact', ids);
+      const preview = await requestAllLowTierSellPreview('artifact');
       setBulkLoading(false);
       openPreviewDialog(preview);
     } catch (err) {
@@ -476,7 +393,7 @@ export default function MarketRecyclePage() {
       });
       setBulkLoading(false);
     }
-  }, [activeTab, equippedIds, openPreviewDialog]);
+  }, [activeTab, openPreviewDialog]);
 
   const dialogState = dialog
     ? {
@@ -505,7 +422,7 @@ export default function MarketRecyclePage() {
         <>
           <GameSceneAsideSection title="鉴宝摘要">
             <div className="space-y-2 text-sm leading-7">
-              <p>灵石余额：{cultivator?.spirit_stones ?? 0}</p>
+              <p>灵石余额：{currency.data?.spiritStones ?? '读取中'}</p>
               <p>当前页签：{isMaterialTab ? '材料回收' : '法宝回收'}</p>
               <p>当前页次：{pagination.page} / {Math.max(pagination.totalPages, 1)}</p>
               {!isMaterialTab ? <p>已装备法宝：{equippedIds.size} 件</p> : null}

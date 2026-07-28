@@ -1,5 +1,9 @@
 import { REALM_ORDER, type RealmType } from '@shared/types/constants';
-import type { Consumable, Cultivator } from '@shared/types/cultivator';
+import type {
+  Artifact,
+  Consumable,
+  Cultivator,
+} from '@shared/types/cultivator';
 
 export const TUTORIAL_TASK_ORDER = [
   'tutorial_starter_supply',
@@ -21,13 +25,20 @@ export interface NoviceReadinessResource {
 }
 
 export interface NoviceDungeonReadinessInput {
-  cultivator: Cultivator;
+  cultivator: NoviceDungeonCultivator;
   selectedNodeRealm?: RealmType | null;
   hp: NoviceReadinessResource;
   mp: NoviceReadinessResource;
   isFirstDungeonTutorialActive: boolean;
   hasRecoveryPill?: boolean | null;
 }
+
+export type NoviceDungeonCultivator = Pick<Cultivator, 'realm' | 'equipped'> & {
+  inventory: {
+    artifacts: Artifact[];
+    consumables?: Consumable[];
+  };
+};
 
 export interface NoviceDungeonReadiness {
   shouldBlock: boolean;
@@ -69,7 +80,7 @@ export function hasClaimedTutorialReward(task: {
   return Boolean(task.snapshot?.rewardClaimedAt ?? task.metadata?.rewardClaimedAt);
 }
 
-export function getNoviceEquipmentState(cultivator: Cultivator): {
+export function getNoviceEquipmentState(cultivator: NoviceDungeonCultivator): {
   missingNames: string[];
   unequippedNames: string[];
   hasFullSet: boolean;
@@ -119,7 +130,7 @@ export function evaluateNoviceReadiness(
   const hasRecoveryPill =
     input.hasRecoveryPill !== undefined
       ? input.hasRecoveryPill
-      : cultivator.inventory.consumables.some(isRecoveryPill);
+      : (cultivator.inventory.consumables ?? []).some(isRecoveryPill);
   const reasons: string[] = [];
   const hints: string[] = [];
 

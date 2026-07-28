@@ -4,7 +4,7 @@ import {
   runExpiredDataCleanupJob,
   runMarketRefreshCronJob,
   runMaterialLibraryDailyGenerationJob,
-  runPlayerStateEventsCleanupJob,
+  runResourceReplayCleanupJob,
   runRankRewardsJob,
   runSectConstructionWeeklyJob,
   runTowerEnemySetRefreshJob,
@@ -19,7 +19,7 @@ const SECT_CONSTRUCTION_WEEKLY_SCHEDULE = '0 16 * * 0';
 // Market refresh: every 5 minutes to pre-generate listings before 15-min cycle ends
 const MARKET_REFRESH_SCHEDULE = '*/5 * * * *';
 const TOWER_ENEMY_SETS_SCHEDULE = '0 * * * *';
-const PLAYER_STATE_EVENTS_CLEANUP_SCHEDULE = '30 18 * * *';
+const RESOURCE_REPLAY_CLEANUP_SCHEDULE = '30 18 * * *';
 const EXPIRED_DATA_CLEANUP_SCHEDULE = '45 18 * * *';
 // 17:00 UTC equals 01:00 Asia/Shanghai.
 const MATERIAL_LIBRARY_DAILY_GENERATION_SCHEDULE = '0 17 * * *';
@@ -68,10 +68,10 @@ export function registerInternalCronJobs(
     Bun.cron(TOWER_ENEMY_SETS_SCHEDULE, () =>
       runScheduledJob('tower-enemy-sets', runTowerEnemySetRefreshJob),
     ),
-    Bun.cron(PLAYER_STATE_EVENTS_CLEANUP_SCHEDULE, () =>
+    Bun.cron(RESOURCE_REPLAY_CLEANUP_SCHEDULE, () =>
       runScheduledJob(
-        'player-state-events-cleanup',
-        runPlayerStateEventsCleanupJob,
+        'resource-replay-cleanup',
+        runResourceReplayCleanupJob,
       ),
     ),
     Bun.cron(EXPIRED_DATA_CLEANUP_SCHEDULE, () =>
@@ -95,7 +95,7 @@ export function registerInternalCronJobs(
     sectConstructionWeeklyLocal: 'Monday 00:00 Asia/Shanghai',
     marketRefresh: MARKET_REFRESH_SCHEDULE,
     towerEnemySets: TOWER_ENEMY_SETS_SCHEDULE,
-    playerStateEventsCleanupUtc: PLAYER_STATE_EVENTS_CLEANUP_SCHEDULE,
+    resourceReplayCleanupUtc: RESOURCE_REPLAY_CLEANUP_SCHEDULE,
     expiredDataCleanupUtc: EXPIRED_DATA_CLEANUP_SCHEDULE,
     materialLibraryDailyGenerationUtc:
       MATERIAL_LIBRARY_DAILY_GENERATION_SCHEDULE,

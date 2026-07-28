@@ -26,6 +26,21 @@ type ModifierCarrier = {
   attributeModifiers?: AttributeModifierConfig[];
 };
 
+export type CultivatorDisplayInput = Pick<
+  Cultivator,
+  | 'id'
+  | 'name'
+  | 'attributes'
+  | 'cultivations'
+  | 'sect'
+  | 'equipped'
+  | 'realm'
+  | 'realm_stage'
+  | 'condition'
+> & {
+  inventory: Pick<Cultivator['inventory'], 'artifacts'>;
+};
+
 function mountModifiers(
   unit: Unit,
   sourcePrefix: string,
@@ -50,7 +65,7 @@ function mountModifiers(
 }
 
 export function createDisplayUnitFromCultivator(
-  cultivator: Cultivator,
+  cultivator: CultivatorDisplayInput,
   isMirror: boolean = false,
 ): Unit {
   const baseAttrs: Partial<Record<AttributeType, number>> = {};
@@ -220,7 +235,7 @@ function buildAttrsView(unit: Unit): AttrsStateView {
 }
 
 export function getCultivatorDisplayAttributes(
-  cultivator: Cultivator,
+  cultivator: CultivatorDisplayInput,
 ): CultivatorDisplayAttributes {
   const unit = createDisplayUnitFromCultivator(cultivator);
   const attrs = buildAttrsView(unit);
@@ -247,7 +262,7 @@ export function getCultivatorDisplayAttributes(
 }
 
 export function getCultivatorDisplaySnapshot(
-  cultivator: Cultivator,
+  cultivator: CultivatorDisplayInput,
 ): CultivatorDisplaySnapshot {
   const { attrs } = getCultivatorDisplayAttributes(cultivator);
 

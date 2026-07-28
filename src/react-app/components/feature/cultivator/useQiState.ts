@@ -1,10 +1,10 @@
-import { usePlayerState, usePlayerStateActions } from '@app/lib/player-state/store';
+import { useCultivatorCurrency } from '@app/lib/resources/player';
 import {
   QI_MAX,
   QI_NATURAL_RESTORE_PER_HOUR,
 } from '@shared/config/qiSystem';
 import type { QiState } from '@shared/contracts/qi';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const QI_NATURAL_RESTORE_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -120,23 +120,11 @@ export function useQiState({
   autoTick?: boolean;
   tickInterval?: number;
 }) {
-  const currency = usePlayerState((store) => store.snapshot.currency);
-  const storeLoading = usePlayerState((store) => store.loading);
-  const storeError = usePlayerState((store) => store.error);
-  const { refresh: refreshPlayerState } = usePlayerStateActions();
-  const [refreshing, setRefreshing] = useState(false);
+  const currencyResource = useCultivatorCurrency();
+  const currency = currencyResource.data;
+  const storeLoading = currencyResource.loading;
+  const storeError = currencyResource.error;
   const [nowMs, setNowMs] = useState(() => Date.now());
-
-  const refresh = useCallback(async () => {
-    if (!cultivatorId) return;
-    setRefreshing(true);
-    try {
-      await refreshPlayerState(['currency']);
-    } finally {
-      setNowMs(Date.now());
-      setRefreshing(false);
-    }
-  }, [cultivatorId, refreshPlayerState]);
 
   useEffect(() => {
     if (!cultivatorId || !autoTick || tickInterval <= 0) return;
@@ -169,8 +157,7 @@ export function useQiState({
 
   return {
     state,
-    loading: cultivatorId ? storeLoading || refreshing : false,
+    loading: cultivatorId ? storeLoading : false,
     error: cultivatorId ? storeError : null,
-    refresh,
   };
 }

@@ -5,16 +5,12 @@ import {
   type NpcConversationOption,
 } from '@app/components/feature/room';
 import {
-  useSectCurrentQuery,
-  useSectResourceQuery,
-} from '@app/components/feature/sect/SectQueryProvider';
-import {
   SectNpcConversationRegistry,
   SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
-import { fetchSectShop } from '@app/lib/sect/sectClient';
+import { useSectShopQuery } from '@app/components/feature/sect/sectResources';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type { SectShopItemData } from '@shared/contracts/sect';
 import {
   SECT_RANK_LABELS,
@@ -52,17 +48,13 @@ function TreasuryConversation({
   actor,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const shop = useSectResourceQuery('shop', fetchSectShop);
-  const current = useSectCurrentQuery();
-  const { mutate } = usePlayerStateActions();
+  const shop = useSectShopQuery();
+  const { mutate } = useResourceMutation();
   const [selectedId, setSelectedId] = useState<string>();
   const [page, setPage] = useState(0);
   const session = useConversationSession({
     sessionKey: actor.id,
     snapshot: shop.data,
-    load: async () => {
-      await Promise.all([shop.reload(), current.reload()]);
-    },
     perform: async ({ intent }: { intent: TreasuryIntent }) => {
       const selected = shop.data?.items.find(
         (item) => item.id === intent.itemId,
@@ -74,7 +66,6 @@ function TreasuryConversation({
           postJson({ itemId: selected.id, quantity: 1 }),
         ),
       );
-      await Promise.all([shop.reload(), current.reload()]);
       return selected;
     },
     onReset: () => {
@@ -135,7 +126,7 @@ function TreasuryConversation({
       messages={messages}
       options={options}
       busy={session.phase === 'loading' || session.phase === 'submitting'}
-      error={session.error ?? shop.error ?? current.error}
+      error={session.error ?? shop.error}
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (optionId === 'back') {

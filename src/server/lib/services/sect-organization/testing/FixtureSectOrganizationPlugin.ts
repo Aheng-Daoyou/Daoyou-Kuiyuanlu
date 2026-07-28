@@ -7,6 +7,7 @@ import type {
 } from '../EconomyStrategies';
 import type { SectOrganizationPluginManifest } from '../SectOrganizationPlugins';
 import type { SectTaskExecutor } from '../task-executors/SectTaskExecutor';
+import { emptySectCommandEffects } from '../SectCommandEffects';
 
 const fixtureInput = z.object({ pass: z.literal(true) });
 
@@ -35,7 +36,7 @@ class FixtureMaterialRewardStrategy implements SectRewardGrantStrategy {
   async grant(context: Parameters<SectRewardGrantStrategy['grant']>[0]) {
     if (!context.grant.type || !context.grant.quality)
       organizationError('夹具材料奖励配置无效', 500);
-    await context.rewards.grantMaterial(context.cultivatorId, {
+    return context.rewards.grantMaterial(context.cultivatorId, {
       name: context.grant.name,
       type: context.grant.type,
       rank: context.grant.quality,
@@ -51,17 +52,27 @@ class FixtureSpiritStoneDonation implements SectDonationSpecification {
   readonly key = 'fixture-sect.spirit-stones';
 
   async consume(context: Parameters<SectDonationSpecification['consume']>[0]) {
-    if (
-      !(await context.economy.spendSpiritStones(
-        context.cultivatorId,
-        context.itemQuantity,
-      ))
-    )
+    const spent = await context.economy.spendSpiritStones(
+      context.cultivatorId,
+      context.itemQuantity,
+    );
+    if (!spent.spent || spent.balance === undefined)
       organizationError('灵石不足', 400);
+    const effects = emptySectCommandEffects();
+    effects.settlement.spiritStones = spent.balance;
+    effects.resourceChanges.push({
+      resourceTopic: 'player.currency',
+      eventType: 'fixture-sect.donation_currency_spent',
+      operation: 'merge',
+      payload: { spiritStones: spent.balance },
+    });
     return {
-      kind: this.key,
-      units: context.units,
-      amount: context.itemQuantity,
+      itemSnapshot: {
+        kind: this.key,
+        units: context.units,
+        amount: context.itemQuantity,
+      },
+      effects,
     };
   }
 }

@@ -1,3 +1,5 @@
+import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
+import type { SectContextData } from '@shared/contracts/sect';
 import type { SectAdmissionContext, SectRuntime } from '@shared/engine/sect';
 import { SectError } from '../SectError';
 import type {
@@ -61,6 +63,55 @@ export class SectAdmissionApplicationService {
       module.organization.construction.facilities,
     );
     return (await this.repository.load(cultivatorId))!;
+  }
+
+  async joinCommand(cultivatorId: string, sectId: string) {
+    const sect = await this.join(cultivatorId, sectId);
+    const organization = this.runtime.registry.require(
+      sect.sectId,
+    ).organization;
+    const discipleRank = sect.discipleRank ?? 'registered';
+    const membership = {
+      sectId: sect.sectId,
+      membershipId: sect.membershipId,
+      status: sect.status,
+      joinedAt: sect.joinedAt,
+      discipleRank,
+      contribution: sect.contribution,
+      office: sect.office ?? 'none',
+      promotedAt: sect.promotedAt,
+      permissions: organization.capabilities.snapshot(discipleRank),
+      configVersion: sect.configVersion,
+    } satisfies SectContextData;
+    return {
+      result: { sect },
+      resourceChanges: [
+        {
+          resourceTopic: 'player.session',
+          eventType: 'sect.joined',
+          operation: 'merge',
+          payload: {
+            activeCultivator: {
+              id: cultivatorId,
+              status: 'active',
+              sectId: sect.sectId,
+            },
+          },
+        },
+        {
+          resourceTopic: 'sect.membership',
+          eventType: 'sect.joined',
+          operation: 'replace',
+          payload: membership,
+        },
+        {
+          scope: { kind: 'sect', id: sect.sectId },
+          resourceTopic: 'sect.members',
+          eventType: 'sect.member_joined',
+          operation: 'invalidate',
+        },
+      ] satisfies ResourceChangeDescriptor[],
+    };
   }
 
   private requireModule(sectId: string) {

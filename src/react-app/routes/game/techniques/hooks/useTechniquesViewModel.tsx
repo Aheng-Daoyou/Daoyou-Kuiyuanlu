@@ -1,34 +1,61 @@
-import { useInkUI } from '@app/components/providers/InkUIProvider';
 import {
   toProductDisplayModel,
   type ProductDisplayModel,
 } from '@app/components/feature/products';
+import { useInkUI } from '@app/components/providers/InkUIProvider';
 import {
-  usePlayerStateDomainVersion,
-  usePlayerStateView,
-} from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+  usePlayerLoadout,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   MAX_EQUIPPED_GONGFA,
   MAX_OWNED_CREATION_PRODUCTS_PER_TYPE,
 } from '@shared/config/creationProductLimits';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export type V2Technique = ProductDisplayModel & { id: string };
 
 export function useTechniquesViewModel() {
-  const { cultivator, isLoading, note } = usePlayerStateView();
-  const loadoutVersion = usePlayerStateDomainVersion('loadout');
-  const { mutate } = usePlayerStateActions();
+  const session = usePlayerSession();
+  const cultivator = session.data?.activeCultivator;
+  const isLoading = session.loading;
+  const note = session.data?.note;
+  const loadout = usePlayerLoadout(Boolean(cultivator));
+  const { mutate } = useResourceMutation();
   const { pushToast, openDialog } = useInkUI();
 
-  const [selectedTechnique, setSelectedTechnique] = useState<V2Technique | null>(null);
+  const [selectedTechniqueId, setSelectedTechniqueId] = useState<
+    string | null
+  >(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [techniques, setTechniques] = useState<V2Technique[]>([]);
-  const [techniquesLoading, setTechniquesLoading] = useState(Boolean(cultivator));
+  const [techniqueProducts, setTechniqueProducts] = useState<V2Technique[]>(
+    [],
+  );
+  const [techniquesLoading, setTechniquesLoading] = useState(
+    Boolean(cultivator),
+  );
   const [pendingToggleId, setPendingToggleId] = useState<string | null>(null);
   const maxOwnedTechniques = MAX_OWNED_CREATION_PRODUCTS_PER_TYPE;
   const maxEnabledTechniques = MAX_EQUIPPED_GONGFA;
+  const equippedTechniqueIds = useMemo(
+    () =>
+      new Set(
+        loadout.data?.cultivations.map((technique) => technique.id) ?? [],
+      ),
+    [loadout.data?.cultivations],
+  );
+  const techniques = useMemo(
+    () =>
+      techniqueProducts.map((technique) => ({
+        ...technique,
+        isEquipped: equippedTechniqueIds.has(technique.id),
+      })),
+    [equippedTechniqueIds, techniqueProducts],
+  );
+  const selectedTechnique =
+    techniques.find((technique) => technique.id === selectedTechniqueId) ??
+    null;
   const enabledTechniqueCount = techniques.filter(
     (technique) => technique.isEquipped,
   ).length;
@@ -43,7 +70,9 @@ export function useTechniquesViewModel() {
     const loadTechniques = async () => {
       setTechniquesLoading(true);
       try {
-        const res = await fetch('/api/v2/products?type=gongfa&page=1&pageSize=100');
+        const res = await fetch(
+          '/api/v2/products?type=gongfa&page=1&pageSize=100',
+        );
         const data = await res.json();
         if (cancelled) return;
 
@@ -54,7 +83,7 @@ export function useTechniquesViewModel() {
               ...toProductDisplayModel(r),
             }),
           );
-          setTechniques(parsed);
+          setTechniqueProducts(parsed);
         }
       } catch (e) {
         if (!cancelled) {
@@ -72,16 +101,16 @@ export function useTechniquesViewModel() {
     return () => {
       cancelled = true;
     };
-  }, [cultivator?.id, loadoutVersion]);
+  }, [cultivator?.id]);
 
   const openTechniqueDetail = useCallback((technique: V2Technique) => {
-    setSelectedTechnique(technique);
+    setSelectedTechniqueId(technique.id);
     setIsModalOpen(true);
   }, []);
 
   const closeTechniqueDetail = useCallback(() => {
     setIsModalOpen(false);
-    setSelectedTechnique(null);
+    setSelectedTechniqueId(null);
   }, []);
 
   const toggleTechniqueEnabled = useCallback(
@@ -127,10 +156,14 @@ export function useTechniquesViewModel() {
           <div className="space-y-2 py-2 text-center">
             <p>
               确定要废除{' '}
-              <span className="text-ink-primary font-bold">{technique.name}</span>{' '}
+              <span className="text-ink-primary font-bold">
+                {technique.name}
+              </span>{' '}
               吗？
             </p>
-            <p className="text-ink-secondary text-xs">自废功法乃大忌，需谨慎行事。</p>
+            <p className="text-ink-secondary text-xs">
+              自废功法乃大忌，需谨慎行事。
+            </p>
           </div>
         ),
         confirmLabel: '自废功法',
@@ -141,6 +174,9 @@ export function useTechniquesViewModel() {
               fetch(`/api/v2/products/${technique.id}`, {
                 method: 'DELETE',
               }),
+            );
+            setTechniqueProducts((current) =>
+              current.filter((item) => item.id !== technique.id),
             );
             pushToast({
               message: `【${technique.name}】已从道基消散`,
@@ -161,7 +197,7 @@ export function useTechniquesViewModel() {
   return {
     cultivator,
     techniques,
-    isLoading: isLoading || techniquesLoading,
+    isLoading: isLoading || techniquesLoading || loadout.loading,
     note,
     maxOwnedTechniques,
     maxEnabledTechniques,

@@ -1,6 +1,8 @@
-import type { Cultivator } from '@shared/types/cultivator';
 import { getBodyCultivationBattleInitHooks } from '@shared/lib/bodyCultivation/effects';
-import { createCombatUnitFromCultivator } from '../adapters/CultivatorCombatAdapter';
+import {
+  createCombatUnitFromCultivator,
+  type CultivatorCombatInput,
+} from '../adapters/CultivatorCombatAdapter';
 import type { AttributeModifierConfig } from '../core/configs';
 import { AttributeType } from '../core/types';
 import { BuffFactory } from '../factories/BuffFactory';
@@ -154,7 +156,7 @@ function applyResourceState(
 
 function mergeBodyCultivationInit(
   spec: BattleUnitInitSpec | undefined,
-  cultivator: Cultivator,
+  cultivator: CultivatorCombatInput,
 ): BattleUnitInitSpec | undefined {
   const hooks = getBodyCultivationBattleInitHooks(cultivator.condition);
   const existingBuffIds = new Set(
@@ -200,8 +202,8 @@ function applyUnitInit(
 }
 
 export function createBattleUnitsWithInit(
-  player: Cultivator,
-  opponent: Cultivator,
+  player: CultivatorCombatInput,
+  opponent: CultivatorCombatInput,
   config?: BattleInitConfigV5,
 ): { playerUnit: Unit; opponentUnit: Unit } {
   const playerUnit = createCombatUnitFromCultivator(player);

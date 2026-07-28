@@ -1,8 +1,8 @@
+import { CultivatorInspectionModal } from '@app/components/feature/cultivator-inspection';
 import {
   ItemDetailModal,
   type ItemDetailPayload,
 } from '@app/components/feature/items';
-import { CultivatorInspectionModal } from '@app/components/feature/cultivator-inspection';
 import {
   BattleRankingCard,
   ItemRankingCard,
@@ -16,14 +16,14 @@ import {
   GameSceneTabs,
 } from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
+import { InkButton, InkList, InkListItem, InkNotice } from '@app/components/ui';
+import { consumeResourceMutation } from '@app/lib/resources/mutations';
 import {
-  InkButton,
-  InkList,
-  InkListItem,
-  InkNotice,
-} from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { consumePlayerStateMutation } from '@app/lib/player-state/store';
+  useCultivatorCurrency,
+  useCultivatorIdentity,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import type { CultivatorInspectionData } from '@shared/contracts/player';
 import { cn } from '@shared/lib/cn';
 import { getGameConceptInfo } from '@shared/lib/gameConceptDisplay';
 import {
@@ -31,7 +31,6 @@ import {
   REALM_VALUES,
   type RealmType,
 } from '@shared/types/constants';
-import type { Cultivator } from '@shared/types/cultivator';
 import type {
   BattleRankingItem,
   ItemRankingEntry,
@@ -39,8 +38,8 @@ import type {
   WealthRankingEntry,
 } from '@shared/types/rankings';
 import { useCallback, useEffect, useState } from 'react';
-import { toRankingDetailItem } from './rankingDetailItem';
 import { useNavigate, useSearchParams } from 'react-router';
+import { toRankingDetailItem } from './rankingDetailItem';
 
 type MyRankInfo = {
   rank: number | null;
@@ -50,12 +49,7 @@ type MyRankInfo = {
 type LoadingState = 'idle' | 'loading' | 'loaded';
 
 type RankingTab =
-  | 'battle'
-  | 'artifact'
-  | 'technique'
-  | 'skill'
-  | 'elixir'
-  | 'wealth';
+  'battle' | 'artifact' | 'technique' | 'skill' | 'elixir' | 'wealth';
 const REPUTATION_INFO = getGameConceptInfo('reputation');
 const REPUTATION_LABEL = `${REPUTATION_INFO.icon} ${REPUTATION_INFO.label}`;
 
@@ -99,25 +93,25 @@ function MyChallengeLedger({
   const expectedReputation = getExpectedRankingReputation(myRank);
 
   return (
-    <div className="scrollbar-ink overflow-x-auto border border-dashed border-crimson/20">
+    <div className="scrollbar-ink border-crimson/20 overflow-x-auto border border-dashed">
       <div className="flex min-w-max items-center text-sm leading-6 whitespace-nowrap">
         <div className="px-3 py-2">
           <span className="text-battle-muted text-xs">分榜</span>
-          <span className="ml-2 font-semibold text-ink">{activeRealm}</span>
+          <span className="text-ink ml-2 font-semibold">{activeRealm}</span>
         </div>
         <div className="px-3 py-2">
           <span className="text-battle-muted text-xs">排名</span>
-          <span className="ml-2 font-semibold text-ink">{rankLabel}</span>
+          <span className="text-ink ml-2 font-semibold">{rankLabel}</span>
         </div>
         <div className="px-3 py-2">
           <span className="text-battle-muted text-xs">挑战次数</span>
-          <span className="ml-2 font-semibold text-ink">{challengeLabel}</span>
+          <span className="text-ink ml-2 font-semibold">{challengeLabel}</span>
         </div>
         <div className="px-3 py-2">
           <span className="text-battle-muted text-xs">
             {REPUTATION_INFO.icon} 预计声望
           </span>
-          <span className="ml-2 font-semibold text-ink">
+          <span className="text-ink ml-2 font-semibold">
             {expectedReputation ?? '--'}
           </span>
         </div>
@@ -156,7 +150,7 @@ function RealmTokenBar({
           >
             <span className="font-semibold">{realm}</span>
             {isOwnRealm ? (
-              <span className="ml-2 text-xs text-battle-muted">本境</span>
+              <span className="text-battle-muted ml-2 text-xs">本境</span>
             ) : null}
           </button>
         );
@@ -180,11 +174,11 @@ function RankingEmptyState({
 }) {
   if (canDirectEntry) {
     return (
-      <div className="border border-crimson/20 bg-crimson/6 px-4 py-5 text-center">
-        <p className="text-base font-semibold text-ink">
+      <div className="border-crimson/20 bg-crimson/6 border px-4 py-5 text-center">
+        <p className="text-ink text-base font-semibold">
           {activeRealm}天骄榜尚无席位
         </p>
-        <p className="mt-2 text-sm leading-6 text-ink-secondary">
+        <p className="text-ink-secondary mt-2 text-sm leading-6">
           此境金榜初开，可直接登榜留名。
         </p>
         <div className="mt-4">
@@ -206,7 +200,7 @@ function RankingEmptyState({
         ? `${activeRealm}天骄榜暂无记录。越境榜单不可直接上榜，需等待本境修士留名后方可切磋。`
         : activeTab === 'wealth'
           ? '财富榜暂无记录，静待灵石入库。'
-        : '此榜单暂无记录，静待宝物出世。'}
+          : '此榜单暂无记录，静待宝物出世。'}
     </InkNotice>
   );
 }
@@ -215,7 +209,20 @@ export default function RankingsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { pushToast } = useInkUI();
-  const { cultivator, isLoading, note } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const currency = useCultivatorCurrency();
+  const session = usePlayerSession();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity?.id && currency.data
+      ? {
+          id: identity.id,
+          realm: identity.realm,
+          reputation: currency.data.reputation,
+        }
+      : null;
+  const isLoading = profile.loading || currency.loading || session.loading;
+  const note = session.data?.note;
   const [activeTab, setActiveTab] = useState<RankingTab>('battle');
   const [rankings, setRankings] = useState<RankingsDisplayItem[]>([]); // Use strict type
   const [myRankInfo, setMyRankInfo] = useState<MyRankInfo | null>(null);
@@ -226,10 +233,12 @@ export default function RankingsPage() {
   const [error, setError] = useState<string>('');
   const [probing, setProbing] = useState<string | null>(null);
   const [inspectedCultivator, setInspectedCultivator] =
-    useState<Cultivator | null>(null);
+    useState<CultivatorInspectionData | null>(null);
   const [selectedItemDetail, setSelectedItemDetail] =
     useState<ItemDetailPayload | null>(null);
-  const activeRealm = resolveRealm(searchParams.get('realm') ?? cultivator?.realm);
+  const activeRealm = resolveRealm(
+    searchParams.get('realm') ?? cultivator?.realm,
+  );
 
   const loadRankings = useCallback(
     async (tab: RankingTab, realm: RealmType = activeRealm) => {
@@ -259,18 +268,19 @@ export default function RankingsPage() {
         setLoadingRankings(false);
       }
     },
-    [activeRealm, pushToast],
+    [activeRealm, pushToast, setError, setLoadingRankings, setRankings],
   );
 
-  const loadMyRankInfo = useCallback(async (realm: RealmType = activeRealm) => {
-    if (!cultivator?.id) return;
+  const loadMyRankInfo = useCallback(
+    async (realm: RealmType = activeRealm) => {
+      if (!cultivator?.id) return;
 
-    setMyRankInfoLoadingState('loading');
-    try {
-      const response = await fetch(
-        `/api/rankings/my-rank?realm=${encodeURIComponent(realm)}`,
-      );
-      const result = await response.json();
+      setMyRankInfoLoadingState('loading');
+      try {
+        const response = await fetch(
+          `/api/rankings/my-rank?realm=${encodeURIComponent(realm)}`,
+        );
+        const result = await response.json();
         if (response.ok && result.success) {
           setMyRankInfo({
             rank: result.data.rank,
@@ -278,12 +288,20 @@ export default function RankingsPage() {
           });
           setMyRankInfoLoadingState('loaded');
         }
-    } catch (err) {
-      console.error('获取我的排名失败:', err);
-      pushToast({ message: '获取排名信息失败', tone: 'danger' });
-      setMyRankInfoLoadingState('loaded');
-    }
-  }, [activeRealm, cultivator?.id, pushToast]);
+      } catch (err) {
+        console.error('获取我的排名失败:', err);
+        pushToast({ message: '获取排名信息失败', tone: 'danger' });
+        setMyRankInfoLoadingState('loaded');
+      }
+    },
+    [
+      activeRealm,
+      cultivator?.id,
+      pushToast,
+      setMyRankInfo,
+      setMyRankInfoLoadingState,
+    ],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -374,7 +392,7 @@ export default function RankingsPage() {
   };
 
   const executeDirectEntry = async () => {
-    const data = await consumePlayerStateMutation<DirectEntryResponse>(
+    const data = await consumeResourceMutation<DirectEntryResponse>(
       await fetch('/api/rankings/challenge-battle/v5', {
         method: 'POST',
         headers: {
@@ -521,7 +539,9 @@ export default function RankingsPage() {
   const isEmpty = rankings.length === 0;
   const isLoadingChallenges = myRankInfoLoadingState !== 'loaded';
   const isOwnRealmRanking = activeRealm === resolveRealm(cultivator?.realm);
-  const ownRealm = cultivator?.realm ? resolveRealm(cultivator.realm) : undefined;
+  const ownRealm = cultivator?.realm
+    ? resolveRealm(cultivator.realm)
+    : undefined;
   const rankingTabs = [
     { label: '天骄榜', value: 'battle' },
     { label: '财富榜', value: 'wealth' },
@@ -561,7 +581,7 @@ export default function RankingsPage() {
             ? '择敌、查探、挑战，一切夺位都从榜前决断。'
             : activeTab === 'wealth'
               ? '灵石聚散自有痕迹，榜上只看当前身家。'
-            : '诸般名器留影于榜，观其品阶、评分与持有者。'
+              : '诸般名器留影于榜，观其品阶、评分与持有者。'
         }
         headerMeta={
           activeTab === 'battle' || note || error ? (
@@ -591,7 +611,8 @@ export default function RankingsPage() {
                 <p>榜种：{activeTabLabel}</p>
                 {activeTab === 'battle' ? <p>当前分榜：{activeRealm}</p> : null}
                 <p>
-                  {REPUTATION_LABEL}：{cultivator?.reputation ?? 0}
+                  {REPUTATION_LABEL}：
+                  {cultivator ? cultivator.reputation : '读取失败'}
                 </p>
                 <p>
                   当前收录：{rankings.length}{' '}

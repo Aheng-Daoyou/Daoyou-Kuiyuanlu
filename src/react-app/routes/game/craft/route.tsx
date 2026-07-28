@@ -5,10 +5,10 @@ import {
 } from '@app/components/game-shell';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkCard } from '@app/components/ui/InkCard';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import { usePlayerSession } from '@app/lib/resources/player';
 
 export default function CraftPage() {
-  const { note } = usePlayerStateView();
+  const note = usePlayerSession().data?.note;
 
   return (
     <GameSceneFrame
@@ -65,9 +65,7 @@ export default function CraftPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <InkCard className="flex flex-col items-center p-4 text-center">
           <div className="mb-2 text-3xl">🔥</div>
-          <h3 className="text-ink-primary mb-2 text-lg font-semibold">
-            炼器
-          </h3>
+          <h3 className="text-ink-primary mb-2 text-lg font-semibold">炼器</h3>
           <p className="text-ink-secondary mb-4 min-h-10 text-sm">
             引地火之威，锻造法宝神兵。
             <br />
@@ -80,9 +78,7 @@ export default function CraftPage() {
 
         <InkCard className="flex flex-col items-center p-4 text-center">
           <div className="mb-2 text-3xl">🌕</div>
-          <h3 className="text-ink-primary mb-2 text-lg font-semibold">
-            炼丹
-          </h3>
+          <h3 className="text-ink-primary mb-2 text-lg font-semibold">炼丹</h3>
           <p className="text-ink-secondary mb-4 min-h-10 text-sm">
             调阴阳之气，炼制灵丹妙药。
             <br />

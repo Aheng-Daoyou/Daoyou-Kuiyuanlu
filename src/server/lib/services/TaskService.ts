@@ -1,21 +1,37 @@
-import { assertConsumableSpec } from '@shared/lib/consumables';
+import type { DbTransaction } from '@server/lib/drizzle/db';
+import {
+  findActiveCultivatorTaskProgressById,
+  findHighestCultivatorTechniqueQuality,
+  getCultivatorBreakthroughPillQuantities,
+  type CultivatorBreakthroughPillRecord,
+} from '@server/lib/repositories/cultivatorRepository';
+import {
+  createCultivatorTask,
+  findCultivatorTaskByDefinition,
+  findCultivatorTaskById,
+  listCultivatorTasks,
+  markTaskRewardGrantPendingForKey,
+  markTaskRewardGrantedForKey,
+  updateCultivatorTask,
+  type CultivatorTaskRecord,
+} from '@server/lib/repositories/taskRepository';
+import { loadCultivatorCombatInput } from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
+import { getNextStage } from '@server/utils/breakthroughCalculator';
+import { getOrInitCultivationProgress } from '@server/utils/cultivationUtils';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import { getBreakthroughPillLabel } from '@shared/lib/breakthroughPill';
 import { isConditionStatusActive } from '@shared/lib/condition';
 import { getConditionStatusTemplate } from '@shared/lib/conditionStatusRegistry';
 import type { BattleRecord } from '@shared/types/battle';
 import type { ConditionStatusKey } from '@shared/types/condition';
-import type {
-  Consumable,
-  CultivationProgress,
-  Cultivator,
-} from '@shared/types/cultivator';
-import type { MailAttachment } from '@shared/types/mail';
 import {
   QUALITY_ORDER,
   REALM_ORDER,
   type Quality,
   type RealmType,
 } from '@shared/types/constants';
+import type { CultivationProgress, Cultivator } from '@shared/types/cultivator';
+import type { MailAttachment } from '@shared/types/mail';
 import type {
   TaskActionLink,
   TaskEvent,
@@ -28,45 +44,23 @@ import type {
   TaskStageProgress,
   TaskStatus,
 } from '@shared/types/task';
-import {
-  findActiveCultivatorRecordById,
-  listCultivatorBreakthroughPills,
-  listCultivatorTechniqueQualities,
-  type CultivatorBreakthroughPillRecord,
-} from '@server/lib/repositories/cultivatorRepository';
-import { getNextStage } from '@server/utils/breakthroughCalculator';
-import { getOrInitCultivationProgress } from '@server/utils/cultivationUtils';
+import { MailService } from './MailService';
 import { simulateBattleV5 } from './simulateBattleV5';
 import {
-  getInventory,
-  getPlayerRuntimeCultivatorByIdUnsafe,
-} from './cultivatorService';
-import { getExecutor, type DbTransaction } from '@server/lib/drizzle/db';
-import {
-  createCultivatorTask,
-  findCultivatorTaskById,
-  findCultivatorTaskByDefinition,
-  listCultivatorTasks,
-  markTaskRewardGrantPendingForKey,
-  markTaskRewardGrantedForKey,
-  type CultivatorTaskRecord,
-  updateCultivatorTask,
-} from '@server/lib/repositories/taskRepository';
-import {
-  getTutorialTaskDefinitions,
-  getTaskDefinition,
   getBreakthroughTaskDefinition,
   getBreakthroughTaskDefinitionByTransition,
   getTaskChallengeProfile,
+  getTaskDefinition,
+  getTutorialTaskDefinitions,
   type BreakthroughTaskDefinition,
   type RuntimeTaskDefinition,
-  type TutorialTaskDefinition,
   type TaskStageTemplate,
+  type TutorialTaskDefinition,
 } from './taskDefinitions';
-import { MailService } from './MailService';
 
 interface TaskServiceWriteOptions {
   tx?: DbTransaction;
+  readOnly?: boolean;
 }
 
 interface TaskSyncOptions extends TaskServiceWriteOptions {
@@ -130,7 +124,10 @@ function resolveTaskRewardMailAttachments(
 }
 
 function formatTaskRewardSummary(
-  definition: Pick<RuntimeTaskDefinition, 'category' | 'rewardAttachments' | 'difficulty'> & {
+  definition: Pick<
+    RuntimeTaskDefinition,
+    'category' | 'rewardAttachments' | 'difficulty'
+  > & {
     rewardCultivationExp?: number;
   },
 ): string[] {
@@ -169,7 +166,9 @@ function buildDefaultObjectiveStates(
   definition: RuntimeTaskDefinition,
 ): TaskObjectiveState[] {
   return definition.stages.flatMap((stage) =>
-    stage.objectives.map((objective) => createDefaultObjectiveState(objective.id)),
+    stage.objectives.map((objective) =>
+      createDefaultObjectiveState(objective.id),
+    ),
   );
 }
 
@@ -187,22 +186,6 @@ function isKnownQuality(value: string | null | undefined): value is Quality {
   return Boolean(value && value in QUALITY_ORDER);
 }
 
-function getHighestTechniqueQuality(qualities: Array<Quality | null | undefined>): Quality | null {
-  let current: Quality | null = null;
-
-  for (const quality of qualities) {
-    if (!quality) {
-      continue;
-    }
-
-    if (!current || QUALITY_ORDER[quality] > QUALITY_ORDER[current]) {
-      current = quality;
-    }
-  }
-
-  return current;
-}
-
 function hasActiveStatus(
   context: TaskProgressContext,
   statusKey: Extract<
@@ -216,10 +199,7 @@ function hasActiveStatus(
 }
 
 function buildBreakthroughPillInventory(
-  pills: Array<
-    | Pick<Consumable, 'quantity' | 'spec'>
-    | CultivatorBreakthroughPillRecord
-  >,
+  pills: CultivatorBreakthroughPillRecord[],
 ): Pick<
   TaskProgressContext,
   'breakthroughPillQuantities' | 'genericBreakthroughPillQuantity'
@@ -228,18 +208,13 @@ function buildBreakthroughPillInventory(
   let genericBreakthroughPillQuantity = 0;
 
   for (const pill of pills) {
-    const spec = assertConsumableSpec(pill.spec);
-    if (spec.kind !== 'pill' || spec.family !== 'breakthrough') {
-      continue;
-    }
-
     const quantity = Math.max(0, pill.quantity ?? 0);
     if (quantity <= 0) {
       continue;
     }
 
-    const targetRealm = spec.alchemyMeta.breakthroughTargetRealm;
-    if (targetRealm) {
+    if (pill.targetRealm && pill.targetRealm in REALM_ORDER) {
+      const targetRealm = pill.targetRealm as RealmType;
       breakthroughPillQuantities[targetRealm] =
         (breakthroughPillQuantities[targetRealm] ?? 0) + quantity;
       continue;
@@ -264,36 +239,17 @@ function getPreparedBreakthroughPillQuantity(
   );
 }
 
-function createTaskProgressContextFromCultivator(
-  cultivator: Cultivator,
-): TaskProgressContext {
-  if (!cultivator.id) {
-    throw new Error('角色缺少有效标识');
-  }
-
-  return {
-    cultivatorId: cultivator.id,
-    realm: cultivator.realm,
-    realmStage: cultivator.realm_stage,
-    cultivationProgress: cultivator.cultivation_progress,
-    condition: cultivator.condition,
-    highestTechniqueQuality: getHighestTechniqueQuality(
-      (cultivator.cultivations ?? []).map((cultivation) => cultivation.quality ?? null),
-    ),
-    ...buildBreakthroughPillInventory(cultivator.inventory.consumables),
-  };
-}
-
 async function loadTaskProgressContextOrThrow(
   cultivatorId: string,
   options: TaskServiceWriteOptions = {},
 ): Promise<TaskProgressContext> {
   const q = options.tx;
-  const [record, techniqueRows, breakthroughPills] = await Promise.all([
-    findActiveCultivatorRecordById(cultivatorId, q),
-    listCultivatorTechniqueQualities(cultivatorId, q),
-    listCultivatorBreakthroughPills(cultivatorId, q),
-  ]);
+  const [record, highestTechniqueQuality, breakthroughPills] =
+    await Promise.all([
+      findActiveCultivatorTaskProgressById(cultivatorId, q),
+      findHighestCultivatorTechniqueQuality(cultivatorId, q),
+      getCultivatorBreakthroughPillQuantities(cultivatorId, q),
+    ]);
 
   if (!record) {
     throw new Error('角色不存在');
@@ -302,24 +258,23 @@ async function loadTaskProgressContextOrThrow(
   return {
     cultivatorId: record.id,
     realm: record.realm as RealmType,
-    realmStage: record.realm_stage as Cultivator['realm_stage'],
+    realmStage: record.realmStage as Cultivator['realm_stage'],
     cultivationProgress: getOrInitCultivationProgress(
-      ((record.cultivation_progress ?? {}) as CultivationProgress),
+      (record.cultivationProgress ?? {}) as CultivationProgress,
       record.realm as Cultivator['realm'],
-      record.realm_stage as Cultivator['realm_stage'],
+      record.realmStage as Cultivator['realm_stage'],
     ),
     condition:
-      (record.condition as Cultivator['condition'] | null | undefined) ?? undefined,
-    highestTechniqueQuality: getHighestTechniqueQuality(
-      techniqueRows.map((row) => (isKnownQuality(row.quality) ? row.quality : null)),
-    ),
+      (record.condition as Cultivator['condition'] | null | undefined) ??
+      undefined,
+    highestTechniqueQuality: isKnownQuality(highestTechniqueQuality)
+      ? highestTechniqueQuality
+      : null,
     ...buildBreakthroughPillInventory(breakthroughPills),
   };
 }
 
-function normalizeObjectiveStates(
-  input: unknown,
-): TaskObjectiveState[] {
+function normalizeObjectiveStates(input: unknown): TaskObjectiveState[] {
   if (!Array.isArray(input)) {
     return [];
   }
@@ -339,7 +294,9 @@ function normalizeObjectiveStates(
         objectiveId: item.objectiveId,
         completed: item.completed === true,
         progressValue:
-          typeof item.progressValue === 'number' ? item.progressValue : undefined,
+          typeof item.progressValue === 'number'
+            ? item.progressValue
+            : undefined,
         completedAt:
           typeof item.completedAt === 'string' ? item.completedAt : undefined,
         updatedAt:
@@ -605,7 +562,8 @@ function resolveObjectiveProgress(
     }
     case 'event_count': {
       const currentValue = Math.max(0, state?.progressValue ?? 0);
-      const completed = state?.completed === true || currentValue >= definition.threshold;
+      const completed =
+        state?.completed === true || currentValue >= definition.threshold;
       const nextState = completed
         ? completeObjectiveState(
             {
@@ -708,7 +666,9 @@ function buildTaskSnapshot(
   currentStage: string | null;
 } {
   const currentStates = normalizeObjectiveStates(record.objectives);
-  const stateMap = new Map(currentStates.map((state) => [state.objectiveId, state]));
+  const stateMap = new Map(
+    currentStates.map((state) => [state.objectiveId, state]),
+  );
   const nextStates: TaskObjectiveState[] = [];
   const stageProgresses: TaskStageProgress[] = [];
 
@@ -723,7 +683,9 @@ function buildTaskSnapshot(
       nextStates.push(resolved.objectiveState);
       return resolved.progress;
     });
-    const stageCompleted = objectiveProgresses.every((objective) => objective.completed);
+    const stageCompleted = objectiveProgresses.every(
+      (objective) => objective.completed,
+    );
     stageProgresses.push({
       id: stage.id,
       title: stage.title,
@@ -736,10 +698,16 @@ function buildTaskSnapshot(
     });
   }
 
-  const currentStageIndex = stageProgresses.findIndex((stage) => !stage.completed);
+  const currentStageIndex = stageProgresses.findIndex(
+    (stage) => !stage.completed,
+  );
   const isCompleted = currentStageIndex === -1;
-  const resolvedCurrentStageIndex = isCompleted ? stageProgresses.length : currentStageIndex;
-  const currentStageId = isCompleted ? null : stageProgresses[currentStageIndex].id;
+  const resolvedCurrentStageIndex = isCompleted
+    ? stageProgresses.length
+    : currentStageIndex;
+  const currentStageId = isCompleted
+    ? null
+    : stageProgresses[currentStageIndex].id;
 
   if (!isCompleted && currentStageIndex >= 0) {
     stageProgresses[currentStageIndex].current = true;
@@ -771,9 +739,9 @@ function buildTaskSnapshot(
       totalStages: definition.stages.length,
       missingRequirements,
       rewardSummary: rewardSummary.length > 0 ? rewardSummary : undefined,
-      rewardClaimedAt:
-        (record.metadata as TaskInstanceMetadata | null | undefined)
-          ?.rewardClaimedAt,
+      rewardClaimedAt: (
+        record.metadata as TaskInstanceMetadata | null | undefined
+      )?.rewardClaimedAt,
       stages: stageProgresses,
     },
     objectiveStates: nextStates,
@@ -795,7 +763,8 @@ function mapTaskInstance(
     objectives: normalizeObjectiveStates(record.objectives),
     metadata: record.metadata as TaskInstanceMetadata,
     createdAt: record.createdAt.toISOString(),
-    updatedAt: record.updatedAt?.toISOString() ?? record.createdAt.toISOString(),
+    updatedAt:
+      record.updatedAt?.toISOString() ?? record.createdAt.toISOString(),
     completedAt: toIsoString(record.completedAt),
     snapshot,
   };
@@ -897,21 +866,28 @@ async function archiveOutdatedBreakthroughRecord(
     serializeObjectiveStates(normalizeObjectiveStates(record.objectives)) !==
       serializeObjectiveStates(archivedObjectiveStates);
 
-  const archivedRecord =
-    needsArchiveUpdate
-      ? (await updateCultivatorTask(record.id, context.cultivatorId, {
-          status: 'completed',
-          currentStage: null,
-          objectives: archivedObjectiveStates,
-          completedAt,
-        }, options.tx)) ?? {
-          ...record,
-          status: 'completed',
-          currentStage: null,
-          objectives: archivedObjectiveStates,
-          completedAt,
-        }
-      : record;
+  const archivedProjection = {
+    ...record,
+    status: 'completed' as const,
+    currentStage: null,
+    objectives: archivedObjectiveStates,
+    completedAt,
+  };
+  const archivedRecord = needsArchiveUpdate
+    ? options.readOnly
+      ? archivedProjection
+      : ((await updateCultivatorTask(
+          record.id,
+          context.cultivatorId,
+          {
+            status: 'completed',
+            currentStage: null,
+            objectives: archivedObjectiveStates,
+            completedAt,
+          },
+          options.tx,
+        )) ?? archivedProjection)
+    : record;
 
   return mapTaskInstance(
     archivedRecord,
@@ -940,15 +916,18 @@ async function createTaskRecordIfMissing(
   }
 
   try {
-    await createCultivatorTask({
-      cultivatorId: context.cultivatorId,
-      definitionId: definition.id,
-      category: definition.category,
-      status: 'active',
-      currentStage: definition.stages[0]?.id ?? null,
-      objectives: buildDefaultObjectiveStates(definition),
-      metadata: createTaskMetadata(definition),
-    }, options.tx);
+    await createCultivatorTask(
+      {
+        cultivatorId: context.cultivatorId,
+        definitionId: definition.id,
+        category: definition.category,
+        status: 'active',
+        currentStage: definition.stages[0]?.id ?? null,
+        objectives: buildDefaultObjectiveStates(definition),
+        metadata: createTaskMetadata(definition),
+      },
+      options.tx,
+    );
   } catch (error) {
     if (
       !error ||
@@ -997,7 +976,12 @@ async function syncTaskRecord(
   }
 
   const preparedRecord = record;
-  const resolved = buildTaskSnapshot(preparedRecord, definition, context, nowIso);
+  const resolved = buildTaskSnapshot(
+    preparedRecord,
+    definition,
+    context,
+    nowIso,
+  );
   const serializedCurrent = serializeObjectiveStates(
     normalizeObjectiveStates(preparedRecord.objectives),
   );
@@ -1015,35 +999,45 @@ async function syncTaskRecord(
     metadataNeedsUpdate ||
     (resolved.status === 'completed' && !preparedRecord.completedAt);
 
-  const nextRecord =
-    needsUpdate
-      ? (await updateCultivatorTask(preparedRecord.id, context.cultivatorId, {
-          status: resolved.status,
-          currentStage: resolved.currentStage,
-          objectives: resolved.objectiveStates,
-          completedAt:
-            resolved.status === 'completed'
-              ? preparedRecord.completedAt ?? new Date(nowIso)
-              : null,
-        ...(metadataNeedsUpdate ? { metadata: nextMetadata } : {}),
-        }, options.tx)) ?? {
-          ...preparedRecord,
-          status: resolved.status,
-          currentStage: resolved.currentStage,
-          objectives: resolved.objectiveStates,
-          completedAt:
-            resolved.status === 'completed'
-              ? preparedRecord.completedAt ?? new Date(nowIso)
-              : null,
-          ...(metadataNeedsUpdate ? { metadata: nextMetadata } : {}),
-        }
-      : preparedRecord;
+  const projectedRecord = {
+    ...preparedRecord,
+    status: resolved.status,
+    currentStage: resolved.currentStage,
+    objectives: resolved.objectiveStates,
+    completedAt:
+      resolved.status === 'completed'
+        ? (preparedRecord.completedAt ?? new Date(nowIso))
+        : null,
+    ...(metadataNeedsUpdate ? { metadata: nextMetadata } : {}),
+  };
+  const nextRecord = needsUpdate
+    ? options.readOnly
+      ? projectedRecord
+      : ((await updateCultivatorTask(
+          preparedRecord.id,
+          context.cultivatorId,
+          {
+            status: resolved.status,
+            currentStage: resolved.currentStage,
+            objectives: resolved.objectiveStates,
+            completedAt:
+              resolved.status === 'completed'
+                ? (preparedRecord.completedAt ?? new Date(nowIso))
+                : null,
+            ...(metadataNeedsUpdate ? { metadata: nextMetadata } : {}),
+          },
+          options.tx,
+        )) ?? projectedRecord)
+    : preparedRecord;
 
   return mapTaskInstance(nextRecord, resolved.snapshot);
 }
 
-async function loadBundleOrThrow(cultivatorId: string): Promise<Cultivator> {
-  const bundle = await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId);
+async function loadCombatInputOrThrow(
+  cultivatorId: string,
+  options: TaskServiceWriteOptions = {},
+): Promise<CultivatorCombatInput> {
+  const bundle = await loadCultivatorCombatInput(cultivatorId, options.tx);
   if (!bundle) {
     throw new Error('角色不存在');
   }
@@ -1055,7 +1049,9 @@ async function syncCultivatorTasksWithContext(
   context: TaskProgressContext,
   options: TaskSyncOptions = {},
 ): Promise<TaskInstance[]> {
-  await ensureCurrentTaskRecords(context, options);
+  if (!options.readOnly) {
+    await ensureCurrentTaskRecords(context, options);
+  }
   const records = await listCultivatorTasks(context.cultivatorId, {
     q: options.tx,
   });
@@ -1079,72 +1075,23 @@ async function syncCultivatorTasksWithContext(
   );
 }
 
-async function resolveMissingTaskRewardAttachments(
-  userId: string,
-  cultivatorId: string,
-  attachments: MailAttachment[],
-): Promise<MailAttachment[]> {
-  const inventory = await getInventory(userId, cultivatorId);
-  const missing: MailAttachment[] = [];
-
-  for (const attachment of attachments) {
-    switch (attachment.type) {
-      case 'material': {
-        const ownedQuantity = inventory.materials
-          .filter(
-            (material) =>
-              material.name === attachment.name &&
-              (!attachment.data ||
-                !('rank' in attachment.data) ||
-                material.rank === attachment.data.rank),
-          )
-          .reduce((sum, material) => sum + material.quantity, 0);
-        const deficit = attachment.quantity - ownedQuantity;
-        if (deficit > 0) {
-          missing.push({ ...attachment, quantity: deficit });
-        }
-        break;
-      }
-      case 'consumable': {
-        const ownedQuantity = inventory.consumables
-          .filter(
-            (consumable) =>
-              consumable.name === attachment.name &&
-              (!attachment.data ||
-                !('quality' in attachment.data) ||
-                consumable.quality === attachment.data.quality),
-          )
-          .reduce((sum, consumable) => sum + consumable.quantity, 0);
-        const deficit = attachment.quantity - ownedQuantity;
-        if (deficit > 0) {
-          missing.push({ ...attachment, quantity: deficit });
-        }
-        break;
-      }
-      case 'artifact': {
-        const ownedQuantity = inventory.artifacts.filter(
-          (artifact) => artifact.name === attachment.name,
-        ).length;
-        const deficit = attachment.quantity - ownedQuantity;
-        if (deficit > 0) {
-          missing.push({ ...attachment, quantity: deficit });
-        }
-        break;
-      }
-      case 'spirit_stones':
-      case 'cultivation_exp':
-      case 'comprehension_insight':
-        break;
-    }
-  }
-
-  return missing;
-}
-
 export const TaskService = {
-  async syncCultivatorTasks(cultivatorId: string): Promise<TaskInstance[]> {
+  async isFirstDungeonTutorialActive(cultivatorId: string): Promise<boolean> {
     const context = await loadTaskProgressContextOrThrow(cultivatorId);
-    return syncCultivatorTasksWithContext(context);
+    await ensureCurrentTaskRecords(context);
+    const task = await findCultivatorTaskByDefinition(
+      cultivatorId,
+      'tutorial_first_dungeon',
+    );
+    return task?.status === 'active';
+  },
+
+  async syncCultivatorTasks(
+    cultivatorId: string,
+    tx?: DbTransaction,
+  ): Promise<TaskInstance[]> {
+    const context = await loadTaskProgressContextOrThrow(cultivatorId, { tx });
+    return syncCultivatorTasksWithContext(context, { tx });
   },
 
   async listCultivatorTasks(
@@ -1162,6 +1109,20 @@ export const TaskService = {
     return tasks.filter((task) => task.status === status);
   },
 
+  async readCultivatorTasks(
+    cultivatorId: string,
+    status: TaskStatus | undefined,
+    tx: DbTransaction,
+  ): Promise<TaskInstance[]> {
+    const context = await loadTaskProgressContextOrThrow(cultivatorId, { tx });
+    const tasks = await syncCultivatorTasksWithContext(context, {
+      tx,
+      readOnly: true,
+      hideCompletedBreakthrough: true,
+    });
+    return status ? tasks.filter((task) => task.status === status) : tasks;
+  },
+
   async getCultivatorTask(
     cultivatorId: string,
     taskId: string,
@@ -1170,7 +1131,9 @@ export const TaskService = {
     return tasks.find((task) => task.id === taskId) ?? null;
   },
 
-  async getMajorBreakthroughGate(cultivatorId: string): Promise<MajorBreakthroughGate> {
+  async getMajorBreakthroughGate(
+    cultivatorId: string,
+  ): Promise<MajorBreakthroughGate> {
     const context = await loadTaskProgressContextOrThrow(cultivatorId);
     const definition = getCurrentMajorDefinition(context);
     if (!definition) {
@@ -1182,7 +1145,8 @@ export const TaskService = {
     }
 
     const tasks = await syncCultivatorTasksWithContext(context);
-    const task = tasks.find((item) => item.definitionId === definition.id) ?? null;
+    const task =
+      tasks.find((item) => item.definitionId === definition.id) ?? null;
 
     return {
       required: true,
@@ -1226,7 +1190,9 @@ export const TaskService = {
             (state) => state.objectiveId === objective.id,
           );
           const currentState =
-            stateIndex >= 0 ? nextStates[stateIndex] : createDefaultObjectiveState(objective.id);
+            stateIndex >= 0
+              ? nextStates[stateIndex]
+              : createDefaultObjectiveState(objective.id);
           if (currentState.completed) {
             continue;
           }
@@ -1249,9 +1215,14 @@ export const TaskService = {
       }
 
       if (changed) {
-        await updateCultivatorTask(record.id, cultivatorId, {
-          objectives: nextStates,
-        }, options.tx);
+        await updateCultivatorTask(
+          record.id,
+          cultivatorId,
+          {
+            objectives: nextStates,
+          },
+          options.tx,
+        );
       }
     }
 
@@ -1288,10 +1259,7 @@ export const TaskService = {
 
       for (const stage of definition.stages) {
         for (const objective of stage.objectives) {
-          if (
-            objective.kind !== 'event_count' ||
-            objective.event !== event
-          ) {
+          if (objective.kind !== 'event_count' || objective.event !== event) {
             continue;
           }
 
@@ -1343,15 +1311,19 @@ export const TaskService = {
       }
 
       const nextMetadata = createTaskMetadata(definition);
-      record =
-        (await updateCultivatorTask(record.id, cultivatorId, {
+      record = (await updateCultivatorTask(
+        record.id,
+        cultivatorId,
+        {
           objectives: nextStates,
           metadata: nextMetadata,
-        }, options.tx)) ?? {
-          ...record,
-          objectives: nextStates,
-          metadata: nextMetadata,
-        };
+        },
+        options.tx,
+      )) ?? {
+        ...record,
+        objectives: nextStates,
+        metadata: nextMetadata,
+      };
       await syncTaskRecord(context, record, options);
       changedAny = true;
     }
@@ -1364,17 +1336,22 @@ export const TaskService = {
   },
 
   async claimTaskReward(
-    userId: string,
     cultivatorId: string,
     taskId: string,
-    options: { tx?: DbTransaction } = {},
+    tx: DbTransaction,
   ): Promise<TaskRewardClaimResult> {
-    const context = await loadTaskProgressContextOrThrow(cultivatorId);
-    await ensureCurrentTaskRecords(context);
-    let task = await this.getCultivatorTask(cultivatorId, taskId);
-    if (!task) {
+    const options = { tx };
+    const context = await loadTaskProgressContextOrThrow(cultivatorId, options);
+    await ensureCurrentTaskRecords(context, options);
+    const taskRecord = await findCultivatorTaskById(
+      cultivatorId,
+      taskId,
+      options.tx,
+    );
+    if (!taskRecord) {
       throw new Error('任务不存在');
     }
+    let task = await syncTaskRecord(context, taskRecord, options);
 
     const definition = getTaskDefinition(task.definitionId);
     if (!definition || !isTutorialTaskDefinition(definition)) {
@@ -1384,19 +1361,14 @@ export const TaskService = {
       throw new Error('任务尚未完成');
     }
     const grantKey = `tutorial:${definition.id}`;
-    const alreadyClaimed = Boolean(task.metadata.rewardClaimedAt);
-    if (task.metadata.rewardGrantedKey === grantKey) {
+    if (
+      task.metadata.rewardClaimedAt ||
+      task.metadata.rewardGrantedKey === grantKey
+    ) {
       throw new Error('奖励已经领取');
     }
 
-    const rewardAttachments = resolveTaskRewardAttachments(definition);
-    const mailAttachments = alreadyClaimed
-      ? await resolveMissingTaskRewardAttachments(
-          userId,
-          cultivatorId,
-          rewardAttachments,
-        )
-      : resolveTaskRewardMailAttachments(definition);
+    const mailAttachments = resolveTaskRewardMailAttachments(definition);
     const rewards = formatTaskRewardSummary(definition);
     const claimedAt = new Date().toISOString();
     const currentMetadata = task.metadata;
@@ -1448,11 +1420,7 @@ export const TaskService = {
       }
     };
 
-    if (options.tx) {
-      await grantReward(options.tx);
-    } else {
-      await getExecutor().transaction(grantReward);
-    }
+    await grantReward(tx);
 
     if (!grantedRecord) {
       throw new Error('奖励已经领取');
@@ -1475,11 +1443,18 @@ export const TaskService = {
   async runTaskChallenge(
     cultivatorId: string,
     taskId: string,
+    options: TaskServiceWriteOptions = {},
   ): Promise<TaskChallengeResult> {
-    const cultivator = await loadBundleOrThrow(cultivatorId);
-    const context = createTaskProgressContextFromCultivator(cultivator);
-    await ensureCurrentTaskRecords(context);
-    const record = await findCultivatorTaskById(cultivatorId, taskId);
+    const [cultivator, context] = await Promise.all([
+      loadCombatInputOrThrow(cultivatorId, options),
+      loadTaskProgressContextOrThrow(cultivatorId, options),
+    ]);
+    await ensureCurrentTaskRecords(context, options);
+    const record = await findCultivatorTaskById(
+      cultivatorId,
+      taskId,
+      options.tx,
+    );
     if (!record) {
       throw new Error('任务不存在');
     }
@@ -1510,11 +1485,16 @@ export const TaskService = {
             ?.objectives.find((item) => item.id === objective.id)?.completed,
       );
 
-    if (!challengeObjective || challengeObjective.kind !== 'win_task_challenge') {
+    if (
+      !challengeObjective ||
+      challengeObjective.kind !== 'win_task_challenge'
+    ) {
       throw new Error('当前阶段没有可执行的试炼挑战');
     }
 
-    const challengeProfile = getTaskChallengeProfile(challengeObjective.challengeId);
+    const challengeProfile = getTaskChallengeProfile(
+      challengeObjective.challengeId,
+    );
     if (!challengeProfile) {
       throw new Error('试炼配置不存在');
     }
@@ -1548,12 +1528,17 @@ export const TaskService = {
         nextStates.push(completedState);
       }
 
-      await updateCultivatorTask(record.id, cultivatorId, {
-        objectives: nextStates,
-      });
+      await updateCultivatorTask(
+        record.id,
+        cultivatorId,
+        {
+          objectives: nextStates,
+        },
+        options.tx,
+      );
     }
 
-    const task = (await syncCultivatorTasksWithContext(context)).find(
+    const task = (await syncCultivatorTasksWithContext(context, options)).find(
       (item) => item.id === taskId,
     );
     if (!task) {

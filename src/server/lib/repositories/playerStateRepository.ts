@@ -1,77 +1,74 @@
-import type { DbExecutor, DbTransaction } from '@server/lib/drizzle/db';
-import { getExecutor } from '@server/lib/drizzle/db';
+import {
+  getExecutor,
+  type DbExecutor,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
 import {
   cultivators,
-  cultivatorStateVersions,
   playerMutationRequests,
-  playerStateEvents,
+  resourceEvents,
+  resourceScopes,
+  resourceVersions,
 } from '@server/lib/drizzle/schema';
 import {
-  PLAYER_STATE_DOMAINS,
-  type PlayerStateDomain,
-  type PlayerStateDomainVersions,
-  type PlayerStateEvent,
-} from '@shared/contracts/player';
-import { and, asc, eq, lt, sql } from 'drizzle-orm';
+  RESOURCE_TOPICS,
+  ResourceChangeSchema,
+  type ResourceChange,
+  type ResourceChangeDescriptor,
+  type ResourceScope,
+  type ResourceTopic,
+} from '@shared/contracts/resources';
+import { and, asc, eq, inArray, lt, min, sql } from 'drizzle-orm';
 
-type StateVersionRow = typeof cultivatorStateVersions.$inferSelect;
-type PlayerStateEventRow = typeof playerStateEvents.$inferSelect;
+type ResourceEventRow = typeof resourceEvents.$inferSelect;
 
-const VERSION_COLUMNS = {
-  profile: 'profileVersion',
-  condition: 'conditionVersion',
-  progress: 'progressVersion',
-  currency: 'currencyVersion',
-  loadout: 'loadoutVersion',
-  mail: 'mailVersion',
-  tasks: 'tasksVersion',
-  sect: 'sectVersion',
-} satisfies Record<PlayerStateDomain, string>;
+export const RESOURCE_EVENT_PAGE_LIMIT = 200;
 
-function domainVersionsFromRow(
-  row: StateVersionRow,
-): PlayerStateDomainVersions {
-  return {
-    profile: row.profileVersion,
-    condition: row.conditionVersion,
-    progress: row.progressVersion,
-    currency: row.currencyVersion,
-    loadout: row.loadoutVersion,
-    mail: row.mailVersion,
-    tasks: row.tasksVersion,
-    sect: row.sectVersion,
-  };
-}
+export type ScopedResourceChangeDescriptor = ResourceChangeDescriptor & {
+  scope: ResourceScope;
+};
 
-function assertPlayerStateDomain(
-  domain: unknown,
-): asserts domain is PlayerStateDomain {
-  if (!PLAYER_STATE_DOMAINS.includes(domain as PlayerStateDomain)) {
-    throw new Error(`未知的玩家状态领域: ${String(domain)}`);
+export type ScopeVersionCommit = {
+  scope: ResourceScope;
+  scopeId: string;
+  scopeVersion: number;
+  resourceVersions: Partial<Record<ResourceTopic, number>>;
+};
+
+function assertResourceTopics(
+  topics: readonly unknown[],
+): asserts topics is readonly ResourceTopic[] {
+  for (const topic of topics) {
+    if (!RESOURCE_TOPICS.includes(topic as ResourceTopic)) {
+      throw new Error(`未知资源: ${String(topic)}`);
+    }
   }
 }
 
-function assertPlayerStateDomains(domains: readonly unknown[]): void {
-  for (const domain of domains) {
-    assertPlayerStateDomain(domain);
-  }
+export function resourceScopeMapKey(scope: ResourceScope): string {
+  return `${scope.kind}:${scope.id}`;
 }
 
-export function mapPlayerStateEventRow(
-  row: PlayerStateEventRow,
-): PlayerStateEvent {
-  return {
+export function mapResourceEventRow(
+  row: ResourceEventRow,
+  scope: ResourceScope,
+): ResourceChange {
+  const base = {
     id: row.id,
-    cultivatorId: row.cultivatorId,
-    globalVersion: row.globalVersion,
-    domainVersion: row.domainVersion,
-    domain: row.domain,
+    mutationOrdinal: row.mutationOrdinal,
+    scope,
+    scopeVersion: row.scopeVersion,
+    resourceVersion: row.resourceVersion,
+    resourceTopic: row.resourceKey,
     eventType: row.eventType,
-    patch: row.patch,
-    invalidates: row.invalidates ?? [],
     source: row.source,
     createdAt: row.createdAt.toISOString(),
   };
+  return ResourceChangeSchema.parse(
+    row.operation === 'invalidate'
+      ? { ...base, operation: 'invalidate' }
+      : { ...base, operation: row.operation, payload: row.payload },
+  );
 }
 
 export async function lockCultivatorForStateMutation(
@@ -84,133 +81,184 @@ export async function lockCultivatorForStateMutation(
     .where(eq(cultivators.id, cultivatorId))
     .for('update')
     .limit(1);
-
-  if (!row) {
-    throw new Error('角色不存在');
-  }
+  if (!row) throw new Error('角色不存在');
 }
 
-export async function getOrCreateStateVersion(
-  cultivatorId: string,
+export async function readScopeVersion(
+  scope: ResourceScope,
   q: DbExecutor | DbTransaction = getExecutor(),
-): Promise<{
-  globalVersion: number;
-  domainVersions: PlayerStateDomainVersions;
-}> {
-  await q
-    .insert(cultivatorStateVersions)
-    .values({ cultivatorId })
-    .onConflictDoNothing();
-
+): Promise<number> {
   const [row] = await q
-    .select()
-    .from(cultivatorStateVersions)
-    .where(eq(cultivatorStateVersions.cultivatorId, cultivatorId))
+    .select({ scopeVersion: resourceScopes.scopeVersion })
+    .from(resourceScopes)
+    .where(
+      and(
+        eq(resourceScopes.scopeKind, scope.kind),
+        eq(resourceScopes.scopeKey, scope.id),
+      ),
+    )
     .limit(1);
-
-  if (!row) {
-    throw new Error('状态版本初始化失败');
-  }
-
-  return {
-    globalVersion: row.globalVersion,
-    domainVersions: domainVersionsFromRow(row),
-  };
+  return row?.scopeVersion ?? 0;
 }
 
-export async function bumpStateVersions(
-  tx: DbTransaction,
-  cultivatorId: string,
-  domains: PlayerStateDomain[],
-): Promise<{
-  globalVersion: number;
-  domainVersions: PlayerStateDomainVersions;
-}> {
-  assertPlayerStateDomains(domains);
-  const uniqueDomains = Array.from(new Set(domains));
-  const insertValues: typeof cultivatorStateVersions.$inferInsert = {
-    cultivatorId,
-    globalVersion: 1,
-  };
-  const updateSet: Record<string, unknown> = {
-    globalVersion: sql`${cultivatorStateVersions.globalVersion} + 1`,
-    updatedAt: sql`now()`,
-  };
-
-  for (const domain of uniqueDomains) {
-    const property = VERSION_COLUMNS[domain];
-    insertValues[property as keyof typeof insertValues] = 1 as never;
-    updateSet[property] =
-      sql`${cultivatorStateVersions[property as keyof typeof cultivatorStateVersions]} + 1`;
-  }
-
-  const [row] = await tx
-    .insert(cultivatorStateVersions)
-    .values(insertValues)
-    .onConflictDoUpdate({
-      target: cultivatorStateVersions.cultivatorId,
-      set: updateSet,
+export async function readResourceVersions(
+  scope: ResourceScope,
+  topics: readonly ResourceTopic[],
+  q: DbExecutor | DbTransaction = getExecutor(),
+): Promise<Partial<Record<ResourceTopic, number>>> {
+  if (topics.length === 0) return {};
+  assertResourceTopics(topics);
+  const rows = await q
+    .select({
+      resourceKey: resourceVersions.resourceKey,
+      version: resourceVersions.version,
     })
-    .returning();
-
-  if (!row) {
-    throw new Error('状态版本递增失败');
-  }
-
-  return {
-    globalVersion: row.globalVersion,
-    domainVersions: domainVersionsFromRow(row),
-  };
+    .from(resourceVersions)
+    .innerJoin(resourceScopes, eq(resourceVersions.scopeId, resourceScopes.id))
+    .where(
+      and(
+        eq(resourceScopes.scopeKind, scope.kind),
+        eq(resourceScopes.scopeKey, scope.id),
+        inArray(resourceVersions.resourceKey, [...topics]),
+      ),
+    );
+  return Object.fromEntries(
+    rows.map((row) => [row.resourceKey, row.version]),
+  ) as Partial<Record<ResourceTopic, number>>;
 }
 
-export async function insertStateEvents(
+export async function bumpResourceVersions(
+  tx: DbTransaction,
+  changes: readonly ScopedResourceChangeDescriptor[],
+): Promise<Map<string, ScopeVersionCommit>> {
+  assertResourceTopics(changes.map((change) => change.resourceTopic));
+  const grouped = new Map<
+    string,
+    { scope: ResourceScope; topics: Set<ResourceTopic> }
+  >();
+  for (const change of changes) {
+    const key = resourceScopeMapKey(change.scope);
+    const group = grouped.get(key) ?? {
+      scope: change.scope,
+      topics: new Set<ResourceTopic>(),
+    };
+    group.topics.add(change.resourceTopic);
+    grouped.set(key, group);
+  }
+
+  const result = new Map<string, ScopeVersionCommit>();
+  for (const [key, group] of [...grouped.entries()].sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    const [scopeRow] = await tx
+      .insert(resourceScopes)
+      .values({
+        scopeKind: group.scope.kind,
+        scopeKey: group.scope.id,
+        scopeVersion: 1,
+      })
+      .onConflictDoUpdate({
+        target: [resourceScopes.scopeKind, resourceScopes.scopeKey],
+        set: {
+          scopeVersion: sql`${resourceScopes.scopeVersion} + 1`,
+          updatedAt: sql`now()`,
+        },
+      })
+      .returning({
+        id: resourceScopes.id,
+        scopeVersion: resourceScopes.scopeVersion,
+      });
+    if (!scopeRow) throw new Error('资源作用域版本递增失败');
+
+    const topics = [...group.topics];
+    const rows = await tx
+      .insert(resourceVersions)
+      .values(
+        topics.map((resourceKey) => ({
+          scopeId: scopeRow.id,
+          resourceKey,
+          version: 1,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [resourceVersions.scopeId, resourceVersions.resourceKey],
+        set: {
+          version: sql`${resourceVersions.version} + 1`,
+          updatedAt: sql`now()`,
+        },
+      })
+      .returning({
+        resourceKey: resourceVersions.resourceKey,
+        version: resourceVersions.version,
+      });
+    if (rows.length !== topics.length) {
+      throw new Error('资源版本批量递增不完整');
+    }
+    result.set(key, {
+      scope: group.scope,
+      scopeId: scopeRow.id,
+      scopeVersion: scopeRow.scopeVersion,
+      resourceVersions: Object.fromEntries(
+        rows.map((row) => [row.resourceKey, row.version]),
+      ),
+    });
+  }
+  return result;
+}
+
+export async function insertResourceChanges(
   tx: DbTransaction,
   input: {
-    userId: string;
-    cultivatorId: string;
-    globalVersion: number;
-    domainVersions: Partial<PlayerStateDomainVersions>;
-    events: Array<{
-      domain: PlayerStateDomain;
-      eventType: string;
-      patch?: unknown;
-      invalidates?: PlayerStateDomain[];
-      source: string;
-      requestId?: string | null;
-    }>;
+    actorUserId?: string | null;
+    actorCultivatorId?: string | null;
+    commits: Map<string, ScopeVersionCommit>;
+    changes: Array<
+      ScopedResourceChangeDescriptor & {
+        source: string;
+        requestId?: string | null;
+      }
+    >;
   },
-): Promise<PlayerStateEvent[]> {
-  if (input.events.length === 0) {
-    return [];
-  }
-
-  assertPlayerStateDomains(input.events.map((event) => event.domain));
-  const eventRows = input.events.map((event) => {
-    const domainVersion = input.domainVersions[event.domain];
-    if (typeof domainVersion !== 'number') {
-      throw new Error(`缺少玩家状态领域版本: ${event.domain}`);
-    }
-
-    return {
-      userId: input.userId,
-      cultivatorId: input.cultivatorId,
-      globalVersion: input.globalVersion,
-      domainVersion,
-      domain: event.domain,
-      eventType: event.eventType,
-      patch: event.patch ?? {},
-      invalidates: event.invalidates ?? [],
-      source: event.source,
-      requestId: event.requestId ?? null,
-    };
-  });
-
+): Promise<ResourceChange[]> {
+  if (input.changes.length === 0) return [];
   const rows = await tx
-    .insert(playerStateEvents)
-    .values(eventRows)
+    .insert(resourceEvents)
+    .values(
+      input.changes.map((change, mutationOrdinal) => {
+        const commit = input.commits.get(resourceScopeMapKey(change.scope));
+        const resourceVersion =
+          commit?.resourceVersions[change.resourceTopic];
+        if (!commit || typeof resourceVersion !== 'number') {
+          throw new Error(
+            `缺少资源版本: ${change.scope.kind}:${change.scope.id}:${change.resourceTopic}`,
+          );
+        }
+        return {
+          scopeId: commit.scopeId,
+          scopeVersion: commit.scopeVersion,
+          resourceVersion,
+          resourceKey: change.resourceTopic,
+          operation: change.operation,
+          eventType: change.eventType,
+          payload: change.operation === 'invalidate' ? null : change.payload,
+          actorUserId: input.actorUserId ?? null,
+          actorCultivatorId: input.actorCultivatorId ?? null,
+          source: change.source,
+          requestId: change.requestId ?? null,
+          mutationOrdinal,
+        };
+      }),
+    )
     .returning();
 
-  return rows.map(mapPlayerStateEventRow);
+  const scopeById = new Map(
+    [...input.commits.values()].map((commit) => [commit.scopeId, commit.scope]),
+  );
+  return rows.map((row) => {
+    const scope = scopeById.get(row.scopeId);
+    if (!scope) throw new Error('资源事件缺少作用域');
+    return mapResourceEventRow(row, scope);
+  });
 }
 
 export async function findPlayerMutationRequest(
@@ -261,31 +309,114 @@ export async function prunePlayerMutationRequestsOlderThan(
   return deleted.length;
 }
 
-export async function listStateEventsAfter(
-  cultivatorId: string,
+export async function readResourceEventWindow(
+  scope: ResourceScope,
   after: number,
   q: DbExecutor | DbTransaction = getExecutor(),
-): Promise<PlayerStateEvent[]> {
-  const rows = await q
-    .select()
-    .from(playerStateEvents)
+): Promise<{
+  changes: ResourceChange[];
+  currentScopeVersion: number;
+  earliestAvailableVersion: number;
+}> {
+  const [scopeRow] = await q
+    .select({
+      id: resourceScopes.id,
+      scopeVersion: resourceScopes.scopeVersion,
+    })
+    .from(resourceScopes)
     .where(
-      sql`${playerStateEvents.cultivatorId} = ${cultivatorId} and ${playerStateEvents.globalVersion} > ${after}`,
+      and(
+        eq(resourceScopes.scopeKind, scope.kind),
+        eq(resourceScopes.scopeKey, scope.id),
+      ),
     )
-    .orderBy(asc(playerStateEvents.globalVersion), asc(playerStateEvents.id))
-    .limit(200);
-
-  return rows.map(mapPlayerStateEventRow);
+    .limit(1);
+  if (!scopeRow) {
+    return {
+      changes: [],
+      currentScopeVersion: 0,
+      earliestAvailableVersion: 0,
+    };
+  }
+  const [[watermark], rows] = await Promise.all([
+    q
+      .select({ version: min(resourceEvents.scopeVersion) })
+      .from(resourceEvents)
+      .where(eq(resourceEvents.scopeId, scopeRow.id)),
+    q
+      .select()
+      .from(resourceEvents)
+      .where(
+        and(
+          eq(resourceEvents.scopeId, scopeRow.id),
+          sql`${resourceEvents.scopeVersion} > ${after}`,
+        ),
+      )
+      .orderBy(
+        asc(resourceEvents.scopeVersion),
+        asc(resourceEvents.mutationOrdinal),
+      )
+      .limit(RESOURCE_EVENT_PAGE_LIMIT + 1),
+  ]);
+  return {
+    changes: rows.map((row) => mapResourceEventRow(row, scope)),
+    currentScopeVersion: scopeRow.scopeVersion,
+    earliestAvailableVersion:
+      watermark?.version ?? scopeRow.scopeVersion + 1,
+  };
 }
 
-export async function prunePlayerStateEventsOlderThan(
+export async function listResourceChangesForRequest(
+  cultivatorId: string,
+  source: string,
+  requestId: string,
+  q: DbExecutor | DbTransaction = getExecutor(),
+): Promise<ResourceChange[]> {
+  const rows = await q
+    .select({
+      event: resourceEvents,
+      scopeKind: resourceScopes.scopeKind,
+      scopeKey: resourceScopes.scopeKey,
+    })
+    .from(resourceEvents)
+    .innerJoin(resourceScopes, eq(resourceEvents.scopeId, resourceScopes.id))
+    .where(
+      and(
+        eq(resourceEvents.actorCultivatorId, cultivatorId),
+        eq(resourceEvents.source, source),
+        eq(resourceEvents.requestId, requestId),
+      ),
+    )
+    .orderBy(asc(resourceEvents.mutationOrdinal));
+  return rows.map((row) =>
+    mapResourceEventRow(row.event, {
+      kind: row.scopeKind,
+      id: row.scopeKey,
+    }),
+  );
+}
+
+export async function pruneResourceEventsOlderThan(
   cutoff: Date,
   q: DbExecutor | DbTransaction = getExecutor(),
 ): Promise<number> {
   const deleted = await q
-    .delete(playerStateEvents)
-    .where(lt(playerStateEvents.createdAt, cutoff))
-    .returning({ id: playerStateEvents.id });
-
+    .delete(resourceEvents)
+    .where(
+      and(
+        lt(resourceEvents.createdAt, cutoff),
+        sql`(
+          ${resourceEvents.requestId} IS NULL
+          OR NOT EXISTS (
+            SELECT 1
+            FROM ${playerMutationRequests}
+            WHERE ${playerMutationRequests.cultivatorId} = ${resourceEvents.actorCultivatorId}
+              AND ${playerMutationRequests.source} = ${resourceEvents.source}
+              AND ${playerMutationRequests.requestId} = ${resourceEvents.requestId}
+          )
+        )`,
+      ),
+    )
+    .returning({ id: resourceEvents.id });
   return deleted.length;
 }

@@ -1,13 +1,30 @@
-import { randomUUID } from 'node:crypto';
+import type { DbTransaction } from '@server/lib/drizzle/db';
+import { RewardFactory } from '@server/lib/dungeon/reward';
+import type { PlayerInfo } from '@server/lib/dungeon/types';
+import { redis } from '@server/lib/redis';
+import { parseRedisJson } from '@server/lib/redis/json';
+import { ConditionService } from '@server/lib/services/ConditionService';
+import {
+  loadCultivatorCombatInput,
+  loadCultivatorTowerRewardFacts,
+  type CultivatorTowerRewardFacts,
+} from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
+import {
+  MailService,
+  type MailAttachment,
+} from '@server/lib/services/MailService';
+import { simulateBattleV5 } from '@server/lib/services/simulateBattleV5';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import { getResourceTypeLabel } from '@shared/lib/gameConceptDisplay';
 import {
   buildTowerBlessingChoices,
   getTowerSeasonMeta,
-  isTowerSeasonKeyCurrent,
   isTowerRealmEligible,
+  isTowerSeasonKeyCurrent,
   resolveTowerMilestoneTier,
-  TOWER_MIN_REALM,
   TOWER_MAX_FLOOR,
+  TOWER_MIN_REALM,
   type TowerBattleContext,
   type TowerBlessingId,
   type TowerEncounter,
@@ -18,21 +35,10 @@ import {
 } from '@shared/lib/tower';
 import type { RealmType } from '@shared/types/constants';
 import type { Cultivator, Material } from '@shared/types/cultivator';
-import { simulateBattleV5 } from '@server/lib/services/simulateBattleV5';
-import { RewardFactory } from '@server/lib/dungeon/reward';
-import { redis } from '@server/lib/redis';
-import { parseRedisJson } from '@server/lib/redis/json';
-import {
-  getPlayerRuntimeCultivatorByIdUnsafe,
-} from '@server/lib/services/cultivatorService';
-import { ConditionService } from '@server/lib/services/ConditionService';
-import { MailService, type MailAttachment } from '@server/lib/services/MailService';
-import type { PlayerInfo } from '@server/lib/dungeon/types';
-import { buildTowerBattleInit, applyTowerBattleOutcome } from './battleInit';
-import { getResourceTypeLabel } from '@shared/lib/gameConceptDisplay';
+import { randomUUID } from 'node:crypto';
+import { applyTowerBattleOutcome, buildTowerBattleInit } from './battleInit';
 import { towerEnemySetService } from './enemySets';
 import { getTowerLeaderboard, updateTowerWeeklyRecord } from './leaderboard';
-import type { DbTransaction } from '@server/lib/drizzle/db';
 
 const RUN_TTL_SECONDS = 8 * 24 * 60 * 60;
 const TOWER_REPUTATION_REWARDS: Record<TowerMilestoneReward['tier'], number> = {
@@ -64,8 +70,16 @@ interface TowerMilestoneRewardCommit {
   };
 }
 
-interface TowerBattleExecutionOptions {
-  deferPersistence?: boolean;
+export interface TowerBattleRuntimeCommit {
+  battleId: string;
+  state: TowerState;
+  leaderboardUpdate?: {
+    seasonKey: string;
+    seasonEndAt: string;
+    recordedRealm: RealmType;
+    highestFloor: number;
+    firstReachedAt: string;
+  };
 }
 
 function getTowerRunKey(cultivatorId: string) {
@@ -97,7 +111,9 @@ function buildTowerEligibility(realm: RealmType | undefined) {
   };
 }
 
-function buildRewardPlayerInfo(cultivator: Cultivator): PlayerInfo {
+function buildRewardPlayerInfo(
+  cultivator: CultivatorTowerRewardFacts,
+): PlayerInfo {
   const { finalAttributes, attrs } = getCultivatorDisplayAttributes(cultivator);
 
   return {
@@ -184,7 +200,7 @@ export class TowerService {
 
   private resolveChallengeRealm(
     state: TowerState,
-    cultivator: Cultivator,
+    cultivator: Pick<CultivatorCombatInput, 'realm'>,
   ): RealmType {
     if (state.challengeRealm && isTowerRealmEligible(state.challengeRealm)) {
       return state.challengeRealm;
@@ -199,7 +215,7 @@ export class TowerService {
 
   private async createBattleSession(
     cultivatorId: string,
-    cultivator: Cultivator,
+    cultivator: CultivatorCombatInput,
     season: TowerSeasonMeta,
     state: TowerState,
   ) {
@@ -242,27 +258,8 @@ export class TowerService {
     };
   }
 
-  private async grantMilestoneReward(args: {
-    cultivatorId: string;
-    cultivator: Cultivator;
-    state: TowerState;
-    floor: number;
-    challengeRealm: RealmType;
-    now: Date;
-    tx?: DbTransaction;
-  }): Promise<TowerMilestoneReward | undefined> {
-    const commit = this.prepareMilestoneReward(args);
-    if (!commit) {
-      return undefined;
-    }
-
-    await this.sendMilestoneRewardMail(args.cultivatorId, commit, args.tx);
-    this.applyMilestoneReward(args.state, commit.reward);
-    return commit.reward;
-  }
-
   private prepareMilestoneReward(args: {
-    cultivator: Cultivator;
+    cultivator: CultivatorTowerRewardFacts;
     state: TowerState;
     floor: number;
     challengeRealm: RealmType;
@@ -292,9 +289,7 @@ export class TowerService {
     }
 
     const attachments: MailAttachment[] = rewards.map((item) => {
-      const name =
-        item.name ??
-        getResourceTypeLabel(item.type);
+      const name = item.name ?? getResourceTypeLabel(item.type);
 
       return {
         type: item.type as MailAttachment['type'],
@@ -305,8 +300,7 @@ export class TowerService {
     });
 
     const rewardLines = rewards.map(
-      (r) =>
-        `${getResourceTypeLabel(r.type)} +${r.value}`,
+      (r) => `${getResourceTypeLabel(r.type)} +${r.value}`,
     );
 
     const mailTitle = `【蜃楼幻境】第 ${args.floor} 层 · ${tier} 级机缘`;
@@ -363,20 +357,25 @@ export class TowerService {
     currentRealm?: RealmType,
   ) {
     const { season, state } = await this.loadState(cultivatorId, now);
-    if (state && !state.challengeRealm && currentRealm && isTowerRealmEligible(currentRealm)) {
-      state.challengeRealm = currentRealm;
-      await this.saveState(cultivatorId, state);
-    }
+    const resolvedState =
+      state &&
+      !state.challengeRealm &&
+      currentRealm &&
+      isTowerRealmEligible(currentRealm)
+        ? { ...state, challengeRealm: currentRealm }
+        : state;
 
     return {
       season,
-      state,
+      state: resolvedState,
       ...buildTowerEligibility(currentRealm),
       settlement:
-        state?.status === 'FINISHED'
+        resolvedState?.status === 'FINISHED'
           ? buildTowerSettlement(
-              state,
-              state.currentFloor >= TOWER_MAX_FLOOR ? 'clear' : 'defeat',
+              resolvedState,
+              resolvedState.currentFloor >= TOWER_MAX_FLOOR
+                ? 'clear'
+                : 'defeat',
             )
           : undefined,
     };
@@ -388,7 +387,7 @@ export class TowerService {
       throw new Error('当前已有尚未结束的幻境进度');
     }
 
-    const cultivatorBundle = await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId);
+    const cultivatorBundle = await loadCultivatorCombatInput(cultivatorId);
     if (!cultivatorBundle?.cultivator) {
       throw new Error('未找到修真者数据');
     }
@@ -400,13 +399,9 @@ export class TowerService {
     // season (e.g. a finished run or a reset-preserved state) so that
     // milestone rewards cannot be claimed more than once per season.
     const previousMilestones =
-      state?.seasonKey === season.seasonKey
-        ? state.claimedMilestones
-        : [];
+      state?.seasonKey === season.seasonKey ? state.claimedMilestones : [];
     const previousRewardLog =
-      state?.seasonKey === season.seasonKey
-        ? state.milestoneRewardLog
-        : [];
+      state?.seasonKey === season.seasonKey ? state.milestoneRewardLog : [];
 
     const nextState: TowerState = {
       runId: randomUUID(),
@@ -490,7 +485,7 @@ export class TowerService {
       state.status = 'READY';
     }
 
-    const cultivatorBundle = await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId);
+    const cultivatorBundle = await loadCultivatorCombatInput(cultivatorId);
     if (!cultivatorBundle?.cultivator) {
       throw new Error('未找到修真者数据');
     }
@@ -557,7 +552,9 @@ export class TowerService {
       throw new Error('当前不在选择祝福阶段');
     }
 
-    const choice = state.pendingBlessingChoices.find((item) => item.id === blessingId);
+    const choice = state.pendingBlessingChoices.find(
+      (item) => item.id === blessingId,
+    );
     if (!choice) {
       throw new Error('无效的祝福选择');
     }
@@ -567,7 +564,7 @@ export class TowerService {
     state.currentFloor += 1;
     state.status = 'READY';
 
-    const cultivatorBundle = await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId);
+    const cultivatorBundle = await loadCultivatorCombatInput(cultivatorId);
     if (!cultivatorBundle?.cultivator) {
       throw new Error('未找到修真者数据');
     }
@@ -590,20 +587,20 @@ export class TowerService {
   async executeBattle(
     cultivatorId: string,
     battleId: string,
+    tx: DbTransaction,
     now: Date = new Date(),
-    options: TowerBattleExecutionOptions = {},
   ) {
     const { state } = await this.loadState(cultivatorId, now);
     if (!state || state.activeBattleId !== battleId) {
       throw new Error('当前没有匹配的幻境战局');
     }
 
-    const { key: battleKey, payload } = await this.getBattlePayload(battleId);
+    const { payload } = await this.getBattlePayload(battleId);
     if (!payload?.session || !payload.enemyObject) {
       throw new Error('幻境战局数据不存在或已失效');
     }
 
-    const cultivatorBundle = await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId);
+    const cultivatorBundle = await loadCultivatorCombatInput(cultivatorId, tx);
     if (!cultivatorBundle?.cultivator) {
       throw new Error('未找到修真者数据');
     }
@@ -649,7 +646,6 @@ export class TowerService {
 
     let settlement: TowerSettlement | undefined;
     let milestoneReward: TowerMilestoneReward | undefined;
-    let milestoneCommit: TowerMilestoneRewardCommit | undefined;
     let leaderboardUpdate:
       | {
           seasonKey: string;
@@ -679,9 +675,19 @@ export class TowerService {
         firstReachedAt: now.toISOString(),
       };
 
-      if (options.deferPersistence) {
-        milestoneCommit = this.prepareMilestoneReward({
-          cultivator: cultivatorBundle.cultivator,
+      const needsMilestoneReward =
+        !state.claimedMilestones.includes(clearedFloor) &&
+        resolveTowerMilestoneTier(clearedFloor) !== null;
+      const rewardFacts = needsMilestoneReward
+        ? await loadCultivatorTowerRewardFacts(cultivatorBundle.cultivator, tx)
+        : null;
+      if (needsMilestoneReward && !rewardFacts) {
+        throw new Error('未找到幻境奖励生成所需的角色资料');
+      }
+
+      if (rewardFacts) {
+        const milestoneCommit = this.prepareMilestoneReward({
+          cultivator: rewardFacts,
           state,
           floor: clearedFloor,
           challengeRealm,
@@ -689,24 +695,13 @@ export class TowerService {
         });
         if (milestoneCommit) {
           milestoneReward = milestoneCommit.reward;
+          await this.sendMilestoneRewardMail(
+            cultivatorId,
+            milestoneCommit,
+            tx,
+          );
           this.applyMilestoneReward(state, milestoneReward);
         }
-      } else {
-        milestoneReward = await this.grantMilestoneReward({
-          cultivatorId,
-          cultivator: cultivatorBundle.cultivator,
-          state,
-          floor: clearedFloor,
-          challengeRealm,
-          now,
-        });
-      }
-
-      if (!options.deferPersistence && leaderboardUpdate) {
-        await updateTowerWeeklyRecord({
-          ...leaderboardUpdate,
-          cultivatorId,
-        });
       }
 
       if (clearedFloor >= TOWER_MAX_FLOOR) {
@@ -740,38 +735,32 @@ export class TowerService {
       }
     }
 
-    if (!options.deferPersistence) {
-      await this.saveState(cultivatorId, state);
-      await redis.del(battleKey);
-    }
-
-    const persist = options.deferPersistence && milestoneCommit
-      ? async (tx: DbTransaction) => {
-          await this.sendMilestoneRewardMail(cultivatorId, milestoneCommit, tx);
-        }
-      : undefined;
-    const afterCommit = options.deferPersistence
-      ? async () => {
-          await this.saveState(cultivatorId, state);
-          if (leaderboardUpdate) {
-            await updateTowerWeeklyRecord({
-              ...leaderboardUpdate,
-              cultivatorId,
-            });
-          }
-          await redis.del(battleKey);
-        }
-      : undefined;
-
     return {
       battleResult,
       state,
       isFinished: state.status === 'FINISHED',
       settlement,
       milestoneReward,
-      persist,
-      afterCommit,
+      runtimeCommit: {
+        battleId,
+        state,
+        leaderboardUpdate,
+      } satisfies TowerBattleRuntimeCommit,
     };
+  }
+
+  async commitBattleRuntime(
+    cultivatorId: string,
+    commit: TowerBattleRuntimeCommit,
+  ): Promise<void> {
+    await this.saveState(cultivatorId, commit.state);
+    if (commit.leaderboardUpdate) {
+      await updateTowerWeeklyRecord({
+        ...commit.leaderboardUpdate,
+        cultivatorId,
+      });
+    }
+    await redis.del(getTowerBattleKey(commit.battleId));
   }
 
   async getLeaderboard(

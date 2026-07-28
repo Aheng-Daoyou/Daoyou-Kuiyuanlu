@@ -1,15 +1,19 @@
 import { SectAbilityDetails } from '@app/components/feature/sect/SectAbilityDetails';
+import type { getSectDefinition } from '@app/components/feature/sect/sectResources';
 import {
   InkButton,
   InkCard,
   InkDetailDrawer,
   InkNotice,
 } from '@app/components/ui';
-import { useActiveCultivatorProfile } from '@app/lib/player-state/selectors';
-import type { SectCurrentData } from '@shared/contracts/sect';
+import {
+  useCultivatorCurrency,
+  useCultivatorProgress,
+} from '@app/lib/resources/player';
 import {
   getSectMethodTrainingCost,
   isListedSectAbility,
+  type CultivatorSectState,
   type SectHeartMethodDefinition,
 } from '@shared/engine/sect';
 import { resolveSectAbilities } from '@shared/engine/sect/content';
@@ -17,10 +21,16 @@ import type { RealmType } from '@shared/types/constants';
 import { useState } from 'react';
 import { sectJsonRequest, type SectAction } from './types';
 
+export type SectProgressionWorkspaceData = {
+  definition: ReturnType<typeof getSectDefinition>;
+  sect: CultivatorSectState;
+  methodLevelCap: number;
+};
+
 function getMethodDisabledReason(args: {
   method: SectHeartMethodDefinition;
   currentLevel: number;
-  data: SectCurrentData;
+  data: SectProgressionWorkspaceData;
   spiritStones: number;
   cultivationExp: number;
   cost: {
@@ -52,19 +62,27 @@ export function MethodsTab({
   action,
   realm,
 }: {
-  data: SectCurrentData;
+  data: SectProgressionWorkspaceData;
   busy: boolean;
   action: SectAction;
   realm: RealmType;
 }) {
-  const cultivator = useActiveCultivatorProfile();
+  const currencyQuery = useCultivatorCurrency();
+  const progressQuery = useCultivatorProgress();
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null);
   if (!data.sect || !data.definition)
     return <InkNotice>拜师后方可研习宗门心法。</InkNotice>;
+  if (!currencyQuery.data || !progressQuery.data) {
+    return (
+      <InkNotice>
+        {currencyQuery.error ?? progressQuery.error ?? '正在读取修炼资源……'}
+      </InkNotice>
+    );
+  }
   const sect = data.sect;
   const definition = data.definition;
-  const spiritStones = cultivator?.spirit_stones ?? 0;
-  const cultivationExp = cultivator?.cultivation_progress?.cultivation_exp ?? 0;
+  const spiritStones = currencyQuery.data.spiritStones;
+  const cultivationExp = Number(progressQuery.data.cultivation_exp);
   const selectedMethod = selectedMethodId
     ? definition.methods.find((method) => method.id === selectedMethodId)
     : undefined;
@@ -98,9 +116,7 @@ export function MethodsTab({
             : 0,
         )
         .map((ability) =>
-          resolvedAbilities.find(
-            (resolved) => resolved.id === ability.id,
-          )!,
+          resolvedAbilities.find((resolved) => resolved.id === ability.id)!,
         )
     : [];
   return (

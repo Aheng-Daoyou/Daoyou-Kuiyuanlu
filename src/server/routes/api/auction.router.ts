@@ -1,23 +1,17 @@
 import {
   redisLockErrorResponse,
-  requireActiveCultivator,
+  requireActiveCultivatorRef,
 } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
-import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import * as auctionRepository from '@server/lib/repositories/auctionRepository';
+import { AuctionServiceError } from '@server/lib/services/AuctionService';
 import {
-  AuctionServiceError,
-  buyItem,
-  cancelListing,
-  clearAuctionListingsCache,
-  listItem,
-} from '@server/lib/services/AuctionService';
-import {
-  commitPlayerStateMutation,
-  type StateChangeDescriptor,
-  toPlayerStateMutationResponse,
-} from '@server/lib/services/PlayerStateMutationService';
+  buyAuctionListing,
+  cancelAuctionListing,
+  listAuctionItem,
+} from '@server/lib/services/AuctionApplicationService';
+import { toPlayerStateMutationResponse } from '@server/lib/services/ResourceMutationResponse';
 import { QUALITY_VALUES } from '@shared/types/constants';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -75,8 +69,8 @@ function getAuctionErrorStatus(error: AuctionServiceError): number {
 
 const router = new Hono<AppEnv>();
 
-router.get('/listings', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.get('/listings', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
@@ -102,7 +96,7 @@ router.get('/listings', requireActiveCultivator(), async (c) => {
 
     const result = await auctionRepository.findActiveListings({
       ...params,
-      viewerCultivatorId: cultivator.id,
+      viewerCultivatorId: cultivator.cultivatorId,
     });
     const page = params.page || 1;
     const limit = params.limit || 20;
@@ -128,9 +122,9 @@ router.get('/listings', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/buy', requireActiveCultivator(), async (c) => {
+router.post('/buy', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
@@ -138,61 +132,14 @@ router.post('/buy', requireActiveCultivator(), async (c) => {
   try {
     const { listingId } = BuySchema.parse(await c.req.json());
 
-    return await withRedisLock(
-      {
-        keys: [
-          redisLockKeys.auctionListing(listingId),
-          redisLockKeys.cultivatorMutation(cultivator.id),
-        ],
-        context: 'auction-buy',
-        timeoutMs: 10_000,
-        retries: 0,
+    const committed = await buyAuctionListing({
+      actor: {
+        userId: user.id,
+        cultivatorId: cultivator.cultivatorId,
       },
-      async (lease) => {
-        lease.assertHeld();
-        const committed = await commitPlayerStateMutation({
-          coordination: { mode: 'redis', lease },
-          userId: user.id,
-          cultivatorId: cultivator.id,
-          source: 'auction_buy',
-          idempotency: {
-            key: `auction-buy:${listingId}`,
-            fingerprint: `${cultivator.id}:${listingId}`,
-          },
-          run: async (tx) => {
-            await buyItem(
-              {
-                listingId,
-                buyerCultivatorId: cultivator.id,
-                buyerCultivatorName: cultivator.name,
-              },
-              { tx, deferCacheClear: true },
-            );
-
-            return {
-              result: {
-                message: '成功购入物品，请查收邮件',
-              },
-              changes: [
-                {
-                  domain: 'currency',
-                  eventType: 'currency.auction.spent',
-                  invalidates: ['currency'],
-                },
-                {
-                  domain: 'mail',
-                  eventType: 'mail.auction.purchase.created',
-                  invalidates: ['mail'],
-                },
-              ],
-            };
-          },
-        });
-
-        await clearAuctionListingsCache();
-        return c.json(toPlayerStateMutationResponse(committed));
-      },
-    );
+      listingId,
+    });
+    return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
     const lockErrorResponse = redisLockErrorResponse(error);
     if (lockErrorResponse) return lockErrorResponse;
@@ -213,9 +160,9 @@ router.post('/buy', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/list', requireActiveCultivator(), async (c) => {
+router.post('/list', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
@@ -230,57 +177,19 @@ router.post('/list', requireActiveCultivator(), async (c) => {
       targetCultivatorId,
     } = ListSchema.parse(await c.req.json());
 
-    return await withRedisLock(
-      {
-        key: redisLockKeys.cultivatorMutation(cultivator.id),
-        context: 'auction-list',
-        timeoutMs: 10_000,
-        retries: 0,
+    const committed = await listAuctionItem({
+      actor: {
+        userId: user.id,
+        cultivatorId: cultivator.cultivatorId,
       },
-      async (lease) => {
-        lease.assertHeld();
-        const committed = await commitPlayerStateMutation({
-          coordination: { mode: 'redis', lease },
-          userId: user.id,
-          cultivatorId: cultivator.id,
-          source: 'auction_list',
-          allowEmpty: true,
-          run: async (tx) => {
-            const result = await listItem(
-              {
-                userId: user.id,
-                cultivatorId: cultivator.id,
-                cultivatorName: cultivator.name,
-                itemType,
-                itemId,
-                price,
-                quantity,
-                visibility,
-                targetCultivatorId,
-              },
-              { tx, deferCacheClear: true },
-            );
-
-            const changes: StateChangeDescriptor[] = [];
-            if (itemType === 'artifact') {
-              changes.push({
-                domain: 'loadout',
-                eventType: 'loadout.auction.listed',
-                invalidates: ['loadout'],
-              });
-            }
-
-            return {
-              result,
-              changes,
-            };
-          },
-        });
-
-        await clearAuctionListingsCache();
-        return c.json(toPlayerStateMutationResponse(committed));
-      },
-    );
+      itemType,
+      itemId,
+      price,
+      quantity,
+      visibility,
+      targetCultivatorId,
+    });
+    return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
     const lockErrorResponse = redisLockErrorResponse(error);
     if (lockErrorResponse) return lockErrorResponse;
@@ -301,59 +210,23 @@ router.post('/list', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.delete('/:id', requireActiveCultivator(), async (c) => {
+router.delete('/:id', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
 
   try {
     const listingId = c.req.param('id');
-    return await withRedisLock(
-      {
-        keys: [
-          redisLockKeys.auctionListing(listingId),
-          redisLockKeys.cultivatorMutation(cultivator.id),
-        ],
-        context: 'auction-cancel',
-        timeoutMs: 10_000,
-        retries: 0,
+    const committed = await cancelAuctionListing({
+      actor: {
+        userId: user.id,
+        cultivatorId: cultivator.cultivatorId,
       },
-      async (lease) => {
-        lease.assertHeld();
-        const committed = await commitPlayerStateMutation({
-          coordination: { mode: 'redis', lease },
-          userId: user.id,
-          cultivatorId: cultivator.id,
-          source: 'auction_cancel',
-          idempotency: {
-            key: `auction-cancel:${listingId}`,
-            fingerprint: `${cultivator.id}:${listingId}`,
-          },
-          run: async (tx) => {
-            await cancelListing(listingId, cultivator.id, {
-              tx,
-              deferCacheClear: true,
-            });
-            return {
-              result: {
-                message: '物品已下架，将通过邮件返还',
-              },
-              changes: [
-                {
-                  domain: 'mail',
-                  eventType: 'mail.auction.cancel.created',
-                  invalidates: ['mail'],
-                },
-              ],
-            };
-          },
-        });
-        await clearAuctionListingsCache();
-        return c.json(toPlayerStateMutationResponse(committed));
-      },
-    );
+      listingId,
+    });
+    return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
     const lockErrorResponse = redisLockErrorResponse(error);
     if (lockErrorResponse) return lockErrorResponse;

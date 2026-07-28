@@ -5,7 +5,7 @@ import {
   GameSceneTabs,
 } from '@app/components/game-shell';
 import { InkButton, InkList, InkNotice } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import { usePlayerSession } from '@app/lib/resources/player';
 import type { BattleRecordUnitSummary } from '@shared/types/battle';
 import { useEffect, useState } from 'react';
 
@@ -41,7 +41,7 @@ export default function BattleHistoryPage() {
   const [pagination, setPagination] = useState<
     BattleListResponse['pagination'] | null
   >(null);
-  const { cultivator } = usePlayerStateView();
+  const cultivator = usePlayerSession().data?.activeCultivator;
 
   useEffect(() => {
     let cancelled = false;

@@ -1,5 +1,5 @@
 import { InkButton } from '@app/components/ui/InkButton';
-import { useActiveCultivatorProfile } from '@app/lib/player-state/selectors';
+import { useCultivatorIdentity } from '@app/lib/resources/player';
 import { useState } from 'react';
 import {
   SettingsField,
@@ -9,7 +9,7 @@ import {
 import { formatDateTime } from './utils';
 
 export function GameSettingsTab() {
-  const cultivator = useActiveCultivatorProfile();
+  const cultivator = useCultivatorIdentity().data?.cultivator;
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const cultivatorId = cultivator?.id ?? '';
 

@@ -5,15 +5,14 @@ import {
   type NpcConversationOption,
 } from '@app/components/feature/room';
 import {
-  useSectCurrentQuery,
-  useSectResourceQuery,
-} from '@app/components/feature/sect/SectQueryProvider';
+  useSectInfrastructureQuery,
+  useSectTasksQuery,
+} from '@app/components/feature/sect/sectResources';
 import {
   SectNpcConversationRegistry,
   SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
-import { fetchSectTasks } from '@app/lib/sect/sectClient';
 import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -43,17 +42,14 @@ export default function SectGatePage() {
 }
 
 function GateConversation({ actor, onExit }: SectNpcConversationRendererProps) {
-  const current = useSectCurrentQuery();
-  const tasks = useSectResourceQuery('tasks', fetchSectTasks);
+  const infrastructure = useSectInfrastructureQuery();
+  const tasks = useSectTasksQuery();
   const navigate = useNavigate();
   const [showNews, setShowNews] = useState(false);
   const [entering, setEntering] = useState(false);
   const session = useConversationSession({
     sessionKey: actor.id,
-    snapshot: { current: current.data, tasks: tasks.data },
-    load: async () => {
-      await Promise.all([current.reload(), tasks.reload()]);
-    },
+    snapshot: { infrastructure: infrastructure.data, tasks: tasks.data },
     perform: async () => undefined,
     onReset: () => {
       setShowNews(false);
@@ -61,7 +57,7 @@ function GateConversation({ actor, onExit }: SectNpcConversationRendererProps) {
     },
   });
   const mode = resolveSweepActivityMode(tasks.data);
-  const project = current.data?.overview?.project;
+  const project = infrastructure.data?.project;
   const messages: NpcConversationMessage[] = [
     { id: 'greeting', speaker: actor.name, body: actor.greeting },
     {
@@ -97,7 +93,7 @@ function GateConversation({ actor, onExit }: SectNpcConversationRendererProps) {
       messages={messages}
       options={options}
       busy={session.phase === 'loading' || entering}
-      error={session.error ?? current.error ?? tasks.error}
+      error={session.error ?? infrastructure.error ?? tasks.error}
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (optionId === 'news') setShowNews(true);

@@ -8,7 +8,12 @@ export interface BattlePreparationRisk {
   message: string | null;
 }
 
-function totalAttributes(cultivator: Cultivator): number {
+type BattlePreparationParticipant = Pick<
+  Cultivator,
+  'realm' | 'attributes'
+>;
+
+function totalAttributes(cultivator: Pick<Cultivator, 'attributes'>): number {
   return Object.values(cultivator.attributes).reduce(
     (sum, value) => sum + value,
     0,
@@ -16,7 +21,7 @@ function totalAttributes(cultivator: Cultivator): number {
 }
 
 export function evaluateBattlePreparationRisk(
-  player: Cultivator,
+  player: BattlePreparationParticipant,
   enemy: Cultivator | null,
 ): BattlePreparationRisk {
   if (!enemy) {

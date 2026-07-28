@@ -4,7 +4,7 @@ import {
   TEMP_DISABLED_MESSAGES,
   temporaryRestrictions,
 } from '@shared/config/temporaryRestrictions';
-import type { Cultivator } from '@shared/types/cultivator';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import { Artifact, Consumable, Material } from '@shared/types/cultivator';
 import { and, eq, sql } from 'drizzle-orm';
 import { isRealmInRange, toRealmType } from '../admin/realm';
@@ -17,7 +17,9 @@ import * as schema from '../drizzle/schema';
 import type { BattleRecord } from './battleResult';
 import { mapConsumableRow } from './consumablePersistence';
 import { toArtifactFromProduct } from './creationProductArtifactSupport';
-import { getPlayerRuntimeCultivatorByIdUnsafe } from './cultivatorService';
+import {
+  loadCultivatorCombatInput,
+} from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
 import { MailAttachment, MailService } from './MailService';
 import { simulateBattleV5 } from './simulateBattleV5';
 
@@ -51,6 +53,23 @@ export interface BetStakeSnapshot {
   item: BetStakeSnapshotItem | null;
 }
 
+export type BetStakeInventoryChange =
+  | {
+      kind: 'materials';
+      operation: 'upsert';
+      item: Material;
+    }
+  | {
+      kind: 'consumables';
+      operation: 'upsert';
+      item: Consumable;
+    }
+  | {
+      kind: 'materials' | 'artifacts' | 'consumables';
+      operation: 'remove';
+      id: string;
+    };
+
 export interface CreateBetBattleInput {
   creatorId: string;
   creatorName: string;
@@ -81,13 +100,14 @@ export interface ChallengeBetBattleResult {
   challenger: {
     id: string;
     name: string;
-    cultivator: Cultivator;
+    cultivator: CultivatorCombatInput;
   };
   creator: {
     id: string;
     name: string;
-    cultivator: Cultivator;
+    cultivator: CultivatorCombatInput;
   };
+  stakeInventoryChange?: BetStakeInventoryChange;
 }
 
 export const BetBattleError = {
@@ -290,7 +310,10 @@ async function deductStakeItem(
   cultivatorId: string,
   stakeItem: BetStakeInputItem,
   tx: DbExecutor,
-): Promise<BetStakeSnapshotItem> {
+): Promise<{
+  snapshot: BetStakeSnapshotItem;
+  inventoryChange: BetStakeInventoryChange;
+}> {
   const ownedItem = await getItemSnapshot(
     stakeItem.itemType,
     stakeItem.itemId,
@@ -329,12 +352,19 @@ async function deductStakeItem(
     }
 
     return {
-      itemType: stakeItem.itemType,
-      itemId: stakeItem.itemId,
-      name: (ownedItem as Artifact).name,
-      quantity: 1,
-      quality,
-      data: ownedItem,
+      snapshot: {
+        itemType: stakeItem.itemType,
+        itemId: stakeItem.itemId,
+        name: (ownedItem as Artifact).name,
+        quantity: 1,
+        quality,
+        data: ownedItem,
+      },
+      inventoryChange: {
+        kind: 'artifacts',
+        operation: 'remove',
+        id: stakeItem.itemId,
+      },
     };
   }
 
@@ -372,14 +402,45 @@ async function deductStakeItem(
       );
   }
 
-  return {
+  const snapshot: BetStakeSnapshotItem = {
     itemType: stakeItem.itemType,
     itemId: stakeItem.itemId,
     name: ownedItem.name,
     quantity: stakeItem.quantity,
     quality,
     data: { ...ownedItem, quantity: stakeItem.quantity } as
-      Material | Consumable,
+      | Material
+      | Consumable,
+  };
+  return {
+    snapshot,
+    inventoryChange:
+      stakeItem.quantity === currentQuantity
+        ? {
+            kind:
+              stakeItem.itemType === 'material'
+                ? 'materials'
+                : 'consumables',
+            operation: 'remove',
+            id: stakeItem.itemId,
+          }
+        : stakeItem.itemType === 'material'
+          ? {
+              kind: 'materials',
+              operation: 'upsert',
+              item: {
+                ...(ownedItem as Material),
+                quantity: currentQuantity - stakeItem.quantity,
+              },
+            }
+          : {
+              kind: 'consumables',
+              operation: 'upsert',
+              item: {
+                ...(ownedItem as Consumable),
+                quantity: currentQuantity - stakeItem.quantity,
+              },
+            },
   };
 }
 
@@ -492,13 +553,18 @@ async function lockAndDeductStake(
   spiritStones: number,
   stakeItem: BetStakeInputItem | null,
   tx: DbExecutor,
-): Promise<BetStakeSnapshot> {
+): Promise<{
+  snapshot: BetStakeSnapshot;
+  inventoryChange?: BetStakeInventoryChange;
+}> {
   if (stakeType === 'spirit_stones') {
     await deductSpiritStones(cultivatorId, spiritStones, tx);
     return {
-      stakeType,
-      spiritStones,
-      item: null,
+      snapshot: {
+        stakeType,
+        spiritStones,
+        item: null,
+      },
     };
   }
 
@@ -509,18 +575,24 @@ async function lockAndDeductStake(
     );
   }
 
-  const item = await deductStakeItem(cultivatorId, stakeItem, tx);
+  const deducted = await deductStakeItem(cultivatorId, stakeItem, tx);
   return {
-    stakeType,
-    spiritStones: 0,
-    item,
+    snapshot: {
+      stakeType,
+      spiritStones: 0,
+      item: deducted.snapshot,
+    },
+    inventoryChange: deducted.inventoryChange,
   };
 }
 
 export async function createBetBattle(
   input: CreateBetBattleInput,
   options: BetBattleMutationOptions = {},
-): Promise<{ battleId: string }> {
+): Promise<{
+  battleId: string;
+  stakeInventoryChange?: BetStakeInventoryChange;
+}> {
   const spiritStones = input.spiritStones ?? 0;
   const stakeItem = input.stakeItem ?? null;
 
@@ -545,7 +617,7 @@ export async function createBetBattle(
   expiresAt.setHours(expiresAt.getHours() + BATTLE_DURATION_HOURS);
 
   const persistBattle = async (tx: DbTransaction) => {
-    const creatorStakeSnapshot = await lockAndDeductStake(
+    const deducted = await lockAndDeductStake(
       input.creatorId,
       input.stakeType,
       spiritStones,
@@ -553,25 +625,32 @@ export async function createBetBattle(
       tx,
     );
 
-    return betBattleRepository.createBetBattle(
+    const battle = await betBattleRepository.createBetBattle(
       {
         creatorId: input.creatorId,
         creatorName: input.creatorName,
         minRealm: input.minRealm,
         maxRealm: input.maxRealm,
         taunt: input.taunt?.trim() || null,
-        creatorStakeSnapshot,
+        creatorStakeSnapshot: deducted.snapshot,
         expiresAt,
       },
       tx,
     );
+    return {
+      battle,
+      inventoryChange: deducted.inventoryChange,
+    };
   };
 
   const battle = options.tx
     ? await persistBattle(options.tx)
     : await getExecutor().transaction(persistBattle);
 
-  return { battleId: battle.id };
+  return {
+    battleId: battle.battle.id,
+    stakeInventoryChange: battle.inventoryChange,
+  };
 }
 
 export async function challengeBetBattle(
@@ -615,7 +694,7 @@ export async function challengeBetBattle(
     );
   }
 
-  const challengerBundle = await getPlayerRuntimeCultivatorByIdUnsafe(
+  const challengerBundle = await loadCultivatorCombatInput(
     input.challengerId,
     q,
   );
@@ -644,7 +723,7 @@ export async function challengeBetBattle(
     );
   }
 
-  const creatorBundle = await getPlayerRuntimeCultivatorByIdUnsafe(
+  const creatorBundle = await loadCultivatorCombatInput(
     betBattle.creatorId,
     q,
   );
@@ -689,7 +768,7 @@ export async function challengeBetBattle(
       );
     }
 
-    const challengerStake = await lockAndDeductStake(
+    const deducted = await lockAndDeductStake(
       input.challengerId,
       input.stakeType,
       spiritStones,
@@ -697,6 +776,7 @@ export async function challengeBetBattle(
       tx,
     );
 
+    const challengerStake = deducted.snapshot;
     assertStakeMatch(creatorStake, challengerStake);
 
     const [battleRecord] = await tx
@@ -746,13 +826,12 @@ export async function challengeBetBattle(
         '该赌战已被其他道友抢先应战',
       );
     }
+    return deducted.inventoryChange;
   };
 
-  if (options.tx) {
-    await persistChallenge(options.tx);
-  } else {
-    await getExecutor().transaction(persistChallenge);
-  }
+  const stakeInventoryChange = options.tx
+    ? await persistChallenge(options.tx)
+    : await getExecutor().transaction(persistChallenge);
 
   const winnerName =
     winnerId === input.challengerId
@@ -781,6 +860,7 @@ export async function challengeBetBattle(
       name: creatorBundle.cultivator.name,
       cultivator: creatorBundle.cultivator,
     },
+    stakeInventoryChange,
   };
 }
 

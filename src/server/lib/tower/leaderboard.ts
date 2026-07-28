@@ -1,5 +1,6 @@
 import { redis } from '@server/lib/redis';
-import { getCultivatorBasicsByIdsUnsafe } from '@server/lib/services/cultivatorService';
+import { db } from '@server/lib/drizzle/db';
+import { cultivators } from '@server/lib/drizzle/schema';
 import {
   packTowerLeaderboardScore,
   unpackTowerLeaderboardScore,
@@ -7,6 +8,7 @@ import {
   type TowerWeeklyRecord,
 } from '@shared/lib/tower';
 import type { RealmType } from '@shared/types/constants';
+import { and, eq, inArray } from 'drizzle-orm';
 
 function getTowerLeaderboardKey(seasonKey: string, realm: RealmType) {
   return `tower:leaderboard:${seasonKey}:${realm}`;
@@ -77,9 +79,27 @@ export async function getTowerLeaderboard(args: {
     });
   }
 
-  const basics = await getCultivatorBasicsByIdsUnsafe(
-    records.map((record) => record.cultivatorId),
-  );
+  const cultivatorIds = records.map((record) => record.cultivatorId);
+  const basics =
+    cultivatorIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: cultivators.id,
+            name: cultivators.name,
+            title: cultivators.title,
+            realm: cultivators.realm,
+            realmStage: cultivators.realm_stage,
+            gender: cultivators.gender,
+            origin: cultivators.origin,
+          })
+          .from(cultivators)
+          .where(
+            and(
+              inArray(cultivators.id, cultivatorIds),
+              eq(cultivators.status, 'active'),
+            ),
+          );
   const basicsById = new Map(basics.map((item) => [item.id, item]));
 
   return records.flatMap((record, index) => {
@@ -95,7 +115,7 @@ export async function getTowerLeaderboard(args: {
         name: basic.name,
         title: basic.title,
         realm: basic.realm,
-        realmStage: basic.realm_stage,
+        realmStage: basic.realmStage,
         gender: basic.gender,
         origin: basic.origin,
         highestFloor: record.highestFloor,

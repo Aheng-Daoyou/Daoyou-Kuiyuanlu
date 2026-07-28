@@ -1,4 +1,9 @@
-import type { SectConstructionData } from '@shared/contracts/sect';
+import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
+import type {
+  SectConstructionBoardData,
+  SectConstructionMemberData,
+  SectInfrastructureData,
+} from '@shared/contracts/sect';
 import {
   SectConstructionProject,
   SectDonationOffer,
@@ -18,6 +23,7 @@ import type {
   SectConstructionCommandContext,
   SectConstructionQueryContext,
 } from './ports';
+import { mergeSectCommandEffects } from './SectCommandEffects';
 
 export class SectConstructionApplicationService {
   constructor(
@@ -74,14 +80,72 @@ export class SectConstructionApplicationService {
     });
   }
 
-  ensureWeeklyProject(sectId: string, context: SectConstructionCommandContext) {
-    return this.ensureCurrentProject(sectId, context);
+  async ensureWeeklyProjectCommand(
+    sectId: string,
+    context: SectConstructionCommandContext,
+  ): Promise<{
+    result: Awaited<
+      ReturnType<SectConstructionApplicationService['ensureCurrentProject']>
+    >;
+    resourceChanges: ResourceChangeDescriptor[];
+  }> {
+    const existing = await context.construction.findActiveProject(sectId);
+    const project = await this.ensureCurrentProject(sectId, context);
+    if (!project || existing?.id === project.id) {
+      return { result: project, resourceChanges: [] };
+    }
+    const dateKey = context.clock.dateKey();
+    const organization = organizationFor(context.modules, sectId);
+    const demands = [
+      ...organization.economy.donationDemands(sectId, dateKey),
+    ];
+    for (const demand of demands) {
+      assertDeclaredDonationKind(organization, demand.kind);
+    }
+    const [facilities, recentActivity] = await Promise.all([
+      context.facilities.list(sectId),
+      context.construction.listRecentDonations(sectId, 12),
+    ]);
+    return {
+      result: project,
+      resourceChanges: [
+        {
+          scope: { kind: 'sect', id: sectId },
+          resourceTopic: 'sect.infrastructure',
+          eventType: 'sect.construction_project_started',
+          operation: 'replace',
+          payload: {
+            facilities: mapFacilities(facilities),
+            project: mapProject(project),
+          },
+        },
+        {
+          scope: { kind: 'sect', id: sectId },
+          resourceTopic: 'sect.construction-board',
+          eventType: 'sect.construction_board_changed',
+          operation: 'replace',
+          payload: {
+            demands,
+            dailyContributionCap: organization.economy.donationDailyCap,
+            recentActivity: recentActivity.map((item) => ({
+              ...item,
+              createdAt: item.createdAt.toISOString(),
+            })),
+          },
+        },
+      ],
+    };
   }
 
-  async getConstruction(
+  private async loadConstructionSettlement(
     cultivatorId: string,
     context: SectConstructionQueryContext,
-  ): Promise<SectConstructionData> {
+  ): Promise<{
+    sectId: string;
+    infrastructure: SectInfrastructureData;
+    board: SectConstructionBoardData;
+    member: SectConstructionMemberData;
+  }> {
     const membership = await requireMembership(
       cultivatorId,
       context.memberships,
@@ -98,22 +162,85 @@ export class SectConstructionApplicationService {
     ];
     for (const demand of demands)
       assertDeclaredDonationKind(organization, demand.kind);
+    const [facilities, project, donatedContributionToday, recentActivity] =
+      await Promise.all([
+        context.facilities.list(membership.sectId),
+        context.construction.findActiveProject(membership.sectId),
+        context.construction.donatedContribution(membership.id, dateKey),
+        context.construction.listRecentDonations(membership.sectId, 12),
+      ]);
     return {
-      facilities: mapFacilities(
-        await context.facilities.list(membership.sectId),
-      ),
-      project: mapProject(
-        await context.construction.findActiveProject(membership.sectId),
-      ),
+      sectId: membership.sectId,
+      infrastructure: {
+        facilities: mapFacilities(facilities),
+        project: mapProject(project),
+      },
+      board: {
+        demands,
+        dailyContributionCap: organization.economy.donationDailyCap,
+        recentActivity: recentActivity.map((item) => ({
+          ...item,
+          createdAt: item.createdAt.toISOString(),
+        })),
+      },
+      member: { donatedContributionToday },
+    };
+  }
+
+  async getConstructionBoard(
+    cultivatorId: string,
+    context: SectConstructionQueryContext,
+  ): Promise<SectConstructionBoardData> {
+    const membership = await requireMembership(
+      cultivatorId,
+      context.memberships,
+    );
+    this.benefits.assertPermission(
+      membership,
+      'sect.construction.view',
+      context.modules,
+    );
+    const dateKey = context.clock.dateKey();
+    const organization = organizationFor(context.modules, membership.sectId);
+    const demands = [
+      ...organization.economy.donationDemands(membership.sectId, dateKey),
+    ];
+    for (const demand of demands) {
+      assertDeclaredDonationKind(organization, demand.kind);
+    }
+    const recentActivity = await context.construction.listRecentDonations(
+      membership.sectId,
+      12,
+    );
+    return {
       demands,
-      donatedContributionToday: await context.construction.donatedContribution(
-        membership.id,
-        dateKey,
-      ),
       dailyContributionCap: organization.economy.donationDailyCap,
-      recentActivity: (
-        await context.construction.listRecentDonations(membership.sectId, 12)
-      ).map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })),
+      recentActivity: recentActivity.map((item) => ({
+        ...item,
+        createdAt: item.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  async getConstructionMember(
+    cultivatorId: string,
+    context: SectConstructionQueryContext,
+  ): Promise<SectConstructionMemberData> {
+    const membership = await requireMembership(
+      cultivatorId,
+      context.memberships,
+    );
+    this.benefits.assertPermission(
+      membership,
+      'sect.construction.view',
+      context.modules,
+    );
+    return {
+      donatedContributionToday:
+        await context.construction.donatedContribution(
+          membership.id,
+          context.clock.dateKey(),
+        ),
     };
   }
 
@@ -168,7 +295,7 @@ export class SectConstructionApplicationService {
         `每日建设贡献上限为 ${organization.economy.donationDailyCap}`,
         400,
       );
-    const itemSnapshot = await this.donationSpecifications
+    const consumed = await this.donationSpecifications
       .require(demand.kind)
       .consume({
         cultivatorId,
@@ -193,10 +320,47 @@ export class SectConstructionApplicationService {
       membership.id,
       offer.contribution,
       offer.constructionPoints,
-      { donationId, dateKey, demand, itemSnapshot },
+      {
+        donationId,
+        dateKey,
+        demand,
+        itemSnapshot: consumed.itemSnapshot,
+      },
     );
 
-    await this.events.forConstruction(context).dispatch(aggregate.pullEvents());
-    return this.getConstruction(cultivatorId, context);
+    const dispatchEffects = await this.events
+      .forConstruction(context)
+      .dispatch(aggregate.pullEvents());
+    const effects = mergeSectCommandEffects(
+      consumed.effects,
+      dispatchEffects,
+    );
+    const result = await this.loadConstructionSettlement(cultivatorId, context);
+    return {
+      result,
+      resourceChanges: [
+        {
+          scope: { kind: 'sect', id: result.sectId },
+          resourceTopic: 'sect.infrastructure',
+          eventType: 'sect.infrastructure_changed',
+          operation: 'replace',
+          payload: result.infrastructure,
+        },
+        {
+          scope: { kind: 'sect', id: result.sectId },
+          resourceTopic: 'sect.construction-board',
+          eventType: 'sect.construction_board_changed',
+          operation: 'replace',
+          payload: result.board,
+        },
+        {
+          resourceTopic: 'sect.construction-member',
+          eventType: 'sect.construction_member_changed',
+          operation: 'replace',
+          payload: result.member,
+        },
+        ...effects.resourceChanges,
+      ] satisfies ResourceChangeDescriptor[],
+    };
   }
 }

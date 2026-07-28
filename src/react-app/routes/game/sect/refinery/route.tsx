@@ -1,13 +1,15 @@
 import { RefineScene } from '@app/components/feature/craft/RefineScene';
 import {
-  useSectCurrentQuery,
-  useSectPresentation,
-} from '@app/components/feature/sect/SectQueryProvider';
-import {
   SectFacilityWorkspaceConversation,
   SectNpcConversationRegistry,
   SectRoutedRoom,
 } from '@app/components/feature/sect/room';
+import {
+  getSectPresentationForContext,
+  resolveSectBenefits,
+  useSectContextQuery,
+  useSectInfrastructureQuery,
+} from '@app/components/feature/sect/sectResources';
 import { createSectRoomNpcHref } from '@app/components/feature/sect/sectRoomNavigation';
 import { formatDocumentTitle } from '@app/lib/router/routeTitle';
 import { getSectBenefitMetric } from '@app/lib/sect/sectPresentation';
@@ -35,13 +37,15 @@ export default function SectRefineryPage() {
 }
 
 function SectRefineryBody() {
-  const { data } = useSectCurrentQuery();
-  const presentation = useSectPresentation();
+  const context = useSectContextQuery();
+  const infrastructure = useSectInfrastructureQuery();
+  const presentation = getSectPresentationForContext(context.data);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  if (!data) return <SectPageLoading sceneKey="refinery" />;
-  const effect = (data.benefits ?? data.overview?.benefits)?.facilityEffects
-    .refinery;
+  if (!context.data || !infrastructure.data)
+    return <SectPageLoading sceneKey="refinery" />;
+  const effect = resolveSectBenefits(context.data, infrastructure.data)
+    .facilityEffects.refinery;
   const level = getSectBenefitMetric(effect, 'level', 1);
   const discountPercent = getSectBenefitMetric(effect, 'discount') * 100;
   const scene = presentation.scenes.refinery;

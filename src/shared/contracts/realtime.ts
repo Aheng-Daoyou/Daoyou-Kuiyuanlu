@@ -1,4 +1,5 @@
-import type { PlayerStateEvent } from '@shared/contracts/player';
+import type { ResourceChange } from '@shared/contracts/resources';
+import type { ResourceScope } from '@shared/contracts/resources';
 import type { WorldChatMessageDTO } from '@shared/types/world-chat';
 
 export const REALTIME_CHANNELS = ['world-chat', 'player-state'] as const;
@@ -6,16 +7,16 @@ export const REALTIME_CHANNELS = ['world-chat', 'player-state'] as const;
 export type RealtimeChannel = (typeof REALTIME_CHANNELS)[number];
 
 export type RealtimePlayerStatePayload = {
-  events?: PlayerStateEvent[];
-  requiresSnapshot?: boolean;
+  changes: ResourceChange[];
 };
 
 export type RealtimeServerEvent =
   | {
       type: 'ready';
       payload: {
-        cultivatorId: string;
+        cultivatorId: string | null;
         channels: RealtimeChannel[];
+        resourceScopes: ResourceScope[];
       };
     }
   | {

@@ -1,16 +1,16 @@
 import { NarrativePerformanceLoading } from '@app/components/feature/narrative/NarrativePerformanceLoading';
 import { NarrativePerformanceStage } from '@app/components/feature/narrative/NarrativePerformanceStage';
-import { useSectResourceQuery } from '@app/components/feature/sect/SectQueryProvider';
 import { InkButton } from '@app/components/ui';
 import {
-  usePlayerState,
-  usePlayerStateActions,
-} from '@app/lib/player-state/store';
-import { fetchSectCatalog } from '@app/lib/sect/sectClient';
+  useCultivatorIdentity,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { getSectPresentation } from '@app/lib/sect/sectPresentation';
 import type { SectCatalogEntry } from '@shared/contracts/sect';
+import { productionSectRuntime } from '@shared/engine/sect/content';
 import { getSectLandmarkBySectId } from '@shared/lib/game/mapSystem';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router';
 import {
   beginSectJoinAttempt,
@@ -23,11 +23,33 @@ export default function SectOnboardingPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const sectId = searchParams.get('sectId') ?? '';
-  const activeSectId = usePlayerState(
-    (state) => state.snapshot.sect?.sectId ?? null,
-  );
-  const { mutate } = usePlayerStateActions();
-  const catalog = useSectResourceQuery('catalog', fetchSectCatalog);
+  const session = usePlayerSession();
+  const profile = useCultivatorIdentity();
+  const activeSectId = session.data?.activeCultivator?.sectId ?? null;
+  const { mutate } = useResourceMutation();
+  const catalog = useMemo(() => {
+    const cultivator = profile.data?.cultivator;
+    if (!cultivator) return undefined;
+    return productionSectRuntime.registry
+      .listDefinitions()
+      .filter(
+        (definition) =>
+          productionSectRuntime.registry
+            .require(definition.id)
+            .checkAdmission({
+              playerRace: cultivator.playerRace ?? 'human',
+              realm: cultivator.realm,
+              stage: cultivator.realm_stage,
+            }).allowed,
+      )
+      .map(
+        ({ id, name, description }): SectCatalogEntry => ({
+          id,
+          name,
+          description,
+        }),
+      );
+  }, [profile.data?.cultivator]);
   const [busy, setBusy] = useState(false);
   const [joinError, setJoinError] = useState<{
     sectId: string;
@@ -36,7 +58,7 @@ export default function SectOnboardingPage() {
   const joinAttemptRef = useRef(createSectJoinAttemptState());
   const joinAttemptSectIdRef = useRef(sectId);
 
-  if (catalog.error) {
+  if (profile.error) {
     return (
       <div className="flex min-h-[100svh] items-center justify-center bg-[#131713] px-6 text-[#f3ecdc]">
         <div className="max-w-md text-center">
@@ -45,7 +67,7 @@ export default function SectOnboardingPage() {
             风向未定，诸宗名牒还没有送到眼前。
           </p>
           <InkButton
-            onClick={() => void catalog.retry()}
+            onClick={() => void profile.retry()}
             className="mt-5 text-[#f0c77b]"
           >
             再候一阵
@@ -55,11 +77,11 @@ export default function SectOnboardingPage() {
     );
   }
 
-  if (!catalog.data) {
+  if (!catalog) {
     return <NarrativePerformanceLoading message="诸宗山门正在云外显现……" />;
   }
 
-  const selected: SectCatalogEntry | undefined = catalog.data.sects.find(
+  const selected: SectCatalogEntry | undefined = catalog.find(
     (sect) => sect.id === sectId,
   );
   if (!sectId) {
@@ -79,7 +101,7 @@ export default function SectOnboardingPage() {
           </header>
 
           <div className="mt-9 grid gap-5 lg:grid-cols-2">
-            {catalog.data.sects.map((sect) => {
+            {catalog.map((sect) => {
               const presentation = getSectPresentation(sect.id).onboarding;
               if (!presentation) return null;
               return (

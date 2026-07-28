@@ -1,14 +1,10 @@
-import {
-  CultivatorCurrentStatusSection,
-} from '@app/components/feature/cultivator/PersistentStatusesCard';
+import { getAttributeDetailActionLabel } from '@app/components/feature/cultivator/attributeActionLabels';
 import {
   BodyCultivationEntrySection,
   MarrowWashEntrySection,
 } from '@app/components/feature/cultivator/BodyCultivationPanels';
-import {
-  CultivatorAttributeOverview,
-} from '@app/components/feature/cultivator/CultivatorAttributeOverview';
-import { getAttributeDetailActionLabel } from '@app/components/feature/cultivator/attributeActionLabels';
+import { CultivatorAttributeOverview } from '@app/components/feature/cultivator/CultivatorAttributeOverview';
+import { CultivatorCurrentStatusSection } from '@app/components/feature/cultivator/PersistentStatusesCard';
 import { TitleEditorModal } from '@app/components/feature/cultivator/TitleEditorModal';
 import { FateDetailModal } from '@app/components/feature/fates/FateDetailModal';
 import { toFateDisplayModel } from '@app/components/feature/fates/FateDisplayAdapter';
@@ -30,13 +26,17 @@ import {
   type InkDialogState,
 } from '@app/components/ui';
 import { ItemCard } from '@app/components/ui/ItemCard';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
+import {
+  useCultivatorCondition,
+  useCultivatorIdentity,
+  usePlayerLoadout,
+} from '@app/lib/resources/player';
 import { AttributeType } from '@shared/engine/battle-v5/core/types';
 import { attrLabel } from '@shared/engine/battle-v5/effects/affixText/attributes';
 import { cn } from '@shared/lib/cn';
-import type { Cultivator } from '@shared/types/cultivator';
 import { getEquipmentSlotInfo } from '@shared/lib/gameConceptDisplay';
+import type { Cultivator } from '@shared/types/cultivator';
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { GameSceneSection } from './GameSceneSection';
@@ -52,11 +52,13 @@ const PRIMARY_ATTRIBUTE_HELP = [
   },
   {
     label: attrLabel(AttributeType.SPEED),
-    description: '决定出手快慢，增加一些闪避，并少量补益物理攻击、物理防御与暴击。',
+    description:
+      '决定出手快慢，增加一些闪避，并少量补益物理攻击、物理防御与暴击。',
   },
   {
     label: attrLabel(AttributeType.WILLPOWER),
-    description: '凝练感知与抗衡之力，增加一些控制命中、控制抗性、法术攻防与法力，并少量增加命中。',
+    description:
+      '凝练感知与抗衡之力，增加一些控制命中、控制抗性、法术攻防与法力，并少量增加命中。',
   },
   {
     label: attrLabel(AttributeType.WISDOM),
@@ -121,10 +123,24 @@ function OverviewDetailItem({
 }
 
 export function CultivatorOverviewPanel() {
-  const { cultivator, inventory, skills, equipped } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const loadout = usePlayerLoadout();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity && condition.data && loadout.data
+      ? {
+          ...identity,
+          condition: condition.data,
+          skills: loadout.data.skills,
+          cultivations: loadout.data.cultivations,
+          equipped: loadout.data.equipped,
+          inventory: { artifacts: loadout.data.artifacts },
+        }
+      : null;
   const navigate = useNavigate();
   const { pushToast } = useInkUI();
-  const { mutate } = usePlayerStateActions();
+  const { mutate } = useResourceMutation();
   const [dialog, setDialog] = useState<InkDialogState | null>(null);
   const [detailFate, setDetailFate] = useState<
     Cultivator['pre_heaven_fates'][number] | null
@@ -136,16 +152,19 @@ export function CultivatorOverviewPanel() {
   if (!cultivator) {
     return <InkNotice>尚无角色资料，先去觉醒灵根，再来凝视真形。</InkNotice>;
   }
+  const inventory = cultivator.inventory;
+  const skills = cultivator.skills;
+  const equipped = cultivator.equipped;
 
   const handleReincarnate = async () => {
     try {
-      const res = await fetch('/api/cultivator/active-reincarnate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || '兵解失败');
+      await mutate(
+        fetch('/api/cultivator/active-reincarnate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }),
+      );
       navigate('/game/reincarnate');
     } catch (err) {
       pushToast({
@@ -254,7 +273,11 @@ export function CultivatorOverviewPanel() {
           <OverviewDetailItem
             icon="☯️"
             label="境界"
-            value={<InkBadge className='px-0' tier={cultivator.realm}>{cultivator.realm_stage}</InkBadge>}
+            value={
+              <InkBadge className="px-0" tier={cultivator.realm}>
+                {cultivator.realm_stage}
+              </InkBadge>
+            }
           />
           <OverviewDetailItem
             icon="⏳"
@@ -282,7 +305,6 @@ export function CultivatorOverviewPanel() {
       </GameSceneSection>
 
       <CultivatorCurrentStatusSection />
-
 
       <LingGen
         spiritualRoots={cultivator.spiritual_roots || []}

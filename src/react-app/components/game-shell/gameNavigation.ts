@@ -273,10 +273,6 @@ export const gameDockGroups: GameNavGroup[] = [
         expandedDockLabel: '⚔️ 赌战台',
       },
       {
-        id: 'battle',
-        sceneLabel: '对战播报',
-      },
-      {
         id: 'battle-challenge',
         sceneLabel: '挑战天骄',
       },

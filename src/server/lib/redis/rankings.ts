@@ -1,11 +1,11 @@
-import {
-  CultivatorBasic,
-  getCultivatorBasicsByIdsUnsafe,
-} from '@server/lib/services/cultivatorService';
+import { db } from '@server/lib/drizzle/db';
+import { cultivators } from '@server/lib/drizzle/schema';
 import { getBodyCultivationRankingTag } from '@shared/lib/bodyCultivation/ranking';
 import { REALM_VALUES, type RealmType } from '@shared/types/constants';
-import type { BodyCultivationRankingInfo } from '@shared/types/rankings';
+import type { BattleRankingItem } from '@shared/types/rankings';
 import type { Lock } from '@microfleet/ioredis-lock';
+import type { CultivatorCondition } from '@shared/types/condition';
+import { and, eq, inArray } from 'drizzle-orm';
 import { redis } from './index';
 import { createRedisLock, releaseRedisLock } from './lock';
 
@@ -19,11 +19,17 @@ const MAX_RANKING_SIZE = 100;
 const LOCK_DURATION = 300; // 5分钟，单位：秒
 const MAX_DAILY_CHALLENGES = 10;
 
-export interface RankingItem extends CultivatorBasic {
-  rank: number;
-  faction?: string;
-  updated_at: number;
-  bodyCultivation?: BodyCultivationRankingInfo;
+export type RankingItem = BattleRankingItem;
+
+interface RankingCultivatorProjection {
+  id: string;
+  name: string;
+  title: string | null;
+  age: number;
+  realm: string;
+  realmStage: string;
+  origin: string | null;
+  condition: CultivatorCondition | null;
 }
 
 export interface CultivatorRankInfo {
@@ -84,12 +90,35 @@ async function compactRankingScores(realm: RealmType): Promise<void> {
 
 async function getHydratedRankingOrder(
   realm: RealmType,
-): Promise<Array<{ record: CultivatorBasic; rank: number }>> {
+): Promise<Array<{ record: RankingCultivatorProjection; rank: number }>> {
   const order = await getRankingOrder(realm);
   const ids = order.map((item) => item.cultivatorId);
-  const cultivators = await getCultivatorBasicsByIdsUnsafe(ids);
-  const map = new Map(cultivators.map((item) => [item.id, item]));
-  const validRecords: CultivatorBasic[] = [];
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({
+      id: cultivators.id,
+      name: cultivators.name,
+      title: cultivators.title,
+      age: cultivators.age,
+      realm: cultivators.realm,
+      realmStage: cultivators.realm_stage,
+      origin: cultivators.origin,
+      condition: cultivators.condition,
+    })
+    .from(cultivators)
+    .where(
+      and(
+        inArray(cultivators.id, ids),
+        eq(cultivators.status, 'active'),
+      ),
+    );
+  const projections: RankingCultivatorProjection[] = rows.map((row) => ({
+    ...row,
+    condition:
+      (row.condition as CultivatorCondition | null | undefined) ?? null,
+  }));
+  const map = new Map(projections.map((item) => [item.id, item]));
+  const validRecords: RankingCultivatorProjection[] = [];
   const staleIds: string[] = [];
 
   for (const entry of order) {
@@ -150,19 +179,10 @@ export async function getRankingList(realm: RealmType): Promise<RankingItem[]> {
       name: record.name,
       title: record.title,
       age: record.age,
-      lifespan: record.lifespan,
       realm: record.realm,
-      realm_stage: record.realm_stage,
+      realm_stage: record.realmStage,
       origin: record.origin,
-      updated_at:
-        record.updatedAt instanceof Date
-          ? record.updatedAt.getTime()
-          : Date.now(),
-      gender: record.gender,
-      personality: record.personality,
-      background: record.background,
       bodyCultivation: getBodyCultivationRankingTag(record.condition ?? undefined),
-      updatedAt: record.updatedAt,
     });
   }
 

@@ -3,11 +3,13 @@ import { TutorialTaskCard } from '@app/components/feature/tasks/TutorialTaskCard
 import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
 import { InkNotice } from '@app/components/ui';
 import { useTaskList } from '@app/lib/hooks/useTaskList';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import { usePlayerSession } from '@app/lib/resources/player';
 import { findNextTutorialTask } from '@app/lib/tasks/taskClient';
 
 export function TasksView() {
-  const { cultivator, isLoading } = usePlayerStateView();
+  const session = usePlayerSession();
+  const cultivator = session.data?.activeCultivator;
+  const isLoading = session.loading;
   const { tasks, loading, error } = useTaskList(cultivator?.id);
 
   if (isLoading && !cultivator) {
@@ -26,10 +28,10 @@ export function TasksView() {
     );
   }
 
-  const breakthroughTasks = tasks.filter(
+  const breakthroughTasks = tasks?.filter(
     (task) => task.category === 'breakthrough_major',
   );
-  const nextTutorialTask = findNextTutorialTask(tasks);
+  const nextTutorialTask = tasks ? findNextTutorialTask(tasks) : null;
 
   return (
     <GameSceneFrame
@@ -37,8 +39,8 @@ export function TasksView() {
       description="入门引导与破境卷宗归在此处。宗门勤务已经移交执事堂，不再与通用任务混列。"
     >
       <GameSceneSection title="入门卷宗">
-        {loading ? (
-          <p className="text-sm text-ink-secondary">正在整理入门卷宗……</p>
+        {loading || !tasks ? (
+          <p className="text-ink-secondary text-sm">正在整理入门卷宗……</p>
         ) : error ? (
           <InkNotice>{error}</InkNotice>
         ) : (
@@ -50,7 +52,7 @@ export function TasksView() {
               />
             ) : null}
             {!nextTutorialTask ? (
-              <p className="text-sm leading-7 text-ink-secondary">
+              <p className="text-ink-secondary text-sm leading-7">
                 入门卷宗已办妥。之后可按破境卷宗、宗门执事堂与洞府状态推进。
               </p>
             ) : null}
@@ -58,10 +60,10 @@ export function TasksView() {
         )}
       </GameSceneSection>
 
-      {!loading && !error ? (
+      {!loading && !error && breakthroughTasks ? (
         <GameSceneSection title="破境卷宗">
           {breakthroughTasks.length === 0 ? (
-            <p className="text-sm leading-7 text-ink-secondary">
+            <p className="text-ink-secondary text-sm leading-7">
               眼前没有待办的破境卷宗。若已临大境界圆满，回静室或稍后刷新即可整理新卷。
             </p>
           ) : (

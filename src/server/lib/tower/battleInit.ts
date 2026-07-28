@@ -4,14 +4,16 @@ import {
   ModifierType,
 } from '@shared/engine/battle-v5/core/types';
 import type { BattleInitConfigV5 } from '@shared/engine/battle-v5/setup/types';
-import { createCombatUnitFromCultivator } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
+import {
+  createCombatUnitFromCultivator,
+  type CultivatorCombatInput,
+} from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import { isConditionStatusActive } from '@shared/lib/condition';
 import type {
   ConditionStatusInstance,
   ConditionStatusKey,
   CultivatorCondition,
 } from '@shared/types/condition';
-import type { Cultivator } from '@shared/types/cultivator';
 import {
   type TowerBlessingId,
   type TowerFloorKind,
@@ -113,7 +115,7 @@ function buildBlessingModifiers(
 }
 
 function applyModifiersToUnit(
-  cultivator: Cultivator,
+  cultivator: CultivatorCombatInput,
   modifiers: AttributeModifierConfig[],
 ) {
   const unit = createCombatUnitFromCultivator(cultivator);
@@ -136,7 +138,7 @@ function applyModifiersToUnit(
 }
 
 function getTowerMaxResources(args: {
-  cultivator: Cultivator;
+  cultivator: CultivatorCombatInput;
   blessings: Partial<Record<TowerBlessingId, number>>;
 }) {
   const unit = applyModifiersToUnit(
@@ -259,7 +261,7 @@ function replaceWoundStatus(
 }
 
 export function buildTowerBattleInit(args: {
-  cultivator: Cultivator;
+  cultivator: CultivatorCombatInput;
   condition: CultivatorCondition;
   blessings: Partial<Record<TowerBlessingId, number>>;
   encounterKind: TowerFloorKind;
@@ -342,7 +344,7 @@ export function buildTowerBattleInit(args: {
 }
 
 export function applyTowerBattleOutcome(args: {
-  cultivator: Cultivator;
+  cultivator: CultivatorCombatInput;
   condition: CultivatorCondition;
   blessings: Partial<Record<TowerBlessingId, number>>;
   playerSnapshot: UnitStateSnapshot;

@@ -21,7 +21,6 @@ export function resolveGameShellKind(pathname: string): GameShellKind | null {
   }
 
   if (
-    pathname === '/game/battle' ||
     pathname === '/game/battle/challenge' ||
     /^\/game\/battle\/[^/]+$/.test(pathname) ||
     pathname === '/game/bet-battle/challenge' ||

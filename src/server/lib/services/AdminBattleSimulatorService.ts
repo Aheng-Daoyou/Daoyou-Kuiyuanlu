@@ -1,8 +1,8 @@
 import { sampleActiveCultivatorIds } from '@server/lib/repositories/cultivatorRepository';
 import {
-  getCultivatorByIdUnsafe,
-  type CultivatorWithOwner,
-} from '@server/lib/services/cultivatorService';
+  loadCultivatorCombatInput,
+  type CultivatorCombatInputWithOwner,
+} from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
 import { simulateBattleV5 } from '@server/lib/services/simulateBattleV5';
 import type {
   AdminBattleDuelRequest,
@@ -15,6 +15,7 @@ import type {
   AdminBattleTemplateFilters,
 } from '@shared/contracts/adminBattleSimulator';
 import { EnemyGenerator } from '@shared/engine/enemyGenerator';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import type { BattleRecord } from '@shared/types/battle';
 import {
   ENEMY_RACE_VALUES,
@@ -36,7 +37,7 @@ export class AdminBattleSimulatorError extends Error {
 }
 
 type SimulateBattle = typeof simulateBattleV5;
-type LoadCultivator = typeof getCultivatorByIdUnsafe;
+type LoadCultivator = typeof loadCultivatorCombatInput;
 type SampleCultivatorIds = typeof sampleActiveCultivatorIds;
 
 interface AdminBattleSimulatorDeps {
@@ -46,9 +47,12 @@ interface AdminBattleSimulatorDeps {
   sampleCultivatorIds?: SampleCultivatorIds;
 }
 
+type AdminCombatantInput = CultivatorCombatInput &
+  Partial<Pick<Cultivator, 'title' | 'race'>>;
+
 interface Combatant {
   summary: AdminBattleParticipantSummary;
-  cultivator: Cultivator;
+  cultivator: AdminCombatantInput;
 }
 
 interface SimulationRun {
@@ -99,7 +103,7 @@ function resolveDifficultyBand(
 
 function buildParticipantSummary(args: {
   side: 'A' | 'B';
-  cultivator: Cultivator;
+  cultivator: AdminCombatantInput;
   source: AdminBattleParticipantSummary['source'];
   template?: NonNullable<AdminBattleParticipantSummary['template']>;
 }): AdminBattleParticipantSummary {
@@ -246,7 +250,8 @@ export class AdminBattleSimulatorService {
   constructor(deps: AdminBattleSimulatorDeps = {}) {
     this.generator = deps.generator ?? new EnemyGenerator();
     this.simulateBattle = deps.simulateBattle ?? simulateBattleV5;
-    this.loadCultivator = deps.loadCultivator ?? getCultivatorByIdUnsafe;
+    this.loadCultivator =
+      deps.loadCultivator ?? loadCultivatorCombatInput;
     this.sampleIds = deps.sampleCultivatorIds ?? sampleActiveCultivatorIds;
   }
 
@@ -311,7 +316,7 @@ export class AdminBattleSimulatorService {
 
   private async loadActiveCultivator(
     cultivatorId: string,
-  ): Promise<CultivatorWithOwner> {
+  ): Promise<CultivatorCombatInputWithOwner> {
     const record = await this.loadCultivator(cultivatorId);
     if (!record) {
       throw new AdminBattleSimulatorError('未找到 active 角色', 404);
@@ -322,7 +327,7 @@ export class AdminBattleSimulatorService {
   private async loadLivePool(
     request: AdminBattleMonteCarloRequest,
     anchorId?: string,
-  ): Promise<Cultivator[]> {
+  ): Promise<AdminCombatantInput[]> {
     const usesLive =
       request.scenario === 'fixed_vs_live_sample' ||
       request.scenario === 'live_sample_vs_live_sample';
@@ -342,7 +347,7 @@ export class AdminBattleSimulatorService {
       throw new AdminBattleSimulatorError('可用线上 active 角色样本不足', 400);
     }
 
-    const loaded: Cultivator[] = [];
+    const loaded: AdminCombatantInput[] = [];
     for (const id of ids) {
       const record = await this.loadActiveCultivator(id);
       loaded.push(record.cultivator);
@@ -353,8 +358,8 @@ export class AdminBattleSimulatorService {
   private resolveMonteCarloCombatants(args: {
     index: number;
     request: AdminBattleMonteCarloRequest;
-    anchor: Cultivator | null;
-    livePool: Cultivator[];
+    anchor: AdminCombatantInput | null;
+    livePool: AdminCombatantInput[];
   }): { a: Combatant; b: Combatant } {
     const { request, anchor } = args;
     if (request.scenario === 'fixed_vs_template') {
@@ -415,7 +420,7 @@ export class AdminBattleSimulatorService {
 
   private toCultivatorCombatant(
     side: 'A' | 'B',
-    cultivator: Cultivator,
+    cultivator: AdminCombatantInput,
   ): Combatant {
     return {
       cultivator,

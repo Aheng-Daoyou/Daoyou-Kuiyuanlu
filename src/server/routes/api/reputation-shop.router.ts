@@ -1,65 +1,45 @@
 import {
   redisLockErrorResponse,
-  requireActiveCultivator,
+  requireActiveCultivatorRef,
 } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
-import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
+import { toPlayerStateMutationResponse } from '@server/lib/services/ResourceMutationResponse';
 import {
-  commitPlayerStateMutation,
-  toPlayerStateMutationResponse,
-  type StateChangeDescriptor,
-} from '@server/lib/services/PlayerStateMutationService';
-import {
-  buyReputationShopItem,
   listReputationShopItems,
   ReputationShopError,
 } from '@server/lib/services/ReputationShopService';
+import { purchaseReputationShopItemCommand } from '@server/lib/services/ReputationShopApplicationService';
 import { ReputationShopBuyParamsSchema } from '@shared/contracts/reputationShop';
-import type { ResourceOperation } from '@shared/engine/resource/types';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { readCultivatorReputation } from '@server/lib/services/cultivator/CultivatorFactsReader';
 
 const router = new Hono<AppEnv>();
 
-const BUY_LOCK_TTL_MS = 10_000;
-
-function buildBuyChanges(args: {
-  reputation: number;
-  gains: ResourceOperation[];
-}): StateChangeDescriptor[] {
-  const changes: StateChangeDescriptor[] = [
-    {
-      domain: 'currency',
-      eventType: 'currency.reputation.spent',
-      patch: { currency: { reputation: args.reputation } },
-      invalidates: ['currency'],
-    },
-  ];
-
-  return changes;
-}
-
-router.get('/', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.get('/', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
 
   const items = await listReputationShopItems({
-    cultivatorId: cultivator.id,
+    cultivatorId: cultivator.cultivatorId,
     userVisibleOnly: true,
   });
+  const { reputation } = await readCultivatorReputation(
+    cultivator.cultivatorId,
+  );
 
   return c.json({
     items,
-    reputation: cultivator.reputation ?? 0,
+    reputation,
   });
 });
 
-router.post('/:id/buy', requireActiveCultivator(), async (c) => {
+router.post('/:id/buy', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
@@ -68,45 +48,12 @@ router.post('/:id/buy', requireActiveCultivator(), async (c) => {
     const params = ReputationShopBuyParamsSchema.parse({
       id: c.req.param('id'),
     });
-    return await withRedisLock(
-      {
-        key: redisLockKeys.cultivatorMutation(cultivator.id),
-        context: 'reputation-shop-buy',
-        timeoutMs: BUY_LOCK_TTL_MS,
-        retries: 0,
-        delayMs: 50,
-      },
-      async (lease) => {
-        lease.assertHeld();
-        const committed = await commitPlayerStateMutation({
-          coordination: { mode: 'redis', lease },
-          userId: user.id,
-          cultivatorId: cultivator.id,
-          source: 'reputation_shop_buy',
-          run: async (tx) => {
-            const result = await buyReputationShopItem({
-              id: params.id,
-              userId: user.id,
-              cultivatorId: cultivator.id,
-              tx,
-            });
-
-            return {
-              result: {
-                purchasedItem: result.item,
-                reputation: result.reputation,
-              },
-              changes: buildBuyChanges({
-                reputation: result.reputation,
-                gains: result.gains,
-              }),
-            };
-          },
-        });
-
-        return c.json(toPlayerStateMutationResponse(committed));
-      },
-    );
+    const committed = await purchaseReputationShopItemCommand({
+      id: params.id,
+      userId: user.id,
+      cultivatorId: cultivator.cultivatorId,
+    });
+    return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
     const lockErrorResponse = redisLockErrorResponse(error);
     if (lockErrorResponse) return lockErrorResponse;

@@ -1,25 +1,35 @@
 import {
-  usePlayerStateView,
-  type PlayerStateView,
-} from '@app/lib/player-state/selectors';
+  getPillToxicityEffectDetails,
+  getStatusEffectDetails,
+} from '@app/components/feature/cultivator/persistentStatusDetails';
+import {
+  useCultivatorCondition,
+  useCultivatorCurrency,
+  useCultivatorIdentity,
+  useCultivatorProgress,
+  usePlayerLoadout,
+  useUnreadMailCount,
+} from '@app/lib/resources/player';
+import {
+  getCultivatorDisplaySnapshot,
+  type CultivatorDisplayInput,
+  type CultivatorDisplaySnapshot,
+} from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import type { Cultivator } from '@shared/types/cultivator';
+import {
+  getBodyCultivationSummary,
+  type BodyCultivationSummary,
+} from '@shared/lib/bodyCultivation/summary';
 import {
   getPillToxicityStage,
   isConditionStatusActive,
 } from '@shared/lib/condition';
 import { getConditionStatusTemplate } from '@shared/lib/conditionStatusRegistry';
 import {
-  getPillToxicityEffectDetails,
-  getStatusEffectDetails,
-} from '@app/components/feature/cultivator/persistentStatusDetails';
-import {
   getGameConceptLabel,
   getResourceLabel,
   getResourceText,
 } from '@shared/lib/gameConceptDisplay';
-import {
-  getBodyCultivationSummary,
-  type BodyCultivationSummary,
-} from '@shared/lib/bodyCultivation/summary';
 import {
   getMarrowWashSummary,
   type MarrowWashSummary,
@@ -86,6 +96,17 @@ export interface GameHudSnapshot {
   marrowWash: MarrowWashSummary;
 }
 
+type HudCultivatorView = CultivatorDisplayInput &
+  Pick<
+    Cultivator,
+    | 'title'
+    | 'pre_heaven_fates'
+    | 'unallocated_attribute_points'
+    | 'cultivation_progress'
+    | 'spirit_stones'
+    | 'reputation'
+  >;
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -147,8 +168,8 @@ function formatStatusDurationText(
 }
 
 export function buildGameHudSnapshot(input: {
-  cultivator: PlayerStateView['cultivator'];
-  display: PlayerStateView['display'];
+  cultivator: HudCultivatorView | null;
+  display: CultivatorDisplaySnapshot | null;
   unreadMailCount: number;
   now?: Date;
 }): GameHudSnapshot | null {
@@ -287,11 +308,35 @@ export function buildGameHudSnapshot(input: {
 }
 
 export function useGameHudModel() {
-  const { cultivator, display, unreadMailCount } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const progress = useCultivatorProgress();
+  const currency = useCultivatorCurrency();
+  const loadout = usePlayerLoadout();
+  const identity = profile.data?.cultivator;
+  const cultivator: HudCultivatorView | null =
+    identity && condition.data && progress.data && currency.data && loadout.data
+      ? {
+          ...identity,
+          condition: condition.data,
+          cultivation_progress: progress.data,
+          spirit_stones: currency.data.spiritStones,
+          reputation: currency.data.reputation,
+          cultivations: loadout.data.cultivations,
+          equipped: loadout.data.equipped,
+          inventory: { artifacts: loadout.data.artifacts },
+        }
+      : null;
+  const display = cultivator
+    ? getCultivatorDisplaySnapshot(cultivator)
+    : null;
+  const unreadMailCount = useUnreadMailCount();
 
-  return buildGameHudSnapshot({
-    cultivator,
-    display,
-    unreadMailCount,
-  });
+  return unreadMailCount === undefined
+    ? null
+    : buildGameHudSnapshot({
+        cultivator,
+        display,
+        unreadMailCount,
+      });
 }

@@ -113,6 +113,23 @@ export interface ListItemResult {
   message: string;
 }
 
+export type AuctionInventoryChange =
+  | {
+      kind: 'materials';
+      operation: 'upsert';
+      item: Material;
+    }
+  | {
+      kind: 'consumables';
+      operation: 'upsert';
+      item: Consumable;
+    }
+  | {
+      kind: 'materials' | 'artifacts' | 'consumables';
+      operation: 'remove';
+      id: string;
+    };
+
 export interface BuyItemInput {
   listingId: string;
   buyerCultivatorId: string;
@@ -295,7 +312,10 @@ export function assertAuctionListableItem(
 export async function listItem(
   input: ListItemInput,
   options: AuctionMutationOptions = {},
-): Promise<ListItemResult> {
+): Promise<{
+  result: ListItemResult;
+  inventoryChanges: AuctionInventoryChange[];
+}> {
   const q = getExecutor(options.tx);
   const {
     cultivatorId,
@@ -426,7 +446,10 @@ export async function listItem(
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + LISTING_DURATION_HOURS);
 
-  const persistListing = async (tx: DbTransaction) => {
+  const persistListing = async (
+    tx: DbTransaction,
+  ): Promise<AuctionInventoryChange[]> => {
+    const inventoryChanges: AuctionInventoryChange[] = [];
     // 事务内二次校验并按数量扣减
     const ownedItem = await getAuctionItemSnapshot(
       itemType,
@@ -451,10 +474,23 @@ export async function listItem(
       }
       try {
         await assertFriend(cultivatorId, targetCultivatorId, tx);
-        await consumeFirstTalismanByScenario(
+        const consumedTalisman = await consumeFirstTalismanByScenario(
           cultivatorId,
           AUCTION_PRIVATE_LISTING_TALISMAN_SCENARIO,
           tx,
+        );
+        inventoryChanges.push(
+          consumedTalisman.remaining
+            ? {
+                kind: 'consumables',
+                operation: 'upsert',
+                item: consumedTalisman.remaining,
+              }
+            : {
+                kind: 'consumables',
+                operation: 'remove',
+                id: consumedTalisman.itemId,
+              },
         );
       } catch (error) {
         if (error instanceof FriendServiceError) {
@@ -510,6 +546,11 @@ export async function listItem(
           '物品不存在或已被消耗',
         );
       }
+      inventoryChanges.push({
+        kind: 'artifacts',
+        operation: 'remove',
+        id: itemId,
+      });
     } else if (itemType === 'material') {
       const current = ownedItem as Material;
       if (quantity > current.quantity) {
@@ -528,6 +569,11 @@ export async function listItem(
               eq(schema.materials.cultivatorId, cultivatorId),
             ),
           );
+        inventoryChanges.push({
+          kind: 'materials',
+          operation: 'remove',
+          id: itemId,
+        });
       } else {
         await tx
           .update(schema.materials)
@@ -538,6 +584,11 @@ export async function listItem(
               eq(schema.materials.cultivatorId, cultivatorId),
             ),
           );
+        inventoryChanges.push({
+          kind: 'materials',
+          operation: 'upsert',
+          item: { ...current, quantity: current.quantity - quantity },
+        });
       }
     } else {
       const current = ownedItem as Consumable;
@@ -557,6 +608,11 @@ export async function listItem(
               eq(schema.consumables.cultivatorId, cultivatorId),
             ),
           );
+        inventoryChanges.push({
+          kind: 'consumables',
+          operation: 'remove',
+          id: itemId,
+        });
       } else {
         await tx
           .update(schema.consumables)
@@ -567,6 +623,11 @@ export async function listItem(
               eq(schema.consumables.cultivatorId, cultivatorId),
             ),
           );
+        inventoryChanges.push({
+          kind: 'consumables',
+          operation: 'upsert',
+          item: { ...current, quantity: current.quantity - quantity },
+        });
       }
     }
 
@@ -589,13 +650,12 @@ export async function listItem(
       expiresAt,
       tx,
     });
+    return inventoryChanges;
   };
 
-  if (options.tx) {
-    await persistListing(options.tx);
-  } else {
-    await getExecutor().transaction(persistListing);
-  }
+  const inventoryChanges = options.tx
+    ? await persistListing(options.tx)
+    : await getExecutor().transaction(persistListing);
 
   // 8. 清除缓存
   if (!options.deferCacheClear) {
@@ -603,8 +663,11 @@ export async function listItem(
   }
 
   return {
-    listingId: itemId, // 实际上是拍卖记录ID，这里简化返回
-    message: '物品已成功寄售',
+    result: {
+      listingId: itemId, // 实际上是拍卖记录ID，这里简化返回
+      message: '物品已成功寄售',
+    },
+    inventoryChanges,
   };
 }
 

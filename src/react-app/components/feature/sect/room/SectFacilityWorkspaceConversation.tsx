@@ -4,9 +4,11 @@ import {
   type NpcConversationMessage,
 } from '@app/components/feature/room';
 import {
-  useSectCurrentQuery,
-  useSectPresentation,
-} from '@app/components/feature/sect/SectQueryProvider';
+  getSectPresentationForContext,
+  resolveSectBenefits,
+  useSectContextQuery,
+  useSectInfrastructureQuery,
+} from '@app/components/feature/sect/sectResources';
 import { createSectRoomNpcHref } from '@app/components/feature/sect/sectRoomNavigation';
 import { describeSectFacilityStatus } from '@shared/engine/sect';
 import { useState } from 'react';
@@ -26,8 +28,9 @@ export function SectFacilityWorkspaceConversation({
   parameters,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const current = useSectCurrentQuery();
-  const presentation = useSectPresentation();
+  const context = useSectContextQuery();
+  const infrastructure = useSectInfrastructureQuery();
+  const presentation = getSectPresentationForContext(context.data);
   const navigate = useNavigate();
   const [showStatus, setShowStatus] = useState(false);
   const facilityKey = readText(parameters, 'facilityKey');
@@ -35,19 +38,21 @@ export function SectFacilityWorkspaceConversation({
   const workspaceHref = readText(parameters, 'workspaceHref');
   const session = useConversationSession({
     sessionKey: actor.id,
-    snapshot: current.data,
-    load: current.reload,
+    snapshot: { context: context.data, infrastructure: infrastructure.data },
     perform: async () => undefined,
     onReset: () => setShowStatus(false),
   });
   const facility = facilityKey
-    ? current.data?.overview?.facilities.find(
+    ? infrastructure.data?.facilities.find(
         (candidate) => candidate.key === facilityKey,
       )
     : undefined;
   const effect = effectKey
-    ? (current.data?.benefits ?? current.data?.overview?.benefits)
-        ?.facilityEffects[effectKey]
+    ? context.data && infrastructure.data
+      ? resolveSectBenefits(context.data, infrastructure.data).facilityEffects[
+          effectKey
+        ]
+      : undefined
     : undefined;
   const messages: NpcConversationMessage[] = [
     { id: 'greeting', speaker: actor.name, body: actor.greeting },
@@ -87,7 +92,7 @@ export function SectFacilityWorkspaceConversation({
         { id: 'leave', label: '弟子告退', tone: 'muted' },
       ]}
       busy={session.phase === 'loading'}
-      error={session.error ?? current.error}
+      error={session.error ?? context.error ?? infrastructure.error}
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (optionId === 'status') setShowStatus(true);

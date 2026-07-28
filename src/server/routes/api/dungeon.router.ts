@@ -1,5 +1,5 @@
-import { getExecutor, type DbTransaction } from '@server/lib/drizzle/db';
-import { cultivators, dungeonHistories } from '@server/lib/drizzle/schema';
+import { getExecutor } from '@server/lib/drizzle/db';
+import { dungeonHistories } from '@server/lib/drizzle/schema';
 import {
   checkDungeonLimit,
   getDungeonLimitConfig,
@@ -10,42 +10,18 @@ import {
 } from '@server/lib/dungeon/service_v2';
 import {
   redisLockErrorResponse,
-  requireActiveCultivator,
+  requireActiveCultivatorRef,
 } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
-import { redis } from '@server/lib/redis';
 import {
-  redisLockKeys,
-  withRedisLock,
-  type RedisLeaseContext,
-} from '@server/lib/redis/lock';
-import { hasCultivatorRecoveryPill } from '@server/lib/repositories/cultivatorRepository';
-import {
-  buildCultivatorRuntime,
-  getPlayerLoadoutByCultivatorId,
-  getPlayerProfileCultivatorById,
-} from '@server/lib/services/cultivatorService';
-import {
-  commitPlayerStateMutation,
-  toPlayerStateMutationResponse,
-  type StateChangeDescriptor,
-} from '@server/lib/services/PlayerStateMutationService';
+  DungeonStartError,
+  executeDungeonCommand,
+} from '@server/lib/services/DungeonApplicationService';
 import {
   QiInsufficientError,
   QiServiceError,
 } from '@server/lib/services/QiService';
-import { TaskService } from '@server/lib/services/TaskService';
-import { getOrInitCultivationProgress } from '@server/utils/cultivationUtils';
-import { getCultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
-import {
-  canChallengeDungeonRealm,
-  getMapNode,
-  isSatelliteNode,
-} from '@shared/lib/game/mapSystem';
-import { evaluateNoviceReadiness } from '@shared/lib/noviceGuidance';
-import type { RealmStage, RealmType } from '@shared/types/constants';
-import type { CultivationProgress } from '@shared/types/cultivator';
 import { desc, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -84,300 +60,36 @@ const BattleIdBodySchema = z.object({
   requestId: z.string().min(1).max(120).optional(),
 });
 
-type DungeonResultHooks = {
-  persist?: (tx: DbTransaction) => Promise<void>;
-  afterCommit?: () => Promise<void>;
-};
-
-function getDungeonBattleResultCacheKey(args: {
-  cultivatorId: string;
-  battleId: string;
-  requestId: string;
-}) {
-  return `dungeon:battle-result:${args.cultivatorId}:${args.battleId}:${args.requestId}`;
-}
-
-type DungeonPlayerStateRow = {
-  condition: unknown;
-  spiritStones: number;
-  qi: number;
-  qiLastRefreshedAt: Date | null;
-  cultivationProgress: unknown;
-  realm: RealmType;
-  realmStage: RealmStage;
-};
-
-async function readDungeonPlayerState(
-  tx: DbTransaction,
-  cultivatorId: string,
-): Promise<DungeonPlayerStateRow | null> {
-  const [row] = await tx
-    .select({
-      condition: cultivators.condition,
-      spiritStones: cultivators.spirit_stones,
-      qi: cultivators.qi,
-      qiLastRefreshedAt: cultivators.qiLastRefreshedAt,
-      cultivationProgress: cultivators.cultivation_progress,
-      realm: cultivators.realm,
-      realmStage: cultivators.realm_stage,
-    })
-    .from(cultivators)
-    .where(eq(cultivators.id, cultivatorId))
-    .limit(1);
-
-  if (!row) return null;
-  return {
-    ...row,
-    realm: row.realm as RealmType,
-    realmStage: row.realmStage as RealmStage,
-  };
-}
-
-function stableJson(value: unknown): string {
-  return JSON.stringify(value ?? null);
-}
-
-function buildDungeonStateChanges(args: {
-  before: DungeonPlayerStateRow | null;
-  after: DungeonPlayerStateRow | null;
-  result: unknown;
-  includeTasks?: boolean;
-}): StateChangeDescriptor[] {
-  const changes: StateChangeDescriptor[] = [];
-  const { before, after } = args;
-
-  if (after && stableJson(before?.condition) !== stableJson(after.condition)) {
-    changes.push({
-      domain: 'condition',
-      eventType: 'condition.changed',
-      patch: { condition: after.condition },
-    });
-  }
-
-  if (
-    after &&
-    (before?.spiritStones !== after.spiritStones ||
-      before?.qi !== after.qi ||
-      before?.qiLastRefreshedAt?.toISOString() !==
-        after.qiLastRefreshedAt?.toISOString())
-  ) {
-    changes.push({
-      domain: 'currency',
-      eventType: 'currency.changed',
-      patch: {
-        currency: {
-          spiritStones: after.spiritStones,
-          qi: after.qi,
-          qiLastRefreshedAt: after.qiLastRefreshedAt?.toISOString() ?? null,
-        },
-      },
-    });
-  }
-
-  if (
-    after &&
-    stableJson(before?.cultivationProgress) !==
-      stableJson(after.cultivationProgress)
-  ) {
-    changes.push({
-      domain: 'progress',
-      eventType: 'progress.changed',
-      patch: {
-        progress: getOrInitCultivationProgress(
-          (after.cultivationProgress ?? {}) as CultivationProgress,
-          after.realm,
-          after.realmStage,
-        ),
-      },
-    });
-  }
-
-  if (args.includeTasks) {
-    changes.push({
-      domain: 'tasks',
-      eventType: 'tasks.changed',
-      invalidates: ['tasks'],
-    });
-  }
-
-  return changes;
-}
-
-async function commitDungeonResponse<T>(args: {
-  userId: string;
-  cultivatorId: string;
-  source: string;
-  result: T;
-  includeTasks?: boolean;
-  requestId?: string | null;
-  lease: RedisLeaseContext;
-}) {
-  const resultWithHooks =
-    args.result && typeof args.result === 'object'
-      ? (args.result as T & {
-          persist?: (tx: DbTransaction) => Promise<void>;
-          afterCommit?: () => Promise<void>;
-        })
-      : null;
-  const persist = resultWithHooks?.persist;
-  const afterCommit = resultWithHooks?.afterCommit;
-  const responseResult = resultWithHooks
-    ? (() => {
-        const rest = { ...(resultWithHooks as Record<string, unknown>) };
-        delete rest.persist;
-        delete rest.afterCommit;
-        return rest as T;
-      })()
-    : args.result;
-  const committed = await commitPlayerStateMutation({
-    coordination: { mode: 'redis', lease: args.lease },
-    userId: args.userId,
-    cultivatorId: args.cultivatorId,
-    source: args.source,
-    requestId: args.requestId ?? null,
-    allowEmpty: true,
-    run: async (tx) => {
-      const before = await readDungeonPlayerState(tx, args.cultivatorId);
-      if (persist) {
-        await persist(tx);
-      }
-      const after = await readDungeonPlayerState(tx, args.cultivatorId);
-      const changes = buildDungeonStateChanges({
-        before,
-        after,
-        result: responseResult,
-        includeTasks: args.includeTasks,
-      });
-      return {
-        result: responseResult,
-        changes,
-      };
-    },
-  });
-  if (afterCommit) {
-    await afterCommit();
-  }
-  return toPlayerStateMutationResponse(committed);
-}
-
-async function runDungeonMutation<T>(args: {
-  userId: string;
-  cultivatorId: string;
-  source: string;
-  prepare: (lease: RedisLeaseContext) => Promise<T>;
-  includeTasks?: boolean | ((result: T) => boolean);
-  requestId?: string | null;
-}) {
-  return withRedisLock(
-    {
-      key: redisLockKeys.cultivatorMutation(args.cultivatorId),
-      context: args.source,
-      timeoutMs: 240_000,
-      renewEveryMs: 60_000,
-      retries: 0,
-    },
-    async (lease) => {
-      const result = await args.prepare(lease);
-      lease.assertHeld();
-      return commitDungeonResponse({
-        userId: args.userId,
-        cultivatorId: args.cultivatorId,
-        source: args.source,
-        result,
-        includeTasks:
-          typeof args.includeTasks === 'function'
-            ? args.includeTasks(result)
-            : args.includeTasks,
-        requestId: args.requestId,
-        lease,
-      });
-    },
-  );
-}
-
-router.post('/start', requireActiveCultivator(), async (c) => {
+router.post('/start', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
 
   const { mapNodeId } = StartSchema.parse(await c.req.json());
 
-  // 只有卫星地图可以进行副本挑战，主节点不可以
-  if (!isSatelliteNode(mapNodeId)) {
-    return c.json({ error: '只有秘境节点可以进行副本挑战' }, 400);
-  }
-
-  const [tasks, profile, loadout, hasRecoveryPill] = await Promise.all([
-    TaskService.listCultivatorTasks(cultivator.id),
-    getPlayerProfileCultivatorById(user.id, cultivator.id),
-    getPlayerLoadoutByCultivatorId(cultivator.id),
-    hasCultivatorRecoveryPill(cultivator.id),
-  ]);
-  if (!profile) {
-    return c.json({ error: '当前没有活跃角色' }, 404);
-  }
-  const runtimeCultivator = buildCultivatorRuntime(profile, loadout);
-
-  const firstDungeonTask = tasks.find(
-    (task) => task.definitionId === 'tutorial_first_dungeon',
-  );
-  const selectedNode = getMapNode(mapNodeId);
-  const selectedNodeRealm =
-    selectedNode && 'realm_requirement' in selectedNode
-      ? selectedNode.realm_requirement
-      : null;
-  if (
-    selectedNodeRealm &&
-    !canChallengeDungeonRealm(runtimeCultivator.realm, selectedNodeRealm)
-  ) {
-    return c.json(
-      {
-        error: `当前境界${runtimeCultivator.realm}不可挑战${selectedNodeRealm}副本，请先提升大境界`,
-      },
-      409,
-    );
-  }
-
-  const display = getCultivatorDisplaySnapshot(runtimeCultivator);
-  const readiness = evaluateNoviceReadiness({
-    cultivator: runtimeCultivator,
-    selectedNodeRealm,
-    hp: display.resources.hp,
-    mp: display.resources.mp,
-    isFirstDungeonTutorialActive: Boolean(
-      firstDungeonTask && !firstDungeonTask.snapshot.isCompleted,
-    ),
-    hasRecoveryPill,
-  });
-
-  if (readiness.shouldBlock) {
-    return c.json(
-      {
-        error: readiness.reasons.join('；'),
-        readiness,
-      },
-      409,
-    );
-  }
-
   try {
     return c.json(
-      await runDungeonMutation({
+      await executeDungeonCommand({
         userId: user.id,
-        cultivatorId: cultivator.id,
-        source: 'dungeon_start',
-        prepare: (lease) =>
-          dungeonService.startDungeon(cultivator.id, mapNodeId, {
-            deferPersistence: true,
-            lease,
-          }),
+        cultivatorId: cultivator.cultivatorId,
+        command: { kind: 'start', mapNodeId },
       }),
     );
   } catch (error) {
     const lockErrorResponse = redisLockErrorResponse(error);
     if (lockErrorResponse) return lockErrorResponse;
+    if (error instanceof DungeonStartError) {
+      return jsonWithStatus(
+        c,
+        {
+          error: error.message,
+          ...(error.readiness ? { readiness: error.readiness } : {}),
+        },
+        error.status,
+      );
+    }
     if (error instanceof DungeonFlowError) {
       return jsonWithStatus(
         c,
@@ -404,19 +116,19 @@ router.post('/start', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.get('/state', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.get('/state', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
 
-  const state = await dungeonService.getState(cultivator.id);
+  const state = await dungeonService.getState(cultivator.cultivatorId);
   return c.json({ state });
 });
 
-router.post('/action', requireActiveCultivator(), async (c) => {
+router.post('/action', requireActiveCultivatorRef(), async (c) => {
   try {
-    const cultivator = c.get('cultivator');
+    const cultivator = c.get('activeCultivatorRef');
     const user = c.get('user');
     if (!user || !cultivator) {
       return c.json({ error: '未授权访问' }, 401);
@@ -424,20 +136,10 @@ router.post('/action', requireActiveCultivator(), async (c) => {
 
     const { choiceId, actionId } = ActionSchema.parse(await c.req.json());
     return c.json(
-      await runDungeonMutation({
+      await executeDungeonCommand({
         userId: user.id,
-        cultivatorId: cultivator.id,
-        source: 'dungeon_action',
-        prepare: (lease) =>
-          dungeonService.handleAction(cultivator.id, choiceId, actionId, {
-            deferPersistence: true,
-            lease,
-          }),
-        includeTasks: (result) =>
-          typeof result === 'object' &&
-          result !== null &&
-          'isFinished' in result &&
-          Boolean(result.isFinished),
+        cultivatorId: cultivator.cultivatorId,
+        command: { kind: 'action', choiceId, actionId },
       }),
     );
   } catch (error) {
@@ -456,9 +158,9 @@ router.post('/action', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/recover', requireActiveCultivator(), async (c) => {
+router.post('/recover', requireActiveCultivatorRef(), async (c) => {
   try {
-    const cultivator = c.get('cultivator');
+    const cultivator = c.get('activeCultivatorRef');
     const user = c.get('user');
     if (!user || !cultivator) {
       return c.json({ error: '未授权访问' }, 401);
@@ -466,20 +168,10 @@ router.post('/recover', requireActiveCultivator(), async (c) => {
 
     const { action } = RecoverSchema.parse(await c.req.json());
     return c.json(
-      await runDungeonMutation({
+      await executeDungeonCommand({
         userId: user.id,
-        cultivatorId: cultivator.id,
-        source: `dungeon_recover_${action}`,
-        prepare: (lease) =>
-          dungeonService.recoverDungeon(cultivator.id, action, {
-            deferPersistence: true,
-            lease,
-          }),
-        includeTasks: (result) =>
-          typeof result === 'object' &&
-          result !== null &&
-          'isFinished' in result &&
-          Boolean(result.isFinished),
+        cultivatorId: cultivator.cultivatorId,
+        command: { kind: 'recover', action },
       }),
     );
   } catch (error) {
@@ -497,24 +189,19 @@ router.post('/recover', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/quit', requireActiveCultivator(), async (c) => {
+router.post('/quit', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
 
   try {
     return c.json(
-      await runDungeonMutation({
+      await executeDungeonCommand({
         userId: user.id,
-        cultivatorId: cultivator.id,
-        source: 'dungeon_quit',
-        prepare: (lease) =>
-          dungeonService.quitDungeon(cultivator.id, {
-            deferPersistence: true,
-            lease,
-          }),
+        cultivatorId: cultivator.cultivatorId,
+        command: { kind: 'quit' },
       }),
     );
   } catch (error) {
@@ -531,8 +218,8 @@ router.post('/quit', requireActiveCultivator(), async (c) => {
   }
 });
 
-historyRouter.get('/', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+historyRouter.get('/', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
@@ -547,7 +234,7 @@ historyRouter.get('/', requireActiveCultivator(), async (c) => {
   const countResult = await getExecutor()
     .select({ count: sql<number>`count(*)` })
     .from(dungeonHistories)
-    .where(eq(dungeonHistories.cultivatorId, cultivator.id));
+    .where(eq(dungeonHistories.cultivatorId, cultivator.cultivatorId));
 
   const total = Number(countResult[0]?.count || 0);
   const totalPages = Math.ceil(total / pageSize);
@@ -561,7 +248,7 @@ historyRouter.get('/', requireActiveCultivator(), async (c) => {
       createdAt: dungeonHistories.createdAt,
     })
     .from(dungeonHistories)
-    .where(eq(dungeonHistories.cultivatorId, cultivator.id))
+    .where(eq(dungeonHistories.cultivatorId, cultivator.cultivatorId))
     .orderBy(desc(dungeonHistories.createdAt))
     .limit(pageSize)
     .offset(offset);
@@ -580,13 +267,13 @@ historyRouter.get('/', requireActiveCultivator(), async (c) => {
   });
 });
 
-limitRouter.get('/', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+limitRouter.get('/', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
 
-  const limit = await checkDungeonLimit(cultivator.id);
+  const limit = await checkDungeonLimit(cultivator.cultivatorId);
   const config = getDungeonLimitConfig();
   return c.json({
     success: true,
@@ -597,25 +284,19 @@ limitRouter.get('/', requireActiveCultivator(), async (c) => {
   });
 });
 
-lootingRouter.post('/continue', requireActiveCultivator(), async (c) => {
+lootingRouter.post('/continue', requireActiveCultivatorRef(), async (c) => {
   try {
-    const cultivator = c.get('cultivator');
+    const cultivator = c.get('activeCultivatorRef');
     const user = c.get('user');
     if (!user || !cultivator) {
       return c.json({ error: '未授权访问' }, 401);
     }
 
     return c.json(
-      await runDungeonMutation({
+      await executeDungeonCommand({
         userId: user.id,
-        cultivatorId: cultivator.id,
-        source: 'dungeon_looting_continue',
-        prepare: (lease) =>
-          dungeonService.continueFromLooting(cultivator.id, {
-            deferPersistence: true,
-            lease,
-          }),
-        includeTasks: (result) => Boolean(result?.isFinished),
+        cultivatorId: cultivator.cultivatorId,
+        command: { kind: 'looting-continue' },
       }),
     );
   } catch (error) {
@@ -633,25 +314,19 @@ lootingRouter.post('/continue', requireActiveCultivator(), async (c) => {
   }
 });
 
-lootingRouter.post('/escape', requireActiveCultivator(), async (c) => {
+lootingRouter.post('/escape', requireActiveCultivatorRef(), async (c) => {
   try {
-    const cultivator = c.get('cultivator');
+    const cultivator = c.get('activeCultivatorRef');
     const user = c.get('user');
     if (!user || !cultivator) {
       return c.json({ error: '未授权访问' }, 401);
     }
 
     return c.json(
-      await runDungeonMutation({
+      await executeDungeonCommand({
         userId: user.id,
-        cultivatorId: cultivator.id,
-        source: 'dungeon_looting_escape',
-        prepare: (lease) =>
-          dungeonService.escapeFromLooting(cultivator.id, {
-            deferPersistence: true,
-            lease,
-          }),
-        includeTasks: (result) => Boolean(result?.isFinished),
+        cultivatorId: cultivator.cultivatorId,
+        command: { kind: 'looting-escape' },
       }),
     );
   } catch (error) {
@@ -669,9 +344,9 @@ lootingRouter.post('/escape', requireActiveCultivator(), async (c) => {
   }
 });
 
-battleRouter.get('/probe', requireActiveCultivator(), async (c) => {
+battleRouter.get('/probe', requireActiveCultivatorRef(), async (c) => {
   try {
-    const cultivator = c.get('cultivator');
+    const cultivator = c.get('activeCultivatorRef');
     const user = c.get('user');
     if (!user || !cultivator) {
       return c.json({ error: '未授权访问' }, 401);
@@ -681,7 +356,7 @@ battleRouter.get('/probe', requireActiveCultivator(), async (c) => {
       battleId: c.req.query('battleId'),
     });
     const enemy = await dungeonService.probeBattleEnemy(
-      cultivator.id,
+      cultivator.cultivatorId,
       battleId,
     );
     return c.json({
@@ -695,9 +370,9 @@ battleRouter.get('/probe', requireActiveCultivator(), async (c) => {
   }
 });
 
-battleRouter.post('/abandon', requireActiveCultivator(), async (c) => {
+battleRouter.post('/abandon', requireActiveCultivatorRef(), async (c) => {
   try {
-    const cultivator = c.get('cultivator');
+    const cultivator = c.get('activeCultivatorRef');
     const user = c.get('user');
     if (!user || !cultivator) {
       return c.json({ error: '未授权访问' }, 401);
@@ -705,16 +380,10 @@ battleRouter.post('/abandon', requireActiveCultivator(), async (c) => {
 
     const { battleId } = BattleIdBodySchema.parse(await c.req.json());
     return c.json(
-      await runDungeonMutation({
+      await executeDungeonCommand({
         userId: user.id,
-        cultivatorId: cultivator.id,
-        source: 'dungeon_battle_abandon',
-        prepare: (lease) =>
-          dungeonService.abandonBattle(cultivator.id, battleId, {
-            deferPersistence: true,
-            lease,
-          }),
-        includeTasks: (result) => Boolean(result?.isFinished),
+        cultivatorId: cultivator.cultivatorId,
+        command: { kind: 'battle-abandon', battleId },
       }),
     );
   } catch (error) {
@@ -733,9 +402,9 @@ battleRouter.post('/abandon', requireActiveCultivator(), async (c) => {
   }
 });
 
-battleRouter.post('/execute/v5', requireActiveCultivator(), async (c) => {
+battleRouter.post('/execute/v5', requireActiveCultivatorRef(), async (c) => {
   try {
-    const cultivator = c.get('cultivator');
+    const cultivator = c.get('activeCultivatorRef');
     const user = c.get('user');
     if (!user || !cultivator) {
       return c.json({ error: '未授权访问' }, 401);
@@ -744,55 +413,11 @@ battleRouter.post('/execute/v5', requireActiveCultivator(), async (c) => {
     const { battleId, requestId } = BattleIdBodySchema.parse(
       await c.req.json(),
     );
-    const resultCacheKey = requestId
-      ? getDungeonBattleResultCacheKey({
-          cultivatorId: cultivator.id,
-          battleId,
-          requestId,
-        })
-      : null;
-    if (resultCacheKey) {
-      const cached = await redis.get(resultCacheKey);
-      if (cached) {
-        return c.json(JSON.parse(cached));
-      }
-    }
-
-    const responsePayload = await runDungeonMutation({
+    const responsePayload = await executeDungeonCommand({
       userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'dungeon_battle_execute',
-      requestId,
-      prepare: async (lease) => {
-        const result = await dungeonService.executeBattle(
-          cultivator.id,
-          battleId,
-          { deferPersistence: true, lease },
-        );
-        const hooks = result as DungeonResultHooks;
-        return {
-          battleResult: result.battleResult,
-          callbackData: {
-            dungeonState: result.state,
-            roundData: result.roundData,
-            isFinished: result.isFinished,
-            settlement: result.settlement,
-            realGains: result.realGains,
-          },
-          persist: hooks.persist,
-          afterCommit: hooks.afterCommit,
-        };
-      },
-      includeTasks: (result) => Boolean(result.callbackData.isFinished),
+      cultivatorId: cultivator.cultivatorId,
+      command: { kind: 'battle-execute', battleId, requestId },
     });
-    if (resultCacheKey) {
-      await redis.set(
-        resultCacheKey,
-        JSON.stringify(responsePayload),
-        'EX',
-        3600,
-      );
-    }
     return c.json(responsePayload);
   } catch (error) {
     const lockErrorResponse = redisLockErrorResponse(error);

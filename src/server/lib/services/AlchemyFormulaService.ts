@@ -5,7 +5,6 @@ import {
 } from '@server/lib/drizzle/db';
 import {
   alchemyFormulas,
-  consumables,
   cultivators,
   materials,
 } from '@server/lib/drizzle/schema';
@@ -88,17 +87,17 @@ import type {
   WeightedAlchemyProperty,
 } from '@shared/types/consumable';
 import type { Consumable, PreHeavenFate } from '@shared/types/cultivator';
+import type { ResourceOperationSettlement } from '@shared/engine/resource/types';
 import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { alchemyFormulaAnalyzer } from './AlchemyFormulaAnalyzer';
 import { AlchemyServiceError } from './AlchemyServiceError';
 import {
-  mapConsumableCraftResult,
-  serializeConsumableSpec,
-} from './consumablePersistence';
+  addConsumableToInventoryInTransaction,
+  mapMaterialRow,
+} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
 import {
-  addConsumableToInventory,
-  getPlayerRuntimeCultivatorByIdUnsafe,
-} from './cultivatorService';
+  getCultivatorPreHeavenFates,
+} from '@server/lib/services/cultivator/CultivatorProfileRepository';
 import { getMysteryMaterialBlockingReason } from './materialMysteryGuard';
 import { sectOrganizationFacade } from './sect-organization';
 
@@ -1341,6 +1340,7 @@ export interface PreparedFormulaCraft {
       consumable: Consumable;
       formulaProgress: FormulaProgress;
     };
+    inventoryChanges: ResourceOperationSettlement['inventoryChanges'];
     afterCommit: () => Promise<void>;
   }>;
 }
@@ -1354,17 +1354,21 @@ export async function prepareFormulaCraft(
 ): Promise<PreparedFormulaCraft> {
   // 分布式锁由 API/Application 层统一获取。
   const q = getExecutor();
-    const [formula, selectedMaterials, cultivator, fullCultivator, rawAnalysis] =
+    const [formula, selectedMaterials, cultivator, preHeavenFates, rawAnalysis] =
       await Promise.all([
         loadCultivatorFormula(cultivatorId, formulaId, q),
         loadOwnedMaterials(cultivatorId, materialIds, q),
         q
-          .select()
+          .select({
+            userId: cultivators.userId,
+            spirit_stones: cultivators.spirit_stones,
+            realm: cultivators.realm,
+          })
           .from(cultivators)
           .where(eq(cultivators.id, cultivatorId))
           .limit(1)
           .then((rows) => rows[0]),
-        getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId, q),
+        getCultivatorPreHeavenFates(cultivatorId, q),
         analysisId
           ? redis.get(getFormulaAnalysisKey(cultivatorId, analysisId))
           : Promise.resolve(null),
@@ -1416,7 +1420,7 @@ export async function prepareFormulaCraft(
     const baseCost = scaleFateAdjustedValue(
       calculateCraftCost(highestMaterialRank, 'spiritStone'),
       getAlchemySpiritStoneMultiplier(
-        evaluateFateContext(fullCultivator?.cultivator.pre_heaven_fates ?? []),
+        evaluateFateContext(preHeavenFates),
       ),
     );
     const cost = await sectOrganizationFacade.applyCraftDiscount(
@@ -1615,6 +1619,8 @@ export async function prepareFormulaCraft(
 
   return {
     async commit(tx: DbTransaction) {
+      const inventoryChanges: ResourceOperationSettlement['inventoryChanges'] =
+        [];
       const stableMaterialIds = [...materialIds].sort();
       const currentRows = await loadOwnedMaterials(
         cultivatorId,
@@ -1683,6 +1689,11 @@ export async function prepareFormulaCraft(
               409,
             );
           }
+          inventoryChanges.push({
+            kind: 'materials',
+            operation: 'remove',
+            id,
+          });
         } else {
           const updated = await tx
             .update(materials)
@@ -1694,22 +1705,32 @@ export async function prepareFormulaCraft(
                 eq(materials.quantity, expected.quantity),
               ),
             )
-            .returning({ id: materials.id });
+            .returning();
           if (updated.length !== 1) {
             throw new AlchemyServiceError(
               '材料已发生变化，请重新推演药路。',
               409,
             );
           }
+          inventoryChanges.push({
+            kind: 'materials',
+            operation: 'upsert',
+            item: mapMaterialRow(updated[0]),
+          });
         }
       }
 
-      await addConsumableToInventory(
-        cultivator.userId,
+      const savedConsumable =
+        await addConsumableToInventoryInTransaction(
         cultivatorId,
         consumable,
         tx,
       );
+      inventoryChanges.push({
+        kind: 'consumables',
+        operation: 'upsert',
+        item: savedConsumable,
+      });
 
       const [masteryUpdated] = await tx
         .update(alchemyFormulas)
@@ -1728,69 +1749,14 @@ export async function prepareFormulaCraft(
         throw new AlchemyServiceError('丹方熟练度已发生变化，请重试。', 409);
       }
 
-      const inserted = await tx
-        .select()
-        .from(consumables)
-        .where(
-          and(
-            eq(consumables.cultivatorId, cultivatorId),
-            eq(consumables.name, consumable.name),
-            eq(consumables.quality, highestMaterialRank),
-            eq(consumables.type, consumable.type),
-          ),
-        )
-        .limit(20);
-      const insertedRow = inserted.find((row) => {
-        try {
-          return (
-            serializeConsumableSpec(row.spec as Consumable['spec']) ===
-            serializeConsumableSpec(spec)
-          );
-        } catch {
-          return false;
-        }
-      });
-
       return {
         result: {
-          consumable: insertedRow
-            ? mapConsumableCraftResult(insertedRow, consumable.quantity)
-            : consumable,
+          consumable: savedConsumable,
           formulaProgress: progress,
         },
+        inventoryChanges,
         afterCommit,
       };
     },
-  };
-}
-
-export async function craftFromFormula(
-  cultivatorId: string,
-  formulaId: string,
-  materialIds: string[],
-  materialQuantities?: Record<string, number>,
-  analysisId?: string,
-  options: { tx?: DbTransaction; deferSideEffects?: boolean } = {},
-): Promise<{
-  consumable: Consumable;
-  formulaProgress: FormulaProgress;
-  afterCommit?: () => Promise<void>;
-}> {
-  const prepared = await prepareFormulaCraft(
-    cultivatorId,
-    formulaId,
-    materialIds,
-    materialQuantities,
-    analysisId,
-  );
-  const committed = options.tx
-    ? await prepared.commit(options.tx)
-    : await getExecutor().transaction((tx) => prepared.commit(tx));
-  if (!options.deferSideEffects) {
-    await committed.afterCommit();
-  }
-  return {
-    ...committed.result,
-    afterCommit: options.deferSideEffects ? committed.afterCommit : undefined,
   };
 }

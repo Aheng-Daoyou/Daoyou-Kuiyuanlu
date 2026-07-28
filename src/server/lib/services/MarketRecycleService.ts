@@ -1,4 +1,14 @@
 import {
+  getExecutor,
+  type DbExecutor,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
+import { cultivators, materials } from '@server/lib/drizzle/schema';
+import { redis } from '@server/lib/redis';
+import { parseRedisJson } from '@server/lib/redis/json';
+import type { CreationProductRecord } from '@server/lib/repositories/creationProductRepository';
+import * as creationProductRepository from '@server/lib/repositories/creationProductRepository';
+import {
   APPRAISAL_KEYWORD_BONUS_MAX,
   APPRAISAL_KEYWORD_BONUS_MIN,
   APPRAISAL_KEYWORD_WEIGHTS,
@@ -17,21 +27,9 @@ import {
   BASE_PRICES,
   TYPE_MULTIPLIERS,
 } from '@shared/engine/material/creation/config';
-import {
-  getExecutor,
-  type DbExecutor,
-  type DbTransaction,
-} from '@server/lib/drizzle/db';
-import {
-  cultivators,
-  materials,
-} from '@server/lib/drizzle/schema';
-import * as creationProductRepository from '@server/lib/repositories/creationProductRepository';
-import { redis } from '@server/lib/redis';
-import { parseRedisJson } from '@server/lib/redis/json';
+import { getMaterialTypeLabel } from '@shared/lib/gameConceptDisplay';
 import { QUALITY_ORDER, type Quality } from '@shared/types/constants';
 import type { Artifact, Material } from '@shared/types/cultivator';
-import { getMaterialTypeLabel } from '@shared/lib/gameConceptDisplay';
 import type {
   HighTierAppraisal,
   SellConfirmResponse,
@@ -40,21 +38,23 @@ import type {
   SellPreviewItem,
   SellPreviewResponse,
 } from '@shared/types/market';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import {
   getArtifactQualityFromProduct,
   getArtifactStateHash,
   toArtifactFromProduct,
 } from './creationProductArtifactSupport';
-import type { CreationProductRecord } from '@server/lib/repositories/creationProductRepository';
-import {
-  getMysteryMaterialBlockingReason,
-} from './materialMysteryGuard';
+import { getMysteryMaterialBlockingReason } from './materialMysteryGuard';
 
 const SELL_SESSION_PREFIX = 'market:sell:session:';
 const MYSTERY_MATERIAL_RECYCLE_BLOCKING_REASON =
   '待鉴定材料不可回收，请先鉴定。';
-const APPRAISAL_RATING_STEPS: HighTierAppraisal['rating'][] = ['C', 'B', 'A', 'S'];
+const APPRAISAL_RATING_STEPS: HighTierAppraisal['rating'][] = [
+  'C',
+  'B',
+  'A',
+  'S',
+];
 const HIGH_TIER_MATERIAL_BASE_RATING = {
   真品: 'C',
   地品: 'B',
@@ -105,7 +105,6 @@ interface RecycleSession {
   quotedTotal: number;
   appraisal?: HighTierAppraisal;
   snapshot: Record<string, ArtifactSnapshot | MaterialSnapshot>;
-  equippedCheckAtPreview: string[];
   createdAt: number;
   expiresAt: number;
 }
@@ -116,7 +115,6 @@ type SessionStore = Omit<SellPreviewResponse, 'success'> & {
   quotedItems: SellPreviewItem[];
   quotedTotal: number;
   snapshot: Record<string, ArtifactSnapshot | MaterialSnapshot>;
-  equippedCheckAtPreview: string[];
   createdAt: number;
 };
 
@@ -248,7 +246,9 @@ function getArtifactAppraisalRating(
     : 0;
 
   const total =
-    qualityScore * 12 + Math.min(18, Math.floor(score / 220)) + modifierCount * 3;
+    qualityScore * 12 +
+    Math.min(18, Math.floor(score / 220)) +
+    modifierCount * 3;
   if (total >= 88) return 'S';
   if (total >= 70) return 'A';
   if (total >= 54) return 'B';
@@ -356,7 +356,10 @@ function getMaterialAppraisalFeatureText(keywords: string[]): string {
     (keyword) => (APPRAISAL_KEYWORD_WEIGHTS[keyword] ?? 0) < 0,
   );
 
-  if (positiveKeywords.length > 0 && positiveKeywords.length >= negativeKeywords.length) {
+  if (
+    positiveKeywords.length > 0 &&
+    positiveKeywords.length >= negativeKeywords.length
+  ) {
     return `尤见${positiveKeywords.slice(0, 2).join('、')}之象`;
   }
   if (negativeKeywords.length > 0) {
@@ -396,7 +399,9 @@ export function buildMaterialHighTierAppraisal(
     getMaterialAppraisalAdjustment(keywords),
   );
   const typeLabel = getMaterialTypeLabel(material.type);
-  const elementText = material.element ? `${material.element}灵息流转` : '灵息内敛';
+  const elementText = material.element
+    ? `${material.element}灵息流转`
+    : '灵息内敛';
   const featureText = getMaterialAppraisalFeatureText(keywords);
   const comment = `此${rank}${typeLabel}「${material.name}」${elementText}，${featureText}。按坊市旧例称量，${getMaterialRankTone(rank)}，今可定为${rating}级回收。`;
 
@@ -469,20 +474,11 @@ async function loadOwnedArtifacts(
   };
 }
 
-async function getEquippedArtifactIds(cultivatorId: string): Promise<string[]> {
-  const equipped = await creationProductRepository.findEquippedArtifacts(
-    cultivatorId,
-  );
-  return equipped.map((artifact) => artifact.id);
-}
-
 function ensureArtifactsNotEquipped(
-  artifactIds: string[],
-  equippedIds: string[],
+  artifacts: CreationProductRecord[],
   message: string,
 ): void {
-  const equippedSet = new Set(equippedIds);
-  if (artifactIds.some((id) => equippedSet.has(id))) {
+  if (artifacts.some((artifact) => artifact.isEquipped)) {
     throw new MarketRecycleError(400, message);
   }
 }
@@ -597,7 +593,6 @@ async function previewMaterialSell(
     quotedItems: items,
     quotedTotal: totalSpiritStones,
     snapshot: buildMaterialSessionSnapshot(items),
-    equippedCheckAtPreview: [],
     createdAt,
   };
 
@@ -629,8 +624,7 @@ async function previewArtifactSell(
     cultivator.id,
     ids,
   );
-  const equippedIds = await getEquippedArtifactIds(cultivator.id);
-  ensureArtifactsNotEquipped(ids, equippedIds, '已装备法宝不可回收，请先卸下');
+  ensureArtifactsNotEquipped(rawRecords, '已装备法宝不可回收，请先卸下');
 
   const lowTier = ownedArtifacts.filter((item) =>
     isLowTier(getArtifactQuality(item)),
@@ -701,7 +695,6 @@ async function previewArtifactSell(
     quotedItems: items,
     quotedTotal: totalSpiritStones,
     snapshot: buildArtifactSessionSnapshot(targetArtifacts, targetRawRecords),
-    equippedCheckAtPreview: equippedIds,
     createdAt,
   };
 
@@ -735,6 +728,43 @@ export async function previewSell(
   return previewMaterialSell(cultivator, itemIds);
 }
 
+export async function previewAllLowTierSell(
+  cultivator: { id: string },
+  itemType: SellItemType,
+): Promise<SellPreviewResponse> {
+  const lowTierQualities = (Object.keys(QUALITY_ORDER) as Quality[]).filter(
+    isLowTier,
+  );
+  if (itemType === 'artifact') {
+    const ids =
+      await creationProductRepository.findUnequippedArtifactIdsByQualities(
+        cultivator.id,
+        lowTierQualities,
+      );
+    if (ids.length === 0) {
+      throw new MarketRecycleError(400, '未找到可回收法宝');
+    }
+    return previewArtifactSell(cultivator, ids);
+  }
+
+  const rows = await getExecutor()
+    .select({ id: materials.id })
+    .from(materials)
+    .where(
+      and(
+        eq(materials.cultivatorId, cultivator.id),
+        inArray(materials.rank, lowTierQualities),
+        sql`not coalesce(${materials.details} ? 'mystery', false)`,
+      ),
+    )
+    .orderBy(desc(materials.createdAt), desc(materials.id));
+  const ids = rows.map((row) => row.id);
+  if (ids.length === 0) {
+    throw new MarketRecycleError(400, '未找到可回收材料');
+  }
+  return previewMaterialSell(cultivator, ids);
+}
+
 async function readSession(sessionId: string): Promise<RecycleSession> {
   const key = buildSessionKey(sessionId);
   const raw = parseRedisJson<SessionStore>(await redis.get(key), key);
@@ -751,7 +781,6 @@ async function readSession(sessionId: string): Promise<RecycleSession> {
     quotedTotal: raw.quotedTotal,
     appraisal: raw.appraisal,
     snapshot: raw.snapshot || {},
-    equippedCheckAtPreview: raw.equippedCheckAtPreview || [],
     createdAt: raw.createdAt,
     expiresAt: raw.expiresAt,
   };
@@ -760,13 +789,12 @@ async function readSession(sessionId: string): Promise<RecycleSession> {
 async function confirmMaterialSell(
   cultivatorId: string,
   session: RecycleSession,
-  options: { tx?: DbTransaction; deferSideEffects?: boolean } = {},
+  tx: DbTransaction,
 ): Promise<SellConfirmResult> {
-  const q = getExecutor(options.tx);
   const ownedMaterials = await loadOwnedMaterials(
     cultivatorId,
     session.itemIds,
-    q,
+    tx,
   );
   ensureNoMysteryMaterials(ownedMaterials);
   const snapshot = new Map(ownedMaterials.map((item) => [item.id, item]));
@@ -774,8 +802,7 @@ async function confirmMaterialSell(
   for (const quoted of session.quotedItems) {
     const current = snapshot.get(quoted.id);
     const expected = session.snapshot[quoted.id] as
-      | MaterialSnapshot
-      | undefined;
+      MaterialSnapshot | undefined;
     if (!current || !expected) {
       throw new MarketRecycleError(409, '材料已发生变化，请重新预览');
     }
@@ -818,13 +845,8 @@ async function confirmMaterialSell(
     return updated;
   };
 
-  const txResult = options.tx
-    ? await writeSell(options.tx)
-    : await getExecutor().transaction(writeSell);
+  const txResult = await writeSell(tx);
   const afterCommit = () => redis.del(buildSessionKey(session.sessionId));
-  if (!options.deferSideEffects) {
-    await afterCommit();
-  }
 
   return {
     success: true,
@@ -839,32 +861,28 @@ async function confirmMaterialSell(
     })),
     remainingSpiritStones: txResult.spiritStones,
     appraisal: session.appraisal,
-    afterCommit: options.deferSideEffects ? afterCommit : undefined,
+    afterCommit,
   };
 }
 
 async function confirmArtifactSell(
   cultivatorId: string,
   session: RecycleSession,
-  options: { tx?: DbTransaction; deferSideEffects?: boolean } = {},
+  tx: DbTransaction,
 ): Promise<SellConfirmResult> {
   const writeSell = async (tx: DbTransaction) => {
-    const rows = await creationProductRepository.findArtifactsByIdsAndCultivator(
-      cultivatorId,
-      session.itemIds,
-      tx,
-    );
+    const rows =
+      await creationProductRepository.findArtifactsByIdsAndCultivator(
+        cultivatorId,
+        session.itemIds,
+        tx,
+      );
 
     if (rows.length !== session.itemIds.length) {
       throw new MarketRecycleError(409, '法宝已发生变化，请重新预览');
     }
 
-    const equipped = await creationProductRepository.findEquippedArtifacts(
-      cultivatorId,
-      tx,
-    );
-    const equippedSet = new Set(equipped.map((artifact) => artifact.id));
-    if (session.itemIds.some((id) => equippedSet.has(id))) {
+    if (rows.some((row) => row.isEquipped)) {
       throw new MarketRecycleError(409, '法宝已装备，无法回收，请先卸下');
     }
 
@@ -889,11 +907,12 @@ async function confirmArtifactSell(
       }
     }
 
-    const deleted = await creationProductRepository.deleteArtifactsByIdsAndCultivator(
-      cultivatorId,
-      session.itemIds,
-      tx,
-    );
+    const deleted =
+      await creationProductRepository.deleteArtifactsByIdsAndCultivator(
+        cultivatorId,
+        session.itemIds,
+        tx,
+      );
 
     if (deleted.length !== session.itemIds.length) {
       throw new MarketRecycleError(409, '法宝已发生变化，请重新预览');
@@ -916,13 +935,8 @@ async function confirmArtifactSell(
     return updated;
   };
 
-  const txResult = options.tx
-    ? await writeSell(options.tx)
-    : await getExecutor().transaction(writeSell);
+  const txResult = await writeSell(tx);
   const afterCommit = () => redis.del(buildSessionKey(session.sessionId));
-  if (!options.deferSideEffects) {
-    await afterCommit();
-  }
 
   return {
     success: true,
@@ -940,7 +954,7 @@ async function confirmArtifactSell(
     })),
     remainingSpiritStones: txResult.spiritStones,
     appraisal: session.appraisal,
-    afterCommit: options.deferSideEffects ? afterCommit : undefined,
+    afterCommit,
   };
 }
 
@@ -963,32 +977,10 @@ export async function prepareSellConfirmation(
   return {
     commit(tx: DbTransaction) {
       if (session.itemType === 'artifact') {
-        return confirmArtifactSell(cultivatorId, session, {
-          tx,
-          deferSideEffects: true,
-        });
+        return confirmArtifactSell(cultivatorId, session, tx);
       }
 
-      return confirmMaterialSell(cultivatorId, session, {
-        tx,
-        deferSideEffects: true,
-      });
+      return confirmMaterialSell(cultivatorId, session, tx);
     },
   };
-}
-
-export async function confirmSell(
-  cultivatorId: string,
-  sessionId: string,
-  options: { tx?: DbTransaction; deferSideEffects?: boolean } = {},
-): Promise<SellConfirmResult> {
-  const prepared = await prepareSellConfirmation(cultivatorId, sessionId);
-  const result = options.tx
-    ? await prepared.commit(options.tx)
-    : await getExecutor().transaction((tx) => prepared.commit(tx));
-  if (result.afterCommit && !options.deferSideEffects) {
-    await result.afterCommit();
-    return { ...result, afterCommit: undefined };
-  }
-  return result;
 }

@@ -2,8 +2,40 @@ import {
   YieldCalculator,
   YIELD_MATERIAL_QUALITY_CHANCE_BY_REALM,
 } from './YieldCalculator';
+import { calculateOfflineExp } from '@shared/engine/cultivation/ExpBudgetCalculator';
 
 describe('YieldCalculator', () => {
+  it('calculates cultivator yield from the narrow realm input', () => {
+    const values = [0.5, 0.25, 0];
+    const result = YieldCalculator.calculateCultivatorYield(
+      {
+        realm: '筑基',
+        realmStage: '中期',
+        hoursElapsed: 2,
+      },
+      () => values.shift() ?? 0,
+    );
+
+    expect(result).toEqual([
+      { type: 'spirit_stones', value: 560 },
+      {
+        type: 'cultivation_exp',
+        value: calculateOfflineExp('筑基', '中期', 2, () => 0.25),
+      },
+      { type: 'comprehension_insight', value: 2 },
+    ]);
+  });
+
+  it('keeps realm-only dungeon yield independent from cultivator fields', () => {
+    const values = [0, 1];
+    expect(
+      YieldCalculator.calculateRealmYield('炼气', 1, () => values.shift() ?? 0),
+    ).toEqual([
+      { type: 'spirit_stones', value: 80 },
+      { type: 'cultivation_exp', value: 10 },
+    ]);
+  });
+
   it('ensures every realm quality map sums to 1', () => {
     for (const realm of Object.keys(
       YIELD_MATERIAL_QUALITY_CHANCE_BY_REALM,

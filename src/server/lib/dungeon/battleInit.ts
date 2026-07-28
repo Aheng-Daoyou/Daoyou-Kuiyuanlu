@@ -5,7 +5,7 @@ import type {
   ConditionStatusInstance,
   ConditionStatusKey,
 } from '@shared/types/condition';
-import type { Cultivator } from '@shared/types/cultivator';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import { ConditionService } from '../services/ConditionService';
 
 export function buildPersistentStatus(
@@ -23,7 +23,9 @@ export function buildPersistentStatus(
   };
 }
 
-export function buildDungeonBattleInit(cultivator: Cultivator): BattleInitConfigV5 {
+export function buildDungeonBattleInit(
+  cultivator: CultivatorCombatInput,
+): BattleInitConfigV5 {
   return ConditionService.buildBattleInit(
     cultivator,
     cultivator.condition,

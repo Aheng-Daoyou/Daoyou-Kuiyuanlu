@@ -4,9 +4,9 @@ import { useBattlePlaybackState } from '@app/components/feature/battle/useBattle
 import { CombatResultDialog } from '@app/components/feature/battle/v5/CombatResultDialog';
 import { GameImmersiveLoading } from '@app/components/game-shell';
 import { InkButton } from '@app/components/ui/InkButton';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
 import { useTowerBattle } from '@app/lib/hooks/tower/useTowerBattle';
 import { useTowerBattleContext } from '@app/lib/hooks/tower/useTowerBattleContext';
+import { usePlayerSession } from '@app/lib/resources/player';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { describeEncounterLabel, formatDepthLabel } from '../utils';
@@ -15,10 +15,17 @@ export default function TowerBattlePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const battleId = searchParams.get('battleId');
-  const { cultivator } = usePlayerStateView();
-  const { context, error: contextError, loading: contextLoading } =
-    useTowerBattleContext(battleId);
-  const { battleResult, loading: battleLoading, executeBattle } = useTowerBattle();
+  const cultivator = usePlayerSession().data?.activeCultivator;
+  const {
+    context,
+    error: contextError,
+    loading: contextLoading,
+  } = useTowerBattleContext(battleId);
+  const {
+    battleResult,
+    loading: battleLoading,
+    executeBattle,
+  } = useTowerBattle();
   const playback = useBattlePlaybackState(battleResult);
   const [error, setError] = useState<string>();
   const hasExecutedRef = useRef(false);
@@ -47,7 +54,7 @@ export default function TowerBattlePage() {
   if (!battleId) {
     return (
       <div className="flex h-full items-center justify-center px-4 py-20">
-        <div className="border-battle-rule-strong bg-[rgba(248,243,230,0.92)] max-w-md border border-dashed px-5 py-5 text-center">
+        <div className="border-battle-rule-strong max-w-md border border-dashed bg-[rgba(248,243,230,0.92)] px-5 py-5 text-center">
           <p className="text-crimson mb-4">缺少幻境战局标识。</p>
           <InkButton href="/game/tower" variant="primary">
             返回幻境
@@ -85,8 +92,12 @@ export default function TowerBattlePage() {
       <CombatResultDialog
         key={`tower-route-${battleResult?.turns}-${battleResult?.winner.id ?? 'unknown'}`}
         dialogKey={`tower-route-${battleResult?.turns}-${battleResult?.winner.id ?? 'unknown'}`}
-        open={!!battleResult && playback.isPlaybackFinished && hasBattleCallback}
-        title={battleResult?.winner.id === cultivator?.id ? '战局得胜' : '战局失利'}
+        open={
+          !!battleResult && playback.isPlaybackFinished && hasBattleCallback
+        }
+        title={
+          battleResult?.winner.id === cultivator?.id ? '战局得胜' : '战局失利'
+        }
         confirmLabel="返回幻境"
         onConfirm={() => navigate('/game/tower')}
         content={

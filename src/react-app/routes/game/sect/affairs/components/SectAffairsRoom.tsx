@@ -5,9 +5,9 @@ import {
   type NpcConversationOption,
 } from '@app/components/feature/room';
 import {
-  useSectCurrentQuery,
-  useSectResourceQuery,
-} from '@app/components/feature/sect/SectQueryProvider';
+  useSectPromotionEvaluationQuery,
+  useSectTasksQuery,
+} from '@app/components/feature/sect/sectResources';
 import { SectTaskActionRenderer } from '@app/components/feature/sect/SectTaskActionRenderer';
 import { useSectTaskInteraction } from '@app/components/feature/sect/SectTaskInteractionProvider';
 import {
@@ -19,7 +19,6 @@ import {
   decodeSectTaskOutcome,
   readRewardReceiptOutcome,
 } from '@app/components/feature/sect/sectTaskOutcomeRegistry';
-import { fetchSectTasks } from '@app/lib/sect/sectClient';
 import type { SectTaskViewData } from '@shared/contracts/sect';
 import {
   describeSectPromotionStatus,
@@ -196,23 +195,13 @@ function SectAffairsNpcConversation({
   onExit(): void;
 }) {
   const interaction = useSectTaskInteraction();
-  const current = useSectCurrentQuery();
-  const { data, loading, error, reload } = useSectResourceQuery(
-    'tasks',
-    fetchSectTasks,
-  );
+  const current = useSectPromotionEvaluationQuery(kind === 'promotion');
+  const { data, loading, error } = useSectTasksQuery();
   const [selectedTaskKey, setSelectedTaskKey] = useState<string>();
   const [promotionResult, setPromotionResult] = useState<string>();
-  const reloadCurrent = current.reload;
   const session = useConversationSession({
     sessionKey: `${npc.id}:${kind}`,
     snapshot: data,
-    load: async () => {
-      await Promise.all([
-        reload(),
-        kind === 'promotion' ? reloadCurrent() : Promise.resolve(),
-      ]);
-    },
     perform: async () => undefined,
     onReset: () => {
       setSelectedTaskKey(undefined);
@@ -226,21 +215,21 @@ function SectAffairsNpcConversation({
   );
   const selectedTask = tasks.find((task) => taskKey(task) === selectedTaskKey);
   const promotionGuidance =
-    kind === 'promotion' && current.data?.overview
+    kind === 'promotion' && current.data
       ? describeSectPromotionStatus({
-          nextRank: current.data.overview.nextRank,
-          missingRequirements: current.data.overview.promotionMissing,
+          nextRank: current.data.nextRank,
+          missingRequirements: current.data.missing,
         })
       : undefined;
   const nextRank =
-    kind === 'promotion' ? current.data?.overview?.nextRank : null;
+    kind === 'promotion' ? current.data?.nextRank : null;
   const canPromote =
-    Boolean(nextRank) && current.data?.overview?.promotionMissing.length === 0;
+    Boolean(nextRank) && current.data?.missing.length === 0;
 
   const promote = async () => {
     if (!nextRank || !canPromote) return;
     const result = await interaction.runRaw<{
-      sect: { discipleRank?: SectDiscipleRank };
+      discipleRank?: SectDiscipleRank;
     }>(
       '/api/sects/current/promotion',
       {
@@ -251,10 +240,11 @@ function SectAffairsNpcConversation({
       },
       `已晋升${SECT_RANK_LABELS[nextRank]}`,
     );
-    if (result)
+    if (result) {
       setPromotionResult(
-        `你的身份玉牒已经改录为${SECT_RANK_LABELS[result.sect.discipleRank ?? nextRank]}。`,
+        `你的身份玉牒已经改录为${SECT_RANK_LABELS[result.discipleRank ?? nextRank]}。`,
       );
+    }
   };
 
   const selectTask = async (task: SectTaskViewData) => {
@@ -270,7 +260,7 @@ function SectAffairsNpcConversation({
         {},
         `已接下「${task.presentation.title}」`,
       );
-      if (result) setSelectedTaskKey(taskKey(result.task));
+      if (result) setSelectedTaskKey(taskKey(result.primaryTask));
       return;
     }
     if (task.state === 'claimable') {
@@ -284,7 +274,7 @@ function SectAffairsNpcConversation({
         {},
         `「${task.presentation.title}」已结清`,
       );
-      if (result) setSelectedTaskKey(taskKey(result.task));
+      if (result) setSelectedTaskKey(taskKey(result.primaryTask));
       return;
     }
     setSelectedTaskKey(taskKey(task));

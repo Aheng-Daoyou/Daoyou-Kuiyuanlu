@@ -1,6 +1,8 @@
+import { getExecutor } from '@server/lib/drizzle/db';
+import { cultivators, spiritualRoots } from '@server/lib/drizzle/schema';
 import { requireUser } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
-import { getPlayerProfileCultivatorById } from '@server/lib/services/cultivatorService';
+import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 
 const router = new Hono<AppEnv>();
@@ -17,24 +19,61 @@ router.get('/:id', requireUser(), async (c) => {
   }
 
   try {
-    const enemy = await getPlayerProfileCultivatorById(user.id, id);
-
+    const q = getExecutor();
+    const [enemy] = await q
+      .select({
+        id: cultivators.id,
+        name: cultivators.name,
+        realm: cultivators.realm,
+        realmStage: cultivators.realm_stage,
+        background: cultivators.background,
+        vitality: cultivators.vitality,
+        spirit: cultivators.spirit,
+        wisdom: cultivators.wisdom,
+        speed: cultivators.speed,
+        willpower: cultivators.willpower,
+      })
+      .from(cultivators)
+      .where(
+        and(
+          eq(cultivators.id, id),
+          eq(cultivators.userId, user.id),
+          eq(cultivators.status, 'active'),
+        ),
+      )
+      .limit(1);
     if (!enemy) {
       return c.json({ error: '敌人角色不存在' }, 404);
     }
-
-    const { vitality, spirit, wisdom, speed, willpower } = enemy.attributes;
+    const roots = await q
+      .select({
+        element: spiritualRoots.element,
+        strength: spiritualRoots.strength,
+        marrowWashBonus: spiritualRoots.marrowWashBonus,
+        grade: spiritualRoots.grade,
+      })
+      .from(spiritualRoots)
+      .where(eq(spiritualRoots.cultivatorId, id));
     return c.json({
       success: true,
       data: {
         id: enemy.id,
         name: enemy.name,
         realm: enemy.realm,
-        realm_stage: enemy.realm_stage,
-        spiritual_roots: enemy.spiritual_roots,
+        realm_stage: enemy.realmStage,
+        spiritual_roots: roots.map((root) => ({
+          ...root,
+          baseStrength: root.strength,
+          strength: root.strength + (root.marrowWashBonus ?? 0),
+        })),
         background: enemy.background,
         combatRating: Math.round(
-          (vitality + spirit + wisdom + speed + willpower) / 5,
+          (enemy.vitality +
+            enemy.spirit +
+            enemy.wisdom +
+            enemy.speed +
+            enemy.willpower) /
+            5,
         ),
       },
     });

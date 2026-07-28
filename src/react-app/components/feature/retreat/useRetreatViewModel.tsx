@@ -3,9 +3,15 @@ import {
   getQiErrorMessage,
   useQiActionConfirm,
 } from '@app/components/feature/cultivator/useQiActionConfirm';
-import { usePlayerStateView, type PlayerStateView } from '@app/lib/player-state/selectors';
+import {
+  useCultivatorCondition,
+  useCultivatorIdentity,
+  useCultivatorProgress,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import type { Cultivator } from '@shared/types/cultivator';
 import { useTaskList } from '@app/lib/hooks/useTaskList';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { findCurrentMajorBreakthroughTask } from '@app/lib/tasks/taskClient';
 import {
   calculateBreakthroughChance,
@@ -38,6 +44,20 @@ export interface CultivationProgressData {
   breakthroughType: 'forced' | 'normal' | 'perfect' | null;
 }
 
+type RetreatCultivatorView = Pick<
+  Cultivator,
+  | 'id'
+  | 'name'
+  | 'realm'
+  | 'realm_stage'
+  | 'age'
+  | 'lifespan'
+  | 'pre_heaven_fates'
+> & {
+  condition: NonNullable<Cultivator['condition']>;
+  cultivation_progress: NonNullable<Cultivator['cultivation_progress']>;
+};
+
 export interface BreakthroughChancePreviewData {
   baseChance: number;
   finalChance: number;
@@ -46,7 +66,7 @@ export interface BreakthroughChancePreviewData {
 }
 
 export interface UseRetreatViewModelReturn {
-  cultivator: PlayerStateView['cultivator'];
+  cultivator: RetreatCultivatorView | null;
   isLoading: boolean;
   note: string | undefined;
   remainingLifespan: number;
@@ -88,10 +108,37 @@ type RetreatRequestOutcome =
   | { ok: false; payload: RetreatFailurePayload | null };
 
 export function useRetreatViewModel(): UseRetreatViewModelReturn {
-  const { cultivator, isLoading, note } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const progress = useCultivatorProgress();
+  const playerSession = usePlayerSession();
+  const identity = profile.data?.cultivator;
+  const cultivator = useMemo<RetreatCultivatorView | null>(
+    () =>
+      identity && condition.data && progress.data
+        ? {
+            id: identity.id,
+            name: identity.name,
+            realm: identity.realm,
+            realm_stage: identity.realm_stage,
+            age: identity.age,
+            lifespan: identity.lifespan,
+            pre_heaven_fates: identity.pre_heaven_fates,
+            condition: condition.data,
+            cultivation_progress: progress.data,
+          }
+        : null,
+    [condition.data, identity, progress.data],
+  );
+  const isLoading =
+    profile.loading ||
+    condition.loading ||
+    progress.loading ||
+    playerSession.loading;
+  const note = playerSession.data?.note;
   const { pushToast } = useInkUI();
   const { openQiActionConfirm } = useQiActionConfirm();
-  const { consumeStateMeta } = usePlayerStateActions();
+  const { consumeChanges } = useResourceMutation();
   const navigate = useNavigate();
   const {
     tasks,
@@ -166,7 +213,8 @@ export function useRetreatViewModel(): UseRetreatViewModelReturn {
   );
 
   const currentMajorTask = useMemo(
-    () => findCurrentMajorBreakthroughTask(cultivator, tasks),
+    () =>
+      tasks ? findCurrentMajorBreakthroughTask(cultivator, tasks) : null,
     [cultivator, tasks],
   );
 
@@ -270,21 +318,9 @@ export function useRetreatViewModel(): UseRetreatViewModelReturn {
           },
           onStoryUpdate: setRetreatResult,
           onReincarnateContext: setReincarnateContext,
-          onStateEvents: (events) => {
-            if (events.length === 0) return;
-            void consumeStateMeta(
-              {
-                cultivatorId: events[0].cultivatorId,
-                globalVersion: Math.max(
-                  ...events.map((event) => event.globalVersion),
-                ),
-                domainVersions: Object.fromEntries(
-                  events.map((event) => [event.domain, event.domainVersion]),
-                ),
-                events,
-              },
-              { deferRecovery: true },
-            );
+          onState: (state) => {
+            if (state.changes.length === 0) return;
+            consumeChanges(state);
           },
           onError: (message) => {
             setRetreatResultStreaming(false);
@@ -301,7 +337,7 @@ export function useRetreatViewModel(): UseRetreatViewModelReturn {
         setRetreatLoading(false);
       }
     },
-    [consumeStateMeta, cultivator, pushToast],
+    [consumeChanges, cultivator, pushToast],
   );
 
   const handleRetreat = useCallback(async () => {

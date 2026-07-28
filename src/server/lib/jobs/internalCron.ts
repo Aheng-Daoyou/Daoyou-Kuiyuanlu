@@ -1,20 +1,19 @@
 import {
+  db,
   getExecutor,
-  type DbExecutor,
-  type DbTransaction,
 } from '@server/lib/drizzle/db';
-import { cultivators, mails } from '@server/lib/drizzle/schema';
+import { cultivators } from '@server/lib/drizzle/schema';
 import { redis } from '@server/lib/redis';
-import { getTopRankingCultivatorIds } from '@server/lib/redis/rankings';
 import {
   isRedisLockContention,
   redisLockKeys,
   withRedisLock,
 } from '@server/lib/redis/lock';
+import { getTopRankingCultivatorIds } from '@server/lib/redis/rankings';
 import { getItemLibraryDailyMaterialGenerationSettings } from '@server/lib/repositories/appSettingsRepository';
 import {
   prunePlayerMutationRequestsOlderThan,
-  prunePlayerStateEventsOlderThan,
+  pruneResourceEventsOlderThan,
 } from '@server/lib/repositories/playerStateRepository';
 import {
   pruneExpiredData,
@@ -23,30 +22,27 @@ import {
 import { listActiveSectIds } from '@server/lib/repositories/sectOrganizationRepository';
 import { expireListings } from '@server/lib/services/AuctionService';
 import { expireBetBattles } from '@server/lib/services/BetBattleService';
-import {
-  MailService,
-  type MailAttachment,
-} from '@server/lib/services/MailService';
+import type { MailAttachment } from '@server/lib/services/MailService';
 import { runMarketRefreshJob } from '@server/lib/services/MarketScheduler';
 import {
   generateDailyMarketMaterialLibraryEntries,
   ITEM_LIBRARY_SYSTEM_USER_ID,
 } from '@server/lib/services/MaterialLibraryService';
-import { commitPlayerStateMutationWithLock } from '@server/lib/services/PlayerStateMutationService';
+import { systemCommandExecutor } from '@server/lib/services/CommandExecutors';
+import { sendWeeklyRankingRewardCommand } from '@server/lib/services/RankingApplicationService';
 import { sectOrganizationFacade } from '@server/lib/services/sect-organization';
 import { createPostgresSectConstructionContext } from '@server/lib/services/sect-organization/PostgresSectOrganizationAdapters';
 import { towerEnemySetService } from '@server/lib/tower/enemySets';
 import { productionSectRuntime } from '@shared/engine/sect/content';
 import { RANKING_REWARDS, REALM_VALUES } from '@shared/types/constants';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 const RANK_REWARD_SETTLED_PREFIX = 'golden_rank:weekly_rewards:settled:';
 const LOCK_TTL_SECONDS = 15 * 60;
 const TOWER_ENEMY_SETS_LOCK_TTL_SECONDS = 2 * 60 * 60;
 const MATERIAL_LIBRARY_DAILY_GENERATION_LOCK_TTL_SECONDS = 2 * 60 * 60;
 const SETTLED_TTL_SECONDS = 7 * 24 * 60 * 60;
-const PLAYER_STATE_EVENT_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
-const PLAYER_MUTATION_REQUEST_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const RESOURCE_REPLAY_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
 const MAIL_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const QI_LOG_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const DUNGEON_HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -105,18 +101,6 @@ function buildRankingRewardMailContent(args: {
     `道友在${args.realm}天骄榜位列第 ${args.rank} 名，可领取声望 ${args.reward}。`,
     '请查收附件，领取后声望将计入道途声名。',
   ].join('\n');
-}
-
-async function countUnreadMail(
-  cultivatorId: string,
-  q: DbExecutor | DbTransaction = getExecutor(),
-): Promise<number> {
-  const [result] = await q
-    .select({ count: sql<number>`count(*)::int` })
-    .from(mails)
-    .where(and(eq(mails.cultivatorId, cultivatorId), eq(mails.isRead, false)));
-
-  return Number(result?.count ?? 0);
 }
 
 function getSettlementDateCN(now = new Date()): string {
@@ -263,44 +247,19 @@ export async function runRankRewardsJob(): Promise<RankRewardsJobResult> {
           continue;
         }
 
-        const committed = await commitPlayerStateMutationWithLock({
+        const committed = await sendWeeklyRankingRewardCommand({
           userId: cultivator.userId,
           cultivatorId,
-          source: 'rank_weekly_rewards',
-          idempotency: {
-            key: `rank-reward:${settlementDate}:${realm}`,
-            fingerprint: `${settlementDate}:${realm}:${cultivatorId}`,
-          },
-          run: async (tx) => {
-            const mail = await MailService.sendMail(
-              cultivatorId,
-              '天骄榜每周声望奖励',
-              buildRankingRewardMailContent({
-                realm,
-                rank,
-                reward,
-                settlementDate,
-              }),
-              buildRankingRewardAttachment(reward),
-              'reward',
-              tx,
-            );
-            const unreadMailCount = await countUnreadMail(cultivatorId, tx);
-            return {
-              result: null,
-              changes: [
-                {
-                  domain: 'mail',
-                  eventType: 'mail.rank_weekly_reward.created',
-                  patch: {
-                    unreadMailCount,
-                    mailIds: [mail.id],
-                  },
-                  invalidates: ['mail'],
-                },
-              ],
-            };
-          },
+          requestKey: `rank-reward:${settlementDate}:${realm}`,
+          requestFingerprint: `${settlementDate}:${realm}:${cultivatorId}`,
+          title: '天骄榜每周声望奖励',
+          content: buildRankingRewardMailContent({
+            realm,
+            rank,
+            reward,
+            settlementDate,
+          }),
+          attachments: buildRankingRewardAttachment(reward),
         });
 
         logs.push(
@@ -341,29 +300,34 @@ export async function runMarketRefreshCronJob(): Promise<CronJobResult> {
 
 export async function runSectConstructionWeeklyJob(): Promise<CronJobResult> {
   return withJobLock('sect-construction-weekly', async () => {
-      if (!isSettlementMondayCN()) {
-        return {
-          success: true,
-          processed: 0,
-          skipped: true,
-          reason: 'not_monday_cn',
-        };
-      }
-      const q = getExecutor();
-      const sectIds = await listActiveSectIds(q);
-      for (const sectId of sectIds)
-        await sectOrganizationFacade.construction.ensureWeeklyProject(
-          sectId,
-          createPostgresSectConstructionContext({
-            q,
-            runtime: productionSectRuntime,
-          }),
-        );
+    if (!isSettlementMondayCN()) {
       return {
         success: true,
-        processed: sectIds.length,
-        skipped: false,
+        processed: 0,
+        skipped: true,
+        reason: 'not_monday_cn',
       };
+    }
+    const sectIds = await listActiveSectIds(getExecutor());
+    for (const sectId of sectIds) {
+      await systemCommandExecutor.execute({
+        source: 'sect_construction_weekly',
+        allowEmpty: true,
+        command: (tx) =>
+          sectOrganizationFacade.construction.ensureWeeklyProjectCommand(
+            sectId,
+            createPostgresSectConstructionContext({
+              q: tx,
+              runtime: productionSectRuntime,
+            }),
+          ),
+      });
+    }
+    return {
+      success: true,
+      processed: sectIds.length,
+      skipped: false,
+    };
   });
 }
 
@@ -435,53 +399,47 @@ export async function runTowerEnemySetRefreshJob(): Promise<
   );
 }
 
-export async function runPlayerStateEventsCleanupJob(): Promise<CronJobResult> {
-  return withJobLock('player-state-events-cleanup', async () => {
-      const cutoff = new Date(Date.now() - PLAYER_STATE_EVENT_RETENTION_MS);
-      const mutationCutoff = new Date(
-        Date.now() - PLAYER_MUTATION_REQUEST_RETENTION_MS,
-      );
-      const [events, requests] = await Promise.all([
-        prunePlayerStateEventsOlderThan(cutoff),
-        prunePlayerMutationRequestsOlderThan(mutationCutoff),
-      ]);
-      return {
-        success: true,
-        processed: events + requests,
-        skipped: false,
-      };
+export async function runResourceReplayCleanupJob(): Promise<CronJobResult> {
+  return withJobLock('resource-replay-cleanup', async () => {
+    const cutoff = new Date(Date.now() - RESOURCE_REPLAY_RETENTION_MS);
+    const [requests, events] = await db.transaction(async (tx) => [
+      await prunePlayerMutationRequestsOlderThan(cutoff, tx),
+      await pruneResourceEventsOlderThan(cutoff, tx),
+    ]);
+    return {
+      success: true,
+      processed: events + requests,
+      skipped: false,
+    };
   });
 }
 
 export async function runExpiredDataCleanupJob(): Promise<
   ExpiredDataCleanupJobResult | CronJobResult
 > {
-  return withJobLock(
-    'expired-data-cleanup',
-    async () => {
-      const now = Date.now();
-      const deleted = await pruneExpiredData({
-        mails: new Date(now - MAIL_RETENTION_MS),
-        qiLogs: new Date(now - QI_LOG_RETENTION_MS),
-        dungeonHistories: new Date(now - DUNGEON_HISTORY_RETENTION_MS),
-        dungeonRuns: new Date(now - DUNGEON_RUN_RETENTION_MS),
-        battleRecordsV2: new Date(now - BATTLE_RECORD_V2_RETENTION_MS),
-        reputationShopPurchases: new Date(
-          now - REPUTATION_SHOP_PURCHASE_RETENTION_MS,
-        ),
-        auctionListings: new Date(now - AUCTION_LISTING_RETENTION_MS),
-      });
-      const processed = Object.values(deleted).reduce(
-        (sum, count) => sum + count,
-        0,
-      );
+  return withJobLock('expired-data-cleanup', async () => {
+    const now = Date.now();
+    const deleted = await pruneExpiredData({
+      mails: new Date(now - MAIL_RETENTION_MS),
+      qiLogs: new Date(now - QI_LOG_RETENTION_MS),
+      dungeonHistories: new Date(now - DUNGEON_HISTORY_RETENTION_MS),
+      dungeonRuns: new Date(now - DUNGEON_RUN_RETENTION_MS),
+      battleRecordsV2: new Date(now - BATTLE_RECORD_V2_RETENTION_MS),
+      reputationShopPurchases: new Date(
+        now - REPUTATION_SHOP_PURCHASE_RETENTION_MS,
+      ),
+      auctionListings: new Date(now - AUCTION_LISTING_RETENTION_MS),
+    });
+    const processed = Object.values(deleted).reduce(
+      (sum, count) => sum + count,
+      0,
+    );
 
-      return {
-        success: true,
-        processed,
-        skipped: false,
-        deleted,
-      };
-    },
-  );
+    return {
+      success: true,
+      processed,
+      skipped: false,
+      deleted,
+    };
+  });
 }

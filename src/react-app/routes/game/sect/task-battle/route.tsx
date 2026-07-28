@@ -1,8 +1,7 @@
 import {
-  useSectCurrentQuery,
-  useSectPresentation,
-  useSectResourceQuery,
-} from '@app/components/feature/sect/SectQueryProvider';
+  getSectPresentationForContext,
+  useSectContextQuery,
+} from '@app/components/feature/sect/sectResources';
 import {
   getSectTaskActivityLocation,
   resolveSectTaskActivityOrigin,
@@ -12,10 +11,7 @@ import { GameImmersiveLoading } from '@app/components/game-shell';
 import { InkButton } from '@app/components/ui';
 import { formatDocumentTitle } from '@app/lib/router/routeTitle';
 import { sectTaskRendererRegistry } from '@app/lib/sect/presentation/compositionRoot';
-import {
-  fetchSectTasks,
-  startSectTaskBattleOnce,
-} from '@app/lib/sect/sectClient';
+import { startSectTaskBattleOnce } from '@app/lib/sect/sectClient';
 import type { SectTaskActionData } from '@shared/contracts/sect';
 import { createElement, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
@@ -30,7 +26,8 @@ export default function SectTaskBattlePage() {
 }
 
 function SectTaskBattleBody() {
-  const presentation = useSectPresentation();
+  const context = useSectContextQuery();
+  const presentation = getSectPresentationForContext(context.data);
   const scene = presentation.scenes.taskBattle;
   const navigate = useNavigate();
   const { taskId } = useParams();
@@ -45,16 +42,13 @@ function SectTaskBattleBody() {
       };
   const [result, setResult] = useState<SectTaskActionData>();
   const [error, setError] = useState<string>();
-  const { reload: reloadTasks } = useSectResourceQuery('tasks', fetchSectTasks);
-  const { invalidate: invalidateCurrent } = useSectCurrentQuery();
   const parameterError = !taskId || !attemptId ? '缺少宗门战斗标识' : undefined;
 
   useEffect(() => {
     let cancelled = false;
     if (!taskId || !attemptId) return;
     void startSectTaskBattleOnce(taskId, attemptId)
-      .then(async (data) => {
-        await Promise.allSettled([reloadTasks(), invalidateCurrent()]);
+      .then((data) => {
         if (!cancelled) setResult(data);
       })
       .catch((reason) => {
@@ -66,7 +60,7 @@ function SectTaskBattleBody() {
     return () => {
       cancelled = true;
     };
-  }, [attemptId, invalidateCurrent, reloadTasks, taskId]);
+  }, [attemptId, taskId]);
 
   if (error || parameterError)
     return (
@@ -115,7 +109,7 @@ function SectTaskBattleBody() {
     <>
       <title>{formatDocumentTitle(scene.title)}</title>
       {createElement(contribution.renderer, {
-        task: result.task,
+        task: result.primaryTask,
         data: decoded.value.data,
       })}
     </>

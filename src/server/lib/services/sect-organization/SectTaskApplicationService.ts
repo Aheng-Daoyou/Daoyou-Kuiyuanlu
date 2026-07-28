@@ -1,3 +1,4 @@
+import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
 import type { SectTaskActionData } from '@shared/contracts/sect';
 import {
   SectTask,
@@ -26,6 +27,11 @@ import type {
   SectTaskRecord,
 } from './ports';
 import type { SectTaskExecutorRegistry } from './task-executors/SectTaskExecutor';
+import {
+  emptySectCommandEffects,
+  mergeSectCommandEffects,
+  type SectCommandEffects,
+} from './SectCommandEffects';
 
 export class FulfillSectTaskHandler {
   constructor(private readonly events: SectDomainEventDispatcherFactory) {}
@@ -37,7 +43,11 @@ export class FulfillSectTaskHandler {
     definition: SectTaskDefinition;
     record: SectTaskRecord;
     context: SectCommandContext;
-  }): Promise<SectTaskRecord> {
+  }): Promise<{
+    record: SectTaskRecord;
+    changedTaskRecords: SectTaskRecord[];
+    effects: SectCommandEffects;
+  }> {
     const aggregate = SectTask.rehydrate({
       id: args.record.id,
       definitionId: args.record.taskId,
@@ -54,15 +64,18 @@ export class FulfillSectTaskHandler {
       args.definition.target,
     );
     if (!completed) invalidSectTask('该宗门任务已经达成');
-    await this.events
-      .forTask({
-        userId: args.userId,
-        cultivatorId: args.cultivatorId,
-        membership: args.membership,
-        command: args.context,
-      })
-      .dispatch(aggregate.pullEvents());
-    return completed;
+    const dispatcher = this.events.forTask({
+      userId: args.userId,
+      cultivatorId: args.cultivatorId,
+      membership: args.membership,
+      command: args.context,
+    });
+    const effects = await dispatcher.dispatch(aggregate.pullEvents());
+    return {
+      record: completed,
+      changedTaskRecords: dispatcher.changedTaskRecords,
+      effects,
+    };
   }
 }
 
@@ -92,7 +105,10 @@ export class ExecuteSectTaskActionHandler {
       input: Record<string, unknown>;
     },
     context: SectCommandContext,
-  ): Promise<SectTaskActionData> {
+  ): Promise<{
+    result: SectTaskActionData;
+    resourceChanges: ResourceChangeDescriptor[];
+  }> {
     const membership = await requireSectMembership(
       command.cultivatorId,
       context,
@@ -140,19 +156,23 @@ export class ExecuteSectTaskActionHandler {
         periodKey,
         payload: this.offers.payload(definition, offer),
       });
-      return {
-        task: toSectTaskView({
-          definition,
-          record,
-          executor,
-          state: 'active',
-          enabled: true,
-        }),
-        outcome: {
-          renderer: 'sect.outcome.accepted',
-          data: { accepted: true },
+      const primaryTask = toSectTaskView({
+        definition,
+        record,
+        executor,
+        state: 'active',
+        enabled: true,
+      });
+      return this.complete(
+        {
+          primaryTask,
+          changedTasks: [primaryTask],
+          outcome: {
+            renderer: 'sect.outcome.accepted',
+            data: { accepted: true },
+          },
         },
-      };
+      );
     }
 
     let executor;
@@ -195,15 +215,17 @@ export class ExecuteSectTaskActionHandler {
       );
     }
 
-    if (command.actionKey === 'claim')
-      return this.claims.execute({
-        command,
-        context,
-        membership,
-        definition,
-        executor,
-        record,
-      });
+    if (command.actionKey === 'claim') {
+      const claimed = await this.claims.execute({
+          command,
+          context,
+          membership,
+          definition,
+          executor,
+          record,
+        });
+      return this.complete(claimed.result, claimed.effects);
+    }
     if (record.status === 'completed')
       invalidSectTask(
         record.claimedAt ? '该宗门任务已经结清' : '该宗门任务奖励待领取',
@@ -239,8 +261,10 @@ export class ExecuteSectTaskActionHandler {
       if (!updated) invalidSectTask('任务状态已经变化，请重试');
       record = updated;
     }
+    let linkedTaskRecords: SectTaskRecord[] = [];
+    let effects = decision.effects ?? emptySectCommandEffects();
     if (decision.completed) {
-      record = await this.fulfillment.execute({
+      const fulfilled = await this.fulfillment.execute({
         userId: command.userId,
         cultivatorId: command.cultivatorId,
         membership,
@@ -248,25 +272,105 @@ export class ExecuteSectTaskActionHandler {
         record,
         context,
       });
-      if (decision.completionSettlement === 'claim-reward')
-        return this.claims.execute({
-          command,
-          context,
-          membership,
-          definition,
-          executor,
-          record,
-        });
+      record = fulfilled.record;
+      effects = mergeSectCommandEffects(effects, fulfilled.effects);
+      linkedTaskRecords = fulfilled.changedTaskRecords;
+      const linkedTasks = this.toChangedTaskViews(
+        linkedTaskRecords,
+        organization,
+      );
+      if (decision.completionSettlement === 'claim-reward') {
+        const claimed = await this.claims.execute({
+            command,
+            context,
+            membership,
+            definition,
+            executor,
+            record,
+            changedTasks: linkedTasks,
+          });
+        return this.complete(
+          claimed.result,
+          mergeSectCommandEffects(effects, claimed.effects),
+        );
+      }
     }
+    const primaryTask = toSectTaskView({
+      definition,
+      record,
+      executor,
+      state: record.status === 'completed' ? 'claimable' : 'active',
+      enabled: true,
+    });
+    return this.complete(
+      {
+        primaryTask,
+        changedTasks: mergeChangedTasks(
+          primaryTask,
+          this.toChangedTaskViews(linkedTaskRecords, organization),
+        ),
+        outcome: decision.outcome,
+      },
+      effects,
+    );
+  }
+
+  private complete(
+    data: Omit<SectTaskActionData, 'settlement'> | SectTaskActionData,
+    effects: SectCommandEffects = emptySectCommandEffects(),
+  ): {
+    result: SectTaskActionData;
+    resourceChanges: ResourceChangeDescriptor[];
+  } {
+    const result: SectTaskActionData = {
+      ...data,
+      settlement: effects.settlement,
+    };
     return {
-      task: toSectTaskView({
-        definition,
-        record,
-        executor,
-        state: record.status === 'completed' ? 'claimable' : 'active',
-        enabled: true,
-      }),
-      outcome: decision.outcome,
+      result,
+      resourceChanges: [
+        {
+          resourceTopic: 'sect.tasks',
+          eventType: 'sect.task_action',
+          operation: 'upsert-items',
+          payload: {
+            items: result.changedTasks,
+            idKey: 'definitionId',
+          },
+        },
+        ...effects.resourceChanges,
+      ],
     };
   }
+
+  private toChangedTaskViews(
+    records: readonly SectTaskRecord[],
+    organization: ReturnType<SectCommandContext['modules']['require']>,
+  ) {
+    return records.map((record) => {
+      const definition = organization.tasks.get(record.taskId);
+      if (!definition)
+        invalidSectTask(`联动任务定义不存在：${record.taskId}`, 500);
+      return toSectTaskView({
+        definition,
+        record,
+        executor: this.executors.require(record.payload.offer.executorKey),
+        state: record.claimedAt
+          ? 'claimed'
+          : record.status === 'completed'
+            ? 'claimable'
+            : 'active',
+        enabled: true,
+      });
+    });
+  }
+}
+
+function mergeChangedTasks(
+  primaryTask: SectTaskActionData['primaryTask'],
+  linkedTasks: SectTaskActionData['changedTasks'],
+): SectTaskActionData['changedTasks'] {
+  const tasks = new Map(linkedTasks.map((task) => [task.definitionId, task]));
+  tasks.set(primaryTask.definitionId, primaryTask);
+  return [...tasks.values()];
 }

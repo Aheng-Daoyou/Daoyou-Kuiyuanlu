@@ -8,7 +8,7 @@ import {
   GameMapLayout,
   GameNarrativeLayout,
   GameViewportLayout,
-  PlayerProviderLayout,
+  PlayerShellLayout,
 } from '@app/layouts/game-layout';
 import { lazyRoute } from '@app/lib/router/lazyRoute';
 import { AUTH_LAYOUT_ROUTE_ID, GAME_ROUTE_ID } from '@app/lib/router/routeData';
@@ -133,7 +133,7 @@ export const router = createBrowserRouter(
           />
         </Route>
 
-        <Route element={<PlayerProviderLayout />}>
+        <Route element={<PlayerShellLayout />}>
           <Route element={<GameNarrativeLayout />}>
             <Route
               path="sect/onboarding"
@@ -905,18 +905,6 @@ export const router = createBrowserRouter(
           </Route>
 
           <Route element={<GameCombatLayout />}>
-            <Route
-              path="battle"
-              lazy={lazyRoute(() => import('@app/routes/game/battle/route'))}
-              handle={scene(
-                {
-                  id: 'battle',
-                  chrome: 'immersive',
-                  dock: 'hidden',
-                },
-                '对战播报',
-              )}
-            />
             <Route
               path="battle/challenge"
               lazy={lazyRoute(

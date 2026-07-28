@@ -1,6 +1,6 @@
 import type { ResourceOperation } from '@shared/engine/resource/types';
 import type { BattleRecord } from '@shared/types/battle';
-import { consumePlayerStateMeta } from '@app/lib/player-state/store';
+import { consumeResourceMutation } from '@app/lib/resources/mutations';
 import {
   DungeonRound,
   DungeonSettlement,
@@ -74,18 +74,13 @@ export function useBattle() {
               throw new Error(errorData.error || '战斗异常中断');
             }
 
-            const raw = await res.json();
-            const data = raw.success ? raw.data : raw;
+            const data = await consumeResourceMutation<BattleExecutionResult>(
+              res,
+            );
             const result = {
               battleResult: data.battleResult as BattleRecord,
               callbackData: data.callbackData as BattleCallbackData,
             };
-
-            if (raw.success && raw.state) {
-              void consumePlayerStateMeta(raw.state, {
-                deferRecovery: true,
-              });
-            }
 
             battleExecutionResults.set(battleId, result);
             return result;

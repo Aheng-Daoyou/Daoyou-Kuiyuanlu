@@ -12,7 +12,7 @@ export interface ConversationSessionActionContext<TSnapshot, TIntent> {
 export interface UseConversationSessionOptions<TSnapshot, TIntent, TResult> {
   sessionKey: string;
   snapshot: TSnapshot | undefined;
-  load(signal: AbortSignal): Promise<unknown>;
+  load?(signal: AbortSignal): Promise<unknown>;
   perform(
     context: ConversationSessionActionContext<TSnapshot, TIntent>,
   ): Promise<TResult>;
@@ -83,7 +83,7 @@ export function useConversationSession<TSnapshot, TIntent, TResult>({
     setError(undefined);
     setPhase('loading');
     try {
-      await loadRef.current(controller.signal);
+      await loadRef.current?.(controller.signal);
       if (generation !== generationRef.current || controller.signal.aborted)
         return;
       setPhase('ready');

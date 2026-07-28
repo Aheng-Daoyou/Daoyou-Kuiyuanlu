@@ -5,7 +5,7 @@ import {
   MapSectLandmark,
   SectLandmarkDetail,
 } from '@app/components/feature/map';
-import { usePlayerState } from '@app/lib/player-state/store';
+import { usePlayerSession } from '@app/lib/resources/player';
 import {
   getAllMapNodes,
   getAllSatelliteNodes,
@@ -53,9 +53,8 @@ function isSectLandmark(location: WorldMapLocation): location is SectLandmark {
 
 export default function MapPage() {
   const navigate = useNavigate();
-  const activeSectId = usePlayerState(
-    (state) => state.snapshot.sect?.sectId ?? null,
-  );
+  const session = usePlayerSession();
+  const activeSectId = session.data?.activeCultivator?.sectId ?? null;
   const [searchParams] = useSearchParams();
   const requestedNodeId = searchParams.get('nodeId');
   const requestedNode = requestedNodeId

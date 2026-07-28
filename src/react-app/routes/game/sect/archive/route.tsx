@@ -3,15 +3,25 @@ import {
   useConversationSession,
   type NpcConversationMessage,
 } from '@app/components/feature/room';
-import { useSectCurrentQuery } from '@app/components/feature/sect/SectQueryProvider';
+import {
+  buildSectProgressionState,
+  getSectDefinition,
+  useSectContextQuery,
+  useSectInfrastructureQuery,
+  useSectProgressionQuery,
+} from '@app/components/feature/sect/sectResources';
 import {
   SectNpcConversationRegistry,
   SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
 import { InkButton } from '@app/components/ui';
-import { useActiveCultivatorProfile } from '@app/lib/player-state/selectors';
-import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
+import { useCultivatorIdentity } from '@app/lib/resources/player';
+import {
+  getEffectiveSectMethodLevelCap,
+  STANDARD_SECT_PRESENTATION,
+} from '@shared/engine/sect';
+import { productionSectRuntime } from '@shared/engine/sect/content';
 import { useState } from 'react';
 import { MethodsTab } from '../components/MethodsTab';
 import {
@@ -42,19 +52,56 @@ function ArchiveConversation({
   actor,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const current = useSectCurrentQuery();
-  const cultivator = useActiveCultivatorProfile();
-  const mutation = useSectMutation(current.reload);
+  const context = useSectContextQuery();
+  const infrastructure = useSectInfrastructureQuery();
+  const progression = useSectProgressionQuery();
+  const profile = useCultivatorIdentity();
+  const cultivator = profile.data?.cultivator;
+  const mutation = useSectMutation();
   const [topic, setTopic] = useState<'limit' | 'workspace'>();
   const session = useConversationSession({
     sessionKey: actor.id,
-    snapshot: current.data,
-    load: current.reload,
+    snapshot: {
+      context: context.data,
+      infrastructure: infrastructure.data,
+      progression: progression.data,
+      profile: profile.data,
+    },
     perform: async () => undefined,
     onReset: () => setTopic(undefined),
   });
-  const data = current.data;
-  if (topic === 'workspace' && data)
+  const data =
+    context.data && infrastructure.data && progression.data && cultivator
+      ? (() => {
+          const module = productionSectRuntime.registry.require(
+            context.data.sectId,
+          );
+          const facilityLevels = new Map(
+            infrastructure.data.facilities.map((facility) => [
+              facility.key,
+              facility.level,
+            ]),
+          );
+          const realmMethodLevelCap = productionSectRuntime
+            .progressionFor(context.data.sectId)
+            .methodLevelCap(cultivator.realm, cultivator.realm_stage);
+          return {
+            definition: getSectDefinition(context.data),
+            sect: buildSectProgressionState(context.data, progression.data),
+            methodLevelCap: getEffectiveSectMethodLevelCap({
+              realmCap: realmMethodLevelCap,
+              rank: context.data.discipleRank,
+              facilityCap:
+                module.organization.benefits.methodLevelCap(facilityLevels),
+              rankCap: module.organization.ranks.methodLevelCap(
+                context.data.discipleRank,
+              ),
+            }),
+            realmMethodLevelCap,
+          };
+        })()
+      : undefined;
+  if (topic === 'workspace' && data && cultivator)
     return (
       <div className="min-h-[34rem] px-5 py-7 sm:px-8 md:px-10">
         <div className="mb-5 flex justify-end border-b border-current/10 pb-4">
@@ -73,7 +120,7 @@ function ArchiveConversation({
           action={async (url, init) => {
             await mutation.run(url, init, '心法研习完成');
           }}
-          realm={cultivator?.realm ?? '炼气'}
+          realm={cultivator.realm}
         />
       </div>
     );
@@ -97,7 +144,7 @@ function ArchiveConversation({
             {data.methodLevelCap}级
           </span>
           ，其中境界所允许的上限是
-          {data.overview?.realmMethodLevelCap ?? data.methodLevelCap}级。
+          {data.realmMethodLevelCap}级。
           若经卷、身份或境界有所不足，展开经卷时会逐项说明。
         </>
       ),
@@ -112,7 +159,13 @@ function ArchiveConversation({
         { id: 'leave', label: '弟子告退', tone: 'muted' },
       ]}
       busy={session.phase === 'loading'}
-      error={session.error ?? current.error}
+      error={
+        session.error ??
+        context.error ??
+        infrastructure.error ??
+        progression.error ??
+        profile.error
+      }
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (optionId === 'limit' || optionId === 'workspace')

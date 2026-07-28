@@ -5,16 +5,17 @@ import {
   type NpcConversationOption,
 } from '@app/components/feature/room';
 import {
-  useSectCurrentQuery,
-  useSectPresentation,
-  useSectResourceQuery,
-} from '@app/components/feature/sect/SectQueryProvider';
+  getSectPresentationForContext,
+  resolveSectBenefits,
+  useSectContextQuery,
+  useSectInfrastructureQuery,
+  useSectTasksQuery,
+} from '@app/components/feature/sect/sectResources';
 import {
   createSectTaskBattleHref,
   isSectTaskActivityLocationKey,
   readSectTaskActivityLocation,
 } from '@app/components/feature/sect/sectTaskActivityLocations';
-import { fetchSectTasks } from '@app/lib/sect/sectClient';
 import {
   describeSectFacilityStatus,
   type SectFacilityDialogueEmphasis,
@@ -43,9 +44,10 @@ export function SectFacilityStatusConversation({
   parameters,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const current = useSectCurrentQuery();
-  const tasks = useSectResourceQuery('tasks', fetchSectTasks);
-  const presentation = useSectPresentation();
+  const context = useSectContextQuery();
+  const infrastructure = useSectInfrastructureQuery();
+  const tasks = useSectTasksQuery();
+  const presentation = getSectPresentationForContext(context.data);
   const navigate = useNavigate();
   const [showStatus, setShowStatus] = useState(false);
   const facilityKey = readText(parameters, 'facilityKey');
@@ -57,28 +59,29 @@ export function SectFacilityStatusConversation({
     ? rawLocationKey
     : undefined;
   const snapshot = useMemo(
-    () => ({ current: current.data, tasks: tasks.data }),
-    [current.data, tasks.data],
+    () => ({
+      context: context.data,
+      infrastructure: infrastructure.data,
+      tasks: tasks.data,
+    }),
+    [context.data, infrastructure.data, tasks.data],
   );
   const session = useConversationSession({
     sessionKey: actor.id,
     snapshot,
-    load: async () => {
-      await Promise.all([
-        current.reload(),
-        locationKey ? tasks.reload() : Promise.resolve(),
-      ]);
-    },
     perform: async () => undefined,
   });
   const facility = facilityKey
-    ? current.data?.overview?.facilities.find(
+    ? infrastructure.data?.facilities.find(
         (candidate) => candidate.key === facilityKey,
       )
     : undefined;
   const effect = effectKey
-    ? (current.data?.benefits ?? current.data?.overview?.benefits)
-        ?.facilityEffects[effectKey]
+    ? context.data && infrastructure.data
+      ? resolveSectBenefits(context.data, infrastructure.data).facilityEffects[
+          effectKey
+        ]
+      : undefined
     : undefined;
   const facilityLabel = facilityKey
     ? (presentation.facilityLabels[facilityKey] ?? '此处设施')
@@ -175,10 +178,13 @@ export function SectFacilityStatusConversation({
       busy={
         session.phase === 'loading' ||
         session.phase === 'submitting' ||
-        current.loading ||
+        context.loading ||
+        infrastructure.loading ||
         tasks.loading
       }
-      error={session.error ?? current.error ?? tasks.error}
+      error={
+        session.error ?? context.error ?? infrastructure.error ?? tasks.error
+      }
       onSelectOption={(optionId) => {
         if (optionId === 'leave') {
           onExit();

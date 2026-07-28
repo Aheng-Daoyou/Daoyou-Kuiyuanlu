@@ -24,6 +24,11 @@ export type PlayerMailAttachmentInput = {
   quantity: number;
 };
 
+export type PlayerMailInventorySettlement =
+  | { itemType: 'artifact'; itemId: string; remaining: Artifact | null }
+  | { itemType: 'material'; itemId: string; remaining: Material | null }
+  | { itemType: 'consumable'; itemId: string; remaining: Consumable | null };
+
 export class PlayerMailServiceError extends Error {
   constructor(
     public readonly status: number,
@@ -63,7 +68,10 @@ async function detachAttachment(
   senderCultivatorId: string,
   attachment: PlayerMailAttachmentInput,
   tx: DbTransaction,
-): Promise<MailAttachment> {
+): Promise<{
+  attachment: MailAttachment;
+  settlement: PlayerMailInventorySettlement;
+}> {
   if (attachment.quantity < 1) {
     throw new PlayerMailServiceError(400, '附件数量必须至少为 1');
   }
@@ -148,11 +156,41 @@ async function detachAttachment(
       ? (item as Artifact)
       : ({ ...item, quantity: attachment.quantity } as Material | Consumable);
 
+  const remaining =
+    attachment.itemType === 'artifact' ||
+    attachment.quantity === (item as Material | Consumable).quantity
+      ? null
+      : ({
+          ...item,
+          quantity:
+            (item as Material | Consumable).quantity - attachment.quantity,
+        } as Material | Consumable);
+  const settlement: PlayerMailInventorySettlement =
+    attachment.itemType === 'artifact'
+      ? {
+          itemType: 'artifact',
+          itemId: attachment.itemId,
+          remaining: null,
+        }
+      : attachment.itemType === 'material'
+        ? {
+            itemType: 'material',
+            itemId: attachment.itemId,
+            remaining: remaining as Material | null,
+          }
+        : {
+            itemType: 'consumable',
+            itemId: attachment.itemId,
+            remaining: remaining as Consumable | null,
+          };
   return {
-    type: attachment.itemType,
-    name: snapshot.name,
-    quantity: attachment.quantity,
-    data: snapshot,
+    attachment: {
+      type: attachment.itemType,
+      name: snapshot.name,
+      quantity: attachment.quantity,
+      data: snapshot,
+    },
+    settlement,
   };
 }
 
@@ -163,7 +201,11 @@ export async function sendPlayerMail(input: {
   content: string;
   attachment?: PlayerMailAttachmentInput;
   tx?: DbTransaction;
-}): Promise<{ recipientName: string; attachmentCount: number }> {
+}): Promise<{
+  recipientName: string;
+  attachmentCount: number;
+  inventorySettlements: PlayerMailInventorySettlement[];
+}> {
   const persist = async (tx: DbTransaction) => {
     if (input.senderCultivatorId === input.recipientCultivatorId) {
       throw new PlayerMailServiceError(400, '不能给自己发送传音');
@@ -175,11 +217,42 @@ export async function sendPlayerMail(input: {
         input.recipientCultivatorId,
         tx,
       );
-      await consumeFirstTalismanByScenario(
+      const talismanSettlement = await consumeFirstTalismanByScenario(
         input.senderCultivatorId,
         FRIEND_MAIL_TALISMAN_SCENARIO,
         tx,
       );
+      const recipient = await assertActiveRecipient(input.recipientCultivatorId, tx);
+      const detached = input.attachment
+        ? await detachAttachment(
+            input.senderCultivatorId,
+            input.attachment,
+            tx,
+          )
+        : null;
+      const attachments = detached ? [detached.attachment] : [];
+
+      await MailService.sendMail(
+        input.recipientCultivatorId,
+        `来自${input.senderName}的传音`,
+        input.content,
+        attachments,
+        attachments.length > 0 ? 'reward' : 'system',
+        tx,
+      );
+
+      return {
+        recipientName: recipient.name,
+        attachmentCount: attachments.length,
+        inventorySettlements: [
+          {
+            itemType: 'consumable' as const,
+            itemId: talismanSettlement.itemId,
+            remaining: talismanSettlement.remaining,
+          },
+          ...(detached ? [detached.settlement] : []),
+        ],
+      };
     } catch (error) {
       if (error instanceof FriendServiceError) {
         throw new PlayerMailServiceError(403, error.message);
@@ -192,25 +265,6 @@ export async function sendPlayerMail(input: {
       }
       throw error;
     }
-
-    const recipient = await assertActiveRecipient(input.recipientCultivatorId, tx);
-    const attachments = input.attachment
-      ? [await detachAttachment(input.senderCultivatorId, input.attachment, tx)]
-      : [];
-
-    await MailService.sendMail(
-      input.recipientCultivatorId,
-      `来自${input.senderName}的传音`,
-      input.content,
-      attachments,
-      attachments.length > 0 ? 'reward' : 'system',
-      tx,
-    );
-
-    return {
-      recipientName: recipient.name,
-      attachmentCount: attachments.length,
-    };
   };
 
   return input.tx

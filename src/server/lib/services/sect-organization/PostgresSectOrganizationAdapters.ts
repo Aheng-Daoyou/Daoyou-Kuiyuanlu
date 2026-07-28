@@ -1,12 +1,22 @@
 import type { DbExecutor, DbTransaction } from '@server/lib/drizzle/db';
+import {
+  consumables,
+  creationProducts,
+  materials,
+} from '@server/lib/drizzle/schema';
 import * as organization from '@server/lib/repositories/sectOrganizationRepository';
 import * as memberships from '@server/lib/repositories/sectRepository';
+import { mapConsumableRow } from '@server/lib/services/consumablePersistence';
+import { toArtifactFromProduct } from '@server/lib/services/creationProductArtifactSupport';
+import { loadCultivatorCombatInput } from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
 import {
   addConsumableToInventory,
-  getPlayerRuntimeCultivatorByIdUnsafe,
-  updateCultivationExp,
-} from '@server/lib/services/cultivatorService';
-import { addMaterialStackToInventory } from '@server/lib/services/materialInventory';
+  addMaterialToInventoryInTransaction,
+  mapArtifactRow,
+  mapMaterialRow,
+} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
+import { updateCultivationExp } from '@server/lib/services/cultivator/CultivatorStateRepository';
+import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
 import { SeededBattleRandomSource } from '@shared/engine/battle-v5/core/BattleRandom';
 import {
   SectTaskRecordPayloadSchema,
@@ -28,6 +38,7 @@ import {
   type Quality,
 } from '@shared/types/constants';
 import type { ConsumableSpec } from '@shared/types/consumable';
+import { eq } from 'drizzle-orm';
 import type {
   Clock,
   IdGenerator,
@@ -47,6 +58,7 @@ import type {
   SectTrainingResourceGateway,
 } from './ports';
 import { getSectDateKey, getSectWeekKey } from './SectOrganizationClock';
+import { emptySectCommandEffects } from './SectCommandEffects';
 
 function mapTask(row: {
   id: string;
@@ -325,17 +337,43 @@ function inventoryAdapter(q: DbExecutor | DbTransaction) {
       const row = await organization.findOwnedArtifact(cultivatorId, itemId, q);
       return row ? { ...row, quality: row.quality ?? '凡品' } : null;
     },
-    consumeMaterial: (itemId: string, quantity: number) => {
+    async consumeMaterial(itemId: string, quantity: number) {
       if (!('rollback' in q)) throw new Error('宗门物品提交必须在事务中执行');
-      return organization.consumeOwnedMaterial(itemId, quantity, q);
+      const consumed = await organization.consumeOwnedMaterial(
+        itemId,
+        quantity,
+        q,
+      );
+      if (!consumed) return { consumed: false };
+      return inventorySettlement(
+        true,
+        await buildSubmissionInventoryChange(q, 'material', itemId),
+        itemId,
+      );
     },
-    consumeConsumable: (itemId: string, quantity: number) => {
+    async consumeConsumable(itemId: string, quantity: number) {
       if (!('rollback' in q)) throw new Error('宗门物品提交必须在事务中执行');
-      return organization.consumeOwnedConsumable(itemId, quantity, q);
+      const consumed = await organization.consumeOwnedConsumable(
+        itemId,
+        quantity,
+        q,
+      );
+      if (!consumed) return { consumed: false };
+      return inventorySettlement(
+        true,
+        await buildSubmissionInventoryChange(q, 'pill', itemId),
+        itemId,
+      );
     },
-    consumeArtifact: (itemId: string) => {
+    async consumeArtifact(itemId: string) {
       if (!('rollback' in q)) throw new Error('宗门物品提交必须在事务中执行');
-      return organization.consumeOwnedArtifact(itemId, q);
+      const consumed = await organization.consumeOwnedArtifact(itemId, q);
+      if (!consumed) return { consumed: false };
+      return inventorySettlement(
+        true,
+        await buildSubmissionInventoryChange(q, 'artifact', itemId),
+        itemId,
+      );
     },
   };
 }
@@ -483,31 +521,48 @@ function submissionInventoryAdapter(q: DbExecutor | DbTransaction) {
     return row ? mapSubmissionMaterial(row) : null;
   };
   return {
-    async listSubmissionItems(input: {
+    async listSubmissionItemsPage(input: {
       cultivatorId: string;
       kind: SectSubmissionItemKind;
+      page: number;
+      pageSize: number;
     }) {
       if (input.kind === 'pill') {
-        const rows = await organization.listOwnedSubmissionConsumables(
+        const result = await organization.listOwnedSubmissionConsumables(
           input.cultivatorId,
+          input.page,
+          input.pageSize,
           q,
         );
-        return rows
-          .map(mapSubmissionPill)
-          .filter((item): item is SectPillSubmissionFacts => Boolean(item));
+        return {
+          items: result.rows
+            .map(mapSubmissionPill)
+            .filter((item): item is SectPillSubmissionFacts => Boolean(item)),
+          total: result.total,
+        };
       }
       if (input.kind === 'artifact') {
-        const rows = await organization.listOwnedSubmissionArtifacts(
+        const result = await organization.listOwnedSubmissionArtifacts(
           input.cultivatorId,
+          input.page,
+          input.pageSize,
           q,
         );
-        return rows.map(mapSubmissionArtifact);
+        return {
+          items: result.rows.map(mapSubmissionArtifact),
+          total: result.total,
+        };
       }
-      const rows = await organization.listOwnedSubmissionMaterials(
+      const result = await organization.listOwnedSubmissionMaterials(
         input.cultivatorId,
+        input.page,
+        input.pageSize,
         q,
       );
-      return rows.map(mapSubmissionMaterial);
+      return {
+        items: result.rows.map(mapSubmissionMaterial),
+        total: result.total,
+      };
     },
     findSubmissionItem: find,
     async consumeSubmissionItem(input: {
@@ -517,30 +572,136 @@ function submissionInventoryAdapter(q: DbExecutor | DbTransaction) {
       quantity: number;
     }) {
       if (!('rollback' in q)) throw new Error('宗门物品提交必须在事务中执行');
-      if (input.kind === 'pill')
-        return organization.consumeOwnedSubmissionConsumable(
-          input.cultivatorId,
-          input.itemId,
-          input.quantity,
-          q,
-        );
-      if (input.kind === 'artifact')
-        return organization.consumeOwnedSubmissionArtifact(
-          input.cultivatorId,
-          input.itemId,
-          q,
-        );
-      return organization.consumeOwnedSubmissionMaterial(
-        input.cultivatorId,
-        input.itemId,
-        input.quantity,
+      const consumed =
+        input.kind === 'pill'
+          ? await organization.consumeOwnedSubmissionConsumable(
+              input.cultivatorId,
+              input.itemId,
+              input.quantity,
+              q,
+            )
+          : input.kind === 'artifact'
+            ? await organization.consumeOwnedSubmissionArtifact(
+                input.cultivatorId,
+                input.itemId,
+                q,
+              )
+            : await organization.consumeOwnedSubmissionMaterial(
+                input.cultivatorId,
+                input.itemId,
+                input.quantity,
+                q,
+              );
+      if (!consumed) return { consumed: false };
+      const change = await buildSubmissionInventoryChange(
         q,
+        input.kind,
+        input.itemId,
       );
+      return inventorySettlement(true, change, input.itemId);
     },
   };
 }
 
-function rewardAdapter(q: DbExecutor | DbTransaction, userId: string) {
+function inventorySettlement(
+  consumed: boolean,
+  change: Awaited<ReturnType<typeof buildSubmissionInventoryChange>>,
+  itemId: string,
+) {
+  if (!consumed) return { consumed: false };
+  return {
+    consumed: true,
+    change,
+    settlement: {
+      topic: change.resourceTopic,
+      itemId,
+      remainingQuantity:
+        change.operation === 'upsert-items'
+          ? Number(
+              (change.payload.items[0] as { quantity?: number })?.quantity ?? 1,
+            )
+          : 0,
+      removed: change.operation === 'remove-items',
+    },
+  };
+}
+
+async function buildSubmissionInventoryChange(
+  q: DbTransaction,
+  kind: SectSubmissionItemKind,
+  itemId: string,
+): Promise<
+  ResourceChangeDescriptor<
+    'inventory.artifacts' | 'inventory.materials' | 'inventory.consumables'
+  >
+> {
+  if (kind === 'pill') {
+    const [row] = await q
+      .select()
+      .from(consumables)
+      .where(eq(consumables.id, itemId))
+      .limit(1);
+    return row
+      ? {
+          resourceTopic: 'inventory.consumables',
+          eventType: 'sect.task_inventory_item_updated',
+          operation: 'upsert-items',
+          payload: { items: [mapConsumableRow(row)], idKey: 'id' },
+        }
+      : {
+          resourceTopic: 'inventory.consumables',
+          eventType: 'sect.task_inventory_item_removed',
+          operation: 'remove-items',
+          payload: { ids: [itemId], idKey: 'id' },
+        };
+  }
+  if (kind === 'artifact') {
+    const [row] = await q
+      .select()
+      .from(creationProducts)
+      .where(eq(creationProducts.id, itemId))
+      .limit(1);
+    return row
+      ? {
+          resourceTopic: 'inventory.artifacts',
+          eventType: 'sect.task_inventory_item_updated',
+          operation: 'upsert-items',
+          payload: {
+            items: [mapArtifactRow(toArtifactFromProduct(row))],
+            idKey: 'id',
+          },
+        }
+      : {
+          resourceTopic: 'inventory.artifacts',
+          eventType: 'sect.task_inventory_item_removed',
+          operation: 'remove-items',
+          payload: { ids: [itemId], idKey: 'id' },
+        };
+  }
+  const [row] = await q
+    .select()
+    .from(materials)
+    .where(eq(materials.id, itemId))
+    .limit(1);
+  return row
+    ? {
+        resourceTopic: 'inventory.materials',
+        eventType: 'sect.task_inventory_item_updated',
+        operation: 'upsert-items',
+        payload: { items: [mapMaterialRow(row)], idKey: 'id' },
+      }
+    : {
+        resourceTopic: 'inventory.materials',
+        eventType: 'sect.task_inventory_item_removed',
+        operation: 'remove-items',
+        payload: { ids: [itemId], idKey: 'id' },
+      };
+}
+
+function rewardAdapter(
+  q: DbExecutor | DbTransaction,
+  userId: string,
+) {
   return {
     async grantContribution(
       membershipId: string,
@@ -549,17 +710,39 @@ function rewardAdapter(q: DbExecutor | DbTransaction, userId: string) {
       referenceId: string,
     ) {
       if (!('rollback' in q)) throw new Error('宗门奖励必须在事务中执行');
-      await organization.addSectContribution(
+      const balance = await organization.addSectContribution(
         membershipId,
         amount,
         reason,
         referenceId,
         q,
       );
+      const effects = emptySectCommandEffects();
+      effects.settlement.contribution = balance;
+      effects.resourceChanges.push({
+        resourceTopic: 'sect.membership',
+        eventType: 'sect.task_contribution_settled',
+        operation: 'merge',
+        payload: { contribution: balance },
+      });
+      return { value: balance, effects };
     },
     async grantSpiritStones(cultivatorId: string, amount: number) {
       if (!('rollback' in q)) throw new Error('宗门奖励必须在事务中执行');
-      await organization.addCultivatorSpiritStones(cultivatorId, amount, q);
+      const balance = await organization.addCultivatorSpiritStones(
+        cultivatorId,
+        amount,
+        q,
+      );
+      const effects = emptySectCommandEffects();
+      effects.settlement.spiritStones = balance;
+      effects.resourceChanges.push({
+        resourceTopic: 'player.currency',
+        eventType: 'sect.task_currency_settled',
+        operation: 'merge',
+        payload: { spiritStones: balance },
+      });
+      return { value: balance, effects };
     },
     async grantCultivationExp(
       _userId: string,
@@ -567,14 +750,41 @@ function rewardAdapter(q: DbExecutor | DbTransaction, userId: string) {
       amount: number,
     ) {
       if (!('rollback' in q)) throw new Error('宗门奖励必须在事务中执行');
-      await updateCultivationExp(userId, cultivatorId, amount, undefined, q);
+      const progress = await updateCultivationExp(
+        userId,
+        cultivatorId,
+        amount,
+        undefined,
+        q,
+      );
+      const effects = emptySectCommandEffects();
+      effects.settlement.cultivationProgress = progress;
+      effects.resourceChanges.push({
+        resourceTopic: 'player.progress',
+        eventType: 'sect.task_progress_settled',
+        operation: 'replace',
+        payload: progress,
+      });
+      return { value: progress, effects };
     },
     async grantMaterial(
       cultivatorId: string,
-      input: Parameters<typeof addMaterialStackToInventory>[1],
+      input: Parameters<typeof addMaterialToInventoryInTransaction>[1],
     ) {
       if (!('rollback' in q)) throw new Error('宗门奖励必须在事务中执行');
-      await addMaterialStackToInventory(cultivatorId, input, q);
+      const material = await addMaterialToInventoryInTransaction(
+        cultivatorId,
+        input,
+        q,
+      );
+      const effects = emptySectCommandEffects();
+      effects.resourceChanges.push({
+        resourceTopic: 'inventory.materials',
+        eventType: 'sect.reward_material_granted',
+        operation: 'upsert-items',
+        payload: { idKey: 'id', items: [material] },
+      });
+      return effects;
     },
     async grantPill(
       _userId: string,
@@ -582,12 +792,20 @@ function rewardAdapter(q: DbExecutor | DbTransaction, userId: string) {
       input: Omit<Parameters<typeof addConsumableToInventory>[2], 'type'>,
     ) {
       if (!('rollback' in q)) throw new Error('宗门奖励必须在事务中执行');
-      await addConsumableToInventory(
+      const consumable = await addConsumableToInventory(
         userId,
         cultivatorId,
         { ...input, type: '丹药' },
         q,
       );
+      const effects = emptySectCommandEffects();
+      effects.resourceChanges.push({
+        resourceTopic: 'inventory.consumables',
+        eventType: 'sect.reward_consumable_granted',
+        operation: 'upsert-items',
+        payload: { idKey: 'id', items: [consumable] },
+      });
+      return effects;
     },
   };
 }
@@ -612,14 +830,12 @@ function economyAdapter(q: DbExecutor | DbTransaction) {
       referenceId: string,
     ) {
       if (!('rollback' in q)) throw new Error('宗门贡献消费必须在事务中执行');
-      return (
-        (await organization.spendSectContribution(
-          membershipId,
-          amount,
-          reason,
-          referenceId,
-          q,
-        )) !== null
+      return organization.spendSectContribution(
+        membershipId,
+        amount,
+        reason,
+        referenceId,
+        q,
       );
     },
     async recordPurchase(
@@ -733,7 +949,7 @@ function constructionAdapter(q: DbExecutor | DbTransaction) {
       referenceId: string,
     ) {
       if (!('rollback' in q)) throw new Error('宗门贡献发放必须在事务中执行');
-      await organization.addSectContribution(
+      return organization.addSectContribution(
         membershipId,
         amount,
         reason,
@@ -894,8 +1110,8 @@ export function createPostgresSectCommandContext(args: {
     cultivators: {
       async loadRuntime(cultivatorId) {
         return (
-          (await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId, tx))
-            ?.cultivator ?? null
+          (await loadCultivatorCombatInput(cultivatorId, tx))?.cultivator ??
+          null
         );
       },
       findMirrorCultivatorId: (sectId, excludeCultivatorId) =>

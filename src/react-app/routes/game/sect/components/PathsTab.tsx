@@ -1,5 +1,8 @@
 import { SectAbilityDetails } from '@app/components/feature/sect/SectAbilityDetails';
-import { useSectPresentation } from '@app/components/feature/sect/SectQueryProvider';
+import {
+  getSectPresentationForContext,
+  useSectContextQuery,
+} from '@app/components/feature/sect/sectResources';
 import {
   InkButton,
   InkCard,
@@ -7,9 +10,11 @@ import {
   InkNotice,
   InkTabs,
 } from '@app/components/ui';
-import { useActiveCultivatorProfile } from '@app/lib/player-state/selectors';
+import {
+  useCultivatorCurrency,
+  useCultivatorProgress,
+} from '@app/lib/resources/player';
 import { getRealmStageRank } from '@shared/config/realmProgression';
-import type { SectCurrentData } from '@shared/contracts/sect';
 import {
   getPathProgress,
   isMeridianLayerAvailable,
@@ -23,6 +28,7 @@ import {
 import { resolveSectPathPreview } from '@shared/engine/sect/content';
 import type { RealmStage, RealmType } from '@shared/types/constants';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { SectProgressionWorkspaceData } from './MethodsTab';
 import {
   createMeridianDrafts,
   getMeridianFooterAction,
@@ -75,7 +81,7 @@ export function PathsTab({
   stage,
   onDirtyChange,
 }: {
-  data: SectCurrentData;
+  data: SectProgressionWorkspaceData;
   busy: boolean;
   action: SectAction;
   realm: RealmType;
@@ -182,9 +188,11 @@ function PathDrawer({
   onClose: () => void;
   onDirtyChange?(dirty: boolean): void;
 }) {
-  const presentation = useSectPresentation();
+  const context = useSectContextQuery();
+  const presentation = getSectPresentationForContext(context.data);
   const terms = presentation.terms;
-  const cultivator = useActiveCultivatorProfile();
+  const progressQuery = useCultivatorProgress();
+  const currencyQuery = useCultivatorCurrency();
   const [tab, setTab] = useState<DrawerTab>('changes');
   const [expandedAbilityId, setExpandedAbilityId] = useState<string | null>(
     null,
@@ -239,19 +247,7 @@ function PathDrawer({
   const realmLocked =
     getRealmStageRank(realm, stage) <
     getRealmStageRank(path.minRealm, path.minRealmStage);
-  const cultivationExp = cultivator?.cultivation_progress?.cultivation_exp ?? 0;
-  const comprehensionInsight =
-    cultivator?.cultivation_progress?.comprehension_insight ?? 0;
-  const spiritStones = cultivator?.spirit_stones ?? 0;
   const nextLayer = progress.nextLayer;
-  const unlockDisabledReason = getUnlockDisabledReason({
-    layer: nextLayer,
-    nextLayerAvailable: progress.nextLayerAvailable,
-    missingRequirements: progress.missingRequirements,
-    cultivationExp,
-    comprehensionInsight,
-    spiritStones,
-  });
   const anyDirty = hasDirtyMeridianDraft(drafts, saved);
   useEffect(() => {
     onDirtyChange?.(anyDirty);
@@ -270,6 +266,28 @@ function PathDrawer({
         activeSlot: state.activeMeridianSlot,
       })
     : undefined;
+
+  if (!progressQuery.data || !currencyQuery.data) {
+    return (
+      <InkDetailDrawer isOpen onClose={onClose} title={path.name}>
+        <InkNotice>
+          {progressQuery.error ?? currencyQuery.error ?? '正在读取修炼资源……'}
+        </InkNotice>
+      </InkDetailDrawer>
+    );
+  }
+
+  const cultivationExp = Number(progressQuery.data.cultivation_exp);
+  const comprehensionInsight = Number(progressQuery.data.comprehension_insight);
+  const spiritStones = currencyQuery.data.spiritStones;
+  const unlockDisabledReason = getUnlockDisabledReason({
+    layer: nextLayer,
+    nextLayerAvailable: progress.nextLayerAvailable,
+    missingRequirements: progress.missingRequirements,
+    cultivationExp,
+    comprehensionInsight,
+    spiritStones,
+  });
 
   const requestClose = () => {
     if (anyDirty) setDiscardConfirm(true);
@@ -540,8 +558,7 @@ function PathDrawer({
             )}
           </section>
 
-          {state &&
-          StandardSectRules.enabledMeridianLoadoutSlots.length > 1 ? (
+          {state && StandardSectRules.enabledMeridianLoadoutSlots.length > 1 ? (
             <InkTabs
               items={StandardSectRules.enabledMeridianLoadoutSlots.map(
                 (value) => ({
@@ -587,9 +604,7 @@ function PathDrawer({
                             <button
                               type="button"
                               key={node.id}
-                              disabled={
-                                !available || busy || selectionLocked
-                              }
+                              disabled={!available || busy || selectionLocked}
                               onClick={() => {
                                 setDiscardConfirm(false);
                                 setConfirmSave(false);

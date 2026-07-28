@@ -1,20 +1,16 @@
-import { requireActiveCultivator } from '@server/lib/hono/middleware';
+import { requireActiveCultivatorRef } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
 import {
   LockAcquisitionError,
   RedisLeaseLostError,
-  redisLockKeys,
-  withRedisLock,
 } from '@server/lib/redis/lock';
 import {
   ManualDrawService,
   ManualDrawServiceError,
 } from '@server/lib/services/ManualDrawService';
-import {
-  commitPlayerStateMutation,
-  toPlayerStateMutationResponse,
-} from '@server/lib/services/PlayerStateMutationService';
+import { performManualDrawCommand } from '@server/lib/services/ManualDrawApplicationService';
+import { toPlayerStateMutationResponse } from '@server/lib/services/ResourceMutationResponse';
 import { MANUAL_DRAW_KIND_VALUES } from '@shared/types/manualDraw';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -26,9 +22,9 @@ const DrawSchema = z.object({
 
 const router = new Hono<AppEnv>();
 
-router.post('/', requireActiveCultivator(), async (c) => {
+router.post('/', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ success: false, error: '未授权访问' }, 401);
   }
@@ -39,50 +35,13 @@ router.post('/', requireActiveCultivator(), async (c) => {
       return c.json({ success: false, error: '请求参数格式错误' }, 400);
     }
 
-    return await withRedisLock(
-      {
-        key: redisLockKeys.cultivatorMutation(cultivator.id),
-        context: 'manual-draw',
-        timeoutMs: 60_000,
-        renewEveryMs: 20_000,
-        retries: 0,
-      },
-      async (lease) => {
-        const prepared = await ManualDrawService.prepareDraw(
-          cultivator.id,
-          parsed.data.kind,
-          parsed.data.count,
-        );
-        lease.assertHeld();
-
-        const committed = await commitPlayerStateMutation({
-          coordination: { mode: 'redis', lease },
-          userId: user.id,
-          cultivatorId: cultivator.id,
-          source: 'manual_draw',
-          run: async (tx) => {
-            const result = await ManualDrawService.commitPreparedDraw(
-              user.id,
-              cultivator.id,
-              prepared,
-              tx,
-            );
-            return {
-              result,
-              changes: [
-                {
-                  domain: 'loadout',
-                  eventType: 'loadout.manual_draw.completed',
-                  invalidates: ['loadout'],
-                },
-              ],
-            };
-          },
-        });
-
-        return c.json(toPlayerStateMutationResponse(committed));
-      },
-    );
+    const committed = await performManualDrawCommand({
+      userId: user.id,
+      cultivatorId: cultivator.cultivatorId,
+      kind: parsed.data.kind,
+      count: parsed.data.count,
+    });
+    return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
     if (
       error instanceof LockAcquisitionError ||
@@ -102,14 +61,14 @@ router.post('/', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.get('/status', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.get('/status', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ success: false, error: '当前没有活跃角色' }, 404);
   }
 
   try {
-    const status = await ManualDrawService.getStatus(cultivator.id);
+    const status = await ManualDrawService.getStatus(cultivator.cultivatorId);
     return c.json({
       success: true,
       data: status,

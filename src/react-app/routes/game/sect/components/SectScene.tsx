@@ -1,8 +1,9 @@
 /* eslint-disable react-refresh/only-export-components -- scene components and their tightly coupled hooks share one private module */
 import {
-  useSectCurrentQuery,
-  useSectPresentation,
-} from '@app/components/feature/sect/SectQueryProvider';
+  getSectDefinition,
+  getSectPresentationForContext,
+  useSectContextQuery,
+} from '@app/components/feature/sect/sectResources';
 import {
   GameSceneFrame,
   GameSceneLoading,
@@ -10,7 +11,7 @@ import {
 } from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton } from '@app/components/ui';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { formatDocumentTitle } from '@app/lib/router/routeTitle';
 import {
   SECT_RANK_LABELS,
@@ -138,11 +139,11 @@ export function SectPermissionBoundary({
   sceneKey: SectSceneKey;
   children: ReactNode;
 }) {
-  const { data, error, retry } = useSectCurrentQuery();
-  const presentation = useSectPresentation();
+  const { data, error, retry } = useSectContextQuery();
+  const presentation = getSectPresentationForContext(data);
   if (error) return <SectQueryError error={error} retry={() => void retry()} />;
   if (!data) return <SectPageLoading sceneKey={sceneKey} />;
-  const access = data.overview?.permissions[permission];
+  const access = data.permissions[permission];
   if (!access?.granted)
     return (
       <SectScene
@@ -159,19 +160,15 @@ export function SectPermissionBoundary({
   return children;
 }
 
-export function useSectMutation(onDone?: () => Promise<unknown> | unknown) {
+export function useSectMutation() {
   const [busy, setBusy] = useState(false);
-  const { mutate } = usePlayerStateActions();
+  const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
-  const sectQuery = useSectCurrentQuery();
-  const invalidateSect = sectQuery.invalidate;
   const run = useCallback(
     async <T,>(url: string, init: RequestInit, successMessage: string) => {
       setBusy(true);
       try {
         const result = await mutate<T>(fetch(url, init));
-        await onDone?.();
-        await invalidateSect();
         pushToast({ message: successMessage, tone: 'success' });
         return result;
       } catch (reason) {
@@ -184,7 +181,7 @@ export function useSectMutation(onDone?: () => Promise<unknown> | unknown) {
         setBusy(false);
       }
     },
-    [invalidateSect, mutate, onDone, pushToast],
+    [mutate, pushToast],
   );
   return { busy, run };
 }
@@ -205,8 +202,8 @@ export function SectScene({
   mood?: SectSceneMood;
 }) {
   const navigate = useNavigate();
-  const sectQuery = useSectCurrentQuery();
-  const presentation = useSectPresentation();
+  const sectQuery = useSectContextQuery();
+  const presentation = getSectPresentationForContext(sectQuery.data);
   const scene = presentation.scenes[sceneKey];
   const atmosphere = moodStyles[mood];
   return (
@@ -241,7 +238,9 @@ export function SectScene({
             aria-hidden="true"
             className="text-ink-secondary/50 text-xs tracking-[0.35em]"
           >
-            {sectQuery.data?.definition?.name ?? '宗门内景'}
+            {sectQuery.data
+              ? getSectDefinition(sectQuery.data).name
+              : '宗门内景'}
           </span>
         </div>
         <div className="relative space-y-6">{children}</div>
@@ -251,7 +250,8 @@ export function SectScene({
 }
 
 export function SectPageLoading({ sceneKey }: { sceneKey?: SectSceneKey }) {
-  const presentation = useSectPresentation();
+  const context = useSectContextQuery();
+  const presentation = getSectPresentationForContext(context.data);
   return (
     <GameSceneLoading
       message={

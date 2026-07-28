@@ -57,18 +57,19 @@ import type {
   RealmType,
 } from '@shared/types/constants';
 import type { Material, PreHeavenFate } from '@shared/types/cultivator';
+import type { ResourceOperationSettlement } from '@shared/engine/resource/types';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { getPlayerRuntimeCultivatorByIdUnsafe } from './cultivatorService';
+import {
+  getCultivatorPreHeavenFates,
+} from '@server/lib/services/cultivator/CultivatorProfileRepository';
 import { getMysteryMaterialBlockingReason } from './materialMysteryGuard';
 import { sectOrganizationFacade } from './sect-organization';
+import {
+  mapMaterialRow,
+} from './cultivator/CultivatorInventoryRepository';
+import { toArtifactFromProduct } from './creationProductArtifactSupport';
 
-/**
- * processCreation 时的玩家侧可选入参。
- *
- * 设计原则：只开放“玩家必须主动决定”的旋钮，其它（元素倾向 / 语义标签 / LLM 命名是否开启）
- * 一律由材料与引擎决定，避免把复杂的引擎配置暴露给终端玩家。
- */
-export interface ProcessCreationOptions {
+type CreationPreparationOptions = {
   /** 每个材料本次炼制实际消耗数量，未传则默认 1。会被夹紧到 [1, maxQuantityPerMaterial]。 */
   materialQuantities?: Record<string, number>;
   /** 玩家自由书写的命名/风格提示，仅影响 LLM 命名文案，不改变数值。 */
@@ -81,9 +82,7 @@ export interface ProcessCreationOptions {
     scope: 'single' | 'aoe' | 'random';
     maxTargets?: number;
   };
-  tx?: DbTransaction;
-  deferSideEffects?: boolean;
-}
+};
 
 export class CreationServiceError extends Error {
   constructor(
@@ -119,10 +118,6 @@ export interface CreationV2Result {
   maxCount?: number;
 }
 
-type CreationV2ServiceResult = CreationV2Result & {
-  afterCommit?: () => Promise<void>;
-};
-
 type PendingCreationPayload = {
   snapshot: string;
   previewName?: string;
@@ -139,6 +134,7 @@ const PENDING_CREATION_TTL_SECONDS = 3600;
 export interface PreparedCreationV2 {
   commit(tx: DbTransaction): Promise<{
     result: CreationV2Result;
+    inventoryChanges: ResourceOperationSettlement['inventoryChanges'];
     afterCommit?: () => Promise<void>;
   }>;
 }
@@ -394,9 +390,7 @@ function buildCreationPreviewValidation(
 
 function getEffectiveProductLimit(
   productType: CreationProductType,
-  cultivator: unknown,
 ): number | null {
-  void cultivator;
   if (productType === 'skill') return DEFAULT_MAX_ACTIVE_SKILLS;
   if (productType === 'gongfa') return MAX_EQUIPPED_GONGFA;
   return null;
@@ -525,7 +519,7 @@ export async function prepareCreation(
   cultivatorId: string,
   materialIds: string[],
   craftType: string,
-  options: Omit<ProcessCreationOptions, 'tx' | 'deferSideEffects'> = {},
+  options: CreationPreparationOptions = {},
 ): Promise<PreparedCreationV2> {
   const productType = getCreationProductTypeFromCraftType(craftType);
   if (!productType) {
@@ -559,7 +553,14 @@ export async function prepareCreation(
 
   // 3. 加载角色（用于资源校验和容量检查）
   const [cultivator] = await q
-    .select()
+    .select({
+      userId: cultivators.userId,
+      name: cultivators.name,
+      realm: cultivators.realm,
+      realm_stage: cultivators.realm_stage,
+      spirit_stones: cultivators.spirit_stones,
+      cultivation_progress: cultivators.cultivation_progress,
+    })
     .from(cultivators)
     .where(eq(cultivators.id, cultivatorId))
     .limit(1);
@@ -568,13 +569,11 @@ export async function prepareCreation(
     throw new CreationServiceError('道友查无此人', 404);
   }
 
-  const fullCultivator = await getPlayerRuntimeCultivatorByIdUnsafe(
+  const preHeavenFates = await getCultivatorPreHeavenFates(
     cultivatorId,
     q,
   );
-  const fateContext = evaluateFateContext(
-    fullCultivator?.cultivator.pre_heaven_fates ?? [],
-  );
+  const fateContext = evaluateFateContext(preHeavenFates);
 
   // 4. 计算资源消耗
   const highestMaterialRank = calculateHighestMaterialRank(
@@ -692,6 +691,8 @@ export async function prepareCreation(
 
   return {
     async commit(tx: DbTransaction) {
+      const inventoryChanges: ResourceOperationSettlement['inventoryChanges'] =
+        [];
       const commitRow = { ...row };
       const stableMaterialIds = [...materialIds].sort();
       const currentRows = await loadOwnedMaterials(
@@ -786,13 +787,18 @@ export async function prepareCreation(
                 eq(materials.quantity, expected.quantity),
               ),
             )
-            .returning({ id: materials.id });
+            .returning();
           if (updated.length !== 1) {
             throw new CreationServiceError(
               '材料已发生变化，请重新确认造物。',
               409,
             );
           }
+          inventoryChanges.push({
+            kind: 'materials',
+            operation: 'upsert',
+            item: mapMaterialRow(updated[0]),
+          });
         } else {
           const deleted = await tx
             .delete(materials)
@@ -810,6 +816,11 @@ export async function prepareCreation(
               409,
             );
           }
+          inventoryChanges.push({
+            kind: 'materials',
+            operation: 'remove',
+            id,
+          });
         }
       }
 
@@ -828,10 +839,7 @@ export async function prepareCreation(
         maxCount = MAX_OWNED_CREATION_PRODUCTS_PER_TYPE;
         needsReplace = currentCount >= maxCount;
 
-        const effectiveLimit = getEffectiveProductLimit(
-          productType,
-          cultivator,
-        );
+        const effectiveLimit = getEffectiveProductLimit(productType);
         const equippedCount =
           await creationProductRepository.countEquippedByType(
             cultivatorId,
@@ -862,6 +870,13 @@ export async function prepareCreation(
       } else {
         const record = await creationProductRepository.insert(commitRow, tx);
         insertedId = record.id;
+        if (productType === 'artifact') {
+          inventoryChanges.push({
+            kind: 'artifacts',
+            operation: 'upsert',
+            item: toArtifactFromProduct(record),
+          });
+        }
       }
 
       const result = needsReplace
@@ -872,32 +887,8 @@ export async function prepareCreation(
             maxCount,
           }
         : buildCreationResult(outcome, commitRow, insertedId);
-      return { result, afterCommit };
+      return { result, inventoryChanges, afterCommit };
     },
-  };
-}
-
-export async function processCreation(
-  cultivatorId: string,
-  materialIds: string[],
-  craftType: string,
-  options: ProcessCreationOptions = {},
-): Promise<CreationV2ServiceResult> {
-  const prepared = await prepareCreation(
-    cultivatorId,
-    materialIds,
-    craftType,
-    options,
-  );
-  const committed = options.tx
-    ? await prepared.commit(options.tx)
-    : await getExecutor().transaction((tx) => prepared.commit(tx));
-  if (committed.afterCommit && !options.deferSideEffects) {
-    await committed.afterCommit();
-  }
-  return {
-    ...committed.result,
-    afterCommit: options.deferSideEffects ? committed.afterCommit : undefined,
   };
 }
 
@@ -938,8 +929,10 @@ export async function prepareCreationConfirmation(
 
   return {
     async commit(tx: DbTransaction) {
+      const inventoryChanges: ResourceOperationSettlement['inventoryChanges'] =
+        [];
       const [cultivator] = await tx
-        .select()
+        .select({ id: cultivators.id })
         .from(cultivators)
         .where(eq(cultivators.id, cultivatorId))
         .limit(1);
@@ -963,6 +956,13 @@ export async function prepareCreationConfirmation(
         }
         replacedWasEquipped = existing.isEquipped;
         await creationProductRepository.deleteById(replaceId, tx);
+        if (productType === 'artifact') {
+          inventoryChanges.push({
+            kind: 'artifacts',
+            operation: 'remove',
+            id: replaceId,
+          });
+        }
       }
 
       if (isEquipManagedProductType(productType)) {
@@ -981,10 +981,7 @@ export async function prepareCreationConfirmation(
           );
         }
 
-        const effectiveLimit = getEffectiveProductLimit(
-          productType,
-          cultivator,
-        );
+        const effectiveLimit = getEffectiveProductLimit(productType);
         const equippedCount =
           await creationProductRepository.countEquippedByType(
             cultivatorId,
@@ -1004,40 +1001,22 @@ export async function prepareCreationConfirmation(
 
       const record = await creationProductRepository.insert(row, tx);
       const insertedId = record.id;
+      if (productType === 'artifact') {
+        inventoryChanges.push({
+          kind: 'artifacts',
+          operation: 'upsert',
+          item: toArtifactFromProduct(record),
+        });
+      }
 
       return {
         result: buildCreationResult(outcome, row, insertedId),
+        inventoryChanges,
         afterCommit: async () => {
           await cachePendingCreation(cultivatorId, craftType, null);
         },
       };
     },
-  };
-}
-
-/**
- * 确认替换：将 Redis 暂存的产物写入 DB，可选先删除一条旧产物。
- */
-export async function confirmCreation(
-  cultivatorId: string,
-  craftType: string,
-  replaceId: string | null,
-  options: { tx?: DbTransaction; deferSideEffects?: boolean } = {},
-): Promise<CreationV2ServiceResult> {
-  const prepared = await prepareCreationConfirmation(
-    cultivatorId,
-    craftType,
-    replaceId,
-  );
-  const committed = options.tx
-    ? await prepared.commit(options.tx)
-    : await getExecutor().transaction((tx) => prepared.commit(tx));
-  if (!options.deferSideEffects) {
-    await committed.afterCommit();
-  }
-  return {
-    ...committed.result,
-    afterCommit: options.deferSideEffects ? committed.afterCommit : undefined,
   };
 }
 

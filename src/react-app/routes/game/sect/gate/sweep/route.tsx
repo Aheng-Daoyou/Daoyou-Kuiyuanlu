@@ -1,8 +1,8 @@
 import {
-  useSectCurrentQuery,
-  useSectPresentation,
-  useSectResourceQuery,
-} from '@app/components/feature/sect/SectQueryProvider';
+  getSectPresentationForContext,
+  useSectContextQuery,
+  useSectTasksQuery,
+} from '@app/components/feature/sect/sectResources';
 import { createSectRoomNpcHref } from '@app/components/feature/sect/sectRoomNavigation';
 import {
   decodeSectTaskOutcome,
@@ -10,8 +10,7 @@ import {
 } from '@app/components/feature/sect/sectTaskOutcomeRegistry';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkNotice } from '@app/components/ui';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
-import { fetchSectTasks } from '@app/lib/sect/sectClient';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type {
   SectSweepSessionData,
   SectTaskActionData,
@@ -91,14 +90,10 @@ export default function SectGateSweepPage() {
   const controllerRef = useRef<SweepPhaserController | undefined>(undefined);
   const startedRef = useRef(false);
   const navigate = useNavigate();
-  const {
-    data: taskData,
-    error: taskError,
-    reload: reloadTasks,
-  } = useSectResourceQuery('tasks', fetchSectTasks);
-  const { invalidate: invalidateCurrent } = useSectCurrentQuery();
-  const presentation = useSectPresentation();
-  const { mutate } = usePlayerStateActions();
+  const context = useSectContextQuery();
+  const { data: taskData, error: taskError } = useSectTasksQuery();
+  const presentation = getSectPresentationForContext(context.data);
+  const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
   const portraitBlocked = useSweepLandscapeGate();
   const [session, setSession] = useState<ActiveSweepSession>();
@@ -190,7 +185,6 @@ export default function SectGateSweepPage() {
             ),
           ),
         );
-        await Promise.all([reloadTasks(), invalidateCurrent()]);
         setSettlement({ kind: 'reward' });
         pushToast({
           message: `「${session.task.presentation.title}」已完成`,
@@ -204,7 +198,7 @@ export default function SectGateSweepPage() {
         setSubmitting(false);
       }
     },
-    [invalidateCurrent, mutate, pushToast, reloadTasks, session],
+    [mutate, pushToast, session],
   );
 
   useEffect(() => {
@@ -248,8 +242,7 @@ export default function SectGateSweepPage() {
 
   const newGame = async () => {
     startedRef.current = true;
-    const refreshed = await reloadTasks();
-    await beginSession(refreshed ?? taskData);
+    await beginSession(taskData);
   };
 
   const retryImmersive = async () => {

@@ -5,25 +5,30 @@ import {
   type NpcConversationOption,
 } from '@app/components/feature/room';
 import {
-  useSectCurrentQuery,
-  useSectPresentation,
-  useSectResourceQuery,
-} from '@app/components/feature/sect/SectQueryProvider';
-import {
   SectNpcConversationRegistry,
   SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
+import {
+  getSectPresentationForContext,
+  useSectConstructionBoardQuery,
+  useSectConstructionMemberQuery,
+  useSectContextQuery,
+  useSectInfrastructureQuery,
+} from '@app/components/feature/sect/sectResources';
 import { InkButton, InkSelect } from '@app/components/ui';
 import {
-  useInventorySnapshot,
-  useProductsSnapshot,
-} from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
-import { fetchSectConstruction } from '@app/lib/sect/sectClient';
+  inventoryArtifactsResource,
+  inventoryConsumablesResource,
+  inventoryMaterialsResource,
+} from '@app/lib/resources/definitions';
+import { useResource } from '@app/lib/resources/hooks';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type {
-  SectConstructionData,
+  SectConstructionBoardData,
+  SectConstructionMemberData,
   SectDonationDemandData,
+  SectInfrastructureData,
 } from '@shared/contracts/sect';
 import {
   ArtifactDeliverySpecification,
@@ -33,7 +38,8 @@ import {
   STANDARD_SECT_PRESENTATION,
 } from '@shared/engine/sect';
 import { QUALITY_ORDER, type Quality } from '@shared/types/constants';
-import { useState } from 'react';
+import type { Artifact, Consumable, Material } from '@shared/types/cultivator';
+import { useMemo, useState } from 'react';
 import {
   postJson,
   SectPermissionBoundary,
@@ -69,23 +75,29 @@ function ConstructionConversation({
   actor,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const construction = useSectResourceQuery(
-    'construction',
-    fetchSectConstruction,
-  );
-  const current = useSectCurrentQuery();
-  const presentation = useSectPresentation();
+  const context = useSectContextQuery();
+  const infrastructure = useSectInfrastructureQuery();
+  const board = useSectConstructionBoardQuery();
+  const member = useSectConstructionMemberQuery();
+  const presentation = getSectPresentationForContext(context.data);
   const [topic, setTopic] = useState<'project' | 'facilities' | 'activity'>();
+  const data = useMemo(
+    () =>
+      infrastructure.data && board.data && member.data
+        ? {
+            ...infrastructure.data,
+            ...board.data,
+            ...member.data,
+          }
+        : undefined,
+    [board.data, infrastructure.data, member.data],
+  );
   const session = useConversationSession({
     sessionKey: actor.id,
-    snapshot: construction.data,
-    load: async () => {
-      await Promise.all([construction.reload(), current.reload()]);
-    },
+    snapshot: data,
     perform: async () => undefined,
     onReset: () => setTopic(undefined),
   });
-  const data = construction.data;
   const messages: NpcConversationMessage[] = [
     { id: 'greeting', speaker: actor.name, body: actor.greeting },
   ];
@@ -156,7 +168,9 @@ function ConstructionConversation({
         { id: 'leave', label: '弟子告退', tone: 'muted' },
       ]}
       busy={session.phase === 'loading'}
-      error={session.error ?? construction.error ?? current.error}
+      error={
+        session.error ?? infrastructure.error ?? board.error ?? member.error
+      }
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (
@@ -176,23 +190,62 @@ function DonationConversation({
   actor,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const construction = useSectResourceQuery(
-    'construction',
-    fetchSectConstruction,
-  );
-  const current = useSectCurrentQuery();
-  const inventory = useInventorySnapshot();
-  const products = useProductsSnapshot();
-  const { mutate } = usePlayerStateActions();
+  const infrastructure = useSectInfrastructureQuery();
+  const board = useSectConstructionBoardQuery();
+  const member = useSectConstructionMemberQuery();
+  const { mutate } = useResourceMutation();
   const [selectedDemandId, setSelectedDemandId] = useState<string>();
+  const [materialPage, setMaterialPage] = useState(1);
+  const [consumablePage, setConsumablePage] = useState(1);
+  const [artifactPage, setArtifactPage] = useState(1);
+  const construction = useMemo(
+    () =>
+      infrastructure.data && board.data && member.data
+        ? {
+            ...infrastructure.data,
+            ...board.data,
+            ...member.data,
+          }
+        : undefined,
+    [board.data, infrastructure.data, member.data],
+  );
+  const constructionError = infrastructure.error ?? board.error ?? member.error;
+  const demand = construction?.demands.find(
+    (candidate) => candidate.id === selectedDemandId,
+  );
+  const pageSize = 20;
+  const materialParams = useMemo(
+    () => ({ page: materialPage, pageSize }),
+    [materialPage],
+  );
+  const consumableParams = useMemo(
+    () => ({ page: consumablePage, pageSize }),
+    [consumablePage],
+  );
+  const artifactParams = useMemo(
+    () => ({ page: artifactPage, pageSize }),
+    [artifactPage],
+  );
+  const materials = useResource(
+    inventoryMaterialsResource,
+    materialParams,
+    demand?.kind === 'sect.donation.material',
+  );
+  const consumables = useResource(
+    inventoryConsumablesResource,
+    consumableParams,
+    demand?.kind === 'sect.donation.pill',
+  );
+  const artifacts = useResource(
+    inventoryArtifactsResource,
+    artifactParams,
+    demand?.kind === 'sect.donation.artifact',
+  );
   const session = useConversationSession({
     sessionKey: actor.id,
-    snapshot: construction.data,
-    load: async () => {
-      await Promise.all([construction.reload(), current.reload()]);
-    },
+    snapshot: construction,
     perform: async ({ intent }: { intent: DonationIntent }) => {
-      const demand = construction.data?.demands.find(
+      const demand = construction?.demands.find(
         (candidate) => candidate.id === intent.demandId,
       );
       if (!demand) throw new Error('这项物料需求已经变更。');
@@ -206,16 +259,20 @@ function DonationConversation({
           }),
         ),
       );
-      await Promise.all([construction.reload(), current.reload()]);
       return demand.name;
     },
     onReset: () => setSelectedDemandId(undefined),
   });
-  const demand = construction.data?.demands.find(
-    (candidate) => candidate.id === selectedDemandId,
-  );
+  const activeInventory =
+    demand?.kind === 'sect.donation.material'
+      ? materials
+      : demand?.kind === 'sect.donation.pill'
+        ? consumables
+        : demand?.kind === 'sect.donation.artifact'
+          ? artifacts
+          : undefined;
   const candidates = demand
-    ? donationCandidates(demand, inventory, products)
+    ? donationCandidates(demand, activeInventory?.data?.items ?? [])
     : [];
   const needsItem =
     Boolean(demand) && demand?.kind !== 'sect.donation.spirit-stones';
@@ -226,13 +283,22 @@ function DonationConversation({
         demand={demand}
         candidates={candidates}
         quotaAvailable={
-          construction.data !== undefined &&
-          construction.data.dailyContributionCap -
-            construction.data.donatedContributionToday >=
+          construction !== undefined &&
+          construction.dailyContributionCap -
+            construction.donatedContributionToday >=
             demand.contribution
         }
         busy={session.phase === 'submitting'}
-        error={session.error ?? construction.error ?? current.error}
+        loading={activeInventory?.loading ?? false}
+        error={session.error ?? activeInventory?.error ?? constructionError}
+        pagination={activeInventory?.data?.pagination}
+        onPageChange={(page) => {
+          if (demand.kind === 'sect.donation.material') setMaterialPage(page);
+          else if (demand.kind === 'sect.donation.pill')
+            setConsumablePage(page);
+          else if (demand.kind === 'sect.donation.artifact')
+            setArtifactPage(page);
+        }}
         onBack={() => {
           session.clearResult();
           setSelectedDemandId(undefined);
@@ -251,18 +317,18 @@ function DonationConversation({
   const messages = donationMessages(
     actor.name,
     actor.greeting,
-    construction.data,
+    construction,
     demand,
     session.result,
   );
-  const options = donationOptions(construction.data, demand);
+  const options = donationOptions(construction, demand);
   return (
     <NpcConversation
       actor={actor}
       messages={messages}
       options={options}
       busy={session.phase === 'loading' || session.phase === 'submitting'}
-      error={session.error ?? construction.error ?? current.error}
+      error={session.error ?? constructionError}
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (optionId === 'back') {
@@ -272,8 +338,9 @@ function DonationConversation({
           void session
             .dispatch({ demandId: demand.id })
             .then((result) => result && setSelectedDemandId(undefined));
-        else if (optionId.startsWith('demand:'))
+        else if (optionId.startsWith('demand:')) {
           setSelectedDemandId(optionId.slice(7));
+        }
       }}
     />
   );
@@ -305,15 +372,15 @@ function qualityExceedsMinimum(
 
 function donationCandidates(
   demand: SectDonationDemandData,
-  inventory: ReturnType<typeof useInventorySnapshot>,
-  products: ReturnType<typeof useProductsSnapshot>,
+  items: readonly (Artifact | Material | Consumable)[],
 ): DonationCandidate[] {
   const minimumQuality = (demand.minQuality ?? '凡品') as Quality;
   if (demand.kind === 'sect.donation.material') {
-    return inventory.materials
+    return items
       .filter(
-        (item): item is typeof item & { id: string } =>
+        (item): item is Material & { id: string } =>
           Boolean(item.id) &&
+          'rank' in item &&
           item.type === 'herb' &&
           materialDonationSpecification.violations(item, {
             quantity: demand.quantity,
@@ -334,10 +401,11 @@ function donationCandidates(
       }));
   }
   if (demand.kind === 'sect.donation.pill') {
-    return inventory.consumables
+    return items
       .filter(
-        (item): item is typeof item & { id: string; quality: Quality } =>
+        (item): item is Consumable & { id: string; quality: Quality } =>
           Boolean(item.id) &&
+          'spec' in item &&
           Boolean(item.quality) &&
           pillDonationSpecification.violations(
             { ...item, quality: item.quality ?? '' },
@@ -362,10 +430,11 @@ function donationCandidates(
       }));
   }
   if (demand.kind === 'sect.donation.artifact') {
-    return products.artifacts
+    return items
       .filter(
-        (item): item is typeof item & { id: string; quality: Quality } =>
+        (item): item is Artifact & { id: string; quality: Quality } =>
           Boolean(item.id) &&
+          'slot' in item &&
           Boolean(item.quality) &&
           artifactDonationSpecification.violations(
             {
@@ -394,10 +463,14 @@ function donationCandidates(
   return [];
 }
 
+type SectConstructionViewData = SectInfrastructureData &
+  SectConstructionBoardData &
+  SectConstructionMemberData;
+
 function donationMessages(
   actorName: string,
   greeting: string,
-  data: SectConstructionData | undefined,
+  data: SectConstructionViewData | undefined,
   demand: SectDonationDemandData | undefined,
   result: string | undefined,
 ): NpcConversationMessage[] {
@@ -427,7 +500,7 @@ function donationMessages(
 }
 
 function donationOptions(
-  data: SectConstructionData | undefined,
+  data: SectConstructionViewData | undefined,
   demand: SectDonationDemandData | undefined,
 ): NpcConversationOption[] {
   if (!demand)
@@ -458,7 +531,10 @@ function DonationWorkspace({
   candidates,
   quotaAvailable,
   busy,
+  loading,
   error,
+  pagination,
+  onPageChange,
   onBack,
   onSubmit,
 }: {
@@ -466,7 +542,14 @@ function DonationWorkspace({
   candidates: readonly DonationCandidate[];
   quotaAvailable: boolean;
   busy: boolean;
+  loading: boolean;
   error?: string;
+  pagination?: {
+    page: number;
+    totalPages: number;
+    hasMore: boolean;
+  };
+  onPageChange(page: number): void;
   onBack(): void;
   onSubmit(itemId: string): Promise<void>;
 }) {
@@ -506,8 +589,11 @@ function DonationWorkspace({
           ))}
         </InkSelect>
 
-        {!candidates.length ? (
+        {!loading && !candidates.length ? (
           <p className="text-crimson text-sm">背包中没有符合这项需求的物品。</p>
+        ) : null}
+        {loading ? (
+          <p className="text-ink-secondary text-sm">正在翻检当前页背包……</p>
         ) : null}
         {!quotaAvailable ? (
           <p className="text-crimson text-sm">
@@ -559,6 +645,25 @@ function DonationWorkspace({
             </InkButton>
           )}
         </div>
+        {pagination && pagination.totalPages > 1 ? (
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <InkButton
+              disabled={busy || loading || pagination.page <= 1}
+              onClick={() => onPageChange(pagination.page - 1)}
+            >
+              上一页
+            </InkButton>
+            <span>
+              第 {pagination.page} / {pagination.totalPages} 页
+            </span>
+            <InkButton
+              disabled={busy || loading || !pagination.hasMore}
+              onClick={() => onPageChange(pagination.page + 1)}
+            >
+              下一页
+            </InkButton>
+          </div>
+        ) : null}
       </div>
     </div>
   );

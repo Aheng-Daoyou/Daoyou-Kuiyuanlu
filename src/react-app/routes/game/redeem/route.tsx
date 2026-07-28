@@ -3,12 +3,12 @@ import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkIdentifyCelebration } from '@app/components/ui/InkIdentifyCelebration';
 import { InkInput } from '@app/components/ui/InkInput';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { useState } from 'react';
 
 export default function RedeemCodePage() {
   const { pushToast } = useInkUI();
-  const { mutate } = usePlayerStateActions();
+  const { mutate } = useResourceMutation();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);

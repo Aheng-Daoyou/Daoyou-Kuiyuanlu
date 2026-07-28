@@ -9,7 +9,10 @@ import type {
   SectTaskRewardReceipt,
 } from '@shared/contracts/sect';
 import { useNavigate, useSearchParams } from 'react-router';
-import { useSectPresentation } from './SectQueryProvider';
+import {
+  getSectPresentationForContext,
+  useSectContextQuery,
+} from './sectResources';
 import { createSectRoomNpcHref } from './sectRoomNavigation';
 import {
   createSectTaskBattleHref,
@@ -93,7 +96,8 @@ export function BattleOutcome({
   task,
   data,
 }: SectOutcomeRendererProps<unknown>) {
-  const presentation = useSectPresentation();
+  const context = useSectContextQuery();
+  const presentation = getSectPresentationForContext(context.data);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const attemptId = searchParams.get('attemptId') ?? 'unknown';

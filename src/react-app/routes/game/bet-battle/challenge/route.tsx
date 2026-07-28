@@ -4,7 +4,7 @@ import { useBattlePlaybackState } from '@app/components/feature/battle/useBattle
 import { CombatResultDialog } from '@app/components/feature/battle/v5/CombatResultDialog';
 import { GameImmersiveLoading } from '@app/components/game-shell';
 import { InkButton } from '@app/components/ui/InkButton';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type { BattleRecord } from '@shared/types/battle';
 import { Suspense, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -25,7 +25,7 @@ function BetBattleChallengePageContent() {
   const [error, setError] = useState<string>();
   const [settlement, setSettlement] = useState<SettlementState | null>(null);
   const playback = useBattlePlaybackState(battleResult);
-  const { mutate } = usePlayerStateActions();
+  const { mutate } = useResourceMutation();
 
   const battleId = searchParams.get('battleId');
   const stakeType = searchParams.get('stakeType');

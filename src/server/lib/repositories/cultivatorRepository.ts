@@ -1,79 +1,24 @@
 import { getExecutor, type DbExecutor } from '@server/lib/drizzle/db';
-import type { CreationProductRecord } from '@server/lib/repositories/creationProductRepository';
-import type { RealmStage, RealmType } from '@shared/types/constants';
 import * as schema from '@server/lib/drizzle/schema';
+import type { RealmStage, RealmType } from '@shared/types/constants';
 import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
-import { loadCultivatorSectState } from './sectRepository';
-import type { CultivatorSectState } from '@shared/engine/sect';
 
-export type CultivatorRecord = typeof schema.cultivators.$inferSelect;
-export type SpiritualRootRecord = typeof schema.spiritualRoots.$inferSelect;
-export type PreHeavenFateRecord = typeof schema.preHeavenFates.$inferSelect;
-export type ConsumableRecord = typeof schema.consumables.$inferSelect;
-export type MaterialRecord = typeof schema.materials.$inferSelect;
 export interface CultivatorBreakthroughPillRecord {
-  spec: typeof schema.consumables.$inferSelect.spec;
+  targetRealm: string | null;
   quantity: number;
 }
 
-export interface CultivatorTechniqueQualityRecord {
-  quality: string | null;
-}
-
-export interface CultivatorRelations {
-  spiritualRoots: SpiritualRootRecord[];
-  preHeavenFates: PreHeavenFateRecord[];
-  creationProducts: CreationProductRecord[];
-  consumables: ConsumableRecord[];
-  materials: MaterialRecord[];
-  sect?: CultivatorSectState;
-}
-
-export async function loadCultivatorRelations(
-  q: DbExecutor,
-  cultivatorId: string,
-): Promise<CultivatorRelations> {
-  const spiritualRoots = await q
-    .select()
-    .from(schema.spiritualRoots)
-    .where(eq(schema.spiritualRoots.cultivatorId, cultivatorId));
-  const preHeavenFates = await q
-    .select()
-    .from(schema.preHeavenFates)
-    .where(eq(schema.preHeavenFates.cultivatorId, cultivatorId));
-  const creationProducts = await q
-    .select()
-    .from(schema.creationProducts)
-    .where(eq(schema.creationProducts.cultivatorId, cultivatorId));
-  const consumables = await q
-    .select()
-    .from(schema.consumables)
-    .where(eq(schema.consumables.cultivatorId, cultivatorId));
-  const materials = await q
-    .select()
-    .from(schema.materials)
-    .where(eq(schema.materials.cultivatorId, cultivatorId));
-
-  const sect = await loadCultivatorSectState(cultivatorId, q);
-
-  return {
-    spiritualRoots,
-    preHeavenFates,
-    creationProducts,
-    consumables,
-    materials,
-    sect,
-  };
-}
-
-export async function listCultivatorBreakthroughPills(
+export async function getCultivatorBreakthroughPillQuantities(
   cultivatorId: string,
   q: DbExecutor = getExecutor(),
 ): Promise<CultivatorBreakthroughPillRecord[]> {
+  const targetRealm = sql<
+    string | null
+  >`${schema.consumables.spec} -> 'alchemyMeta' ->> 'breakthroughTargetRealm'`;
   return q
     .select({
-      spec: schema.consumables.spec,
-      quantity: schema.consumables.quantity,
+      targetRealm,
+      quantity: sql<number>`coalesce(sum(${schema.consumables.quantity}), 0)::int`,
     })
     .from(schema.consumables)
     .where(
@@ -82,8 +27,10 @@ export async function listCultivatorBreakthroughPills(
         eq(schema.consumables.type, '丹药'),
         sql`${schema.consumables.spec} ->> 'kind' = 'pill'`,
         sql`${schema.consumables.spec} ->> 'family' = 'breakthrough'`,
+        sql`${schema.consumables.quantity} > 0`,
       ),
-    );
+    )
+    .groupBy(targetRealm);
 }
 
 export async function hasCultivatorRecoveryPill(
@@ -106,11 +53,11 @@ export async function hasCultivatorRecoveryPill(
   return Number(result?.count ?? 0) > 0;
 }
 
-export async function listCultivatorTechniqueQualities(
+export async function findHighestCultivatorTechniqueQuality(
   cultivatorId: string,
   q: DbExecutor = getExecutor(),
-): Promise<CultivatorTechniqueQualityRecord[]> {
-  return q
+): Promise<string | null> {
+  const [row] = await q
     .select({
       quality: schema.creationProducts.quality,
     })
@@ -120,7 +67,22 @@ export async function listCultivatorTechniqueQualities(
         eq(schema.creationProducts.cultivatorId, cultivatorId),
         eq(schema.creationProducts.productType, 'gongfa'),
       ),
-    );
+    )
+    .orderBy(
+      sql`case ${schema.creationProducts.quality}
+        when '神品' then 7
+        when '仙品' then 6
+        when '天品' then 5
+        when '地品' then 4
+        when '真品' then 3
+        when '玄品' then 2
+        when '灵品' then 1
+        when '凡品' then 0
+        else -1
+      end desc`,
+    )
+    .limit(1);
+  return row?.quality ?? null;
 }
 
 export async function findActiveCultivatorIdByUserId(
@@ -141,50 +103,24 @@ export async function findActiveCultivatorIdByUserId(
   return record[0]?.id ?? null;
 }
 
-export async function findActiveCultivatorRecordByUserId(
-  userId: string,
-  q: DbExecutor = getExecutor(),
-): Promise<CultivatorRecord | null> {
-  const records = await q
-    .select()
-    .from(schema.cultivators)
-    .where(
-      and(
-        eq(schema.cultivators.userId, userId),
-        eq(schema.cultivators.status, 'active'),
-      ),
-    )
-    .limit(1);
-
-  return records[0] ?? null;
-}
-
-export async function findActiveCultivatorRecordByIdAndUser(
-  userId: string,
+export async function findActiveCultivatorTaskProgressById(
   cultivatorId: string,
   q: DbExecutor = getExecutor(),
-): Promise<CultivatorRecord | null> {
+): Promise<{
+  id: string;
+  realm: string;
+  realmStage: string;
+  cultivationProgress: unknown;
+  condition: unknown;
+} | null> {
   const records = await q
-    .select()
-    .from(schema.cultivators)
-    .where(
-      and(
-        eq(schema.cultivators.id, cultivatorId),
-        eq(schema.cultivators.userId, userId),
-        eq(schema.cultivators.status, 'active'),
-      ),
-    )
-    .limit(1);
-
-  return records[0] ?? null;
-}
-
-export async function findActiveCultivatorRecordById(
-  cultivatorId: string,
-  q: DbExecutor = getExecutor(),
-): Promise<CultivatorRecord | null> {
-  const records = await q
-    .select()
+    .select({
+      id: schema.cultivators.id,
+      realm: schema.cultivators.realm,
+      realmStage: schema.cultivators.realm_stage,
+      cultivationProgress: schema.cultivators.cultivation_progress,
+      condition: schema.cultivators.condition,
+    })
     .from(schema.cultivators)
     .where(
       and(
@@ -211,6 +147,14 @@ export async function findCultivatorOwnerStatusById(
     .limit(1);
 
   return records[0] ?? null;
+}
+
+export async function findActiveCultivatorOwnerId(
+  cultivatorId: string,
+  q: DbExecutor = getExecutor(),
+): Promise<string | null> {
+  const record = await findCultivatorOwnerStatusById(cultivatorId, q);
+  return record?.status === 'active' ? record.userId : null;
 }
 
 export async function existsCultivatorById(

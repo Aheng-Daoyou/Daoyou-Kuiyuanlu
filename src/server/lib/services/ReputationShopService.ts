@@ -1,13 +1,14 @@
 import { getExecutor, type DbExecutor, type DbTransaction } from '@server/lib/drizzle/db';
 import {
-  cultivators,
   itemLibrary,
   reputationShopItems,
   reputationShopPurchases,
 } from '@server/lib/drizzle/schema';
 import { findPublishedItemLibraryByItemIds } from '@server/lib/repositories/itemLibraryRepository';
-import { resourceEngine } from '@shared/engine/resource/ResourceEngine';
-import type { ResourceOperation } from '@shared/engine/resource/types';
+import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
+import type {
+  ResourceOperationSettlement,
+} from '@shared/engine/resource/types';
 import {
   REPUTATION_SHOP_MAX_PRICE,
   REPUTATION_SHOP_MAX_STACK_QUANTITY,
@@ -335,7 +336,7 @@ export async function buyReputationShopItem(params: {
 }): Promise<{
   item: ReputationShopItemView;
   reputation: number;
-  gains: ResourceOperation[];
+  settlement: ResourceOperationSettlement;
 }> {
   const loaded = await loadShopItemWithLibrary(params.id, params.tx);
   if (!loaded) {
@@ -357,29 +358,26 @@ export async function buyReputationShopItem(params: {
     throw new ReputationShopError(400, '此物已达兑换上限');
   }
 
-  const consumeResult = await resourceEngine.consumeInTransaction(
-    params.userId,
-    params.cultivatorId,
-    [{ type: 'reputation', value: loaded.row.price }],
-    params.tx,
-  );
-  if (!consumeResult.success) {
-    throw new ReputationShopError(400, consumeResult.errors?.[0] ?? '声望不足');
-  }
-
   const attachment = buildAttachmentFromItemLibraryEntry(
     parseItem(loaded.item),
     loaded.row.quantity,
   );
   const gains = attachmentsToResourceOperations([attachment]);
-  const gainResult = await resourceEngine.gainInTransaction(
-    params.userId,
-    params.cultivatorId,
-    gains,
-    params.tx,
-  );
-  if (!gainResult.success) {
-    throw new ReputationShopError(400, gainResult.errors?.[0] ?? '道具发放失败');
+  const resourceResult = await resourceEngine.applyInTransaction({
+    userId: params.userId,
+    cultivatorId: params.cultivatorId,
+    consume: [{ type: 'reputation', value: loaded.row.price }],
+    gain: gains,
+    tx: params.tx,
+  });
+  if (!resourceResult.success) {
+    throw new ReputationShopError(
+      400,
+      resourceResult.errors?.[0] ?? '兑换结算失败',
+    );
+  }
+  if (!resourceResult.settlement) {
+    throw new ReputationShopError(500, '兑换结算结果缺失');
   }
 
   await params.tx.insert(reputationShopPurchases).values({
@@ -391,12 +389,6 @@ export async function buyReputationShopItem(params: {
     purchaseWeek,
   });
 
-  const [cultivatorRow] = await params.tx
-    .select({ reputation: cultivators.reputation })
-    .from(cultivators)
-    .where(eq(cultivators.id, params.cultivatorId))
-    .limit(1);
-
   return {
     item: await buildView({
       row: loaded.row,
@@ -404,7 +396,7 @@ export async function buyReputationShopItem(params: {
       cultivatorId: params.cultivatorId,
       q: params.tx,
     }),
-    reputation: cultivatorRow?.reputation ?? 0,
-    gains,
+    reputation: resourceResult.settlement.reputation ?? 0,
+    settlement: resourceResult.settlement,
   };
 }

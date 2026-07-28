@@ -15,8 +15,12 @@ import { ArtifactListCard } from '@app/components/feature/products';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkBadge, InkButton, InkList, InkNotice } from '@app/components/ui';
 import { ItemCard } from '@app/components/ui/ItemCard';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import {
+  useCultivatorCondition,
+  useCultivatorCurrency,
+  useCultivatorIdentity,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type {
   ReputationShopBuyResponse,
   ReputationShopItemView,
@@ -127,15 +131,26 @@ async function fetchVaultItems(): Promise<ReputationShopListResponse> {
 }
 
 export default function TianjiaoVaultPage() {
-  const { cultivator } = usePlayerStateView();
-  const { mutate, refresh: refreshPlayerState } = usePlayerStateActions();
+  const currency = useCultivatorCurrency();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity && condition.data && currency.data
+      ? {
+          realm: identity.realm,
+          condition: condition.data,
+          reputation: currency.data.reputation,
+        }
+      : null;
+  const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
   const [items, setItems] = useState<ReputationShopItemView[]>([]);
   const [loading, setLoading] = useState(true);
   const [buyingId, setBuyingId] = useState<string | null>(null);
   const [detailItem, setDetailItem] = useState<ItemDetailPayload | null>(null);
   const [activeTab, setActiveTab] = useState<ShopTabKey>('artifact');
-  const reputation = cultivator?.reputation ?? 0;
+  const reputation = currency.data?.reputation;
   const itemCountsByTab = useMemo(
     () =>
       items.reduce<Record<ShopTabKey, number>>(
@@ -182,14 +197,14 @@ export default function TianjiaoVaultPage() {
     void Promise.resolve().then(refresh);
   }, [refresh]);
 
-  useEffect(() => {
-    void Promise.resolve().then(() => refreshPlayerState(['currency']));
-  }, [refreshPlayerState]);
-
   const handleBuy = async (item: ReputationShopItemView) => {
-    if (!cultivator) return;
+    if (!currency.data) return;
     if (item.remainingPurchases === 0) {
       pushToast({ message: '此物已达兑换上限', tone: 'warning' });
+      return;
+    }
+    if (reputation === undefined) {
+      pushToast({ message: '声望尚在读取，请稍候', tone: 'danger' });
       return;
     }
     if (reputation < item.price) {
@@ -223,6 +238,7 @@ export default function TianjiaoVaultPage() {
   const renderShopItem = (item: ReputationShopItemView) => {
     const canBuy =
       item.remainingPurchases !== 0 &&
+      reputation !== undefined &&
       reputation >= item.price &&
       buyingId !== item.id;
     const preview = toInventoryPreviewItem(item);
@@ -244,7 +260,9 @@ export default function TianjiaoVaultPage() {
             ? '兑换中'
             : item.remainingPurchases === 0
               ? '本周已罄'
-              : reputation < item.price
+              : reputation === undefined
+                ? '声望读取中'
+                : reputation < item.price
                 ? '声望不足'
                 : '兑换'}
         </InkButton>
@@ -320,7 +338,8 @@ export default function TianjiaoVaultPage() {
           <GameSceneAsideSection title="声望余量">
             <div className="space-y-2 text-sm leading-7">
               <p>
-                {REPUTATION_INFO.icon} {REPUTATION_INFO.label}：{reputation}
+                {REPUTATION_INFO.icon} {REPUTATION_INFO.label}：
+                {reputation ?? '读取中…'}
               </p>
               <p>已上架：{items.length} 件</p>
             </div>

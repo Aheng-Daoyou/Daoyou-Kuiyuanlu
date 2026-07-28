@@ -8,6 +8,9 @@ import {
   sectMethodProgress,
   sectPathProgress,
 } from '@server/lib/drizzle/schema';
+import { getOrInitCultivationProgress } from '@server/utils/cultivationUtils';
+import type { ResourceDataMap } from '@shared/contracts/resources';
+import type { SectProgressionData } from '@shared/contracts/sect';
 import {
   createAbilitySlots,
   StandardSectRules,
@@ -30,6 +33,7 @@ export interface SectCultivatorProgress {
   stones: number;
   cultivationExp: number;
   comprehensionInsight: number;
+  resourceProgress: ResourceDataMap['player.progress'];
   playerRace: 'human';
 }
 
@@ -58,6 +62,11 @@ export async function loadSectCultivatorProgress(
     stones: cultivator.stones,
     cultivationExp: progress.cultivation_exp ?? 0,
     comprehensionInsight: progress.comprehension_insight ?? 0,
+    resourceProgress: getOrInitCultivationProgress(
+      progress as CultivationProgress,
+      cultivator.realm as RealmType,
+      cultivator.stage as RealmStage,
+    ),
     playerRace: cultivator.playerRace as 'human',
   };
 }
@@ -155,22 +164,24 @@ async function hydrateMembership(
   q: DbExecutor | DbTransaction,
   runtime: SectRuntime,
 ): Promise<CultivatorSectState> {
-  const methods = await q
-    .select()
-    .from(sectMethodProgress)
-    .where(eq(sectMethodProgress.membershipId, membership.id));
-  const pathRows = await q
-    .select()
-    .from(sectPathProgress)
-    .where(eq(sectPathProgress.membershipId, membership.id));
-  const meridians = await q
-    .select()
-    .from(sectMeridianLoadouts)
-    .where(eq(sectMeridianLoadouts.membershipId, membership.id));
-  const abilities = await q
-    .select()
-    .from(sectAbilityLoadouts)
-    .where(eq(sectAbilityLoadouts.membershipId, membership.id));
+  const [methods, pathRows, meridians, abilities] = await Promise.all([
+    q
+      .select()
+      .from(sectMethodProgress)
+      .where(eq(sectMethodProgress.membershipId, membership.id)),
+    q
+      .select()
+      .from(sectPathProgress)
+      .where(eq(sectPathProgress.membershipId, membership.id)),
+    q
+      .select()
+      .from(sectMeridianLoadouts)
+      .where(eq(sectMeridianLoadouts.membershipId, membership.id)),
+    q
+      .select()
+      .from(sectAbilityLoadouts)
+      .where(eq(sectAbilityLoadouts.membershipId, membership.id)),
+  ]);
   const state: CultivatorSectState = {
     membershipId: membership.id,
     sectId: membership.sectId,
@@ -212,6 +223,42 @@ async function hydrateMembership(
     throw error;
   }
   return state;
+}
+
+export async function loadCultivatorSectProgression(
+  cultivatorId: string,
+  q: DbExecutor | DbTransaction,
+): Promise<Pick<
+  SectProgressionData,
+  'activePathId' | 'methods' | 'paths' | 'abilityLoadout'
+> | null> {
+  const membership = await findMembership(cultivatorId, q);
+  if (!membership) return null;
+  const state = await hydrateMembership(membership, q, productionSectRuntime);
+  return {
+    activePathId: state.activePathId,
+    methods: state.methods,
+    paths: state.paths,
+    abilityLoadout: state.abilityLoadout,
+  };
+}
+
+export async function loadSectProgressionForMembership(
+  membership: SectMembershipRow,
+  q: DbExecutor | DbTransaction,
+): Promise<
+  Pick<
+    SectProgressionData,
+    'activePathId' | 'methods' | 'paths' | 'abilityLoadout'
+  >
+> {
+  const state = await hydrateMembership(membership, q, productionSectRuntime);
+  return {
+    activePathId: state.activePathId,
+    methods: state.methods,
+    paths: state.paths,
+    abilityLoadout: state.abilityLoadout,
+  };
 }
 
 export async function loadCultivatorSectState(

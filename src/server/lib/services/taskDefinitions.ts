@@ -1,7 +1,7 @@
 import { EnemyGenerator } from '@shared/engine/enemyGenerator';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import { buildPresetArtifact } from '@shared/engine/cultivator/creation/presetProducts';
 import { hasActiveConditionStatus } from '@shared/lib/condition';
-import type { Cultivator } from '@shared/types/cultivator';
 import type {
   TaskDefinition,
   TaskInstanceMetadata,
@@ -90,18 +90,20 @@ export interface TaskChallengeProfile {
   id: string;
   title: string;
   enemyDifficulty?: number;
-  buildOpponent: (cultivator: Cultivator) => Cultivator | Promise<Cultivator>;
+  buildOpponent: (
+    cultivator: CultivatorCombatInput,
+  ) => CultivatorCombatInput | Promise<CultivatorCombatInput>;
 }
 
 function cloneMirrorOpponent(
-  cultivator: Cultivator,
+  cultivator: CultivatorCombatInput,
   options: {
     name: string;
     attributeMultiplier: number;
     bonusWillpower?: number;
     bonusSpeed?: number;
   },
-): Cultivator {
+): CultivatorCombatInput {
   const multiplier = options.attributeMultiplier;
 
   return {
@@ -110,7 +112,6 @@ function cloneMirrorOpponent(
       globalThis.crypto?.randomUUID?.() ??
       `mirror-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name: options.name,
-    title: '劫影',
     attributes: {
       vitality: Math.max(1, Math.floor(cultivator.attributes.vitality * multiplier)),
       spirit: Math.max(1, Math.floor(cultivator.attributes.spirit * multiplier)),
@@ -129,14 +130,14 @@ function cloneMirrorOpponent(
 }
 
 async function buildGeneratedChallengeOpponent(
-  cultivator: Cultivator,
+  cultivator: CultivatorCombatInput,
   options: {
     name: string;
     race: '灵族' | '魔族' | '古兽';
     enemyDifficulty: number;
     narrativeHint: string;
   },
-): Promise<Cultivator> {
+): Promise<CultivatorCombatInput> {
   const draft = challengeEnemyGenerator.buildDraft({
     realm: cultivator.realm,
     realmStage: cultivator.realm_stage,

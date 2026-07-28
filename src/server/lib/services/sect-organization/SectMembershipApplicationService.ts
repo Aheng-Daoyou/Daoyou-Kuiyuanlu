@@ -1,6 +1,12 @@
-import type { SectMemberData, SectOverviewData } from '@shared/contracts/sect';
+import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
+import type {
+  SectMemberData,
+  SectContextData,
+  SectInfrastructureData,
+  SectPromotionEvaluationData,
+  SectStipendData,
+} from '@shared/contracts/sect';
 import {
-  getEffectiveSectMethodLevelCap,
   PromotionRequirementSpecification,
   SectMembership,
 } from '@shared/engine/sect';
@@ -64,71 +70,74 @@ export class SectMembershipApplicationService {
       .map((item) => item.message);
   }
 
-  async getOverview(
-    cultivator: Pick<Cultivator, 'id' | 'realm' | 'realm_stage'>,
-    realmMethodLevelCap: number,
+  async getInfrastructureResource(
+    cultivatorId: string,
     context: SectMembershipQueryContext,
-  ): Promise<SectOverviewData> {
+  ): Promise<SectInfrastructureData> {
+    const membership = await requireMembership(
+      cultivatorId,
+      context.memberships,
+    );
+    const [facilityRows, projectRow] = await Promise.all([
+      context.facilities.list(membership.sectId),
+      context.construction.findActiveProject(membership.sectId),
+    ]);
+    const facilities = mapFacilities(facilityRows);
+    return {
+      facilities,
+      project: mapProject(projectRow),
+    };
+  }
+
+  async getStipendResource(
+    cultivatorId: string,
+    context: SectMembershipQueryContext,
+  ): Promise<SectStipendData> {
+    const membership = await requireMembership(
+      cultivatorId,
+      context.memberships,
+    );
+    const facilities = mapFacilities(
+      await context.facilities.list(membership.sectId),
+    );
+    const facilityLevels = new Map(
+      facilities.map((item) => [item.key as string, item.level]),
+    );
+    const organization = organizationFor(context.modules, membership.sectId);
+    const stipend = quoteSectStipend(
+      organization,
+      membership.discipleRank,
+      facilityLevels,
+    );
+    const weekKey = context.clock.weekKey();
+    return {
+      weekKey,
+      claimed: await context.economy.hasClaimedStipend(membership.id, weekKey),
+      spiritStones: stipend.spiritStones,
+      rewards: stipend.rewards.map(stipendRewardView),
+    };
+  }
+
+  async getPromotionEvaluationResource(
+    cultivator: Pick<Cultivator, 'id' | 'realm' | 'realm_stage'>,
+    context: SectMembershipQueryContext,
+  ): Promise<SectPromotionEvaluationData> {
     const membership = await requireMembership(
       cultivator.id!,
       context.memberships,
     );
-    const sect = await context.memberships.loadState(cultivator.id!);
-    if (!sect) organizationError('宗门状态不存在');
-    const facilities = mapFacilities(
-      await context.facilities.list(membership.sectId),
-    );
-    const project = mapProject(
-      await context.construction.findActiveProject(membership.sectId),
-    );
-    const rank = sect.discipleRank ?? 'registered';
-    const weekKey = context.clock.weekKey();
     const organization = organizationFor(context.modules, membership.sectId);
-    const facilityLevels = new Map(
-      facilities.map((item) => [item.key as string, item.level]),
-    );
-    const stipend = quoteSectStipend(organization, rank, facilityLevels);
-    const benefitSnapshot = this.benefits.snapshotForMembership(
+    const nextRank = organization.ranks.nextRank(membership.discipleRank);
+    const missing = await this.getPromotionMissing(
       membership,
-      facilityLevels,
-      context.modules,
+      cultivator.realm,
+      cultivator.realm_stage,
+      context,
     );
     return {
-      sect,
-      facilities,
-      project,
-      realmMethodLevelCap,
-      methodLevelCap: getEffectiveSectMethodLevelCap({
-        realmCap: realmMethodLevelCap,
-        rank,
-        facilityCap: organization.benefits.methodLevelCap(facilityLevels),
-        rankCap: organization.ranks.methodLevelCap(rank),
-      }),
-      stipend: {
-        weekKey,
-        claimed: await context.economy.hasClaimedStipend(
-          membership.id,
-          weekKey,
-        ),
-        spiritStones: stipend.spiritStones,
-        rewards: stipend.rewards.map(stipendRewardView),
-      },
-      nextRank: organization.ranks.nextRank(rank),
-      promotionMissing: await this.getPromotionMissing(
-        membership,
-        cultivator.realm,
-        cultivator.realm_stage,
-        context,
-      ),
-      permissions: this.benefits.permissionSnapshot(
-        membership,
-        context.modules,
-      ),
-      benefits: {
-        retreatMultiplier: benefitSnapshot.retreatMultiplier,
-        craftDiscounts: benefitSnapshot.craftDiscounts,
-        facilityEffects: benefitSnapshot.facilityEffects,
-      },
+      nextRank,
+      missing,
+      allowed: Boolean(nextRank && missing.length === 0),
     };
   }
 
@@ -169,7 +178,39 @@ export class SectMembershipApplicationService {
       organizationError(`尚需：${missing.join('、')}`, 400);
     aggregate.promote(target, evaluation);
     await this.events.forMembership(context).dispatch(aggregate.pullEvents());
-    return context.memberships.loadState(cultivator.id!);
+    const result = await context.memberships.loadState(cultivator.id!);
+    if (!result) organizationError('晋升后的宗门身份不存在', 500);
+    const discipleRank = result.discipleRank ?? 'registered';
+    const organization = organizationFor(context.modules, result.sectId);
+    const membershipResource = {
+      sectId: result.sectId,
+      membershipId: result.membershipId,
+      status: result.status,
+      joinedAt: result.joinedAt,
+      discipleRank,
+      contribution: result.contribution,
+      office: result.office ?? 'none',
+      promotedAt: result.promotedAt,
+      permissions: organization.capabilities.snapshot(discipleRank),
+      configVersion: result.configVersion,
+    } satisfies SectContextData;
+    return {
+      result,
+      resourceChanges: [
+        {
+          resourceTopic: 'sect.membership',
+          eventType: 'sect.promoted',
+          operation: 'replace',
+          payload: membershipResource,
+        },
+        {
+          scope: { kind: 'sect', id: result.sectId },
+          resourceTopic: 'sect.members',
+          eventType: 'sect.member_promoted',
+          operation: 'invalidate',
+        },
+      ] satisfies ResourceChangeDescriptor[],
+    };
   }
 
   async listMembers(

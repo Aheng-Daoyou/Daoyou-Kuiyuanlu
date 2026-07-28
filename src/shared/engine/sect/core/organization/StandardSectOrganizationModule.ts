@@ -1,9 +1,7 @@
-import {
-  getRealmStageAttributeBudget,
-  getRealmStageRank,
-} from '@shared/config/realmProgression';
+import { getRealmStageAttributeBudget } from '@shared/config/realmProgression';
 import type { PillSpec } from '@shared/types/consumable';
-import type { Attributes, Cultivator } from '@shared/types/cultivator';
+import type { Attributes } from '@shared/types/cultivator';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import {
   SECT_RANK_METHOD_CAP,
   type SectDiscipleRank,
@@ -728,7 +726,7 @@ const ATTRIBUTE_KEYS = [
 ] as const;
 
 function scaledRealmAttributes(
-  player: Pick<Cultivator, 'realm' | 'realm_stage'>,
+  player: Pick<CultivatorCombatInput, 'realm' | 'realm_stage'>,
   multiplier: number,
 ): Attributes {
   const budget = getRealmStageAttributeBudget(player.realm, player.realm_stage);
@@ -746,44 +744,35 @@ function scaledRealmAttributes(
 }
 
 function createRealmNpcOpponent(
-  player: Pick<Cultivator, 'realm' | 'realm_stage'>,
+  player: Pick<CultivatorCombatInput, 'realm' | 'realm_stage'>,
   opponentId: string,
   name: string,
   multiplier: number,
-): Cultivator {
-  const realmRank = getRealmStageRank(player.realm, player.realm_stage);
+): CultivatorCombatInput {
   return {
     id: opponentId,
     name,
-    title: '宗门试炼残影',
-    gender: '男',
-    race: '人族',
     realm: player.realm,
     realm_stage: player.realm_stage,
-    age: 24 + realmRank * 12,
-    lifespan: 120 + realmRank * 45,
     attributes: scaledRealmAttributes(player, multiplier),
-    unallocated_attribute_points: 0,
     spiritual_roots: [],
     pre_heaven_fates: [],
     cultivations: [],
     skills: [],
-    inventory: { artifacts: [], consumables: [], materials: [] },
+    inventory: { artifacts: [] },
     equipped: { weapon: null, armor: null, accessory: null },
-    spirit_stones: 0,
   };
 }
 
 function createMirrorOpponent(
-  source: Cultivator,
+  source: CultivatorCombatInput,
   opponentId: string,
   name: string,
   multiplier: number,
-): Cultivator {
+): CultivatorCombatInput {
   const opponent = structuredClone(source);
   opponent.id = opponentId;
   opponent.name = name;
-  opponent.title = '宗门试炼残影';
   opponent.attributes = Object.fromEntries(
     ATTRIBUTE_KEYS.map((key) => [
       key,

@@ -1,10 +1,10 @@
 import type { ApiSuccess } from '@shared/contracts/http';
-import type { CultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import type { CultivationProgress, Cultivator } from '@shared/types/cultivator';
 import type {
-  Cultivator,
-  CultivationProgress,
-} from '@shared/types/cultivator';
-import type { CultivatorSectState } from '@shared/engine/sect';
+  ResourceChange,
+  ResourceReadMeta,
+  ResourceScope,
+} from './resources';
 
 export type PlayerLoadout = {
   skills: Cultivator['skills'];
@@ -13,65 +13,75 @@ export type PlayerLoadout = {
   equipped: Cultivator['equipped'];
 };
 
-export type PlayerProfileCultivator = Omit<
+export type CultivatorInspectionData = Pick<
   Cultivator,
-  'inventory' | 'skills' | 'cultivations' | 'equipped'
->;
+  | 'id'
+  | 'name'
+  | 'title'
+  | 'gender'
+  | 'background'
+  | 'description'
+  | 'realm'
+  | 'realm_stage'
+  | 'attributes'
+  | 'spiritual_roots'
+  | 'pre_heaven_fates'
+  | 'cultivations'
+  | 'skills'
+  | 'equipped'
+  | 'condition'
+  | 'sect'
+> & {
+  inventory: Pick<Cultivator['inventory'], 'artifacts'>;
+};
 
-export const PLAYER_STATE_DOMAINS = [
+export type PlayerIdentityCultivator = Omit<
+  Cultivator,
+  | 'inventory'
+  | 'skills'
+  | 'cultivations'
+  | 'equipped'
+  | 'condition'
+  | 'cultivation_progress'
+  | 'spirit_stones'
+  | 'reputation'
+  | 'sect'
+  | 'retreat_records'
+  | 'breakthrough_history'
+  | 'last_yield_at'
+> & {
+  last_yield_at?: string;
+};
+
+export const PLAYER_RESOURCE_KEYS = [
+  'session',
   'profile',
   'condition',
   'progress',
   'currency',
   'loadout',
-  'mail',
-  'tasks',
-  'sect',
+  'mail-summary',
+  'task-summary',
 ] as const;
 
-export type PlayerStateDomain = (typeof PLAYER_STATE_DOMAINS)[number];
+export type PlayerResourceKey = (typeof PLAYER_RESOURCE_KEYS)[number];
 
-export type PlayerStateDomainVersions = Record<PlayerStateDomain, number>;
-
-export type PlayerStateEvent = {
-  /**
-   * Version fields are sent as JSON numbers while they remain below
-   * Number.MAX_SAFE_INTEGER. Migrate these fields to string wire format before
-   * any sequence can exceed that bound.
-   */
-  id: number;
-  cultivatorId: string;
-  globalVersion: number;
-  domainVersion: number;
-  domain: PlayerStateDomain;
-  eventType: string;
-  patch: unknown;
-  invalidates: PlayerStateDomain[];
-  source: string;
-  createdAt: string;
+export type PlayerSessionResource = {
+  activeCultivator: {
+    id: string;
+    status: 'active';
+    sectId: string | null;
+  } | null;
+  note?: string;
 };
 
-export type PlayerStateMutationMeta = {
-  cultivatorId: string;
-  globalVersion: number;
-  domainVersions: Partial<PlayerStateDomainVersions>;
-  events: PlayerStateEvent[];
-  replayed?: boolean;
-};
-
-export type PlayerStateMutationResponse<TData> = {
-  success: true;
-  data: TData;
-  state: PlayerStateMutationMeta;
-};
-
-export type PlayerStateSnapshot = {
+export interface PlayerResourceMap {
+  session: PlayerSessionResource;
   profile: {
-    cultivator: PlayerProfileCultivator;
-    display: CultivatorDisplaySnapshot;
+    cultivator: PlayerIdentityCultivator;
   };
   condition: Cultivator['condition'];
-  progress: CultivationProgress | Record<string, unknown>;
+  progress: CultivationProgress;
   currency: {
     spiritStones: number;
     reputation: number;
@@ -79,34 +89,50 @@ export type PlayerStateSnapshot = {
     qiLastRefreshedAt: string | null;
   };
   loadout: PlayerLoadout;
-  mail: {
+  'mail-summary': {
     unreadCount: number;
   };
-  tasks: {
+  'task-summary': {
     activeCount: number;
     claimableCount: number;
   };
-  sect: CultivatorSectState | null;
+}
+
+export type PlayerResourceMutationMeta = {
+  changes: ResourceChange[];
+  baselines: Array<{
+    scope: ResourceScope;
+    scopeVersion: number;
+  }>;
+  replayed?: boolean;
 };
 
-export type PlayerStateSnapshotData = {
-  cultivatorId: string;
-  globalVersion: number;
-  domainVersions: PlayerStateDomainVersions;
-  snapshot: Partial<PlayerStateSnapshot>;
+export type PlayerStateMutationResponse<TData> = {
+  success: true;
+  data: TData;
+  state: PlayerResourceMutationMeta;
+};
+
+export type PlayerResourcesData = {
+  cultivatorId: string | null;
+  resources: Partial<{
+    [TKey in PlayerResourceKey]: {
+      data: PlayerResourceMap[TKey];
+      resource: ResourceReadMeta<`player.${TKey}`>;
+    };
+  }>;
   serverTime: string;
 };
 
-export type PlayerStateSnapshotResponse =
-  ApiSuccess<PlayerStateSnapshotData>;
+export type PlayerResourcesResponse = ApiSuccess<PlayerResourcesData>;
 
-export type PlayerStateEventsData = {
+export type PlayerResourceEventsData = {
   after: number;
-  events: PlayerStateEvent[];
-  requiresSnapshot: boolean;
+  scope: ResourceScope;
+  currentScopeVersion: number;
+  earliestAvailableVersion: number;
+  changes: ResourceChange[];
+  requiresReload: boolean;
 };
 
-/**
- * HTTP backfill for WebSocket reconnect/version gaps. This is not an SSE stream.
- */
-export type PlayerStateEventsResponse = ApiSuccess<PlayerStateEventsData>;
+export type PlayerResourceEventsResponse = ApiSuccess<PlayerResourceEventsData>;

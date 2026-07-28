@@ -125,12 +125,12 @@ function OpenSectTaskSubmissionDialog({
           undefined,
         );
         if (!result) return;
-        const claimAction = result.task.actions.find(
+        const claimAction = result.primaryTask.actions.find(
           (candidate) => candidate.key === 'claim' && candidate.enabled,
         );
-        if (result.task.state === 'claimable' && claimAction)
+        if (result.primaryTask.state === 'claimable' && claimAction)
           await execute(
-            result.task,
+            result.primaryTask,
             claimAction,
             {},
             `「${task.presentation.title}」已经结清`,

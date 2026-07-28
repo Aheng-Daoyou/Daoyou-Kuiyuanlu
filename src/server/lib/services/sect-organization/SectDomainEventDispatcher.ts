@@ -12,6 +12,7 @@ import type {
   SectEconomyCommandContext,
   SectMembershipCommandContext,
   SectMembershipRecord,
+  SectTaskRecord,
 } from './ports';
 import { resolveCurrentSectTaskExecution } from './SectTaskApplicationSupport';
 import { SectTaskOfferService } from './SectTaskOfferService';
@@ -21,6 +22,11 @@ import type {
   SectTaskProgressRegistry,
   SectTaskRewardPolicyRegistry,
 } from './SectTaskSettlement';
+import {
+  emptySectCommandEffects,
+  mergeSectCommandEffects,
+  type SectCommandEffects,
+} from './SectCommandEffects';
 
 type SectDomainEventType = SectDomainEvent['type'];
 type SectDomainEventOf<TType extends SectDomainEventType> = Extract<
@@ -30,7 +36,18 @@ type SectDomainEventOf<TType extends SectDomainEventType> = Extract<
 type SectDerivedEvents =
   | void
   | readonly SectDomainEvent[]
-  | Promise<void | readonly SectDomainEvent[]>;
+  | {
+      events?: readonly SectDomainEvent[];
+      effects?: SectCommandEffects;
+    }
+  | Promise<
+      | void
+      | readonly SectDomainEvent[]
+      | {
+          events?: readonly SectDomainEvent[];
+          effects?: SectCommandEffects;
+        }
+    >;
 
 export interface SectDomainEventHandler<TType extends SectDomainEventType> {
   readonly eventType: TType;
@@ -66,8 +83,11 @@ export class SectDomainEventDispatcher {
     }
   }
 
-  async dispatch(initial: readonly SectDomainEvent[]): Promise<void> {
+  async dispatch(
+    initial: readonly SectDomainEvent[],
+  ): Promise<SectCommandEffects> {
     const queue = [...initial];
+    let effects = emptySectCommandEffects();
     let processed = 0;
     while (queue.length > 0) {
       if (++processed > this.limit)
@@ -78,10 +98,24 @@ export class SectDomainEventDispatcher {
         organizationError(`宗门领域事件没有处理器：${event.type}`, 500);
       for (const handler of handlers) {
         const derived = await handler.handle(event as never);
-        if (derived) queue.push(...derived);
+        if (Array.isArray(derived)) {
+          queue.push(...derived);
+        } else if (derived) {
+          const result = derived as {
+            events?: readonly SectDomainEvent[];
+            effects?: SectCommandEffects;
+          };
+          if (result.events) queue.push(...result.events);
+          effects = mergeSectCommandEffects(effects, result.effects);
+        }
       }
     }
+    return effects;
   }
+}
+
+export class SectTaskDomainEventDispatcher extends SectDomainEventDispatcher {
+  readonly changedTaskRecords: SectTaskRecord[] = [];
 }
 
 export interface SectDomainEventDispatcherFactory {
@@ -90,7 +124,7 @@ export interface SectDomainEventDispatcherFactory {
     cultivatorId: string;
     membership: SectMembershipRecord;
     command: SectCommandContext;
-  }): SectDomainEventDispatcher;
+  }): SectTaskDomainEventDispatcher;
   forMembership(
     command: SectMembershipCommandContext,
   ): SectDomainEventDispatcher;
@@ -140,9 +174,9 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
     cultivatorId: string;
     membership: SectMembershipRecord;
     command: SectCommandContext;
-  }): SectDomainEventDispatcher {
+  }): SectTaskDomainEventDispatcher {
     const { command, membership } = args;
-    return new SectDomainEventDispatcher(
+    const dispatcher = new SectTaskDomainEventDispatcher(
       [
         defineSectDomainEventHandler('SectTaskFulfilled', async (event) => {
           const definition = command.modules
@@ -261,6 +295,7 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
                 completed: aggregate.status() === 'claimable',
                 payload,
               });
+              dispatcher.changedTaskRecords.push(row);
               aggregate.pullEvents();
               if (completedNow)
                 derived.push({
@@ -314,36 +349,40 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
           'SectContributionGranted',
           async (event) => {
             ContributionBalance.of(0).credit(event.amount);
-            await command.rewards.grantContribution(
+            const granted = await command.rewards.grantContribution(
               event.membershipId,
               event.amount,
               event.reason,
               event.referenceId,
             );
+            return { effects: granted.effects };
           },
         ),
         defineSectDomainEventHandler(
           'SectSpiritStonesGranted',
           async (event) => {
-            await command.rewards.grantSpiritStones(
+            const granted = await command.rewards.grantSpiritStones(
               event.cultivatorId,
               event.amount,
             );
+            return { effects: granted.effects };
           },
         ),
         defineSectDomainEventHandler(
           'SectCultivationExpGranted',
           async (event) => {
-            await command.rewards.grantCultivationExp(
+            const granted = await command.rewards.grantCultivationExp(
               event.userId,
               event.cultivatorId,
               event.amount,
             );
+            return { effects: granted.effects };
           },
         ),
       ],
       this.limit,
     );
+    return dispatcher;
   }
 
   forMembership(
@@ -372,15 +411,22 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
     return new SectDomainEventDispatcher(
       [
         defineSectDomainEventHandler('SectContributionSpent', async (event) => {
-          if (
-            !(await command.economy.spendContribution(
-              event.membershipId,
-              event.amount,
-              event.reason,
-              event.referenceId,
-            ))
-          )
-            organizationError('宗门贡献不足', 400);
+          const balance = await command.economy.spendContribution(
+            event.membershipId,
+            event.amount,
+            event.reason,
+            event.referenceId,
+          );
+          if (balance === null) organizationError('宗门贡献不足', 400);
+          const effects = emptySectCommandEffects();
+          effects.settlement.contribution = balance;
+          effects.resourceChanges.push({
+            resourceTopic: 'sect.membership',
+            eventType: 'sect.shop_contribution_spent',
+            operation: 'merge',
+            payload: { contribution: balance },
+          });
+          return { effects };
         }),
       ],
       this.limit,
@@ -404,8 +450,9 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
             }))
           )
             organizationError('本周俸禄已经领取');
-          for (const reward of event.rewardSnapshot.rewards)
-            await this.rewards.require(reward.grant.kind).grant({
+          let effects = emptySectCommandEffects();
+          for (const reward of event.rewardSnapshot.rewards) {
+            const granted = await this.rewards.require(reward.grant.kind).grant({
               userId: args.userId,
               cultivatorId: args.cultivatorId,
               quantity: reward.quantity,
@@ -414,6 +461,9 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
               ids: args.command.ids,
               source: 'sect_stipend',
             });
+            effects = mergeSectCommandEffects(effects, granted);
+          }
+          return { effects };
         }),
       ],
       this.limit,
@@ -458,12 +508,21 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
           'SectContributionGranted',
           async (event) => {
             ContributionBalance.of(0).credit(event.amount);
-            await command.construction.grantContribution(
+            const balance = await command.construction.grantContribution(
               event.membershipId,
               event.amount,
               event.reason,
               event.referenceId,
             );
+            const effects = emptySectCommandEffects();
+            effects.settlement.contribution = balance;
+            effects.resourceChanges.push({
+              resourceTopic: 'sect.membership',
+              eventType: 'sect.construction_contribution_granted',
+              operation: 'merge',
+              payload: { contribution: balance },
+            });
+            return { effects };
           },
         ),
         defineSectDomainEventHandler('SectProjectCompleted', async (event) => {

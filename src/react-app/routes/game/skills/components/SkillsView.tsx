@@ -1,21 +1,18 @@
 import {
-  GameSceneAsideSection,
-  GameSceneFrame,
-  GameSceneNote,
-} from '@app/components/game-shell';
+  PendingCreationNotice,
+  usePendingCreations,
+} from '@app/components/feature/creation';
 import {
   AbilityDetailModal,
   AbilityListCard,
 } from '@app/components/feature/products';
 import {
-  PendingCreationNotice,
-  usePendingCreations,
-} from '@app/components/feature/creation';
-import {
-  InkButton,
-  InkDialog,
-  InkNotice,
-} from '@app/components/ui';
+  GameSceneAsideSection,
+  GameSceneFrame,
+  GameSceneNote,
+} from '@app/components/game-shell';
+import { InkButton, InkDialog, InkNotice } from '@app/components/ui';
+import { useSectMembership } from '@app/lib/resources/player';
 
 import { useSkillsViewModel } from '../hooks/useSkillsViewModel';
 
@@ -23,6 +20,7 @@ import { useSkillsViewModel } from '../hooks/useSkillsViewModel';
  * 神通主视图组件
  */
 export function SkillsView() {
+  const membership = useSectMembership();
   const {
     cultivator,
     skills,
@@ -45,7 +43,7 @@ export function SkillsView() {
     craftTypes: ['create_skill'],
     enabled: Boolean(cultivator),
   });
-  const sectSkillLocked = cultivator?.sect?.status === 'active';
+  const sectSkillLocked = membership.data?.status === 'active';
 
   if (isLoading && !cultivator) {
     return (
@@ -71,8 +69,12 @@ export function SkillsView() {
         <>
           <GameSceneAsideSection title="术册摘要">
             <div className="space-y-2 text-sm leading-7">
-              <p>已藏神通：{skills.length} / {maxOwnedSkills} 门</p>
-              <p>已启用：{enabledSkillCount} / {maxSkills} 门</p>
+              <p>
+                已藏神通：{skills.length} / {maxOwnedSkills} 门
+              </p>
+              <p>
+                已启用：{enabledSkillCount} / {maxSkills} 门
+              </p>
               <p>可启用空位：{Math.max(maxSkills - enabledSkillCount, 0)} 门</p>
             </div>
           </GameSceneAsideSection>
@@ -88,7 +90,9 @@ export function SkillsView() {
           loading={pendingCreations.isLoading}
         />
         {sectSkillLocked && (
-          <InkNotice>已拜入宗门：造物神通仍可收藏、推演与交易，但战斗神通栏仅可装配宗门神通。</InkNotice>
+          <InkNotice>
+            已拜入宗门：造物神通仍可收藏、推演与交易，但战斗神通栏仅可装配宗门神通。
+          </InkNotice>
         )}
         {!cultivator ? (
           <InkNotice>还未觉醒道身，何谈神通？先去首页觉醒吧。</InkNotice>
@@ -96,42 +100,50 @@ export function SkillsView() {
           <InkNotice>尚未领悟任何神通，前往悟道室参悟吧。</InkNotice>
         ) : (
           <>
-          <div className="space-y-3">
-            {skills.map((skill) => (
-              <AbilityListCard
-                key={skill.id}
-                product={skill}
-                actions={
-                  <div className="flex flex-wrap gap-2">
-                    <InkButton variant="secondary" onClick={() => openSkillDetail(skill)}>
-                      详情
-                    </InkButton>
-                    <InkButton
-                      disabled={pendingToggleId === skill.id || sectSkillLocked}
-                      onClick={() => toggleSkillEnabled(skill)}
-                    >
-                      {pendingToggleId === skill.id
-                        ? '处理中…'
-                        : skill.isEquipped
-                          ? '停用'
-                          : '启用'}
-                    </InkButton>
-                    <InkButton className="px-2 text-crimson" onClick={() => openForgetConfirm(skill)}>
-                      遗忘
-                    </InkButton>
-                  </div>
-                }
-              />
-            ))}
-          </div>
+            <div className="space-y-3">
+              {skills.map((skill) => (
+                <AbilityListCard
+                  key={skill.id}
+                  product={skill}
+                  actions={
+                    <div className="flex flex-wrap gap-2">
+                      <InkButton
+                        variant="secondary"
+                        onClick={() => openSkillDetail(skill)}
+                      >
+                        详情
+                      </InkButton>
+                      <InkButton
+                        disabled={
+                          pendingToggleId === skill.id || sectSkillLocked
+                        }
+                        onClick={() => toggleSkillEnabled(skill)}
+                      >
+                        {pendingToggleId === skill.id
+                          ? '处理中…'
+                          : skill.isEquipped
+                            ? '停用'
+                            : '启用'}
+                      </InkButton>
+                      <InkButton
+                        className="text-crimson px-2"
+                        onClick={() => openForgetConfirm(skill)}
+                      >
+                        遗忘
+                      </InkButton>
+                    </div>
+                  }
+                />
+              ))}
+            </div>
 
-          <InkDialog dialog={dialog} onClose={closeDialog} />
+            <InkDialog dialog={dialog} onClose={closeDialog} />
 
-          <AbilityDetailModal
-            isOpen={isModalOpen}
-            onClose={closeSkillDetail}
-            product={selectedSkill}
-          />
+            <AbilityDetailModal
+              isOpen={isModalOpen}
+              onClose={closeSkillDetail}
+              product={selectedSkill}
+            />
           </>
         )}
       </div>

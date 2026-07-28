@@ -9,20 +9,21 @@ import {
   useQiActionConfirm,
 } from '@app/components/feature/cultivator/useQiActionConfirm';
 import {
-  useActiveCultivatorProfile,
-  usePlayerStateStatus,
-} from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+  useCultivatorCondition,
+  useCultivatorIdentity,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   MARROW_WASH_BREAKTHROUGH_QI_COST,
   getMarrowWashSummary,
 } from '@shared/lib/marrowWash';
 import { useState } from 'react';
+import type { PlayerIdentityCultivator } from '@shared/contracts/player';
 
 function RootStrengthList({
   roots,
 }: {
-  roots: NonNullable<ReturnType<typeof useActiveCultivatorProfile>>['spiritual_roots'];
+  roots: PlayerIdentityCultivator['spiritual_roots'];
 }) {
   if (roots.length === 0) {
     return <InkNotice>尚无灵根信息。</InkNotice>;
@@ -55,9 +56,21 @@ function RootStrengthList({
 }
 
 export default function MarrowWashPage() {
-  const cultivator = useActiveCultivatorProfile();
-  const { isLoading } = usePlayerStateStatus();
-  const { mutate } = usePlayerStateActions();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity && condition.data
+      ? {
+          realm: identity.realm,
+          condition: condition.data,
+          spiritual_roots: identity.spiritual_roots,
+          unallocated_attribute_points:
+            identity.unallocated_attribute_points,
+        }
+      : null;
+  const isLoading = profile.loading || condition.loading;
+  const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
   const { openQiActionConfirm } = useQiActionConfirm();
   const [isBreakingThrough, setIsBreakingThrough] = useState(false);

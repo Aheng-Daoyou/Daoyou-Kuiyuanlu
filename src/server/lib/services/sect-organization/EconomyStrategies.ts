@@ -14,6 +14,10 @@ import type {
   SectInventoryGateway,
   SectRewardGateway,
 } from './ports';
+import {
+  emptySectCommandEffects,
+  type SectCommandEffects,
+} from './SectCommandEffects';
 
 export interface SectRewardGrantContext {
   userId: string;
@@ -27,7 +31,7 @@ export interface SectRewardGrantContext {
 
 export interface SectRewardGrantStrategy {
   readonly key: string;
-  grant(context: SectRewardGrantContext): Promise<void>;
+  grant(context: SectRewardGrantContext): Promise<SectCommandEffects>;
 }
 
 export class SectRewardGrantStrategyRegistry {
@@ -57,27 +61,29 @@ export class SectRewardGrantStrategyRegistry {
 export class SpiritStoneRewardGrantStrategy implements SectRewardGrantStrategy {
   readonly key = 'sect.reward.spirit-stones';
 
-  async grant(context: SectRewardGrantContext): Promise<void> {
+  async grant(context: SectRewardGrantContext): Promise<SectCommandEffects> {
     if (context.grant.kind !== this.key)
       organizationError('宗门灵石奖励配置不匹配', 500);
-    await context.rewards.grantSpiritStones(
+    return (
+      await context.rewards.grantSpiritStones(
       context.cultivatorId,
       context.quantity,
-    );
+      )
+    ).effects;
   }
 }
 
 export class MaterialRewardGrantStrategy implements SectRewardGrantStrategy {
   readonly key = 'sect.reward.material';
 
-  async grant(context: SectRewardGrantContext): Promise<void> {
+  async grant(context: SectRewardGrantContext): Promise<SectCommandEffects> {
     if (
       context.grant.kind !== this.key ||
       !context.grant.type ||
       !context.grant.quality
     )
       organizationError('宗门材料奖励配置不匹配', 500);
-    await context.rewards.grantMaterial(context.cultivatorId, {
+    return context.rewards.grantMaterial(context.cultivatorId, {
       name: context.grant.name,
       type: context.grant.type,
       rank: context.grant.quality,
@@ -92,14 +98,14 @@ export class MaterialRewardGrantStrategy implements SectRewardGrantStrategy {
 export class PillRewardGrantStrategy implements SectRewardGrantStrategy {
   readonly key = 'sect.reward.pill';
 
-  async grant(context: SectRewardGrantContext): Promise<void> {
+  async grant(context: SectRewardGrantContext): Promise<SectCommandEffects> {
     if (
       context.grant.kind !== this.key ||
       !context.grant.spec ||
       !context.grant.quality
     )
       organizationError('宗门丹药奖励配置不匹配', 500);
-    await context.rewards.grantPill(context.userId, context.cultivatorId, {
+    return context.rewards.grantPill(context.userId, context.cultivatorId, {
       id: context.ids.next(),
       name: context.grant.name,
       quality: context.grant.quality,
@@ -126,7 +132,10 @@ export interface SectDonationSpecification {
   readonly key: string;
   consume(
     context: SectDonationExecutionContext,
-  ): Promise<Record<string, unknown>>;
+  ): Promise<{
+    itemSnapshot: Record<string, unknown>;
+    effects: SectCommandEffects;
+  }>;
 }
 
 export class SectDonationSpecificationRegistry {
@@ -161,11 +170,24 @@ export class SpiritStoneDonationSpecification implements SectDonationSpecificati
 
   async consume(context: SectDonationExecutionContext) {
     const amount = context.itemQuantity;
-    if (
-      !(await context.economy.spendSpiritStones(context.cultivatorId, amount))
-    )
+    const spent = await context.economy.spendSpiritStones(
+      context.cultivatorId,
+      amount,
+    );
+    if (!spent.spent || spent.balance === undefined)
       organizationError('灵石不足', 400);
-    return { kind: this.key, units: context.units, amount };
+    const effects = emptySectCommandEffects();
+    effects.settlement.spiritStones = spent.balance;
+    effects.resourceChanges.push({
+      resourceTopic: 'player.currency',
+      eventType: 'sect.donation_currency_spent',
+      operation: 'merge',
+      payload: { spiritStones: spent.balance },
+    });
+    return {
+      itemSnapshot: { kind: this.key, units: context.units, amount },
+      effects,
+    };
   }
 }
 
@@ -187,14 +209,17 @@ export class MaterialDonationSpecification implements SectDonationSpecification 
       minQuality: (context.demand.minQuality ?? '凡品') as Quality,
     });
     if (violations.length) organizationError(violations[0]!, 400);
-    if (!(await context.inventory.consumeMaterial(item.id, amount)))
-      organizationError('材料数量不足', 400);
+    const settlement = await context.inventory.consumeMaterial(item.id, amount);
+    if (!settlement.consumed) organizationError('材料数量不足', 400);
     return {
-      kind: this.key,
-      units: context.units,
-      itemId: item.id,
-      name: item.name,
-      amount,
+      itemSnapshot: {
+        kind: this.key,
+        units: context.units,
+        itemId: item.id,
+        name: item.name,
+        amount,
+      },
+      effects: inventorySettlementEffects(settlement),
     };
   }
 }
@@ -217,14 +242,20 @@ export class PillDonationSpecification implements SectDonationSpecification {
       pillFamily: context.demand.pillFamily,
     });
     if (violations.length) organizationError(violations[0]!, 400);
-    if (!(await context.inventory.consumeConsumable(item.id, amount)))
-      organizationError('丹药数量不足', 400);
-    return {
-      kind: this.key,
-      units: context.units,
-      itemId: item.id,
-      name: item.name,
+    const settlement = await context.inventory.consumeConsumable(
+      item.id,
       amount,
+    );
+    if (!settlement.consumed) organizationError('丹药数量不足', 400);
+    return {
+      itemSnapshot: {
+        kind: this.key,
+        units: context.units,
+        itemId: item.id,
+        name: item.name,
+        amount,
+      },
+      effects: inventorySettlementEffects(settlement),
     };
   }
 }
@@ -246,14 +277,26 @@ export class ArtifactDonationSpecification implements SectDonationSpecification 
       minQuality: (context.demand.minQuality ?? '凡品') as Quality,
     });
     if (violations.length) organizationError(violations[0]!, 400);
-    if (!(await context.inventory.consumeArtifact(item.id)))
-      organizationError('法宝状态已变化，请重试', 400);
+    const settlement = await context.inventory.consumeArtifact(item.id);
+    if (!settlement.consumed) organizationError('法宝状态已变化，请重试', 400);
     return {
-      kind: this.key,
-      units: context.units,
-      itemId: item.id,
-      name: item.name,
-      quality: item.quality,
+      itemSnapshot: {
+        kind: this.key,
+        units: context.units,
+        itemId: item.id,
+        name: item.name,
+        quality: item.quality,
+      },
+      effects: inventorySettlementEffects(settlement),
     };
   }
+}
+
+function inventorySettlementEffects(
+  result: Awaited<ReturnType<SectInventoryGateway['consumeMaterial']>>,
+): SectCommandEffects {
+  const effects = emptySectCommandEffects();
+  if (result.change) effects.resourceChanges.push(result.change);
+  if (result.settlement) effects.settlement.inventory.push(result.settlement);
+  return effects;
 }

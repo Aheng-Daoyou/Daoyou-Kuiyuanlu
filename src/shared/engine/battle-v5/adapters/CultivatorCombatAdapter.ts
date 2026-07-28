@@ -17,6 +17,24 @@ import { Unit } from '../units/Unit';
 import { createSectAbilitySelectionStrategy } from '@shared/engine/sect';
 import { projectSectCombat } from '@shared/engine/sect/content';
 
+export type CultivatorCombatInput = Pick<
+  Cultivator,
+  | 'id'
+  | 'name'
+  | 'realm'
+  | 'realm_stage'
+  | 'attributes'
+  | 'spiritual_roots'
+  | 'pre_heaven_fates'
+  | 'sect'
+  | 'skills'
+  | 'cultivations'
+  | 'equipped'
+  | 'condition'
+> & {
+  inventory: Pick<Cultivator['inventory'], 'artifacts'>;
+};
+
 const ATTRIBUTE_MAP = {
   spirit: AttributeType.SPIRIT,
   vitality: AttributeType.VITALITY,
@@ -25,7 +43,10 @@ const ATTRIBUTE_MAP = {
   willpower: AttributeType.WILLPOWER,
 } as const;
 
-function mountBodyCultivationModifiers(unit: Unit, cultivator: Cultivator): void {
+function mountBodyCultivationModifiers(
+  unit: Unit,
+  cultivator: CultivatorCombatInput,
+): void {
   for (const [index, modifier] of buildBodyCultivationAttributeModifiers(
     cultivator.condition,
   ).entries()) {
@@ -44,7 +65,7 @@ function mountBodyCultivationModifiers(unit: Unit, cultivator: Cultivator): void
 }
 
 export function createCombatUnitFromCultivator(
-  cultivator: Cultivator,
+  cultivator: CultivatorCombatInput,
   isMirror: boolean = false,
 ): Unit {
   const baseAttrs: Partial<Record<AttributeType, number>> = {};

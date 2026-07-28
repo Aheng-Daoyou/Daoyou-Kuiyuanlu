@@ -4,7 +4,7 @@ import {
   runExpiredDataCleanupJob,
   runMarketRefreshCronJob,
   runMaterialLibraryDailyGenerationJob,
-  runPlayerStateEventsCleanupJob,
+  runResourceReplayCleanupJob,
   runRankRewardsJob,
   runSectConstructionWeeklyJob,
   runTowerEnemySetRefreshJob,
@@ -85,8 +85,8 @@ router.get('/tower-enemy-sets', (c) =>
   handleCronRequest(c.req.raw, runTowerEnemySetRefreshJob),
 );
 
-router.get('/player-state-events-cleanup', (c) =>
-  handleCronRequest(c.req.raw, runPlayerStateEventsCleanupJob),
+router.get('/resource-replay-cleanup', (c) =>
+  handleCronRequest(c.req.raw, runResourceReplayCleanupJob),
 );
 
 router.get('/expired-data-cleanup', (c) =>

@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- provider and hook form one feature boundary */
 import { useInkUI } from '@app/components/providers/InkUIProvider';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type {
   SectTaskActionData,
   SectTaskViewData,
@@ -14,7 +14,6 @@ import {
   type ReactNode,
 } from 'react';
 import { useNavigate } from 'react-router';
-import { useSectCurrentQuery } from './SectQueryProvider';
 
 export type SectTaskViewAction = SectTaskViewData['actions'][number];
 
@@ -40,26 +39,21 @@ interface SectTaskInteractionContextValue {
   ): Promise<T | undefined>;
   navigate(path: string, options?: { replace?: boolean }): void;
   clearOutcome(): void;
-  refreshTasks(): Promise<unknown> | unknown;
 }
 
 const SectTaskInteractionContext =
   createContext<SectTaskInteractionContextValue | null>(null);
 
 export function SectTaskInteractionProvider({
-  refreshTasks,
   children,
 }: {
-  refreshTasks(): Promise<unknown> | unknown;
   children: ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [outcome, setOutcome] = useState<CurrentOutcome>();
-  const { mutate } = usePlayerStateActions();
+  const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
-  const current = useSectCurrentQuery();
-  const invalidateCurrent = current.invalidate;
   const routerNavigate = useNavigate();
 
   const runRaw = useCallback(
@@ -68,17 +62,10 @@ export function SectTaskInteractionProvider({
       setError(undefined);
       try {
         const result = await mutate<T>(fetch(url, init));
-        await refreshTasks();
-        await invalidateCurrent();
         if (successMessage)
           pushToast({ message: successMessage, tone: 'success' });
         return result;
       } catch (reason) {
-        try {
-          await refreshTasks();
-        } catch {
-          // Keep the original mutation error as the player-facing failure.
-        }
         const message =
           reason instanceof Error ? reason.message : '宗门事务失败';
         setError(message);
@@ -88,7 +75,7 @@ export function SectTaskInteractionProvider({
         setBusy(false);
       }
     },
-    [invalidateCurrent, mutate, pushToast, refreshTasks],
+    [mutate, pushToast],
   );
 
   const execute = useCallback(
@@ -111,7 +98,11 @@ export function SectTaskInteractionProvider({
         },
         successMessage,
       );
-      if (result) setOutcome({ task: result.task, outcome: result.outcome });
+      if (result)
+        setOutcome({
+          task: result.primaryTask,
+          outcome: result.outcome,
+        });
       return result;
     },
     [runRaw],
@@ -130,7 +121,6 @@ export function SectTaskInteractionProvider({
       runRaw,
       navigate: routerNavigate,
       clearOutcome,
-      refreshTasks,
     }),
     [
       busy,
@@ -138,7 +128,6 @@ export function SectTaskInteractionProvider({
       error,
       execute,
       outcome,
-      refreshTasks,
       routerNavigate,
       runRaw,
     ],

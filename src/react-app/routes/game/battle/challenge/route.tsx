@@ -4,7 +4,7 @@ import { useBattlePlaybackState } from '@app/components/feature/battle/useBattle
 import { CombatResultDialog } from '@app/components/feature/battle/v5/CombatResultDialog';
 import { GameImmersiveLoading } from '@app/components/game-shell';
 import { InkButton } from '@app/components/ui/InkButton';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type { BattleRecord } from '@shared/types/battle';
 import type { RealmType } from '@shared/types/constants';
 import { Suspense, useEffect, useState } from 'react';
@@ -133,7 +133,7 @@ function ChallengeBattlePageContent() {
     rank: number;
   } | null>(null);
   const playback = useBattlePlaybackState(battleResult);
-  const { mutate } = usePlayerStateActions();
+  const { mutate } = useResourceMutation();
 
   const targetId = searchParams.get('targetId');
   const realm = searchParams.get('realm');

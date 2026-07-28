@@ -10,10 +10,12 @@ import {
 } from '@app/components/game-shell';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkCard } from '@app/components/ui/InkCard';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import { usePlayerSession } from '@app/lib/resources/player';
 
 export default function EnlightenmentPage() {
-  const { cultivator, note } = usePlayerStateView();
+  const session = usePlayerSession();
+  const cultivator = session.data?.activeCultivator;
+  const note = session.data?.note;
   const pendingCreations = usePendingCreations({
     craftTypes: PENDING_CREATION_CRAFT_TYPES,
     enabled: Boolean(cultivator),
@@ -77,35 +79,35 @@ export default function EnlightenmentPage() {
           loading={pendingCreations.isLoading}
         />
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <InkCard className="flex flex-col items-center p-4 text-center">
-          <div className="mb-2 text-3xl">⚡</div>
-          <h3 className="text-ink-primary mb-2 text-lg font-semibold">
-            神通推演
-          </h3>
-          <p className="text-ink-secondary mb-4 min-h-10 text-sm">
-            感天地造化，推演攻伐妙术。
-            <br />
-            草木、妖骨与辅材皆可为引，神通秘籍最能定法。
-          </p>
-          <InkButton href="/game/enlightenment/skill" variant="primary">
-            开始推演
-          </InkButton>
-        </InkCard>
+          <InkCard className="flex flex-col items-center p-4 text-center">
+            <div className="mb-2 text-3xl">⚡</div>
+            <h3 className="text-ink-primary mb-2 text-lg font-semibold">
+              神通推演
+            </h3>
+            <p className="text-ink-secondary mb-4 min-h-10 text-sm">
+              感天地造化，推演攻伐妙术。
+              <br />
+              草木、妖骨与辅材皆可为引，神通秘籍最能定法。
+            </p>
+            <InkButton href="/game/enlightenment/skill" variant="primary">
+              开始推演
+            </InkButton>
+          </InkCard>
 
-        <InkCard className="flex flex-col items-center p-4 text-center">
-          <div className="mb-2 text-3xl">📖</div>
-          <h3 className="text-ink-primary mb-2 text-lg font-semibold">
-            功法参悟
-          </h3>
-          <p className="text-ink-secondary mb-4 min-h-10 text-sm">
-            参悟大道法则，创造修炼功法。
-            <br />
-            草木、妖骨与辅材可作底稿，功法秘籍最能稳固道基。
-          </p>
-          <InkButton href="/game/enlightenment/gongfa" variant="primary">
-            开始参悟
-          </InkButton>
-        </InkCard>
+          <InkCard className="flex flex-col items-center p-4 text-center">
+            <div className="mb-2 text-3xl">📖</div>
+            <h3 className="text-ink-primary mb-2 text-lg font-semibold">
+              功法参悟
+            </h3>
+            <p className="text-ink-secondary mb-4 min-h-10 text-sm">
+              参悟大道法则，创造修炼功法。
+              <br />
+              草木、妖骨与辅材可作底稿，功法秘籍最能稳固道基。
+            </p>
+            <InkButton href="/game/enlightenment/gongfa" variant="primary">
+              开始参悟
+            </InkButton>
+          </InkCard>
         </div>
       </div>
     </GameSceneFrame>

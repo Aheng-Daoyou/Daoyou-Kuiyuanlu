@@ -1,20 +1,18 @@
 import {
   redisLockErrorResponse,
-  requireActiveCultivator,
+  requireActiveCultivatorRef,
 } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
-import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import {
   FateReshapeService,
   FateReshapeServiceError,
-  prepareFateReshapeConfirmation,
-  prepareFateReshapeStart,
 } from '@server/lib/services/FateReshapeService';
 import {
-  commitPlayerStateMutation,
-  toPlayerStateMutationResponse,
-} from '@server/lib/services/PlayerStateMutationService';
+  confirmFateReshapeCommand,
+  startFateReshapeCommand,
+} from '@server/lib/services/FateReshapeApplicationService';
+import { toPlayerStateMutationResponse } from '@server/lib/services/ResourceMutationResponse';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
@@ -24,16 +22,16 @@ const ConfirmSchema = z.object({
 
 const router = new Hono<AppEnv>();
 
-router.get('/session', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.get('/session', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ success: false, error: '当前没有活跃角色' }, 404);
   }
 
   try {
     const [session, talismanCount] = await Promise.all([
-      FateReshapeService.getSession(cultivator.id),
-      FateReshapeService.getAvailableTalismanCount(cultivator.id),
+      FateReshapeService.getSession(cultivator.cultivatorId),
+      FateReshapeService.getAvailableTalismanCount(cultivator.cultivatorId),
     ]);
 
     return c.json({
@@ -54,57 +52,19 @@ router.get('/session', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/session', requireActiveCultivator(), async (c) => {
+router.post('/session', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ success: false, error: '未授权访问' }, 401);
   }
 
   try {
-    return await withRedisLock(
-      {
-        key: redisLockKeys.cultivatorMutation(cultivator.id),
-        context: 'fate-reshape-start',
-        timeoutMs: 60_000,
-        renewEveryMs: 20_000,
-        retries: 0,
-      },
-      async (lease) => {
-        const prepared = await prepareFateReshapeStart(user.id, cultivator.id);
-        lease.assertHeld();
-        let afterCommit: (() => Promise<void>) | undefined;
-        const committed = await commitPlayerStateMutation({
-          coordination: { mode: 'redis', lease },
-          userId: user.id,
-          cultivatorId: cultivator.id,
-          source: 'fate_reshape_start',
-          allowEmpty: true,
-          run: async (tx) => {
-            const preparedCommit = await prepared.commit(tx);
-            afterCommit = preparedCommit.afterCommit;
-            return {
-              result: {
-                session: preparedCommit.session,
-              },
-              changes: [],
-            };
-          },
-        });
-        await afterCommit?.();
-        const talismanCount =
-          await FateReshapeService.getAvailableTalismanCount(cultivator.id);
-        return c.json(
-          toPlayerStateMutationResponse({
-            ...committed,
-            result: {
-              ...committed.result,
-              talismanCount,
-            },
-          }),
-        );
-      },
-    );
+    const committed = await startFateReshapeCommand({
+      userId: user.id,
+      cultivatorId: cultivator.cultivatorId,
+    });
+    return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
     const lockErrorResponse = redisLockErrorResponse(error);
     if (lockErrorResponse) return lockErrorResponse;
@@ -121,14 +81,14 @@ router.post('/session', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/reroll', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.post('/reroll', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ success: false, error: '当前没有活跃角色' }, 404);
   }
 
   try {
-    const session = await FateReshapeService.rerollSession(cultivator.id);
+    const session = await FateReshapeService.rerollSession(cultivator.cultivatorId);
     return c.json({
       success: true,
       data: { session },
@@ -147,9 +107,9 @@ router.post('/reroll', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/confirm', requireActiveCultivator(), async (c) => {
+router.post('/confirm', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ success: false, error: '未授权访问' }, 401);
   }
@@ -160,45 +120,12 @@ router.post('/confirm', requireActiveCultivator(), async (c) => {
       return c.json({ success: false, error: '请求参数格式错误' }, 400);
     }
 
-    return await withRedisLock(
-      {
-        key: redisLockKeys.cultivatorMutation(cultivator.id),
-        context: 'fate-reshape-confirm',
-        timeoutMs: 10_000,
-        retries: 0,
-      },
-      async (lease) => {
-        const prepared = await prepareFateReshapeConfirmation(
-          user.id,
-          cultivator.id,
-          parsed.data.selectedIndices,
-        );
-        lease.assertHeld();
-        let afterCommit: (() => Promise<void>) | undefined;
-        const committed = await commitPlayerStateMutation({
-          coordination: { mode: 'redis', lease },
-          userId: user.id,
-          cultivatorId: cultivator.id,
-          source: 'fate_reshape_confirm',
-          run: async (tx) => {
-            const preparedCommit = await prepared.commit(tx);
-            afterCommit = preparedCommit.afterCommit;
-            return {
-              result: { selectedFates: preparedCommit.selectedFates },
-              changes: [
-                {
-                  domain: 'profile',
-                  eventType: 'profile.fates.changed',
-                  invalidates: ['profile'],
-                },
-              ],
-            };
-          },
-        });
-        await afterCommit?.();
-        return c.json(toPlayerStateMutationResponse(committed));
-      },
-    );
+    const committed = await confirmFateReshapeCommand({
+      userId: user.id,
+      cultivatorId: cultivator.cultivatorId,
+      selectedIndices: parsed.data.selectedIndices,
+    });
+    return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
     const lockErrorResponse = redisLockErrorResponse(error);
     if (lockErrorResponse) return lockErrorResponse;
@@ -215,14 +142,14 @@ router.post('/confirm', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/abandon', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.post('/abandon', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ success: false, error: '当前没有活跃角色' }, 404);
   }
 
   try {
-    await FateReshapeService.abandonSession(cultivator.id);
+    await FateReshapeService.abandonSession(cultivator.cultivatorId);
     return c.json({ success: true });
   } catch (error) {
     const status =

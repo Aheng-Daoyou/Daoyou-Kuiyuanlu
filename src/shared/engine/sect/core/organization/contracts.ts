@@ -1,7 +1,7 @@
 import type { Quality } from '@shared/types/constants';
 import type { DailyTaskDifficulty } from '@shared/engine/cultivation/exp-gain-strategies/types';
 import type { PillSpec } from '@shared/types/consumable';
-import type { Cultivator } from '@shared/types/cultivator';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import type {
   SectDiscipleRank,
   SectRankRequirement,
@@ -238,13 +238,13 @@ export interface SectConstructionPolicy {
 }
 
 export interface SectOpponentFactoryContext {
-  player: Cultivator;
-  mirror: Cultivator | null;
+  player: CultivatorCombatInput;
+  mirror: CultivatorCombatInput | null;
   opponentId: string;
 }
 
 export interface SectOpponentFactoryResult {
-  opponent: Cultivator;
+  opponent: CultivatorCombatInput;
   title: string;
 }
 

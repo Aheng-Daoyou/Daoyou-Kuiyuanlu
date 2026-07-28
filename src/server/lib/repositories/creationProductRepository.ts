@@ -3,10 +3,8 @@ import * as schema from '@server/lib/drizzle/schema';
 import type { CreationProductType } from '@shared/engine/creation-v2/types';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
-export type CreationProductRecord =
-  typeof schema.creationProducts.$inferSelect;
-export type CreationProductInsert =
-  typeof schema.creationProducts.$inferInsert;
+export type CreationProductRecord = typeof schema.creationProducts.$inferSelect;
+export type CreationProductInsert = typeof schema.creationProducts.$inferInsert;
 
 export async function insert(
   row: CreationProductInsert,
@@ -31,33 +29,6 @@ export async function findById(
   return result;
 }
 
-export async function findByCultivator(
-  cultivatorId: string,
-  q: DbExecutor = getExecutor(),
-): Promise<CreationProductRecord[]> {
-  return q
-    .select()
-    .from(schema.creationProducts)
-    .where(eq(schema.creationProducts.cultivatorId, cultivatorId))
-    .orderBy(desc(schema.creationProducts.createdAt));
-}
-
-export async function findByTypeAndCultivator(
-  cultivatorId: string,
-  productType: CreationProductType,
-  q: DbExecutor = getExecutor(),
-): Promise<CreationProductRecord[]> {
-  return q
-    .select()
-    .from(schema.creationProducts)
-    .where(
-      and(
-        eq(schema.creationProducts.cultivatorId, cultivatorId),
-        eq(schema.creationProducts.productType, productType),
-      ),
-    );
-}
-
 export async function findByTypeAndCultivatorPage(
   cultivatorId: string,
   productType: CreationProductType,
@@ -75,9 +46,36 @@ export async function findByTypeAndCultivatorPage(
         eq(schema.creationProducts.productType, productType),
       ),
     )
-    .orderBy(desc(schema.creationProducts.createdAt), desc(schema.creationProducts.id))
+    .orderBy(
+      desc(schema.creationProducts.createdAt),
+      desc(schema.creationProducts.id),
+    )
     .limit(pageSize)
     .offset((page - 1) * pageSize);
+}
+
+export async function findUnequippedArtifactIdsByQualities(
+  cultivatorId: string,
+  qualities: string[],
+  q: DbExecutor = getExecutor(),
+): Promise<string[]> {
+  if (qualities.length === 0) return [];
+  const rows = await q
+    .select({ id: schema.creationProducts.id })
+    .from(schema.creationProducts)
+    .where(
+      and(
+        eq(schema.creationProducts.cultivatorId, cultivatorId),
+        eq(schema.creationProducts.productType, 'artifact'),
+        eq(schema.creationProducts.isEquipped, false),
+        inArray(schema.creationProducts.quality, qualities),
+      ),
+    )
+    .orderBy(
+      desc(schema.creationProducts.createdAt),
+      desc(schema.creationProducts.id),
+    );
+  return rows.map((row) => row.id);
 }
 
 export async function findArtifactsByIdsAndCultivator(

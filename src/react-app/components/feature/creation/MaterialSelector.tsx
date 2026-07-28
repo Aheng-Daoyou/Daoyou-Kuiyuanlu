@@ -4,7 +4,7 @@ import {
   InkNotice,
   inkFieldVariants,
 } from '@app/components/ui';
-import { usePaginatedInventoryMaterials } from '@app/lib/hooks/usePaginatedInventoryMaterials';
+import { useMaterialInventoryResource } from '@app/lib/resources/inventory';
 import { cn } from '@shared/lib/cn';
 import {
   ELEMENT_VALUES,
@@ -16,7 +16,7 @@ import {
 } from '@shared/types/constants';
 import type { Material } from '@shared/types/cultivator';
 import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 export interface MaterialSelectorProps {
   cultivatorId?: string;
@@ -27,7 +27,6 @@ export interface MaterialSelectorProps {
   includeMaterialTypes?: MaterialType[];
   excludeMaterialTypes?: MaterialType[];
   pageSize?: number;
-  refreshKey?: number;
   enableFilterSort?: boolean;
   showSelectedMaterialsPanel?: boolean;
   loadingText: string;
@@ -51,7 +50,6 @@ export function MaterialSelector({
   includeMaterialTypes,
   excludeMaterialTypes,
   pageSize = 20,
-  refreshKey,
   enableFilterSort = true,
   showSelectedMaterialsPanel = false,
   loadingText,
@@ -91,36 +89,31 @@ export function MaterialSelector({
     return [typeFilter];
   }, [allowedMaterialTypes, includeMaterialTypes, typeFilter]);
 
-  const {
-    materials,
-    pagination,
-    isLoading,
-    isRefreshing,
-    isInitialized,
-    error,
-    refreshPage,
-    goPrevPage,
-    goNextPage,
-  } = usePaginatedInventoryMaterials({
-    cultivatorId,
+  const inventory = useMaterialInventoryResource({
     pageSize,
-    includeMaterialTypes: effectiveIncludeTypes,
+    enabled: Boolean(cultivatorId),
+    materialTypes: effectiveIncludeTypes,
     excludeMaterialTypes,
     materialRanks: rankFilter === 'all' ? [] : [rankFilter],
     materialElements: elementFilter === 'all' ? [] : [elementFilter],
     materialSortBy: sortBy,
     materialSortOrder: sortOrder,
   });
-  const lastRefreshKeyRef = useRef<number | undefined>(refreshKey);
-
-  useEffect(() => {
-    if (refreshKey === undefined) return;
-    if (!isInitialized) return;
-    if (lastRefreshKeyRef.current === refreshKey) return;
-    lastRefreshKeyRef.current = refreshKey;
-    void refreshPage();
-  }, [isInitialized, refreshKey, refreshPage]);
-
+  const materials = inventory.items ?? [];
+  const pagination = inventory.pagination ?? {
+    page: inventory.page,
+    pageSize,
+    total: 0,
+    totalPages: 0,
+    hasMore: false,
+  };
+  const isLoading = inventory.loading;
+  const isRefreshing = inventory.isRefreshing;
+  const isInitialized =
+    inventory.status === 'ready' || inventory.data !== undefined;
+  const { error } = inventory;
+  const refreshPage = inventory.reload;
+  const { goPrevPage, goNextPage } = inventory;
   return (
     <>
       <div className="mb-2 flex items-center justify-between">

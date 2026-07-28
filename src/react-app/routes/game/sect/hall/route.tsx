@@ -5,17 +5,17 @@ import {
   type NpcConversationOption,
 } from '@app/components/feature/room';
 import {
-  useSectCurrentQuery,
-  useSectResourceQuery,
-} from '@app/components/feature/sect/SectQueryProvider';
-import {
   SectNpcConversationRegistry,
   SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
+import {
+  useSectContextQuery,
+  useSectMembersQuery,
+  useSectStipendQuery,
+} from '@app/components/feature/sect/sectResources';
 import { InkButton } from '@app/components/ui';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
-import { fetchSectMembers } from '@app/lib/sect/sectClient';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type { SectMembersData } from '@shared/contracts/sect';
 import {
   SECT_RANK_LABELS,
@@ -27,9 +27,6 @@ import {
   SectPermissionBoundary,
   SectScene,
 } from '../components/SectScene';
-
-const fetchFirstMembersPage = (signal: AbortSignal) =>
-  fetchSectMembers(1, 20, signal);
 
 const registry = new SectNpcConversationRegistry([
   { key: 'sect.hall.registry', renderer: HallRegistryConversation },
@@ -54,19 +51,19 @@ function HallRegistryConversation({
   actor,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const current = useSectCurrentQuery();
-  const members = useSectResourceQuery('members:1:20', fetchFirstMembersPage);
+  const current = useSectContextQuery();
   const [topic, setTopic] = useState<'identity' | 'members'>();
+  const members = useSectMembersQuery(
+    { page: 1, pageSize: 20 },
+    topic === 'members',
+  );
   const session = useConversationSession({
     sessionKey: actor.id,
     snapshot: { current: current.data, members: members.data },
-    load: async () => {
-      await Promise.all([current.reload(), members.reload()]);
-    },
     perform: async () => undefined,
     onReset: () => setTopic(undefined),
   });
-  const sect = current.data?.sect;
+  const sect = current.data;
 
   if (topic === 'members' && members.data)
     return (
@@ -173,22 +170,18 @@ function HallStipendConversation({
   actor,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const current = useSectCurrentQuery();
-  const { mutate } = usePlayerStateActions();
+  const current = useSectStipendQuery();
+  const { mutate } = useResourceMutation();
   const session = useConversationSession({
     sessionKey: actor.id,
     snapshot: current.data,
-    load: async () => {
-      await current.reload();
-    },
     perform: async ({ intent }: { intent: 'claim'; signal: AbortSignal }) => {
       if (intent !== 'claim') return undefined;
       await mutate(fetch('/api/sects/current/stipend/claim', postJson()));
-      await current.reload();
       return 'claimed' as const;
     },
   });
-  const stipend = current.data?.overview?.stipend;
+  const stipend = current.data;
   const messages: NpcConversationMessage[] = [
     { id: 'greeting', speaker: actor.name, body: actor.greeting },
   ];

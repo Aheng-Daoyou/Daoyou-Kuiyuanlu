@@ -29,7 +29,10 @@ function getInventoryTabLabel(tab: InventoryTab): string {
  */
 export function InventoryView() {
   const {
-    cultivator,
+    cultivatorId,
+    realm,
+    condition,
+    spiritStones,
     inventory,
     equipped,
     isLoading,
@@ -61,20 +64,30 @@ export function InventoryView() {
     openDiscardConfirm,
   } = useInventoryViewModel();
 
+  const activeResourceReady =
+    activeTab === 'artifacts'
+      ? Boolean(equipped)
+      : activeTab === 'consumables'
+        ? Boolean(realm && condition)
+        : true;
+
   // 加载状态
-  if (isLoading && !cultivator) {
+  if (isLoading && (!cultivatorId || !activeResourceReady)) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="loading-tip">储物袋开启中……</p>
       </div>
     );
   }
+  if (!cultivatorId || !activeResourceReady) {
+    return <GameSceneNote>当前分栏所需资源读取失败，请稍后重试。</GameSceneNote>;
+  }
 
   const aside = (
     <>
       <GameSceneAsideSection title="行囊摘要">
         <div className="space-y-2 text-sm leading-7">
-          <p>灵石：{cultivator?.spirit_stones ?? 0}</p>
+          <p>灵石：{spiritStones ?? '读取中…'}</p>
           <p>
             当前分页：{pagination.page} / {pagination.totalPages}
           </p>
@@ -124,7 +137,7 @@ export function InventoryView() {
           ]}
         />
 
-        {activeTab === 'artifacts' && (
+        {activeTab === 'artifacts' && equipped && (
           <ArtifactsTab
             artifacts={inventory.artifacts}
             isLoading={isTabLoading && inventory.artifacts.length === 0}
@@ -154,8 +167,8 @@ export function InventoryView() {
         {activeTab === 'consumables' && (
           <ConsumablesTab
             consumables={inventory.consumables}
-            realm={cultivator?.realm}
-            condition={cultivator?.condition}
+            realm={realm}
+            condition={condition}
             isLoading={isTabLoading && inventory.consumables.length === 0}
             pendingId={pendingId}
             onShowDetails={(item) =>
@@ -194,8 +207,8 @@ export function InventoryView() {
         isOpen={isModalOpen}
         onClose={closeItemDetail}
         item={selectedItem}
-        viewerRealm={cultivator?.realm}
-        viewerCondition={cultivator?.condition}
+        viewerRealm={realm}
+        viewerCondition={condition}
       />
 
       {/* 鉴定庆祝特效 */}

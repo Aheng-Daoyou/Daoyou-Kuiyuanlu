@@ -11,6 +11,11 @@ import {
 import { isConditionStatusActive } from '@shared/lib/condition';
 import type { Cultivator } from '@shared/types/cultivator';
 
+type RetreatEfficiencyCultivator = Pick<
+  Cultivator,
+  'condition' | 'pre_heaven_fates' | 'cultivation_progress'
+>;
+
 export interface RetreatBuffTag {
   key: string;
   icon: string;
@@ -42,7 +47,7 @@ function formatSignedPercent(value: number): string {
 }
 
 function findActiveStatus(
-  cultivator: Cultivator,
+  cultivator: RetreatEfficiencyCultivator,
   key: 'breakthrough_focus' | 'protect_meridians' | 'clear_mind',
 ) {
   return (
@@ -53,7 +58,7 @@ function findActiveStatus(
 }
 
 export function buildRetreatEfficiencyModel(input: {
-  cultivator: Cultivator;
+  cultivator: RetreatEfficiencyCultivator;
   retreatYears: string | number;
 }): RetreatEfficiencyModel {
   const { cultivator } = input;

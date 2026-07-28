@@ -67,7 +67,7 @@ export class RewardFactory {
 
     // 1. 灵石奖励 (基于挂机收益)
     const rewardHours = this.rollRewardHoursByTier(tier);
-    const yieldOps = YieldCalculator.calculateYield(mapRealm, rewardHours);
+    const yieldOps = YieldCalculator.calculateRealmYield(mapRealm, rewardHours);
     const spiritStones =
       yieldOps.find((op) => op.type === 'spirit_stones')?.value ?? 0;
     if (spiritStones > 0) {

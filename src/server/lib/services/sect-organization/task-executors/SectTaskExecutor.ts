@@ -21,6 +21,11 @@ import type {
   SectMembershipRecord,
   SectTaskRecord,
 } from '../ports';
+import {
+  emptySectCommandEffects,
+  mergeSectCommandEffects,
+  type SectCommandEffects,
+} from '../SectCommandEffects';
 
 export interface SectTaskActionDescriptor {
   key: string;
@@ -51,6 +56,7 @@ export interface SectTaskExecutionDecision {
   completionSettlement: SectTaskCompletionSettlement;
   outcome: SectTaskActionOutcome;
   payload?: SectTaskRecordPayload;
+  effects?: SectCommandEffects;
 }
 
 export interface SectTaskExecutor<TInput = unknown> {
@@ -69,7 +75,7 @@ function invalid(message: string, status = 400): never {
   throw new SectError('SECT_ORGANIZATION_INVALID', message, status);
 }
 
-const emptyInput = z.object({}).passthrough();
+const emptyInput = z.object({}).strict();
 const deliveryInput = z.object({
   itemId: z.string().uuid(),
   quantity: z.number().int().positive().max(99).default(1),
@@ -352,20 +358,21 @@ export class PillDeliveryTaskExecutor extends DeliveryTaskExecutor {
     const match = matchSectDeliveryRequirement(requirement, item);
     if (!match.eligible)
       invalid(match.violations[0]?.message ?? '丹药不符合要求');
-    if (
-      !(await context.ports.submissionInventory.consumeSubmissionItem({
+    const settlement =
+      await context.ports.submissionInventory.consumeSubmissionItem({
         cultivatorId: context.cultivatorId,
         kind: 'pill',
         itemId: item.id,
         quantity: requirement.quantity,
-      }))
-    )
-      invalid('丹药数量不足');
+      });
+    if (!settlement.consumed) invalid('丹药数量不足');
+    const effects = inventorySettlementEffects(settlement);
     return {
       completed: true,
       completionSettlement: 'claim-reward',
       payload: this.completedPayload(context, item, requirement.quantity),
       outcome: { renderer: 'sect.outcome.fulfilled', data: { success: true } },
+      effects,
     };
   }
 }
@@ -389,20 +396,21 @@ export class ArtifactDeliveryTaskExecutor extends DeliveryTaskExecutor {
     const match = matchSectDeliveryRequirement(requirement, item);
     if (!match.eligible)
       invalid(match.violations[0]?.message ?? '法宝不符合要求');
-    if (
-      !(await context.ports.submissionInventory.consumeSubmissionItem({
+    const settlement =
+      await context.ports.submissionInventory.consumeSubmissionItem({
         cultivatorId: context.cultivatorId,
         kind: 'artifact',
         itemId: item.id,
         quantity: 1,
-      }))
-    )
-      invalid('法宝状态已变化，请重试');
+      });
+    if (!settlement.consumed) invalid('法宝状态已变化，请重试');
+    const effects = inventorySettlementEffects(settlement);
     return {
       completed: true,
       completionSettlement: 'claim-reward',
       payload: this.completedPayload(context, item, 1),
       outcome: { renderer: 'sect.outcome.fulfilled', data: { success: true } },
+      effects,
     };
   }
 }
@@ -438,16 +446,20 @@ export class MaterialDeliveryTaskExecutor extends DeliveryTaskExecutor<
     const match = matchSectMaterialDeliverySelection(requirement, selections);
     if (!match.eligible)
       invalid(match.violations[0]?.message ?? '材料不符合要求');
+    let effects = emptySectCommandEffects();
     for (const selection of selections) {
-      if (
-        !(await context.ports.submissionInventory.consumeSubmissionItem({
+      const settlement =
+        await context.ports.submissionInventory.consumeSubmissionItem({
           cultivatorId: context.cultivatorId,
           kind: 'material',
           itemId: selection.item.id,
           quantity: selection.quantity,
-        }))
-      )
-        invalid('材料状态已变化，请重试');
+        });
+      if (!settlement.consumed) invalid('材料状态已变化，请重试');
+      effects = mergeSectCommandEffects(
+        effects,
+        inventorySettlementEffects(settlement),
+      );
     }
     return {
       completed: true,
@@ -466,8 +478,21 @@ export class MaterialDeliveryTaskExecutor extends DeliveryTaskExecutor<
         },
       }),
       outcome: { renderer: 'sect.outcome.fulfilled', data: { success: true } },
+      effects,
     };
   }
+}
+
+function inventorySettlementEffects(
+  settlement: Awaited<
+    ReturnType<SectCommandContext['submissionInventory']['consumeSubmissionItem']>
+  >,
+): SectCommandEffects {
+  const effects = emptySectCommandEffects();
+  if (settlement.change) effects.resourceChanges.push(settlement.change);
+  if (settlement.settlement)
+    effects.settlement.inventory.push(settlement.settlement);
+  return effects;
 }
 
 export class ProgressTaskExecutor extends BaseTaskExecutor<

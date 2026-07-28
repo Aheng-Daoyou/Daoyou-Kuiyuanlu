@@ -19,8 +19,11 @@ import {
   InkIdentifyCelebration,
   InkNotice,
 } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import {
+  useCultivatorIdentity,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
 import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
 import { getAllowedMaterialTypesForCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
@@ -71,8 +74,12 @@ export type RefineSceneProps = {
 };
 
 export function RefineScene({ sectContext }: RefineSceneProps) {
-  const { cultivator, note, isLoading } = usePlayerStateView();
-  const { mutate } = usePlayerStateActions();
+  const profile = useCultivatorIdentity();
+  const session = usePlayerSession();
+  const cultivator = profile.data?.cultivator;
+  const note = session.data?.note;
+  const isLoading = profile.loading || session.loading;
+  const { mutate } = useResourceMutation();
   const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
   const [selectedMaterialMap, setSelectedMaterialMap] = useState<
     Record<string, Material>
@@ -87,7 +94,6 @@ export function RefineScene({ sectContext }: RefineSceneProps) {
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
   const [celebrationTick, setCelebrationTick] = useState(0);
-  const [materialsRefreshKey, setMaterialsRefreshKey] = useState(0);
   const [estimatedCost, setEstimatedCost] = useState<CostEstimate | null>(null);
   const [validation, setValidation] = useState<PreviewValidation | null>(null);
   const [canAfford, setCanAfford] = useState(true);
@@ -245,7 +251,6 @@ export function RefineScene({ sectContext }: RefineSceneProps) {
           setSelectedMaterialMap({});
           setDoseMap({});
           setIsMaterialModalOpen(false);
-          setMaterialsRefreshKey((prev) => prev + 1);
         } catch (error) {
           const failMessage =
             error instanceof Error
@@ -442,7 +447,6 @@ export function RefineScene({ sectContext }: RefineSceneProps) {
         isSubmitting={isSubmitting}
         pageSize={20}
         includeMaterialTypes={ALLOWED_MATERIAL_TYPES}
-        refreshKey={materialsRefreshKey}
         loadingText="正在检索储物袋中的灵材，请稍候……"
         emptyNoticeText="暂无可用于炼器的材料。"
         totalText={(total) => `共 ${total} 份可用于炼器的材料`}

@@ -1,8 +1,7 @@
 import { rollManualDrawQualities } from '@shared/config/manualDrawConfig';
 import { MaterialGenerator } from '@shared/engine/material/creation/MaterialGenerator';
 import type { MaterialSkeleton } from '@shared/engine/material/creation/types';
-import { resourceEngine } from '@shared/engine/resource/ResourceEngine';
-import { isTalismanConsumable } from '@shared/lib/consumables';
+import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
 import type { Material } from '@shared/types/cultivator';
 import {
   MANUAL_DRAW_CONFIG,
@@ -12,15 +11,17 @@ import {
   type ManualDrawStatusDTO,
   type ManualDrawTalismanCounts,
 } from '@shared/types/manualDraw';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import {
   getExecutor,
   type DbExecutor,
   type DbTransaction,
 } from '../drizzle/db';
 import * as schema from '../drizzle/schema';
-import { mapConsumableRow, type ConsumableRow } from './consumablePersistence';
-import { consumeConsumableById } from './cultivatorService';
+import type { ConsumableRow } from './consumablePersistence';
+import {
+  consumeConsumableById,
+} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
 
 const ALLOWED_DRAW_COUNTS = new Set<ManualDrawCount>([1, 5]);
 
@@ -44,23 +45,14 @@ async function loadMatchingTalismanRows(
       and(
         eq(schema.consumables.cultivatorId, cultivatorId),
         eq(schema.consumables.type, '符箓'),
+        sql`${schema.consumables.quantity} > 0`,
+        sql`${schema.consumables.spec}->>'kind' = 'talisman'`,
+        sql`${schema.consumables.spec}->>'scenario' = ${config.talismanScenario}`,
       ),
     )
-    .limit(200);
+    .orderBy(asc(schema.consumables.createdAt), asc(schema.consumables.id));
 
-  return rows
-    .filter((row) => {
-      if (row.quantity <= 0) return false;
-      const consumable = mapConsumableRow(row);
-      return (
-        isTalismanConsumable(consumable) &&
-        consumable.spec.scenario === config.talismanScenario
-      );
-    })
-    .sort(
-      (left, right) =>
-        (left.createdAt?.getTime() ?? 0) - (right.createdAt?.getTime() ?? 0),
-    );
+  return rows;
 }
 
 function buildSpendPlan(rows: ConsumableRow[], count: number) {
@@ -200,24 +192,21 @@ export const ManualDrawService = {
       name: reward.name,
       data: reward,
     }));
-    const consumeTalismans = async (resourceTx: DbTransaction) => {
-      for (const step of plan) {
-        await consumeConsumableById(
-          userId,
-          cultivatorId,
-          step.consumableId,
-          step.quantity,
-          resourceTx,
-        );
-      }
-    };
-    const result = await resourceEngine.gainInTransaction(
+    for (const step of plan) {
+      await consumeConsumableById(
+        userId,
+        cultivatorId,
+        step.consumableId,
+        step.quantity,
+        tx,
+      );
+    }
+    const result = await resourceEngine.applyInTransaction({
       userId,
       cultivatorId,
-      gains,
+      gain: gains,
       tx,
-      consumeTalismans,
-    );
+    });
 
     if (!result.success) {
       throw new ManualDrawServiceError(

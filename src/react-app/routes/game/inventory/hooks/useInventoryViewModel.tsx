@@ -3,11 +3,19 @@ import { buildTalismanUseConfirmText } from '@app/components/feature/consumables
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import type { InkDialogState } from '@app/components/ui/InkDialog';
 import {
-  usePlayerStateDomainVersion,
-  usePlayerStateView,
-  type PlayerStateView,
-} from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+  useCultivatorCondition,
+  useCultivatorCurrency,
+  useCultivatorIdentity,
+  usePlayerLoadout,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
+import {
+  inventoryArtifactsResource,
+  inventoryConsumablesResource,
+  inventoryMaterialsResource,
+} from '@app/lib/resources/definitions';
+import { useResource } from '@app/lib/resources/hooks';
 import { isAttributeResetTalismanScenario } from '@shared/config/attributeResetTalisman';
 import { isQiRestoreTalismanScenario } from '@shared/config/qiSystem';
 import {
@@ -19,9 +27,16 @@ import {
   type ElementType,
   type MaterialType,
   type Quality,
+  type RealmType,
 } from '@shared/types/constants';
-import type { Artifact, Consumable, Material } from '@shared/types/cultivator';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CultivatorCondition } from '@shared/types/condition';
+import type {
+  Artifact,
+  Consumable,
+  EquippedItems,
+  Material,
+} from '@shared/types/cultivator';
+import { useCallback, useMemo, useState } from 'react';
 
 export type InventoryTab = 'artifacts' | 'materials' | 'consumables';
 export type InventoryItem = Artifact | Consumable | Material;
@@ -49,15 +64,6 @@ export interface MaterialFilters {
   sortOrder: 'asc' | 'desc';
 }
 
-interface InventoryApiPayload {
-  success: boolean;
-  data?: {
-    items?: InventoryByTab[InventoryTab];
-    pagination?: InventoryPagination;
-  };
-  error?: string;
-}
-
 interface IdentifyApiResult {
   success: boolean;
   revealedItem?: Material;
@@ -70,13 +76,6 @@ interface IdentifyApiResult {
 interface IdentifyCelebrationState {
   rank?: string;
 }
-
-type InventoryLoadReason = 'reset' | 'refresh';
-
-const inFlightInventoryRequestMap = new Map<
-  string,
-  Promise<InventoryApiPayload>
->();
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -101,45 +100,14 @@ function getTalismanUseConfirmLines(item: Consumable): string[] {
     .filter(Boolean);
 }
 
-function areMaterialFiltersEqual(
-  left: MaterialFilters,
-  right: MaterialFilters,
-): boolean {
-  return (
-    left.rank === right.rank &&
-    left.type === right.type &&
-    left.element === right.element &&
-    left.sortBy === right.sortBy &&
-    left.sortOrder === right.sortOrder
-  );
-}
-
-async function fetchInventoryWithDedupe(
-  url: string,
-): Promise<InventoryApiPayload> {
-  const inFlight = inFlightInventoryRequestMap.get(url);
-  if (inFlight) return inFlight;
-
-  const requestPromise = (async () => {
-    const res = await fetch(url);
-    const json = (await res.json()) as InventoryApiPayload;
-    if (!res.ok || !json.success) {
-      throw new Error(json.error || '背包加载失败');
-    }
-    return json;
-  })().finally(() => {
-    inFlightInventoryRequestMap.delete(url);
-  });
-
-  inFlightInventoryRequestMap.set(url, requestPromise);
-  return requestPromise;
-}
-
 export interface UseInventoryViewModelReturn {
   // 数据
-  cultivator: PlayerStateView['cultivator'];
+  cultivatorId: string | null;
+  realm: RealmType | undefined;
+  condition: CultivatorCondition | undefined;
+  spiritStones: number | undefined;
   inventory: InventoryByTab;
-  equipped: PlayerStateView['equipped'];
+  equipped: EquippedItems | null;
   isLoading: boolean;
   isTabLoading: boolean;
   note: string | undefined;
@@ -190,26 +158,12 @@ export interface UseInventoryViewModelReturn {
  * 封装所有业务逻辑和状态管理
  */
 export function useInventoryViewModel(): UseInventoryViewModelReturn {
-  const { cultivator, equipped, isLoading, note } = usePlayerStateView();
-  const loadoutVersion = usePlayerStateDomainVersion('loadout');
-
-  const { pushToast } = useInkUI();
-  const { mutate } = usePlayerStateActions();
-
   // Tab 状态
   const [activeTab, setActiveTab] = useState<InventoryTab>('artifacts');
-  const [isTabLoading, setIsTabLoading] = useState(false);
-  const [inventoryByTab, setInventoryByTab] = useState<InventoryByTab>({
-    artifacts: [],
-    materials: [],
-    consumables: [],
-  });
-  const [paginationByTab, setPaginationByTab] = useState<
-    Record<InventoryTab, InventoryPagination>
-  >({
-    artifacts: createEmptyPagination(),
-    materials: createEmptyPagination(),
-    consumables: createEmptyPagination(),
+  const [pageByTab, setPageByTab] = useState<Record<InventoryTab, number>>({
+    artifacts: 1,
+    materials: 1,
+    consumables: 1,
   });
   const [materialFilters, setMaterialFilters] = useState<MaterialFilters>({
     rank: 'all',
@@ -224,6 +178,26 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
     null,
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const needsViewerFacts = activeTab === 'consumables' || isModalOpen;
+  const session = usePlayerSession();
+  const profile = useCultivatorIdentity(needsViewerFacts);
+  const conditionQuery = useCultivatorCondition(needsViewerFacts);
+  const currency = useCultivatorCurrency();
+  const loadout = usePlayerLoadout(activeTab === 'artifacts');
+  const cultivatorId = session.data?.activeCultivator?.id ?? null;
+  const realm = profile.data?.cultivator.realm;
+  const condition = conditionQuery.data;
+  const spiritStones = currency.data?.spiritStones;
+  const equipped = loadout.data?.equipped ?? null;
+  const isLoading =
+    currency.loading ||
+    session.loading ||
+    (needsViewerFacts && (profile.loading || conditionQuery.loading)) ||
+    (activeTab === 'artifacts' && loadout.loading);
+  const note = session.data?.note;
+
+  const { pushToast } = useInkUI();
+  const { mutate } = useResourceMutation();
 
   // Dialog 状态
   const [dialog, setDialog] = useState<InkDialogState | null>(null);
@@ -237,183 +211,53 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
     setIdentifyCelebration(null);
   }, []);
 
-  const activeTabRef = useRef(activeTab);
-  const paginationByTabRef = useRef(paginationByTab);
-  const previousLoadInputsRef = useRef<{
-    activeTab: InventoryTab;
-    cultivatorId?: string;
-    materialFilters: MaterialFilters;
-  } | null>(null);
-
-  useEffect(() => {
-    activeTabRef.current = activeTab;
-  }, [activeTab]);
-
-  useEffect(() => {
-    paginationByTabRef.current = paginationByTab;
-  }, [paginationByTab]);
-
-  // 拉取分页数据（按类型）
-  const fetchTabPage = useCallback(
-    async (tab: InventoryTab, page: number) => {
-      if (!cultivator?.id) return;
-
-      setIsTabLoading(true);
-      try {
-        const params = new URLSearchParams({
-          type: tab,
-          page: String(page),
-          pageSize: String(DEFAULT_PAGE_SIZE),
-        });
-        if (tab === 'materials') {
-          if (materialFilters.rank !== 'all') {
-            params.set('materialRanks', materialFilters.rank);
-          }
-          if (materialFilters.type !== 'all') {
-            params.set('materialTypes', materialFilters.type);
-          }
-          if (materialFilters.element !== 'all') {
-            params.set('materialElements', materialFilters.element);
-          }
-          params.set('materialSortBy', materialFilters.sortBy);
-          params.set('materialSortOrder', materialFilters.sortOrder);
-        }
-        const requestUrl = `/api/cultivator/inventory?${params.toString()}`;
-        const json = await fetchInventoryWithDedupe(requestUrl);
-
-        const data = (json.data || {}) as {
-          items: InventoryByTab[InventoryTab];
-          pagination: InventoryPagination;
-        };
-
-        setInventoryByTab((prev) => ({
-          ...prev,
-          [tab]: data.items,
-        }));
-        setPaginationByTab((prev) => ({
-          ...prev,
-          [tab]: data.pagination,
-        }));
-      } catch (error) {
-        pushToast({
-          message:
-            error instanceof Error ? `加载失败：${error.message}` : '加载失败',
-          tone: 'danger',
-        });
-      } finally {
-        setIsTabLoading(false);
-      }
-    },
-    [cultivator?.id, materialFilters, pushToast],
+  const artifactParams = useMemo(
+    () => ({ page: pageByTab.artifacts, pageSize: DEFAULT_PAGE_SIZE }),
+    [pageByTab.artifacts],
   );
-
-  useEffect(() => {
-    if (!cultivator?.id) return;
-
-    let cancelled = false;
-
-    const loadActiveTab = async () => {
-      const tab = activeTabRef.current;
-      const previousLoadInputs = previousLoadInputsRef.current;
-      const loadReason: InventoryLoadReason =
-        !previousLoadInputs ||
-        previousLoadInputs.cultivatorId !== cultivator.id ||
-        previousLoadInputs.activeTab !== activeTab ||
-        (tab === 'materials' &&
-          !areMaterialFiltersEqual(
-            previousLoadInputs.materialFilters,
-            materialFilters,
-          ))
-          ? 'reset'
-          : 'refresh';
-      const currentPage = Math.max(
-        1,
-        paginationByTabRef.current[tab].page || 1,
-      );
-      const targetPage = loadReason === 'reset' ? 1 : currentPage;
-
-      try {
-        const fetchPage = async (page: number) => {
-          const params = new URLSearchParams({
-            type: tab,
-            page: String(page),
-            pageSize: String(DEFAULT_PAGE_SIZE),
-          });
-          if (tab === 'materials') {
-            if (materialFilters.rank !== 'all') {
-              params.set('materialRanks', materialFilters.rank);
-            }
-            if (materialFilters.type !== 'all') {
-              params.set('materialTypes', materialFilters.type);
-            }
-            if (materialFilters.element !== 'all') {
-              params.set('materialElements', materialFilters.element);
-            }
-            params.set('materialSortBy', materialFilters.sortBy);
-            params.set('materialSortOrder', materialFilters.sortOrder);
-          }
-
-          const requestUrl = `/api/cultivator/inventory?${params.toString()}`;
-          const json = await fetchInventoryWithDedupe(requestUrl);
-          return (json.data || {}) as {
-            items: InventoryByTab[InventoryTab];
-            pagination: InventoryPagination;
-          };
-        };
-
-        let data = await fetchPage(targetPage);
-        if (
-          !cancelled &&
-          loadReason === 'refresh' &&
-          data.pagination.page > Math.max(1, data.pagination.totalPages)
-        ) {
-          data = await fetchPage(Math.max(1, data.pagination.totalPages));
-        }
-
-        if (cancelled) return;
-
-        setInventoryByTab((prev) => ({
-          ...prev,
-          [tab]: data.items,
-        }));
-        setPaginationByTab((prev) => ({
-          ...prev,
-          [tab]: data.pagination,
-        }));
-        previousLoadInputsRef.current = {
-          activeTab,
-          cultivatorId: cultivator.id,
-          materialFilters,
-        };
-      } catch (error) {
-        if (!cancelled) {
-          pushToast({
-            message:
-              error instanceof Error
-                ? `加载失败：${error.message}`
-                : '加载失败',
-            tone: 'danger',
-          });
-        }
-      } finally {
-        if (!cancelled) {
-          setIsTabLoading(false);
-        }
-      }
-    };
-
-    void loadActiveTab();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeTab,
-    cultivator?.id,
-    loadoutVersion,
-    materialFilters,
-    pushToast,
-  ]);
+  const materialParams = useMemo(
+    () => ({
+      page: pageByTab.materials,
+      pageSize: DEFAULT_PAGE_SIZE,
+      materialRanks:
+        materialFilters.rank === 'all' ? undefined : [materialFilters.rank],
+      materialTypes:
+        materialFilters.type === 'all' ? undefined : [materialFilters.type],
+      materialElements:
+        materialFilters.element === 'all'
+          ? undefined
+          : [materialFilters.element],
+      materialSortBy: materialFilters.sortBy,
+      materialSortOrder: materialFilters.sortOrder,
+    }),
+    [materialFilters, pageByTab.materials],
+  );
+  const consumableParams = useMemo(
+    () => ({ page: pageByTab.consumables, pageSize: DEFAULT_PAGE_SIZE }),
+    [pageByTab.consumables],
+  );
+  const artifactsQuery = useResource(
+    inventoryArtifactsResource,
+    artifactParams,
+    activeTab === 'artifacts' && Boolean(cultivatorId),
+  );
+  const materialsQuery = useResource(
+    inventoryMaterialsResource,
+    materialParams,
+    activeTab === 'materials' && Boolean(cultivatorId),
+  );
+  const consumablesQuery = useResource(
+    inventoryConsumablesResource,
+    consumableParams,
+    activeTab === 'consumables' && Boolean(cultivatorId),
+  );
+  const activeQuery =
+    activeTab === 'artifacts'
+      ? artifactsQuery
+      : activeTab === 'materials'
+        ? materialsQuery
+        : consumablesQuery;
+  const isTabLoading = activeQuery.loading || activeQuery.isRefreshing;
 
   // 打开物品详情
   const openItemDetail = useCallback((item: ItemDetailPayload) => {
@@ -437,7 +281,7 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
       item: InventoryItem,
       type: 'artifact' | 'consumable' | 'material',
     ) => {
-      if (!cultivator) return;
+      if (!cultivatorId) return;
 
       try {
         setDialog((prev) => ({
@@ -454,13 +298,6 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
         );
 
         pushToast({ message: '物品已丢弃', tone: 'success' });
-        const tab: InventoryTab =
-          type === 'artifact'
-            ? 'artifacts'
-            : type === 'material'
-              ? 'materials'
-              : 'consumables';
-        void fetchTabPage(tab, paginationByTabRef.current[tab].page || 1);
       } catch (error) {
         pushToast({
           message:
@@ -474,7 +311,7 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
         }));
       }
     },
-    [cultivator, fetchTabPage, mutate, pushToast],
+    [cultivatorId, mutate, pushToast],
   );
 
   // 打开丢弃确认
@@ -503,7 +340,7 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
   // 装备/卸下法宝
   const handleEquipToggle = useCallback(
     async (item: Artifact) => {
-      if (!cultivator || !item.id) {
+      if (!cultivatorId || !item.id) {
         pushToast({
           message: '此法宝暂无有效 ID，无法操作。',
           tone: 'warning',
@@ -522,7 +359,6 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
         );
 
         pushToast({ message: '法宝灵性已调顺。', tone: 'success' });
-        void fetchTabPage('artifacts', paginationByTabRef.current.artifacts.page || 1);
       } catch (error) {
         pushToast({
           message:
@@ -535,7 +371,7 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
         setPendingId(null);
       }
     },
-    [cultivator, fetchTabPage, mutate, pushToast],
+    [cultivatorId, mutate, pushToast],
   );
 
   const executeConsumableUse = useCallback(
@@ -557,10 +393,6 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
           message: result.message || `${item.name}已使用。`,
           tone: 'success',
         });
-        void fetchTabPage(
-          'consumables',
-          paginationByTabRef.current.consumables.page || 1,
-        );
       } catch (error) {
         pushToast({
           message:
@@ -571,13 +403,13 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
         setPendingId(null);
       }
     },
-    [fetchTabPage, mutate, pushToast],
+    [mutate, pushToast],
   );
 
   // 使用消耗品
   const handleConsume = useCallback(
     async (item: Consumable) => {
-      if (!cultivator || !item.id) {
+      if (!cultivatorId || !item.id) {
         pushToast({
           message: '此消耗品暂无有效 ID，无法使用。',
           tone: 'warning',
@@ -636,13 +468,13 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
 
       await executeConsumableUse(usableItem);
     },
-    [cultivator, executeConsumableUse, pushToast],
+    [cultivatorId, executeConsumableUse, pushToast],
   );
 
   // 鉴定神秘材料
   const handleIdentifyMaterial = useCallback(
     async (item: Material) => {
-      if (!cultivator || !item.id) {
+      if (!cultivatorId || !item.id) {
         pushToast({
           message: '此物暂无有效 ID，无法鉴定。',
           tone: 'warning',
@@ -687,10 +519,6 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
               rank: revealed.rank,
             });
           }
-          void fetchTabPage(
-            'materials',
-            paginationByTabRef.current.materials.page || 1,
-          );
         } catch (error) {
           pushToast({
             message:
@@ -722,35 +550,47 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
         onConfirm: executeIdentify,
       });
     },
-    [cultivator, fetchTabPage, mutate, pushToast],
+    [cultivatorId, mutate, pushToast],
   );
 
-  const pagination = paginationByTab[activeTab];
+  const pagination =
+    activeQuery.data?.pagination ?? createEmptyPagination(DEFAULT_PAGE_SIZE);
 
   const goPrevPage = useCallback(() => {
-    const current = paginationByTab[activeTab];
-    if (current.page <= 1 || isTabLoading) return;
-    void fetchTabPage(activeTab, current.page - 1);
-  }, [activeTab, fetchTabPage, isTabLoading, paginationByTab]);
+    if (pagination.page <= 1 || isTabLoading) return;
+    setPageByTab((current) => ({
+      ...current,
+      [activeTab]: pagination.page - 1,
+    }));
+  }, [activeTab, isTabLoading, pagination.page]);
 
   const goNextPage = useCallback(() => {
-    const current = paginationByTab[activeTab];
-    if (current.page >= current.totalPages || isTabLoading) return;
-    void fetchTabPage(activeTab, current.page + 1);
-  }, [activeTab, fetchTabPage, isTabLoading, paginationByTab]);
+    if (pagination.page >= pagination.totalPages || isTabLoading) return;
+    setPageByTab((current) => ({
+      ...current,
+      [activeTab]: pagination.page + 1,
+    }));
+  }, [activeTab, isTabLoading, pagination.page, pagination.totalPages]);
 
   const inventory = useMemo(
     () => ({
-      artifacts: inventoryByTab.artifacts,
-      materials: inventoryByTab.materials,
-      consumables: inventoryByTab.consumables,
+      artifacts: artifactsQuery.data?.items ?? [],
+      materials: materialsQuery.data?.items ?? [],
+      consumables: consumablesQuery.data?.items ?? [],
     }),
-    [inventoryByTab],
+    [
+      artifactsQuery.data?.items,
+      consumablesQuery.data?.items,
+      materialsQuery.data?.items,
+    ],
   );
 
   return {
     // 数据
-    cultivator,
+    cultivatorId,
+    realm,
+    condition,
+    spiritStones,
     inventory,
     equipped,
     isLoading,
@@ -764,22 +604,32 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
     goPrevPage,
     goNextPage,
     materialFilters,
-    setMaterialRankFilter: (rank) =>
-      setMaterialFilters((prev) => ({ ...prev, rank })),
-    setMaterialTypeFilter: (type) =>
-      setMaterialFilters((prev) => ({ ...prev, type })),
-    setMaterialElementFilter: (element) =>
-      setMaterialFilters((prev) => ({ ...prev, element })),
-    setMaterialSort: (sortBy, sortOrder) =>
-      setMaterialFilters((prev) => ({ ...prev, sortBy, sortOrder })),
-    resetMaterialFilters: () =>
+    setMaterialRankFilter: (rank) => {
+      setPageByTab((current) => ({ ...current, materials: 1 }));
+      setMaterialFilters((prev) => ({ ...prev, rank }));
+    },
+    setMaterialTypeFilter: (type) => {
+      setPageByTab((current) => ({ ...current, materials: 1 }));
+      setMaterialFilters((prev) => ({ ...prev, type }));
+    },
+    setMaterialElementFilter: (element) => {
+      setPageByTab((current) => ({ ...current, materials: 1 }));
+      setMaterialFilters((prev) => ({ ...prev, element }));
+    },
+    setMaterialSort: (sortBy, sortOrder) => {
+      setPageByTab((current) => ({ ...current, materials: 1 }));
+      setMaterialFilters((prev) => ({ ...prev, sortBy, sortOrder }));
+    },
+    resetMaterialFilters: () => {
+      setPageByTab((current) => ({ ...current, materials: 1 }));
       setMaterialFilters({
         rank: 'all',
         type: 'all',
         element: 'all',
         sortBy: 'createdAt',
         sortOrder: 'desc',
-      }),
+      });
+    },
 
     // Modal 状态
     selectedItem,

@@ -29,9 +29,12 @@ import {
 import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
 import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
 import { getAllowedMaterialTypesForCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import {
+  useCultivatorIdentity,
+  usePlayerSession,
+} from '@app/lib/resources/player';
 import { getGameConceptLabel } from '@shared/lib/gameConceptDisplay';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type { Material } from '@shared/types/cultivator';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -85,8 +88,12 @@ const TARGET_SCOPE_OPTIONS: { value: 'single' | 'aoe' | 'random'; label: string 
 
 export default function SkillCreationPage() {
   const navigate = useNavigate();
-  const { cultivator, note, isLoading } = usePlayerStateView();
-  const { mutate } = usePlayerStateActions();
+  const profile = useCultivatorIdentity();
+  const session = usePlayerSession();
+  const cultivator = profile.data?.cultivator;
+  const note = session.data?.note;
+  const isLoading = profile.loading || session.loading;
+  const { mutate } = useResourceMutation();
   const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
   const [selectedMaterialMap, setSelectedMaterialMap] = useState<
     Record<string, Material>
@@ -101,7 +108,6 @@ export default function SkillCreationPage() {
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
   const [celebrationTick, setCelebrationTick] = useState(0);
   const [hasCreatedPendingReplace, setHasCreatedPendingReplace] = useState(false);
-  const [materialsRefreshKey, setMaterialsRefreshKey] = useState(0);
   const [estimatedCost, setEstimatedCost] = useState<CostEstimate | null>(null);
   const [validation, setValidation] = useState<PreviewValidation | null>(null);
   const [canAfford, setCanAfford] = useState(true);
@@ -286,7 +292,6 @@ export default function SkillCreationPage() {
           setSelectedMaterialMap({});
           setDoseMap({});
           setIsMaterialModalOpen(false);
-          setMaterialsRefreshKey((prev) => prev + 1);
 
           if (skill.needs_replace) {
             setHasCreatedPendingReplace(true);
@@ -542,7 +547,6 @@ export default function SkillCreationPage() {
         isSubmitting={isSubmitting}
         pageSize={20}
         includeMaterialTypes={ALLOWED_MATERIAL_TYPES}
-        refreshKey={materialsRefreshKey}
         loadingText="正在检索可用于推演的材料，请稍候……"
         emptyNoticeText="暂无可用于推演神通的材料。"
         totalText={(total) => `共 ${total} 份可用于推演的材料`}

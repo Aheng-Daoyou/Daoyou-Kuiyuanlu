@@ -1,6 +1,4 @@
-import { useSectResourceQuery } from '@app/components/feature/sect/SectQueryProvider';
 import { SectTaskInteractionProvider } from '@app/components/feature/sect/SectTaskInteractionProvider';
-import { fetchSectTasks } from '@app/lib/sect/sectClient';
 import {
   SectPermissionBoundary,
   SectScene,
@@ -16,10 +14,8 @@ export default function SectAffairsPage() {
 }
 
 function SectAffairsBody() {
-  const { reload } = useSectResourceQuery('tasks', fetchSectTasks);
-
   return (
-    <SectTaskInteractionProvider refreshTasks={reload}>
+    <SectTaskInteractionProvider>
       <SectScene sceneKey="affairs" mood="affairs">
         <SectAffairsRoom />
       </SectScene>

@@ -1,5 +1,3 @@
-import { NarrativePerformanceLoading } from '@app/components/feature/narrative/NarrativePerformanceLoading';
-import { SectQueryProvider } from '@app/components/feature/sect/SectQueryProvider';
 import { WorldChatPreviewBar } from '@app/components/feature/world-chat/WorldChatPreviewBar';
 import { WorldChatFeedProvider } from '@app/components/feature/world-chat/useWorldChatFeedModel';
 import { GameBottomDock } from '@app/components/game-shell/GameBottomDock';
@@ -8,11 +6,10 @@ import { RealtimeConnectionToasts } from '@app/components/game-shell/RealtimeCon
 import { useGameHudModel } from '@app/components/game-shell/useGameHudModel';
 import { InkButton } from '@app/components/ui/InkButton';
 import {
-  useActiveCultivatorProfile,
-  usePlayerStateStatus,
-} from '@app/lib/player-state/selectors';
-import { usePlayerState } from '@app/lib/player-state/store';
+  usePlayerSession,
+} from '@app/lib/resources/player';
 import { PlayerProvider } from '@app/lib/player/PlayerProvider';
+import type { UserLoaderData } from '@app/lib/router/routeData';
 import {
   resolveMapCloseNavigation,
   type SpecialBackNavigation,
@@ -38,6 +35,7 @@ import {
   Navigate,
   Outlet,
   useLocation,
+  useLoaderData,
   useMatches,
   useNavigate,
 } from 'react-router';
@@ -64,15 +62,14 @@ function LoadingScreen({ message }: { message: string }) {
 }
 
 function PlayerShell() {
-  const cultivator = useActiveCultivatorProfile();
-  const { note, hasActiveCultivator, isLoading } = usePlayerStateStatus();
+  const session = usePlayerSession();
+  const note = session.data?.note;
+  const hasActiveCultivator = Boolean(session.data?.activeCultivator);
+  const isLoading =
+    session.status === 'idle' || session.status === 'loading';
   const location = useLocation();
-  const sectLoaded = usePlayerState((state) =>
-    Object.prototype.hasOwnProperty.call(state.snapshot, 'sect'),
-  );
-  const activeSect = usePlayerState((state) => state.snapshot.sect);
 
-  if (isLoading && !cultivator && !hasActiveCultivator) {
+  if (isLoading && !hasActiveCultivator) {
     return <LoadingScreen message="正在推演命盘……" />;
   }
 
@@ -103,17 +100,15 @@ function PlayerShell() {
     );
   }
 
-  const sectState = !sectLoaded ? 'loading' : activeSect ? 'joined' : 'none';
+  const sectState = session.data?.activeCultivator?.sectId
+    ? 'joined'
+    : 'none';
   const redirect = resolveSectOnboardingRedirect(
     location.pathname,
     hasActiveCultivator,
     sectState,
     location.search,
   );
-
-  if (sectState === 'loading') {
-    return <NarrativePerformanceLoading message="正在辨认山门玉牒……" />;
-  }
 
   if (redirect) {
     return <Navigate to={redirect} replace />;
@@ -196,17 +191,6 @@ function resolveSpecialSceneDescriptor(
       backAction: {
         type: 'path',
         label: '离开练功房',
-        href: '/game',
-      },
-    };
-  }
-
-  if (pathname === '/game/battle') {
-    return {
-      sceneLabel: scene.label,
-      backAction: {
-        type: 'path',
-        label: '返回洞府',
         href: '/game',
       },
     };
@@ -524,11 +508,7 @@ function GameGenesisLayoutBody() {
 }
 
 export function GameGenesisLayout() {
-  return (
-    <PlayerProvider>
-      <GameGenesisLayoutBody />
-    </PlayerProvider>
-  );
+  return <GameGenesisLayoutBody />;
 }
 
 const DUNGEON_SCENE_TOP_OFFSET_FALLBACK =
@@ -653,19 +633,16 @@ export function GameDungeonLayout() {
 }
 
 export default function GameLayout() {
+  const { userId } = useLoaderData() as UserLoaderData;
   return (
-    <div className="bg-paper min-h-screen">
-      <Outlet />
-    </div>
+    <PlayerProvider accountId={userId}>
+      <div className="bg-paper min-h-screen">
+        <Outlet />
+      </div>
+    </PlayerProvider>
   );
 }
 
-export function PlayerProviderLayout() {
-  return (
-    <PlayerProvider>
-      <SectQueryProvider>
-        <PlayerShell />
-      </SectQueryProvider>
-    </PlayerProvider>
-  );
+export function PlayerShellLayout() {
+  return <PlayerShell />;
 }

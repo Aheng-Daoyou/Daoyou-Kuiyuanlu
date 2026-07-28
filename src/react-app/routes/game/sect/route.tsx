@@ -1,52 +1,48 @@
 import { SectMap } from '@app/components/feature/sect/SectMap';
 import {
-  useSectCurrentQuery,
-  useSectPresentation,
-  useSectResourceQuery,
-} from '@app/components/feature/sect/SectQueryProvider';
+  getSectDefinition,
+  getSectPresentationForContext,
+  useSectContextQuery,
+  useSectInfrastructureQuery,
+} from '@app/components/feature/sect/sectResources';
 import { GameSceneFrame, GameSceneLoading } from '@app/components/game-shell';
 import { formatDocumentTitle } from '@app/lib/router/routeTitle';
-import { fetchSectCatalog } from '@app/lib/sect/sectClient';
 import { getSectPresentation } from '@app/lib/sect/sectPresentation';
 import { useMemo } from 'react';
-import { Navigate, useNavigate } from 'react-router';
+import { useNavigate } from 'react-router';
 import { SectQueryError } from './components/SectScene';
 
 export default function SectPage() {
   const navigate = useNavigate();
 
-  const {
-    data: catalog,
-    error: catalogError,
-    retry,
-  } = useSectResourceQuery('catalog', fetchSectCatalog);
-  const current = useSectCurrentQuery();
-  const currentPresentation = useSectPresentation();
-  const data = current.data;
-  const error = catalogError ?? current.error;
+  const context = useSectContextQuery();
+  const infrastructure = useSectInfrastructureQuery();
+  const currentPresentation = getSectPresentationForContext(context.data);
+  const error = context.error ?? infrastructure.error;
 
   const facilities = useMemo(
-    () => new Map(data?.overview?.facilities.map((item) => [item.key, item])),
-    [data?.overview?.facilities],
+    () =>
+      new Map(infrastructure.data?.facilities.map((item) => [item.key, item])),
+    [infrastructure.data?.facilities],
   );
 
   if (error)
     return (
       <SectQueryError
         error={error}
-        retry={() => void Promise.all([retry(), current.retry()])}
+        retry={() =>
+          void Promise.all([context.retry(), infrastructure.retry()])
+        }
       />
     );
-  if (!catalog || !data)
+  if (!context.data || !infrastructure.data)
     return (
       <GameSceneLoading message={currentPresentation.scenes.map.loadingText} />
     );
 
-  if (!data.sect || !data.definition) {
-    return <Navigate to="/game/sect/onboarding" replace />;
-  }
-
-  const presentation = getSectPresentation(data.definition.id);
+  const definition = getSectDefinition(context.data);
+  const permissions = context.data.permissions;
+  const presentation = getSectPresentation(definition.id);
   const mapScene = presentation.scenes.map;
   return (
     <GameSceneFrame
@@ -65,14 +61,14 @@ export default function SectPage() {
           alt={presentation.map.alt}
           hotspots={presentation.map.hotspots}
           facilities={facilities}
-          permissions={data.overview?.permissions}
+          permissions={permissions}
           onNavigate={(route) => navigate(route)}
         />
       ) : (
         <div className="border-ink/15 bg-ink/10 grid gap-px border sm:grid-cols-2 lg:grid-cols-3">
           {presentation.map.hotspots.map((spot) => {
             const access = spot.permission
-              ? data.overview?.permissions?.[spot.permission]
+              ? permissions?.[spot.permission]
               : undefined;
             const disabled =
               spot.locked || !spot.route || access?.granted === false;

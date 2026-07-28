@@ -7,6 +7,11 @@ import { InkList, InkListItem } from '@app/components/ui/InkList';
 import { InkNotice } from '@app/components/ui/InkNotice';
 import { InkTabs } from '@app/components/ui/InkTabs';
 import {
+  useArtifactInventoryResource,
+  useConsumableInventoryResource,
+  useMaterialInventoryResource,
+} from '@app/lib/resources/inventory';
+import {
   CONSUMABLE_TYPE_DISPLAY_MAP,
   getEquipmentSlotInfo,
   getMaterialTypeInfo,
@@ -27,20 +32,6 @@ const CHANNEL_TABS: { label: string; value: WorldChatViewChannel }[] = [
 ];
 
 type ShowcaseTab = 'artifacts' | 'materials' | 'consumables';
-
-type ShowcaseItemByTab = {
-  artifacts: Artifact;
-  materials: Material;
-  consumables: Consumable;
-};
-
-interface InventoryApiPayload<T> {
-  success: boolean;
-  data?: {
-    items?: T[];
-  };
-  error?: string;
-}
 
 function countChars(input: string): number {
   return Array.from(input).length;
@@ -72,89 +63,35 @@ export function WorldChatChannel() {
   const [showcaseOpen, setShowcaseOpen] = useState(false);
   const [showcaseText, setShowcaseText] = useState('');
   const [showcaseTab, setShowcaseTab] = useState<ShowcaseTab>('artifacts');
-  const [showcaseLoading, setShowcaseLoading] = useState(false);
-  const [showcaseItems, setShowcaseItems] = useState<{
-    artifacts: Artifact[];
-    materials: Material[];
-    consumables: Consumable[];
-  }>({
-    artifacts: [],
-    materials: [],
-    consumables: [],
+  const artifactInventory = useArtifactInventoryResource({
+    pageSize: SHOWCASE_PAGE_SIZE,
+    enabled: showcaseOpen && showcaseTab === 'artifacts',
   });
-  const [showcaseLoaded, setShowcaseLoaded] = useState<
-    Record<ShowcaseTab, boolean>
-  >({
-    artifacts: false,
-    materials: false,
-    consumables: false,
+  const materialInventory = useMaterialInventoryResource({
+    pageSize: SHOWCASE_PAGE_SIZE,
+    enabled: showcaseOpen && showcaseTab === 'materials',
+  });
+  const consumableInventory = useConsumableInventoryResource({
+    pageSize: SHOWCASE_PAGE_SIZE,
+    enabled: showcaseOpen && showcaseTab === 'consumables',
   });
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const shouldStickBottomRef = useRef(true);
   const skipNextAutoScrollRef = useRef(false);
-  const showcaseLoadingRef = useRef(false);
 
   const charCount = useMemo(() => countChars(input), [input]);
   const displayMessages = useMemo(() => [...messages].reverse(), [messages]);
   const canSendMessage = activeChannel !== 'system';
-  const currentShowcaseItems = showcaseItems[
-    showcaseTab
-  ] as ShowcaseItemByTab[ShowcaseTab][];
-
-  useEffect(() => {
-    if (
-      !showcaseOpen ||
-      showcaseLoaded[showcaseTab] ||
-      showcaseLoadingRef.current
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    showcaseLoadingRef.current = true;
-    setShowcaseLoading(true);
-
-    const loadShowcaseItems = async () => {
-      try {
-        const res = await fetch(
-          `/api/cultivator/inventory?type=${showcaseTab}&page=1&pageSize=${SHOWCASE_PAGE_SIZE}`,
-          { cache: 'no-store' },
-        );
-        const data = (await res.json()) as InventoryApiPayload<
-          ShowcaseItemByTab[ShowcaseTab]
-        >;
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || '读取储物袋失败');
-        }
-
-        if (cancelled) return;
-
-        setShowcaseItems((prev) => ({
-          ...prev,
-          [showcaseTab]: (data.data?.items ||
-            []) as ShowcaseItemByTab[typeof showcaseTab][],
-        }));
-        setShowcaseLoaded((prev) => ({ ...prev, [showcaseTab]: true }));
-      } catch (error) {
-        if (cancelled) return;
-        pushToast({
-          message: error instanceof Error ? error.message : '读取储物袋失败',
-          tone: 'danger',
-        });
-      } finally {
-        showcaseLoadingRef.current = false;
-        if (!cancelled) {
-          setShowcaseLoading(false);
-        }
-      }
-    };
-
-    void loadShowcaseItems();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [pushToast, showcaseLoaded, showcaseOpen, showcaseTab]);
+  const activeShowcaseInventory =
+    showcaseTab === 'artifacts'
+      ? artifactInventory
+      : showcaseTab === 'materials'
+        ? materialInventory
+        : consumableInventory;
+  const currentShowcaseItems = (activeShowcaseInventory.items ?? []) as Array<
+    Artifact | Material | Consumable
+  >;
+  const showcaseLoading = activeShowcaseInventory.loading;
 
   useEffect(() => {
     if (skipNextAutoScrollRef.current) {
@@ -199,7 +136,7 @@ export function WorldChatChannel() {
 
   const handleSendShowcase = async (
     tab: ShowcaseTab,
-    item: ShowcaseItemByTab[ShowcaseTab],
+    item: Artifact | Material | Consumable,
   ) => {
     if (!item.id) {
       pushToast({ message: '道具缺少唯一标识，无法展示', tone: 'warning' });
@@ -220,7 +157,7 @@ export function WorldChatChannel() {
 
   const renderShowcaseMeta = (
     tab: ShowcaseTab,
-    item: ShowcaseItemByTab[ShowcaseTab],
+    item: Artifact | Material | Consumable,
   ) => {
     if (tab === 'artifacts') {
       const artifact = item as Artifact;

@@ -22,8 +22,8 @@ import {
   InkTag,
 } from '@app/components/ui';
 import { ItemCard } from '@app/components/ui/ItemCard';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { usePlayerSession } from '@app/lib/resources/player';
+import { consumeResourceMutation } from '@app/lib/resources/mutations';
 import {
   CHARACTER_GENERATION_DAILY_LIMIT,
   type CharacterGenerationQuota,
@@ -130,8 +130,9 @@ function chunkPairs<T>(items: T[]): T[][] {
 export default function CreatePage() {
   const navigate = useNavigate();
   const { pushToast, openDialog } = useInkUI();
-  const { hasActiveCultivator, isLoading } = usePlayerStateView();
-  const { refresh } = usePlayerStateActions();
+  const session = usePlayerSession();
+  const hasActiveCultivator = Boolean(session.data?.activeCultivator);
+  const isLoading = session.loading;
   const [userPrompt, setUserPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -358,17 +359,12 @@ export default function CreatePage() {
         }),
       });
 
-      const saveResult = await saveResponse.json();
-
-      if (!saveResponse.ok || !saveResult.success) {
-        throw new Error(saveResult.error || '保存角色失败');
-      }
+      await consumeResourceMutation(saveResponse);
 
       pushToast({
         message: '道友真形已落地，山门正在云外相候。',
         tone: 'success',
       });
-      await refresh();
       navigate('/game/sect/onboarding', { replace: true });
     } catch (error) {
       const errorMessage =

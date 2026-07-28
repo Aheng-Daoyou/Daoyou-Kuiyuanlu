@@ -1,10 +1,11 @@
-import { useSectPresentation } from '@app/components/feature/sect/SectQueryProvider';
 import { SECT_ROOM_NPC_QUERY_KEY } from '@app/components/feature/sect/sectRoomNavigation';
+import type { SectRoomDefinition } from '@shared/engine/sect';
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 
-export function useSectRoomRouteSelection(roomKey: string) {
-  const room = useSectPresentation().rooms[roomKey];
+export function useSectRoomRouteSelection(
+  room: SectRoomDefinition | undefined,
+) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedRoleKey = searchParams.get(SECT_ROOM_NPC_QUERY_KEY);
   const roleKey = room?.actors.some(

@@ -1,12 +1,10 @@
-import { NarrativePerformanceLoading } from '@app/components/feature/narrative/NarrativePerformanceLoading';
 import { SectMap } from '@app/components/feature/sect/SectMap';
-import { useSectResourceQuery } from '@app/components/feature/sect/SectQueryProvider';
 import { InkButton } from '@app/components/ui';
 import { useSpecialSceneBackAction } from '@app/layouts/special-scene';
-import { usePlayerState } from '@app/lib/player-state/store';
+import { usePlayerSession } from '@app/lib/resources/player';
 import { formatDocumentTitle } from '@app/lib/router/routeTitle';
-import { fetchSectDetail } from '@app/lib/sect/sectClient';
 import { getSectPresentation } from '@app/lib/sect/sectPresentation';
+import { productionSectRuntime } from '@shared/engine/sect/content';
 import { getSectLandmarkBySectId } from '@shared/lib/game/mapSystem';
 import { useCallback } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
@@ -14,9 +12,8 @@ import { Navigate, useNavigate, useParams } from 'react-router';
 export default function SectVisitPage() {
   const navigate = useNavigate();
   const { sectId = '' } = useParams();
-  const activeSectId = usePlayerState(
-    (state) => state.snapshot.sect?.sectId ?? null,
-  );
+  const session = usePlayerSession();
+  const activeSectId = session.data?.activeCultivator?.sectId ?? null;
   const landmark = getSectLandmarkBySectId(sectId);
   const worldMapHref = landmark
     ? `/game/map?intent=sect&nodeId=${encodeURIComponent(landmark.id)}`
@@ -29,15 +26,13 @@ export default function SectVisitPage() {
     label: '返回大世界',
     onBack: backToWorld,
   });
-  const detail = useSectResourceQuery(`detail:${sectId}`, (signal) =>
-    fetchSectDetail(sectId, signal),
-  );
+  const definition = productionSectRuntime.registry.get(sectId)?.definition;
 
   if (activeSectId === sectId) {
     return <Navigate to="/game/sect" replace />;
   }
 
-  if (detail.error || !landmark) {
+  if (!definition || !landmark) {
     return (
       <div className="bg-paper flex h-full min-h-[100svh] items-center justify-center px-6">
         <div className="border-ink/15 bg-background max-w-md border p-6 text-center shadow-sm">
@@ -53,11 +48,7 @@ export default function SectVisitPage() {
     );
   }
 
-  if (!detail.data) {
-    return <NarrativePerformanceLoading message="访帖正送往山门……" />;
-  }
-
-  const presentation = getSectPresentation(detail.data.definition.id);
+  const presentation = getSectPresentation(definition.id);
   return (
     <div className="bg-paper h-full min-h-[100svh] overflow-y-auto px-3 pt-[calc(env(safe-area-inset-top)+5.5rem)] pb-6 md:px-6 md:pt-24">
       <title>

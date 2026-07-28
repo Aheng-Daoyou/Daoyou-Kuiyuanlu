@@ -23,7 +23,7 @@ import { DungeonRunPanel } from './DungeonRunPanel';
 interface DungeonExploringProps {
   state: DungeonState;
   lastRound: DungeonRound | null;
-  cultivator: Cultivator | null;
+  cultivator: Pick<Cultivator, 'realm' | 'condition'> | null;
   displayResources?: CultivatorDisplaySnapshot['resources'];
   onAction: (option: DungeonOption) => Promise<unknown>;
   onQuit: () => Promise<boolean>;

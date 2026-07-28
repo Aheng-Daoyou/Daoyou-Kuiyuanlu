@@ -2,23 +2,26 @@ import {
   NpcConversation,
   useConversationSession,
 } from '@app/components/feature/room';
-import { SectAbilityDetails } from '@app/components/feature/sect/SectAbilityDetails';
-import {
-  useSectCurrentQuery,
-  useSectPresentation,
-} from '@app/components/feature/sect/SectQueryProvider';
 import {
   SectNpcConversationRegistry,
   SectRoutedRoom,
   SectTaskLocationConversation,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
+import { SectAbilityDetails } from '@app/components/feature/sect/SectAbilityDetails';
+import {
+  buildSectProgressionState,
+  getSectDefinition,
+  getSectPresentationForContext,
+  useSectContextQuery,
+  useSectProgressionQuery,
+} from '@app/components/feature/sect/sectResources';
 import { createSectRoomNpcHref } from '@app/components/feature/sect/sectRoomNavigation';
 import { InkModal } from '@app/components/layout';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkCard, InkNotice } from '@app/components/ui';
-import { useActiveCultivatorProfile } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
+import { useCultivatorIdentity } from '@app/lib/resources/player';
 import {
   createAbilitySlots,
   isListedSectAbility,
@@ -77,15 +80,18 @@ function ArenaInstructorConversation({
   actor,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const current = useSectCurrentQuery();
+  const context = useSectContextQuery();
+  const progression = useSectProgressionQuery();
   const navigate = useNavigate();
   const session = useConversationSession({
     sessionKey: actor.id,
-    snapshot: current.data,
-    load: current.reload,
+    snapshot: { context: context.data, progression: progression.data },
     perform: async () => undefined,
   });
-  const sect = current.data?.sect;
+  const sect =
+    context.data && progression.data
+      ? buildSectProgressionState(context.data, progression.data)
+      : undefined;
   const selectedAbilityCount =
     sect?.abilityLoadout.filter((id): id is string => Boolean(id)).length ?? 0;
   return (
@@ -110,7 +116,7 @@ function ArenaInstructorConversation({
         { id: 'leave', label: '弟子告退', tone: 'muted' },
       ]}
       busy={session.phase === 'loading'}
-      error={session.error ?? current.error}
+      error={session.error ?? context.error ?? progression.error}
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (optionId === 'workspace')
@@ -126,27 +132,35 @@ function ArenaInstructorConversation({
 }
 
 function SectAbilitiesBody() {
-  const { data, error, setData } = useSectCurrentQuery();
-  const presentation = useSectPresentation();
+  const context = useSectContextQuery();
+  const progression = useSectProgressionQuery();
+  const profile = useCultivatorIdentity();
+  const error = context.error ?? progression.error ?? profile.error;
+  const sect =
+    context.data && progression.data
+      ? buildSectProgressionState(context.data, progression.data)
+      : undefined;
+  const definition = context.data ? getSectDefinition(context.data) : undefined;
+  const presentation = getSectPresentationForContext(context.data);
   const [draftSlots, setDraftSlots] = useState<SectAbilitySlots>(() =>
-    createAbilitySlots(data?.sect?.abilityLoadout ?? []),
+    createAbilitySlots(sect?.abilityLoadout ?? []),
   );
   const [pickerOpen, setPickerOpen] = useState(false);
   const [expandedAbilityId, setExpandedAbilityId] = useState<string | null>(
     null,
   );
   const [busy, setBusy] = useState(false);
-  const cultivator = useActiveCultivatorProfile();
-  const { mutate } = usePlayerStateActions();
+  const cultivator = profile.data?.cultivator;
+  const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
   const navigate = useNavigate();
 
-  const realm = cultivator?.realm ?? '炼气';
-  const sect = data?.sect;
-  const definition = data?.definition;
   const details = useMemo(
-    () => (sect && definition ? resolveSectAbilities({ sect, realm }) : []),
-    [definition, realm, sect],
+    () =>
+      sect && definition && cultivator
+        ? resolveSectAbilities({ sect, realm: cultivator.realm })
+        : [],
+    [cultivator, definition, sect],
   );
   const activeDetails = details.filter((detail) =>
     definition?.abilities.some(
@@ -181,7 +195,6 @@ function SectAbilitiesBody() {
           json('PUT', { abilityIds: draftSlots }),
         ),
       );
-      if (data) setData({ ...data, sect: result.sect });
       setDraftSlots(createAbilitySlots(result.sect.abilityLoadout));
       pushToast({ message: '宗门神通配置已保存', tone: 'success' });
     } catch (reason) {
@@ -216,13 +229,12 @@ function SectAbilitiesBody() {
     if (!sect?.activePathId) return;
     setBusy(true);
     try {
-      const result = await mutate<{ sect: CultivatorSectState }>(
+      await mutate<{ sect: CultivatorSectState }>(
         fetch(
           `/api/sects/current/paths/${sect.activePathId}/tactic`,
           json('PUT', { tacticId }),
         ),
       );
-      if (data) setData({ ...data, sect: result.sect });
       pushToast({ message: '自动战术已切换', tone: 'success' });
     } catch (reason) {
       pushToast({
@@ -234,7 +246,8 @@ function SectAbilitiesBody() {
     }
   };
 
-  if (!data && !error) return <SectPageLoading sceneKey="arena" />;
+  if ((!context.data || !progression.data || !profile.data) && !error)
+    return <SectPageLoading sceneKey="arena" />;
   return (
     <SectScene
       sceneKey="arena"

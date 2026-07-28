@@ -1,4 +1,10 @@
 import type {
+  ResourceChangeDescriptor,
+  ResourceDataMap,
+} from '@shared/contracts/resources';
+import type { SectTaskSettlementData } from '@shared/contracts/sect';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
+import type {
   CultivatorSectState,
   SectAbilitySlots,
   SectDefinition,
@@ -13,7 +19,8 @@ import type {
 import type { BattleRecord } from '@shared/types/battle';
 import type { Quality, RealmStage, RealmType } from '@shared/types/constants';
 import type { PillSpec } from '@shared/types/consumable';
-import type { Cultivator, Material } from '@shared/types/cultivator';
+import type { Material } from '@shared/types/cultivator';
+import type { SectCommandEffects } from './SectCommandEffects';
 
 export interface Clock {
   now(): Date;
@@ -71,6 +78,7 @@ export interface SectTrainingResourceSnapshot {
   stones: number;
   cultivationExp: number;
   comprehensionInsight: number;
+  resourceProgress: ResourceDataMap['player.progress'];
   playerRace: 'human';
 }
 
@@ -251,16 +259,32 @@ export interface SectInventoryGateway {
     cultivatorId: string,
     itemId: string,
   ): Promise<SectOwnedArtifact | null>;
-  consumeMaterial(itemId: string, quantity: number): Promise<boolean>;
-  consumeConsumable(itemId: string, quantity: number): Promise<boolean>;
-  consumeArtifact(itemId: string): Promise<boolean>;
+  consumeMaterial(
+    itemId: string,
+    quantity: number,
+  ): Promise<SectInventorySettlementResult>;
+  consumeConsumable(
+    itemId: string,
+    quantity: number,
+  ): Promise<SectInventorySettlementResult>;
+  consumeArtifact(itemId: string): Promise<SectInventorySettlementResult>;
+}
+
+export interface SectInventorySettlementResult {
+  consumed: boolean;
+  change?: ResourceChangeDescriptor<
+    'inventory.artifacts' | 'inventory.materials' | 'inventory.consumables'
+  >;
+  settlement?: SectTaskSettlementData['inventory'][number];
 }
 
 export interface SectSubmissionInventoryReadGateway {
-  listSubmissionItems(input: {
+  listSubmissionItemsPage(input: {
     cultivatorId: string;
     kind: SectSubmissionItemKind;
-  }): Promise<SectSubmissionItemFacts[]>;
+    page: number;
+    pageSize: number;
+  }): Promise<{ items: SectSubmissionItemFacts[]; total: number }>;
   findSubmissionItem(
     cultivatorId: string,
     kind: SectSubmissionItemKind,
@@ -274,11 +298,11 @@ export interface SectSubmissionInventoryGateway extends SectSubmissionInventoryR
     kind: SectSubmissionItemKind;
     itemId: string;
     quantity: number;
-  }): Promise<boolean>;
+  }): Promise<SectInventorySettlementResult>;
 }
 
 export interface SectCultivatorGateway {
-  loadRuntime(cultivatorId: string): Promise<Cultivator | null>;
+  loadRuntime(cultivatorId: string): Promise<CultivatorCombatInput | null>;
   findMirrorCultivatorId(
     sectId: string,
     excludeCultivatorId: string,
@@ -291,8 +315,8 @@ export interface SectCultivatorGateway {
 
 export interface SectBattleGateway {
   simulate(
-    player: Cultivator,
-    opponent: Cultivator,
+    player: CultivatorCombatInput,
+    opponent: CultivatorCombatInput,
     seed: string,
   ): BattleRecord;
 }
@@ -303,13 +327,19 @@ export interface SectRewardGateway {
     amount: number,
     reason: string,
     referenceId: string,
-  ): Promise<void>;
-  grantSpiritStones(cultivatorId: string, amount: number): Promise<void>;
+  ): Promise<{ value: number; effects: SectCommandEffects }>;
+  grantSpiritStones(
+    cultivatorId: string,
+    amount: number,
+  ): Promise<{ value: number; effects: SectCommandEffects }>;
   grantCultivationExp(
     userId: string,
     cultivatorId: string,
     amount: number,
-  ): Promise<void>;
+  ): Promise<{
+    value: ResourceDataMap['player.progress'];
+    effects: SectCommandEffects;
+  }>;
   grantMaterial(
     cultivatorId: string,
     input: Pick<
@@ -322,7 +352,7 @@ export interface SectRewardGateway {
       | 'details'
       | 'quantity'
     >,
-  ): Promise<void>;
+  ): Promise<SectCommandEffects>;
   grantPill(
     userId: string,
     cultivatorId: string,
@@ -335,7 +365,7 @@ export interface SectRewardGateway {
       spec: PillSpec;
       quantity: number;
     },
-  ): Promise<void>;
+  ): Promise<SectCommandEffects>;
 }
 
 export interface SectFacilityRecord {
@@ -368,7 +398,7 @@ export interface SectEconomyRepository extends SectEconomyReadRepository {
     amount: number,
     reason: string,
     referenceId: string,
-  ): Promise<boolean>;
+  ): Promise<number | null>;
   recordPurchase(
     membershipId: string,
     weekKey: string,
@@ -381,7 +411,10 @@ export interface SectEconomyRepository extends SectEconomyReadRepository {
     spiritStones: number;
     rewards: unknown[];
   }): Promise<boolean>;
-  spendSpiritStones(cultivatorId: string, amount: number): Promise<boolean>;
+  spendSpiritStones(
+    cultivatorId: string,
+    amount: number,
+  ): Promise<{ spent: boolean; balance?: number }>;
 }
 
 export interface SectConstructionProjectRecord {
@@ -456,7 +489,7 @@ export interface SectConstructionRepository extends SectConstructionReadReposito
     amount: number,
     reason: string,
     referenceId: string,
-  ): Promise<void>;
+  ): Promise<number>;
 }
 
 export interface SectModuleResolver {

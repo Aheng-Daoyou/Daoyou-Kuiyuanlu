@@ -1,8 +1,6 @@
 import { InkButton } from '@app/components/ui';
-import { fetchSectTasks } from '@app/lib/sect/sectClient';
-import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { useSectResourceQuery } from './SectQueryProvider';
+import { useSectTasksQuery } from './sectResources';
 import {
   createSectTaskBattleHref,
   readSectTaskActivityLocation,
@@ -17,11 +15,7 @@ export function SectTaskActivityEntry({
   activeMessage: string;
 }) {
   const navigate = useNavigate();
-  const { data, reload } = useSectResourceQuery('tasks', fetchSectTasks);
-
-  useEffect(() => {
-    void reload();
-  }, [locationKey, reload]);
+  const { data } = useSectTasksQuery();
 
   const task = data?.items.find(
     (candidate) =>

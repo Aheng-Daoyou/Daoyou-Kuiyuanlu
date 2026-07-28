@@ -4,7 +4,7 @@ import {
 } from '@app/components/feature/items';
 import type { Tier } from '@app/components/ui/InkBadge';
 import { InkBadge, tierColorMap } from '@app/components/ui/InkBadge';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import { useCultivatorIdentity } from '@app/lib/resources/player';
 import { cn } from '@shared/lib/cn';
 import type {
   ItemShowcaseSnapshotMap,
@@ -211,7 +211,7 @@ interface WorldChatMessageItemProps {
 }
 
 export function WorldChatMessageItem({ message }: WorldChatMessageItemProps) {
-  const { cultivator } = usePlayerStateView();
+  const cultivator = useCultivatorIdentity().data?.cultivator;
   const [detailItem, setDetailItem] = useState<ItemDetailPayload | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const isSystemRumor =

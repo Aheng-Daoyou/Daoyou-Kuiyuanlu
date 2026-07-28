@@ -12,6 +12,7 @@ import type {
   SectTaskRecord,
 } from './ports';
 import type { SectTaskExecutor } from './task-executors/SectTaskExecutor';
+import type { SectCommandEffects } from './SectCommandEffects';
 
 export class ClaimSectTaskRewardHandler {
   constructor(private readonly events: SectDomainEventDispatcherFactory) {}
@@ -26,7 +27,8 @@ export class ClaimSectTaskRewardHandler {
     definition: SectTaskDefinition;
     executor: SectTaskExecutor;
     record: SectTaskRecord;
-  }): Promise<SectTaskActionData> {
+    changedTasks?: SectTaskActionData['changedTasks'];
+  }): Promise<{ result: SectTaskActionData; effects: SectCommandEffects }> {
     if (args.record.status !== 'completed')
       invalidSectTask('该宗门任务尚未达成');
     if (args.record.claimedAt) invalidSectTask('该宗门任务奖励已经领取');
@@ -49,7 +51,7 @@ export class ClaimSectTaskRewardHandler {
     const claimedAt = args.context.clock.now();
     const claimed = await args.context.tasks.claim(args.record.id, claimedAt);
     if (!claimed) invalidSectTask('该宗门任务奖励已经领取');
-    await this.events
+    const effects = await this.events
       .forTask({
         userId: args.command.userId,
         cultivatorId: args.command.cultivatorId,
@@ -72,18 +74,29 @@ export class ClaimSectTaskRewardHandler {
           ? ['晋升资格已经记入宗门卷宗']
           : []),
     };
+    const primaryTask = toSectTaskView({
+      definition: args.definition,
+      record: claimed,
+      executor: args.executor,
+      state: 'claimed',
+      enabled: true,
+    });
     return {
-      task: toSectTaskView({
-        definition: args.definition,
-        record: claimed,
-        executor: args.executor,
-        state: 'claimed',
-        enabled: true,
-      }),
-      outcome: {
-        renderer: 'sect.outcome.reward-claimed',
-        data: { ...receipt },
+      result: {
+        primaryTask,
+        changedTasks: [
+          ...(args.changedTasks ?? []).filter(
+            (task) => task.definitionId !== primaryTask.definitionId,
+          ),
+          primaryTask,
+        ],
+        outcome: {
+          renderer: 'sect.outcome.reward-claimed',
+          data: { ...receipt },
+        },
+        settlement: effects.settlement,
       },
+      effects,
     };
   }
 }

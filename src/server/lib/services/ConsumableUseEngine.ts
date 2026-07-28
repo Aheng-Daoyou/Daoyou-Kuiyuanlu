@@ -25,9 +25,13 @@ import type { Consumable } from '@shared/types/cultivator';
 import { and, eq } from 'drizzle-orm';
 import {
   consumeConsumableById,
-  getPlayerRuntimeCultivatorById,
+} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
+import {
+  loadPlayerConsumableOperationFacts,
+} from '@server/lib/services/cultivator/CultivatorConditionFactsReader';
+import {
   replaceSpiritualRoots,
-} from './cultivatorService';
+} from '@server/lib/services/cultivator/CultivatorProfileRepository';
 import { PillOperationExecutor } from './PillOperationExecutor';
 import { QiService } from './QiService';
 import { mapConsumableRow } from './consumablePersistence';
@@ -95,15 +99,6 @@ export const ConsumableUseEngine = {
     message: string;
     consumable: Consumable;
   }> {
-    const cultivator = await getPlayerRuntimeCultivatorById(
-      userId,
-      cultivatorId,
-      options.tx,
-    );
-    if (!cultivator) {
-      throw new Error('角色不存在或无权限操作。');
-    }
-
     const consumable = await loadOwnedConsumable(
       cultivatorId,
       consumableId,
@@ -178,6 +173,15 @@ export const ConsumableUseEngine = {
 
     if (!isPillConsumable(consumable)) {
       throw new Error('该消耗品缺少有效丹药 spec。');
+    }
+
+    const cultivator = await loadPlayerConsumableOperationFacts(
+      userId,
+      cultivatorId,
+      options.tx,
+    );
+    if (!cultivator) {
+      throw new Error('角色不存在或无权限操作。');
     }
 
     const execution = PillOperationExecutor.execute(cultivator, consumable);

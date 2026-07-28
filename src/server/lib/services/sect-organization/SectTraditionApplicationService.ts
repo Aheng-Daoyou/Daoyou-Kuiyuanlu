@@ -1,4 +1,5 @@
 import { getRealmStageRank } from '@shared/config/realmProgression';
+import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
 import {
   AbilityLoadoutSpecification,
   fillFirstEmptyAbilitySlots,
@@ -88,7 +89,11 @@ export class SectTraditionApplicationService {
       currentLevel,
       args.targetLevel,
     );
-    await this.payTrainingCost(cultivator, args.cultivatorId, cost);
+    const balances = await this.payTrainingCost(
+      cultivator,
+      args.cultivatorId,
+      cost,
+    );
     const aggregate = SectTradition.rehydrate(sect);
     aggregate.setMethodLevel(args.methodId, args.targetLevel);
     await this.repository.setMethodLevel(
@@ -116,6 +121,7 @@ export class SectTraditionApplicationService {
       methodId: args.methodId,
       targetLevel: args.targetLevel,
       cost,
+      balances,
     };
   }
 
@@ -151,7 +157,11 @@ export class SectTraditionApplicationService {
         400,
       );
     }
-    await this.payTrainingCost(cultivator, args.cultivatorId, layer.cost);
+    const balances = await this.payTrainingCost(
+      cultivator,
+      args.cultivatorId,
+      layer.cost,
+    );
     const aggregate = SectTradition.rehydrate(sect);
     aggregate.unlockPathLayer(args.pathId, layer.id, path.defaultTacticId);
     if (pathState) {
@@ -181,6 +191,7 @@ export class SectTraditionApplicationService {
       pathId: args.pathId,
       layerId: layer.id,
       cost: layer.cost,
+      balances,
     };
   }
 
@@ -290,6 +301,116 @@ export class SectTraditionApplicationService {
     return this.requireActive(cultivatorId);
   }
 
+  async trainMethodCommand(args: {
+    cultivatorId: string;
+    methodId: string;
+    targetLevel: number;
+  }) {
+    const result = await this.trainMethod(args);
+    return this.paidCommand(result, 'sect.method_trained');
+  }
+
+  async unlockPathLayerCommand(args: {
+    cultivatorId: string;
+    pathId: string;
+    layerId: string;
+  }) {
+    const result = await this.unlockPathLayer(args);
+    return this.paidCommand(result, 'sect.path_layer_unlocked');
+  }
+
+  async activatePathCommand(cultivatorId: string, pathId: string) {
+    const sect = await this.activatePath(cultivatorId, pathId);
+    return this.progressionCommand({ sect }, 'sect.path_activated');
+  }
+
+  async setMeridianLoadoutCommand(
+    cultivatorId: string,
+    pathId: string,
+    slot: number,
+    nodeIds: string[],
+  ) {
+    const sect = await this.setMeridianLoadout(
+      cultivatorId,
+      pathId,
+      slot,
+      nodeIds,
+    );
+    return this.progressionCommand({ sect }, 'sect.meridian_updated');
+  }
+
+  async activateMeridianLoadoutCommand(
+    cultivatorId: string,
+    pathId: string,
+    slot: number,
+  ) {
+    const sect = await this.activateMeridianLoadout(cultivatorId, pathId, slot);
+    return this.progressionCommand({ sect }, 'sect.meridian_activated');
+  }
+
+  async setAbilityLoadoutCommand(
+    cultivatorId: string,
+    slots: Array<string | null>,
+  ) {
+    const sect = await this.setAbilityLoadout(cultivatorId, slots);
+    return this.progressionCommand({ sect }, 'sect.ability_loadout_updated');
+  }
+
+  async setPathTacticCommand(
+    cultivatorId: string,
+    pathId: string,
+    tacticId: string,
+  ) {
+    const sect = await this.setPathTactic(cultivatorId, pathId, tacticId);
+    return this.progressionCommand({ sect }, 'sect.tactic_updated');
+  }
+
+  private paidCommand<
+    TResult extends {
+      sect: CultivatorSectState;
+      balances: SectTrainingResourceSnapshot;
+    },
+  >(result: TResult, eventType: string) {
+    const resourceChanges: ResourceChangeDescriptor[] = [
+      {
+        resourceTopic: 'sect.progression',
+        eventType,
+        operation: 'merge',
+        payload: progressionPayload(result.sect),
+      },
+      {
+        resourceTopic: 'player.currency',
+        eventType: `${eventType}.currency`,
+        operation: 'merge',
+        payload: { spiritStones: result.balances.stones },
+      },
+      {
+        resourceTopic: 'player.progress',
+        eventType: `${eventType}.progress`,
+        operation: 'replace',
+        payload: result.balances.resourceProgress,
+      },
+    ];
+    return { result, resourceChanges };
+  }
+
+  private progressionCommand<TResult extends { sect: CultivatorSectState }>(
+    result: TResult,
+    eventType: string,
+  ) {
+    return {
+      result,
+      resourceChanges: [
+        {
+          resourceTopic: 'sect.progression',
+          eventType,
+          operation: 'merge',
+          payload: progressionPayload(result.sect),
+        },
+      ] satisfies ResourceChangeDescriptor[],
+    };
+  }
+
   private async requirePath(cultivatorId: string, pathId: string) {
     const sect = await this.requireActive(cultivatorId);
     const module = this.runtime.registry.require(sect.sectId);
@@ -334,15 +455,11 @@ export class SectTraditionApplicationService {
     if (slot !== 1 && slot !== 2 && slot !== 3)
       throw new SectError('SECT_INVALID_MERIDIAN', '经脉方案槽无效', 400);
     if (
-      !(StandardSectRules.enabledMeridianLoadoutSlots as readonly number[]).includes(
-        slot,
-      )
+      !(
+        StandardSectRules.enabledMeridianLoadoutSlots as readonly number[]
+      ).includes(slot)
     )
-      throw new SectError(
-        'SECT_INVALID_MERIDIAN',
-        '参悟方案暂未开放',
-        400,
-      );
+      throw new SectError('SECT_INVALID_MERIDIAN', '参悟方案暂未开放', 400);
     return slot;
   }
 
@@ -363,7 +480,7 @@ export class SectTraditionApplicationService {
     cultivator: SectTrainingResourceSnapshot,
     cultivatorId: string,
     cost: SectTrainingCost,
-  ) {
+  ): Promise<SectTrainingResourceSnapshot> {
     if (cultivator.cultivationExp < cost.cultivationExp)
       throw new SectError('SECT_INSUFFICIENT_RESOURCES', '修为不足');
     if (cultivator.comprehensionInsight < cost.comprehensionInsight)
@@ -372,5 +489,15 @@ export class SectTraditionApplicationService {
       throw new SectError('SECT_INSUFFICIENT_RESOURCES', '灵石不足');
     if (!(await this.resources.spend(cultivatorId, cost)))
       throw new SectError('SECT_INSUFFICIENT_RESOURCES', '研习所需资源不足');
+    return this.requireProgress(cultivatorId);
   }
+}
+
+function progressionPayload(sect: CultivatorSectState) {
+  return {
+    activePathId: sect.activePathId,
+    methods: sect.methods,
+    paths: sect.paths,
+    abilityLoadout: sect.abilityLoadout,
+  };
 }

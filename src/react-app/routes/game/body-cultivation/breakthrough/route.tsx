@@ -1,9 +1,6 @@
+import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
 import { InkModal } from '@app/components/layout';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
-import {
-  GameSceneFrame,
-  GameSceneSection,
-} from '@app/components/game-shell';
 import {
   InkActionGroup,
   InkBadge,
@@ -11,8 +8,11 @@ import {
   InkIdentifyCelebration,
   InkNotice,
 } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { consumePlayerStateMutation } from '@app/lib/player-state/store';
+import { consumeResourceMutation } from '@app/lib/resources/mutations';
+import {
+  useCultivatorCondition,
+  useCultivatorIdentity,
+} from '@app/lib/resources/player';
 import type {
   BodyCultivationBreakthroughCostRequirement,
   BodyCultivationBreakthroughEligibleData,
@@ -25,12 +25,16 @@ import { BODY_REALM_LABELS } from '@shared/lib/bodyCultivation/config';
 import { cn } from '@shared/lib/cn';
 import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
 import type { Quality } from '@shared/types/constants';
-import { useCallback, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 
-type SelectionMap = Record<string, number>;
+type SelectionMap = Record<
+  string,
+  { quantity: number; requirementLabel: string }
+>;
 
-type EligibleMaterial = BodyCultivationBreakthroughEligibleData['materials'][number];
+type EligibleMaterial =
+  BodyCultivationBreakthroughEligibleData['materials'][number];
 type EligibleConsumable =
   BodyCultivationBreakthroughEligibleData['consumables'][number];
 
@@ -41,7 +45,10 @@ type BreakthroughResult = {
 };
 
 function getRequirementLabel(
-  requirement: Pick<BodyCultivationBreakthroughCostRequirement, 'label' | 'name'>,
+  requirement: Pick<
+    BodyCultivationBreakthroughCostRequirement,
+    'label' | 'name'
+  >,
 ): string {
   return requirement.label ?? requirement.name;
 }
@@ -51,24 +58,23 @@ function formatChance(value: number): string {
 }
 
 function getSelectedTotalByRequirement(
-  eligible: BodyCultivationBreakthroughEligibleData | null,
   selections: {
     materials: SelectionMap;
     consumables: SelectionMap;
   },
   requirementLabel: string,
 ): number {
-  const materialTotal = (eligible?.materials ?? []).reduce(
-    (sum, material) =>
-      material.requirementLabel === requirementLabel
-        ? sum + (selections.materials[material.id] ?? 0)
+  const materialTotal = Object.values(selections.materials).reduce(
+    (sum, selection) =>
+      selection.requirementLabel === requirementLabel
+        ? sum + selection.quantity
         : sum,
     0,
   );
-  const consumableTotal = (eligible?.consumables ?? []).reduce(
-    (sum, consumable) =>
-      consumable.requirementLabel === requirementLabel
-        ? sum + (selections.consumables[consumable.id] ?? 0)
+  const consumableTotal = Object.values(selections.consumables).reduce(
+    (sum, selection) =>
+      selection.requirementLabel === requirementLabel
+        ? sum + selection.quantity
         : sum,
     0,
   );
@@ -81,21 +87,19 @@ function buildRequestBody(selections: {
 }): BodyCultivationBreakthroughRequest {
   return {
     materialSelections: Object.entries(selections.materials)
-      .filter(([, quantity]) => quantity > 0)
-      .map(([id, quantity]) => ({ id, quantity })),
+      .filter(([, selection]) => selection.quantity > 0)
+      .map(([id, selection]) => ({ id, quantity: selection.quantity })),
     consumableSelections: Object.entries(selections.consumables)
-      .filter(([, quantity]) => quantity > 0)
-      .map(([id, quantity]) => ({ id, quantity })),
+      .filter(([, selection]) => selection.quantity > 0)
+      .map(([id, selection]) => ({ id, quantity: selection.quantity })),
   };
 }
 
 function CostRequirementList({
   requirements,
-  eligible,
   selections,
 }: {
   requirements: BodyCultivationBreakthroughCostRequirement[];
-  eligible: BodyCultivationBreakthroughEligibleData | null;
   selections: {
     materials: SelectionMap;
     consumables: SelectionMap;
@@ -106,7 +110,6 @@ function CostRequirementList({
       {requirements.map((requirement) => {
         const label = getRequirementLabel(requirement);
         const selectedQuantity = getSelectedTotalByRequirement(
-          eligible,
           selections,
           label,
         );
@@ -185,8 +188,7 @@ function MaterialRow({
 }) {
   const typeInfo = getMaterialTypeInfo(item.type);
   const canAdd =
-    item.quantity > selected &&
-    requirementSelected < requirement.quantity;
+    item.quantity > selected && requirementSelected < requirement.quantity;
 
   return (
     <div className="border-ink/10 flex items-center justify-between gap-3 border px-3 py-2">
@@ -228,8 +230,7 @@ function ConsumableRow({
   onChange: (quantity: number) => void;
 }) {
   const canAdd =
-    item.quantity > selected &&
-    requirementSelected < requirement.quantity;
+    item.quantity > selected && requirementSelected < requirement.quantity;
 
   return (
     <div className="border-ink/10 flex items-center justify-between gap-3 border px-3 py-2">
@@ -264,6 +265,7 @@ function SelectionModal({
   selections,
   onClose,
   onRetry,
+  onPageChange,
   onSelectionChange,
 }: {
   isOpen: boolean;
@@ -277,10 +279,12 @@ function SelectionModal({
   };
   onClose: () => void;
   onRetry: () => void;
+  onPageChange: (kind: 'materials' | 'consumables', page: number) => void;
   onSelectionChange: (
     type: 'materials' | 'consumables',
     id: string,
     quantity: number,
+    requirementLabel: string,
   ) => void;
 }) {
   const requirementByLabel = useMemo(
@@ -303,7 +307,8 @@ function SelectionModal({
       footer={
         <InkActionGroup align="between" className="mt-0">
           <span className="text-ink-secondary text-xs leading-8">
-            已选 {buildRequestBody(selections).materialSelections.length} 类材料，
+            已选 {buildRequestBody(selections).materialSelections.length}{' '}
+            类材料，
             {buildRequestBody(selections).consumableSelections.length} 类丹药
           </span>
           <InkButton variant="primary" onClick={onClose}>
@@ -341,7 +346,6 @@ function SelectionModal({
                     );
                     if (!requirement) return null;
                     const requirementSelected = getSelectedTotalByRequirement(
-                      eligible,
                       selections,
                       item.requirementLabel,
                     );
@@ -349,17 +353,27 @@ function SelectionModal({
                       <MaterialRow
                         key={item.id}
                         item={item}
-                        selected={selections.materials[item.id] ?? 0}
+                        selected={selections.materials[item.id]?.quantity ?? 0}
                         requirement={requirement}
                         requirementSelected={requirementSelected}
                         onChange={(quantity) =>
-                          onSelectionChange('materials', item.id, quantity)
+                          onSelectionChange(
+                            'materials',
+                            item.id,
+                            quantity,
+                            item.requirementLabel,
+                          )
                         }
                       />
                     );
                   })}
                 </div>
               )}
+              <CandidatePagination
+                pagination={eligible.pagination.materials}
+                disabled={isLoading}
+                onPageChange={(page) => onPageChange('materials', page)}
+              />
             </section>
 
             <section className="space-y-2">
@@ -374,7 +388,6 @@ function SelectionModal({
                     );
                     if (!requirement) return null;
                     const requirementSelected = getSelectedTotalByRequirement(
-                      eligible,
                       selections,
                       item.requirementLabel,
                     );
@@ -382,17 +395,29 @@ function SelectionModal({
                       <ConsumableRow
                         key={item.id}
                         item={item}
-                        selected={selections.consumables[item.id] ?? 0}
+                        selected={
+                          selections.consumables[item.id]?.quantity ?? 0
+                        }
                         requirement={requirement}
                         requirementSelected={requirementSelected}
                         onChange={(quantity) =>
-                          onSelectionChange('consumables', item.id, quantity)
+                          onSelectionChange(
+                            'consumables',
+                            item.id,
+                            quantity,
+                            item.requirementLabel,
+                          )
                         }
                       />
                     );
                   })}
                 </div>
               )}
+              <CandidatePagination
+                pagination={eligible.pagination.consumables}
+                disabled={isLoading}
+                onPageChange={(page) => onPageChange('consumables', page)}
+              />
             </section>
           </>
         ) : null}
@@ -401,8 +426,54 @@ function SelectionModal({
   );
 }
 
+function CandidatePagination({
+  pagination,
+  disabled,
+  onPageChange,
+}: {
+  pagination: BodyCultivationBreakthroughEligibleData['pagination']['materials'];
+  disabled: boolean;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.max(
+    1,
+    Math.ceil(pagination.total / pagination.pageSize),
+  );
+  if (totalPages <= 1) return null;
+  return (
+    <div className="flex items-center justify-between gap-3 pt-1 text-xs">
+      <InkButton
+        type="button"
+        variant="secondary"
+        disabled={disabled || pagination.page <= 1}
+        onClick={() => onPageChange(pagination.page - 1)}
+      >
+        上一页
+      </InkButton>
+      <span className="text-ink-secondary">
+        第 {pagination.page} / {totalPages} 页，共 {pagination.total} 件
+      </span>
+      <InkButton
+        type="button"
+        variant="secondary"
+        disabled={disabled || pagination.page >= totalPages}
+        onClick={() => onPageChange(pagination.page + 1)}
+      >
+        下一页
+      </InkButton>
+    </div>
+  );
+}
+
 export default function BodyCultivationBreakthroughPage() {
-  const { cultivator, isLoading } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity && condition.data
+      ? { realm: identity.realm, condition: condition.data }
+      : null;
+  const isLoading = profile.loading || condition.loading;
   const { pushToast } = useInkUI();
   const navigate = useNavigate();
   const [isSelectionOpen, setIsSelectionOpen] = useState(false);
@@ -410,6 +481,11 @@ export default function BodyCultivationBreakthroughPage() {
     useState<BodyCultivationBreakthroughEligibleData | null>(null);
   const [eligibleError, setEligibleError] = useState<string | null>(null);
   const [eligibleLoading, setEligibleLoading] = useState(false);
+  const eligibleControllerRef = useRef<AbortController | undefined>(undefined);
+  const [eligiblePages, setEligiblePages] = useState({
+    materials: 1,
+    consumables: 1,
+  });
   const [selections, setSelections] = useState<{
     materials: SelectionMap;
     consumables: SelectionMap;
@@ -452,31 +528,53 @@ export default function BodyCultivationBreakthroughPage() {
     requirements.every((requirement) => {
       const label = getRequirementLabel(requirement);
       return (
-        getSelectedTotalByRequirement(eligible, selections, label) ===
+        getSelectedTotalByRequirement(selections, label) ===
         requirement.quantity
       );
     });
 
-  const loadEligible = useCallback(async () => {
+  const loadEligible = async (pages = eligiblePages) => {
+    eligibleControllerRef.current?.abort();
+    const controller = new AbortController();
+    eligibleControllerRef.current = controller;
     setEligibleLoading(true);
     setEligibleError(null);
     try {
+      const query = new URLSearchParams({
+        materialPage: String(pages.materials),
+        consumablePage: String(pages.consumables),
+        pageSize: '20',
+      });
       const response = await fetch(
-        '/api/cultivator/body-cultivation/breakthrough/eligible',
+        `/api/cultivator/body-cultivation/breakthrough/eligible?${query.toString()}`,
+        { signal: controller.signal },
       );
       const payload = (await response.json()) as
-        | BodyCultivationBreakthroughEligibleResponse
-        | ApiFailure;
+        BodyCultivationBreakthroughEligibleResponse | ApiFailure;
       if (!response.ok || !payload.success) {
         throw new Error('error' in payload ? payload.error : '资材读取失败');
       }
       setEligible(payload.data);
+      setEligiblePages({
+        materials: payload.data.pagination.materials.page,
+        consumables: payload.data.pagination.consumables.page,
+      });
     } catch (caught) {
-      setEligibleError(caught instanceof Error ? caught.message : '资材读取失败');
+      if (controller.signal.aborted) return;
+      setEligibleError(
+        caught instanceof Error ? caught.message : '资材读取失败',
+      );
     } finally {
-      setEligibleLoading(false);
+      if (!controller.signal.aborted) setEligibleLoading(false);
     }
-  }, []);
+  };
+
+  useEffect(
+    () => () => {
+      eligibleControllerRef.current?.abort();
+    },
+    [],
+  );
 
   const openSelection = () => {
     setIsSelectionOpen(true);
@@ -489,14 +587,23 @@ export default function BodyCultivationBreakthroughPage() {
     type: 'materials' | 'consumables',
     id: string,
     quantity: number,
+    requirementLabel: string,
   ) => {
-    setSelections((prev) => ({
-      ...prev,
-      [type]: {
-        ...prev[type],
-        [id]: quantity,
-      },
-    }));
+    setSelections((prev) => {
+      const next = { ...prev[type] };
+      if (quantity > 0) next[id] = { quantity, requirementLabel };
+      else delete next[id];
+      return { ...prev, [type]: next };
+    });
+  };
+
+  const handleEligiblePageChange = (
+    kind: 'materials' | 'consumables',
+    page: number,
+  ) => {
+    const pages = { ...eligiblePages, [kind]: page };
+    setEligiblePages(pages);
+    void loadEligible(pages);
   };
 
   const submitBreakthrough = async () => {
@@ -504,17 +611,20 @@ export default function BodyCultivationBreakthroughPage() {
 
     setSubmitting(true);
     try {
-      const response = await fetch('/api/cultivator/body-cultivation/breakthrough', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildRequestBody(selections)),
-      });
+      const response = await fetch(
+        '/api/cultivator/body-cultivation/breakthrough',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildRequestBody(selections)),
+        },
+      );
       const payload = await response.json();
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || '肉身破限失败');
       }
 
-      await consumePlayerStateMutation(payload);
+      await consumeResourceMutation(payload);
       const nextResult = payload.data as BreakthroughResult;
       setResult(nextResult);
       setSelections({ materials: {}, consumables: {} });
@@ -603,7 +713,9 @@ export default function BodyCultivationBreakthroughPage() {
           <InkNotice tone="info">
             恭喜，肉身已提升至
             {result.toRealm
-              ? BODY_REALM_LABELS[result.toRealm as keyof typeof BODY_REALM_LABELS]
+              ? BODY_REALM_LABELS[
+                  result.toRealm as keyof typeof BODY_REALM_LABELS
+                ]
               : nextRealmLabel}
             。
           </InkNotice>
@@ -647,17 +759,22 @@ export default function BodyCultivationBreakthroughPage() {
           <div className="space-y-3">
             <CostRequirementList
               requirements={requirements}
-              eligible={eligible}
               selections={selections}
             />
             <InkActionGroup>
-              <InkButton type="button" variant="secondary" onClick={openSelection}>
+              <InkButton
+                type="button"
+                variant="secondary"
+                onClick={openSelection}
+              >
                 选取材料
               </InkButton>
               <InkButton
                 type="button"
                 variant="primary"
-                disabled={!allCostsMet || submitting || result?.success === true}
+                disabled={
+                  !allCostsMet || submitting || result?.success === true
+                }
                 onClick={submitBreakthrough}
               >
                 {submitting ? '破限中' : '确认突破'}
@@ -677,8 +794,13 @@ export default function BodyCultivationBreakthroughPage() {
         error={eligibleError}
         requirements={requirements}
         selections={selections}
-        onClose={() => setIsSelectionOpen(false)}
+        onClose={() => {
+          eligibleControllerRef.current?.abort();
+          setEligibleLoading(false);
+          setIsSelectionOpen(false);
+        }}
         onRetry={() => void loadEligible()}
+        onPageChange={handleEligiblePageChange}
         onSelectionChange={handleSelectionChange}
       />
 

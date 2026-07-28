@@ -2,7 +2,7 @@ import { BattleEngineV5 } from '@shared/engine/battle-v5/BattleEngineV5';
 import { EventBus } from '@shared/engine/battle-v5/core/EventBus';
 import { createBattleUnitsWithInit } from '@shared/engine/battle-v5/setup/BattleInitApplier';
 import type { BattleInitConfigV5 } from '@shared/engine/battle-v5/setup/types';
-import type { Cultivator } from '@shared/types/cultivator';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import type { BattleRecord } from '@shared/types/battle';
 import {
   withBattleRandomSource,
@@ -10,8 +10,8 @@ import {
 } from '@shared/engine/battle-v5/core/BattleRandom';
 
 export function simulateBattleV5(
-  player: Cultivator,
-  opponent: Cultivator,
+  player: CultivatorCombatInput,
+  opponent: CultivatorCombatInput,
   initConfig?: BattleInitConfigV5,
   randomSource?: BattleRandomSource,
 ): BattleRecord {
@@ -35,8 +35,8 @@ export function simulateBattleV5(
         battleResult.winner === playerUnit.id ? opponent : player;
 
       return {
-        winner: winnerCultivator,
-        loser: loserCultivator,
+        winner: { id: winnerCultivator.id, name: winnerCultivator.name },
+        loser: { id: loserCultivator.id, name: loserCultivator.name },
         logs: battleResult.logs,
         turns: battleResult.turns,
         player: player.id ?? playerUnit.id,

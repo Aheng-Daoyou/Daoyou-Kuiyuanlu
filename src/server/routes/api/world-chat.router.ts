@@ -1,7 +1,7 @@
 import {
   getValidatedJson,
   getValidatedQuery,
-  requireActiveCultivator,
+  requireActiveCultivatorRef,
   validateJson,
   validateQuery,
 } from '@server/lib/hono/middleware';
@@ -14,9 +14,9 @@ import {
   listMessages,
 } from '@server/lib/repositories/worldChatRepository';
 import {
-  getCultivatorConsumables,
-  getCultivatorMaterials,
-} from '@server/lib/services/cultivatorService';
+  getCultivatorConsumableById,
+  getCultivatorMaterialById,
+} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
 import {
   WorldChatCreateMessageSchema,
   WorldChatListQuerySchema,
@@ -28,6 +28,7 @@ import type {
   WorldChatItemShowcasePayload,
 } from '@shared/types/world-chat';
 import { Hono } from 'hono';
+import { readCultivatorPublicIdentity } from '@server/lib/services/cultivator/CultivatorFactsReader';
 
 function countChars(input: string): number {
   return Array.from(input).length;
@@ -40,13 +41,12 @@ function normalizeText(
 }
 
 async function buildItemShowcasePayload(params: {
-  userId: string;
   cultivatorId: string;
   itemType: 'artifact' | 'material' | 'consumable' | 'skill' | 'gongfa';
   itemId: string;
   text?: string;
 }): Promise<WorldChatItemShowcasePayload | null> {
-  const { userId, cultivatorId, itemType, itemId, text } = params;
+  const { cultivatorId, itemType, itemId, text } = params;
   const showcaseText = text?.trim() || undefined;
 
   if (
@@ -92,8 +92,7 @@ async function buildItemShowcasePayload(params: {
   }
 
   if (itemType === 'material') {
-    const materials = await getCultivatorMaterials(userId, cultivatorId);
-    const item = materials.find((material) => material.id === itemId);
+    const item = await getCultivatorMaterialById(cultivatorId, itemId);
     if (!item) return null;
     const snapshot: ItemShowcaseSnapshotMap['material'] = {
       id: item.id || itemId,
@@ -107,8 +106,7 @@ async function buildItemShowcasePayload(params: {
     return { itemType, itemId, snapshot, text: showcaseText };
   }
 
-  const consumables = await getCultivatorConsumables(userId, cultivatorId);
-  const item = consumables.find((consumable) => consumable.id === itemId);
+  const item = await getCultivatorConsumableById(cultivatorId, itemId);
   if (!item) return null;
   const snapshot: ItemShowcaseSnapshotMap['consumable'] = {
     id: item.id || itemId,
@@ -157,20 +155,23 @@ router.get('/messages', validateQuery(WorldChatListQuerySchema), async (c) => {
 
 router.post(
   '/messages',
-  requireActiveCultivator(),
+  requireActiveCultivatorRef(),
   validateJson(WorldChatCreateMessageSchema),
   async (c) => {
     try {
       const user = c.get('user');
-      const cultivator = c.get('cultivator');
+      const cultivator = c.get('activeCultivatorRef');
       if (!user || !cultivator) {
         return c.json({ success: false, error: '未授权访问' }, 401);
       }
 
       const parsed = getValidatedJson<WorldChatCreateMessageRequest>(c);
+      const identity = await readCultivatorPublicIdentity(
+        cultivator.cultivatorId,
+      );
       const cooldown = await checkAndAcquireCooldown(
-        cultivator.id,
-        cultivator.realm,
+        cultivator.cultivatorId,
+        identity.realm,
       );
       if (!cooldown.allowed) {
         return c.json(
@@ -185,10 +186,10 @@ router.post(
 
       const senderBase = {
         senderUserId: user.id,
-        senderCultivatorId: cultivator.id,
-        senderName: cultivator.name,
-        senderRealm: cultivator.realm,
-        senderRealmStage: cultivator.realm_stage,
+        senderCultivatorId: cultivator.cultivatorId,
+        senderName: identity.name,
+        senderRealm: identity.realm,
+        senderRealmStage: identity.realmStage,
       };
 
       let message;
@@ -223,8 +224,7 @@ router.post(
         }
 
         const payload = await buildItemShowcasePayload({
-          userId: user.id,
-          cultivatorId: cultivator.id,
+          cultivatorId: cultivator.cultivatorId,
           itemType: parsed.itemType,
           itemId: parsed.itemId,
           text: showcaseText,

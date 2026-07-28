@@ -1,3 +1,4 @@
+import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
 import type { SectShopItemData } from '@shared/contracts/sect';
 import {
   hasSectRank,
@@ -22,6 +23,10 @@ import type {
   SectEconomyQueryContext,
   SectMembershipRecord,
 } from './ports';
+import {
+  mergeSectCommandEffects,
+  type SectCommandEffects,
+} from './SectCommandEffects';
 
 export class SectEconomyApplicationService {
   constructor(
@@ -111,7 +116,7 @@ export class SectEconomyApplicationService {
       );
     }
 
-    await this.spendContribution(
+    const spentEffects = await this.spendContribution(
       membership,
       order.totalCost,
       `${weekKey}:${item.id}`,
@@ -126,7 +131,9 @@ export class SectEconomyApplicationService {
       ))
     )
       organizationError('该笔兑换已经处理');
-    await this.rewardStrategies.require(item.grant.kind).grant({
+    const rewardEffects = await this.rewardStrategies
+      .require(item.grant.kind)
+      .grant({
       userId,
       cultivatorId,
       quantity: order.quantity,
@@ -134,8 +141,21 @@ export class SectEconomyApplicationService {
       rewards: context.rewards,
       ids: context.ids,
       source: 'sect_shop',
-    });
-    return this.getShop(cultivatorId, context);
+      });
+    const effects = mergeSectCommandEffects(spentEffects, rewardEffects);
+    const result = await this.getShop(cultivatorId, context);
+    return {
+      result,
+      resourceChanges: [
+        {
+          resourceTopic: 'sect.shop',
+          eventType: 'sect.shop_purchased',
+          operation: 'replace',
+          payload: result,
+        },
+        ...effects.resourceChanges,
+      ] satisfies ResourceChangeDescriptor[],
+    };
   }
 
   private async spendContribution(
@@ -143,7 +163,7 @@ export class SectEconomyApplicationService {
     amount: number,
     referenceId: string,
     context: SectEconomyCommandContext,
-  ): Promise<void> {
+  ): Promise<SectCommandEffects> {
     const aggregate = SectMembership.rehydrate({
       id: membership.id,
       sectId: membership.sectId,
@@ -155,7 +175,7 @@ export class SectEconomyApplicationService {
     } catch {
       organizationError('宗门贡献不足', 400);
     }
-    await this.events.forShop(context).dispatch(aggregate.pullEvents());
+    return this.events.forShop(context).dispatch(aggregate.pullEvents());
   }
 
   async claimStipend(
@@ -196,16 +216,22 @@ export class SectEconomyApplicationService {
     } catch {
       organizationError('本周俸禄已经领取');
     }
-    await this.events
+    const effects = await this.events
       .forStipend({
         userId,
         cultivatorId,
         command: context,
       })
       .dispatch(claim.pullEvents());
-    return {
+    const result = {
       weekKey,
       rewards: quote.rewards.map(stipendRewardView),
+    };
+    return {
+      result,
+      resourceChanges: [
+        ...effects.resourceChanges,
+      ] satisfies ResourceChangeDescriptor[],
     };
   }
 }

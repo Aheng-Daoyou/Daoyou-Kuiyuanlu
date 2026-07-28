@@ -1,4 +1,5 @@
 import { useInkUI } from '@app/components/providers/InkUIProvider';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type { ResourceOperation } from '@shared/engine/resource/types';
 import type { DungeonSettlement } from '@shared/lib/dungeon/types';
 import { Cultivator } from '@shared/types/cultivator';
@@ -16,6 +17,7 @@ export interface DungeonAbandonBattleResult {
  */
 export function useEnemyProbe(battleId: string) {
   const { pushToast } = useInkUI();
+  const { mutate } = useResourceMutation();
   const [enemyState, setEnemyState] = useState<{
     battleId: string;
     enemy: Cultivator | null;
@@ -70,22 +72,18 @@ export function useEnemyProbe(battleId: string) {
    */
   const abandonBattle = async () => {
     try {
-      const res = await fetch('/api/dungeon/battle/abandon', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          battleId,
+      const data = await mutate<DungeonAbandonBattleResult>(
+        fetch('/api/dungeon/battle/abandon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            battleId,
+          }),
         }),
-      });
-
-      const data = await res.json();
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
+      );
 
       pushToast({ message: '已放弃战斗', tone: 'success' });
-      return data as DungeonAbandonBattleResult;
+      return data;
     } catch (e) {
       pushToast({
         message: e instanceof Error ? e.message : '操作失败',

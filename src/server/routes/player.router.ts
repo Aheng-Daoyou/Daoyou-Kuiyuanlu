@@ -1,87 +1,139 @@
-import { requireActiveCultivatorRef } from '@server/lib/hono/middleware';
-import { listStateEventsAfter } from '@server/lib/repositories/playerStateRepository';
+import { db } from '@server/lib/drizzle/db';
 import {
-  buildPlayerStateSnapshot,
-  parsePlayerStateDomains,
-} from '@server/lib/services/PlayerStateSnapshotService';
+  getValidatedQuery,
+  requireUser,
+  validateQuery,
+} from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
+import {
+  readResourceEventWindow,
+  RESOURCE_EVENT_PAGE_LIMIT,
+} from '@server/lib/repositories/playerStateRepository';
+import { cultivators, sectMemberships } from '@server/lib/drizzle/schema';
+import {
+  parsePlayerResourceKeys,
+  readPlayerResourcesSnapshot,
+} from '@server/lib/services/PlayerResourceReaderService';
 import type {
-  PlayerStateEventsResponse,
-  PlayerStateEvent,
-  PlayerStateSnapshotResponse,
+  PlayerResourceEventsResponse,
+  PlayerResourcesResponse,
 } from '@shared/contracts/player';
+import {
+  RESOURCE_SCOPE_KINDS,
+  requiresResourceEventReload,
+  type ResourceScope,
+} from '@shared/contracts/resources';
+import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { z } from 'zod';
 
 const router = new Hono<AppEnv>();
-const PLAYER_STATE_EVENT_PAGE_LIMIT = 200;
-
-router.get('/state', requireActiveCultivatorRef(), async (c) => {
-  const user = c.get('user');
-  const ref = c.get('activeCultivatorRef');
-  if (!user || !ref) {
-    return c.json({ success: false, error: '未授权访问' }, 401);
-  }
-
-  const domains = parsePlayerStateDomains(c.req.query('domains'));
-  const data = await buildPlayerStateSnapshot({
-    userId: user.id,
-    cultivatorId: ref.cultivatorId,
-    domains,
-  });
-  const payload: PlayerStateSnapshotResponse = {
-    success: true,
-    data,
-  };
-
-  return c.json(payload);
+const PlayerResourcesQuerySchema = z.object({
+  keys: z.string().min(1).max(256),
+});
+const PlayerResourceEventsQuerySchema = z.object({
+  after: z.coerce.number().int().nonnegative().default(0),
+  scopeKind: z.enum(RESOURCE_SCOPE_KINDS),
+  scopeId: z.string().min(1).max(128),
 });
 
-// WebSocket gap-recovery endpoint. This is not an SSE stream; keep it until the
-// realtime client no longer needs HTTP backfill after reconnect/version gaps.
-router.get('/state/events', requireActiveCultivatorRef(), async (c) => {
-  const ref = c.get('activeCultivatorRef');
-  if (!ref) {
-    return c.json({ success: false, error: '当前没有活跃角色' }, 404);
-  }
+router.get(
+  '/resources',
+  requireUser(),
+  validateQuery(PlayerResourcesQuerySchema),
+  async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ success: false, error: '未授权访问' }, 401);
+    let keys;
+    try {
+      keys = parsePlayerResourceKeys(
+        getValidatedQuery<{ keys: string }>(c).keys,
+      );
+    } catch (error) {
+      return c.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : '玩家资源 keys 无效',
+        },
+        400,
+      );
+    }
+    const payload: PlayerResourcesResponse = {
+      success: true,
+      data: await readPlayerResourcesSnapshot({ userId: user.id, keys }),
+    };
+    return c.json(payload);
+  },
+);
 
-  const after = Number.parseInt(c.req.query('after') || '0', 10);
-  const safeAfter = Number.isFinite(after) && after > 0 ? after : 0;
-  const events = await listStateEventsAfter(ref.cultivatorId, safeAfter);
-  const payload: PlayerStateEventsResponse = {
-    success: true,
-    data: {
-      after: safeAfter,
-      events,
-      requiresSnapshot: shouldRequirePlayerStateSnapshot(events, safeAfter),
-    },
-  };
-
-  return c.json(payload);
-});
+router.get(
+  '/resources/events',
+  requireUser(),
+  validateQuery(PlayerResourceEventsQuerySchema),
+  async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ success: false, error: '未授权访问' }, 401);
+    const active = await db.query.cultivators.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(cultivators.userId, user.id),
+        eq(cultivators.status, 'active'),
+      ),
+    });
+    const { after, scopeKind, scopeId } = getValidatedQuery<{
+      after: number;
+      scopeKind: ResourceScope['kind'];
+      scopeId: string;
+    }>(c);
+    const scope = { kind: scopeKind, id: scopeId } satisfies ResourceScope;
+    if (
+      !(await canReadScope(
+        { userId: user.id, cultivatorId: active?.id ?? null },
+        scope,
+      ))
+    ) {
+      return c.json({ success: false, error: '无权读取该资源作用域' }, 403);
+    }
+    const window = await readResourceEventWindow(scope, after);
+    const requiresReload = requiresResourceEventReload(
+      window,
+      after,
+      RESOURCE_EVENT_PAGE_LIMIT,
+    );
+    const payload: PlayerResourceEventsResponse = {
+      success: true,
+      data: {
+        after,
+        scope,
+        currentScopeVersion: window.currentScopeVersion,
+        earliestAvailableVersion: window.earliestAvailableVersion,
+        changes: window.changes.slice(0, RESOURCE_EVENT_PAGE_LIMIT),
+        requiresReload,
+      },
+    };
+    return c.json(payload);
+  },
+);
 
 export default router;
 
-function shouldRequirePlayerStateSnapshot(
-  events: PlayerStateEvent[],
-  after: number,
-): boolean {
-  if (events.length >= PLAYER_STATE_EVENT_PAGE_LIMIT) {
-    return true;
+async function canReadScope(
+  ref: { userId: string; cultivatorId: string | null },
+  scope: ResourceScope,
+): Promise<boolean> {
+  if (scope.kind === 'account') return scope.id === ref.userId;
+  if (scope.kind === 'cultivator') {
+    return Boolean(ref.cultivatorId && scope.id === ref.cultivatorId);
   }
-  if (events.length === 0) {
-    return false;
-  }
-
-  let expected = after + 1;
-  const versions = Array.from(
-    new Set(events.map((event) => event.globalVersion)),
-  ).sort((left, right) => left - right);
-  for (const version of versions) {
-    if (version !== expected) {
-      return true;
-    }
-    expected += 1;
-  }
-
-  return false;
+  if (scope.kind === 'global') return scope.id === 'global';
+  if (!ref.cultivatorId) return false;
+  const membership = await db.query.sectMemberships.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(sectMemberships.cultivatorId, ref.cultivatorId),
+      eq(sectMemberships.sectId, scope.id),
+      eq(sectMemberships.status, 'active'),
+    ),
+  });
+  return Boolean(membership);
 }

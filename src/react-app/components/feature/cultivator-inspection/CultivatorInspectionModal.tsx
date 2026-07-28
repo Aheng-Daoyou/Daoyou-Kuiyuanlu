@@ -2,14 +2,14 @@ import { InkModal } from '@app/components/layout/InkModal';
 import { LingGenMini } from '@app/components/func/LingGen';
 import { InkBadge } from '@app/components/ui';
 import { BodyCultivationInspectionSection } from '@app/components/feature/cultivator/BodyCultivationPanels';
-import type { Cultivator } from '@shared/types/cultivator';
+import type { CultivatorInspectionData } from '@shared/contracts/player';
 import type { ReactNode } from 'react';
 import { CultivatorAttributeTable } from './CultivatorAttributeTable';
 import { CultivatorFateSection } from './CultivatorFateSection';
 import { CultivatorLoadoutSections } from './CultivatorLoadoutSections';
 
 export interface CultivatorInspectionModalProps {
-  cultivator: Cultivator | null;
+  cultivator: CultivatorInspectionData | null;
   isOpen: boolean;
   onClose: () => void;
   mode: 'enemy' | 'cultivator';

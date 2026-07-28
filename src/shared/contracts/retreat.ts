@@ -2,7 +2,7 @@ import type {
   BreakthroughResult,
   CultivationResult,
 } from '@shared/engine/cultivation/CultivationEngine';
-import type { PlayerStateEvent } from '@shared/contracts/player';
+import type { PlayerResourceMutationMeta } from './player';
 
 export type RetreatAction = 'cultivate' | 'breakthrough';
 export type RetreatStoryType = 'breakthrough' | 'lifespan';
@@ -22,7 +22,7 @@ export type RetreatStreamEvent =
     }
   | {
       type: 'state';
-      events: PlayerStateEvent[];
+      state: PlayerResourceMutationMeta;
     }
   | {
       type: 'chunk';

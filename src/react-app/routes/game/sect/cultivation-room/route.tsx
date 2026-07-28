@@ -5,14 +5,16 @@ import {
   type NpcConversationMessage,
 } from '@app/components/feature/room';
 import {
-  useSectCurrentQuery,
-  useSectPresentation,
-} from '@app/components/feature/sect/SectQueryProvider';
-import {
   SectNpcConversationRegistry,
   SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
+import {
+  getSectPresentationForContext,
+  resolveSectBenefits,
+  useSectContextQuery,
+  useSectInfrastructureQuery,
+} from '@app/components/feature/sect/sectResources';
 import { createSectRoomNpcHref } from '@app/components/feature/sect/sectRoomNavigation';
 import { formatDocumentTitle } from '@app/lib/router/routeTitle';
 import { getSectBenefitMetric } from '@app/lib/sect/sectPresentation';
@@ -44,13 +46,15 @@ export default function SectCultivationRoomPage() {
 }
 
 function SectCultivationRoomBody() {
-  const { data } = useSectCurrentQuery();
-  const presentation = useSectPresentation();
+  const context = useSectContextQuery();
+  const infrastructure = useSectInfrastructureQuery();
+  const presentation = getSectPresentationForContext(context.data);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  if (!data) return <SectPageLoading sceneKey="cultivation" />;
-  const effect = (data.benefits ?? data.overview?.benefits)?.facilityEffects
-    .cultivation_room;
+  if (!context.data || !infrastructure.data)
+    return <SectPageLoading sceneKey="cultivation" />;
+  const effect = resolveSectBenefits(context.data, infrastructure.data)
+    .facilityEffects.cultivation_room;
   const level = getSectBenefitMetric(effect, 'level', 1);
   const experienceBonusPercent =
     getSectBenefitMetric(effect, 'retreat_bonus') * 100;
@@ -94,22 +98,25 @@ function CultivationConversation({
   actor,
   onExit,
 }: SectNpcConversationRendererProps) {
-  const current = useSectCurrentQuery();
-  const presentation = useSectPresentation();
+  const context = useSectContextQuery();
+  const infrastructure = useSectInfrastructureQuery();
+  const presentation = getSectPresentationForContext(context.data);
   const navigate = useNavigate();
   const [showStatus, setShowStatus] = useState(false);
   const session = useConversationSession({
     sessionKey: actor.id,
-    snapshot: current.data,
-    load: current.reload,
+    snapshot: { context: context.data, infrastructure: infrastructure.data },
     perform: async () => undefined,
     onReset: () => setShowStatus(false),
   });
-  const facility = current.data?.overview?.facilities.find(
+  const facility = infrastructure.data?.facilities.find(
     (candidate) => candidate.key === 'cultivation_room',
   );
-  const effect = (current.data?.benefits ?? current.data?.overview?.benefits)
-    ?.facilityEffects.cultivation_room;
+  const effect =
+    context.data && infrastructure.data
+      ? resolveSectBenefits(context.data, infrastructure.data).facilityEffects
+          .cultivation_room
+      : undefined;
   const messages: NpcConversationMessage[] = [
     { id: 'greeting', speaker: actor.name, body: actor.greeting },
   ];
@@ -135,7 +142,7 @@ function CultivationConversation({
         { id: 'leave', label: '弟子告退', tone: 'muted' },
       ]}
       busy={session.phase === 'loading'}
-      error={session.error ?? current.error}
+      error={session.error ?? context.error ?? infrastructure.error}
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (optionId === 'status') setShowStatus(true);
