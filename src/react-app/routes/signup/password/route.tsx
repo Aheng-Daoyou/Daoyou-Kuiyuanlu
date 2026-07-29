@@ -80,7 +80,11 @@ export default function SignupPasswordRoute() {
         throw error;
       }
 
-      navigate('/game', { replace: true });
+      const loginParams = new URLSearchParams({
+        email: email.trim(),
+        verification: 'sent',
+      });
+      navigate(`/login/password?${loginParams.toString()}`, { replace: true });
     } catch (error) {
       showErrorDialog(
         toErrorMessage(error as AuthActionError, '注册失败，请稍后重试'),
@@ -95,7 +99,7 @@ export default function SignupPasswordRoute() {
   return (
     <AuthPageShell
       title="【密码注册】"
-      lead="使用邮箱、昵称和密码创建账号。"
+      lead="使用邮箱、昵称和密码创建账号，注册后需验证邮箱。"
       backHref="/signup"
       footer={
         <div className="flex flex-wrap items-center justify-center gap-2">
@@ -184,7 +188,7 @@ export default function SignupPasswordRoute() {
           disabled={loading}
           className="w-full text-center"
         >
-          {loading ? '注册中…' : '完成注册'}
+          {loading ? '注册中…' : '注册并发送验证邮件'}
         </InkButton>
       </form>
     </AuthPageShell>

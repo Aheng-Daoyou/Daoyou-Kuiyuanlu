@@ -69,6 +69,14 @@ export function getDefaultResetRedirectUrl() {
   return new URL('/reset-password', window.location.origin).toString();
 }
 
+export function getDefaultGameRedirectUrl() {
+  if (typeof window === 'undefined') {
+    return '/game';
+  }
+
+  return new URL('/game', window.location.origin).toString();
+}
+
 export function getCaptchaFetchOptions(captchaToken?: string) {
   if (!captchaToken) {
     return undefined;

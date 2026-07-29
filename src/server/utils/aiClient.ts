@@ -20,6 +20,7 @@ export type LlmSceneId =
   | 'dungeon-settlement'
   | 'enemy-narrative'
   | 'fate-naming'
+  | 'identity-reshape'
   | 'lifespan-exhausted'
   | 'material-generation'
   | 'material-semantic-enrichment'

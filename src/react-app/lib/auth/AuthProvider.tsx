@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import {
   AuthContext,
   getCaptchaFetchOptions,
+  getDefaultGameRedirectUrl,
   getDefaultResetRedirectUrl,
   normalizeEmail,
   toAuthActionError,
@@ -28,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       name: name.trim(),
       email: normalizeEmail(email),
       password,
+      callbackURL: getDefaultGameRedirectUrl(),
       fetchOptions: getCaptchaFetchOptions(captchaToken),
     });
 
@@ -48,6 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await authClient.signIn.email({
       email: normalizeEmail(email),
       password,
+      callbackURL: getDefaultGameRedirectUrl(),
       fetchOptions: getCaptchaFetchOptions(captchaToken),
     });
 

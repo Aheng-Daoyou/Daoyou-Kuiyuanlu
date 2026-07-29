@@ -12,7 +12,10 @@ export function resolveGameShellKind(pathname: string): GameShellKind | null {
     return 'genesis';
   }
 
-  if (pathname === '/game/sect/onboarding') {
+  if (
+    pathname === '/game/sect/onboarding' ||
+    pathname === '/game/identity-reshape'
+  ) {
     return 'narrative';
   }
 

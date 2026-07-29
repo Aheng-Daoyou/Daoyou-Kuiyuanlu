@@ -18,6 +18,7 @@ import {
   type PillQuotaCategory,
   type TalismanSessionMode,
 } from '@shared/types/consumable';
+import { isTalismanScenario } from '@shared/config/talismanScenarios';
 import { CULTIVATION_BOOST_STATUS_KEY } from '@shared/lib/cultivationBoost';
 import {
   BREAKTHROUGH_FOCUS_STATUS_KEY,
@@ -640,8 +641,8 @@ export function buildItemLibrarySubmitBody(
       : undefined;
 
     if (draft.consumableKind === 'talisman') {
-      if (!draft.talismanScenario.trim()) {
-        throw new Error('请填写符箓使用场景');
+      if (!isTalismanScenario(draft.talismanScenario)) {
+        throw new Error('请选择有效的符箓关键词');
       }
 
       return {
@@ -658,7 +659,7 @@ export function buildItemLibrarySubmitBody(
           ...(score ? { score } : {}),
           spec: {
             kind: 'talisman',
-            scenario: draft.talismanScenario.trim(),
+            scenario: draft.talismanScenario,
             sessionMode: draft.talismanSessionMode,
             ...(draft.talismanNotes.trim()
               ? { notes: draft.talismanNotes.trim() }
@@ -667,7 +668,7 @@ export function buildItemLibrarySubmitBody(
         },
         editorConfig: {
           kind: 'talisman',
-          scenario: draft.talismanScenario.trim(),
+          scenario: draft.talismanScenario,
           sessionMode: draft.talismanSessionMode,
         },
       };

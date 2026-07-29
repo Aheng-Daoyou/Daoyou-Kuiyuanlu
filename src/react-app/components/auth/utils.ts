@@ -55,6 +55,10 @@ export function toErrorMessage(
     return '请求过于频繁，请一个时辰后再试';
   }
 
+  if (error.code === 'EMAIL_NOT_VERIFIED') {
+    return '邮箱尚未验证，新的验证邮件已发送，请前往邮箱完成验证。';
+  }
+
   return error.message;
 }
 

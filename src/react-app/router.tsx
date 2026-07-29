@@ -136,6 +136,20 @@ export const router = createBrowserRouter(
         <Route element={<PlayerShellLayout />}>
           <Route element={<GameNarrativeLayout />}>
             <Route
+              path="identity-reshape"
+              lazy={lazyRoute(
+                () => import('@app/routes/game/identity-reshape/route'),
+              )}
+              handle={scene(
+                {
+                  id: 'identity-reshape',
+                  chrome: 'immersive',
+                  dock: 'hidden',
+                },
+                '改天换地',
+              )}
+            />
+            <Route
               path="sect/onboarding"
               lazy={lazyRoute(
                 () => import('@app/routes/game/sect/onboarding/route'),

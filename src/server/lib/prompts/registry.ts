@@ -9,6 +9,7 @@ import dungeonRoundPrompt from '@server/prompts/dungeon-round.md?raw';
 import dungeonSettlementPrompt from '@server/prompts/dungeon-settlement.md?raw';
 import enemyNarrativePrompt from '@server/prompts/enemy-narrative.md?raw';
 import fateNamingPrompt from '@server/prompts/fate-naming.md?raw';
+import identityReshapePrompt from '@server/prompts/identity-reshape.md?raw';
 import lifespanExhaustedPrompt from '@server/prompts/lifespan-exhausted.md?raw';
 import materialGenerationPrompt from '@server/prompts/material-generation.md?raw';
 import materialSemanticEnrichmentPrompt from '@server/prompts/material-semantic-enrichment.md?raw';
@@ -41,6 +42,7 @@ const bundledPromptSources: Record<string, string> = {
   'dungeon-settlement.md': dungeonSettlementPrompt,
   'enemy-narrative.md': enemyNarrativePrompt,
   'fate-naming.md': fateNamingPrompt,
+  'identity-reshape.md': identityReshapePrompt,
   'lifespan-exhausted.md': lifespanExhaustedPrompt,
   'material-generation.md': materialGenerationPrompt,
   'material-semantic-enrichment.md': materialSemanticEnrichmentPrompt,
