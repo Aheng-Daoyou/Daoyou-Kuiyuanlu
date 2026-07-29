@@ -32,14 +32,6 @@ export const LINGXIAO_ORGANIZATION_THEME: SectOrganizationTheme = {
       '澄心定意，使纷乱外法难侵剑心。',
     ],
   },
-  shopGrants: {
-    true_cloud_ore: {
-      name: '百炼山铁',
-      description: '红尘剑宗山腹反复受地火淬炼的稀有灵铁。',
-    },
-    true_spirit_pill: { name: '问剑蕴神丹' },
-  },
-  stipendGrantNames: { trueHerb: '剑叶灵草' },
 };
 
 export class LingxiaoOrganizationModule extends StandardSectOrganizationModule {

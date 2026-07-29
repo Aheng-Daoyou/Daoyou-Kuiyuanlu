@@ -958,7 +958,7 @@ export class StandardSectOrganizationModule implements SectOrganizationModule {
 
   constructor(readonly theme: SectOrganizationTheme = {}) {
     this.tasks = new StandardSectTaskCatalog();
-    this.economy = new StandardSectEconomyPolicy(theme);
+    this.economy = new StandardSectEconomyPolicy();
     this.battles = new StandardSectBattleScenarioCatalog(theme);
     this.benefits = new StandardSectBenefitPolicy(theme);
   }
