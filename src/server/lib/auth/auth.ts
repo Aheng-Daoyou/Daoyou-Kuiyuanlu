@@ -1,14 +1,16 @@
+import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { i18n, type TranslationDictionary } from '@better-auth/i18n';
 import { betterAuth } from 'better-auth';
 import { emailOTP } from 'better-auth/plugins/email-otp';
 import { sendViaSmtp } from '../admin/smtp';
-import { pgPool } from '../drizzle/db';
+import { db } from '../drizzle/db';
 import { getPublicWebOrigins } from '../http/origins';
 import {
   markAccountDeletionCompleted,
   recordPendingAccountDeletion,
 } from '../repositories/accountDeletionRepository';
 import { getCookieDomainConfig } from './cookieDomain';
+import { BETTER_AUTH_SCHEMA_NAME, betterAuthSchema } from './schema';
 
 function getRequiredEnv(name: 'BETTER_AUTH_SECRET' | 'BETTER_AUTH_URL') {
   const value = process.env[name];
@@ -18,10 +20,6 @@ function getRequiredEnv(name: 'BETTER_AUTH_SECRET' | 'BETTER_AUTH_URL') {
   }
 
   return value;
-}
-
-function getBetterAuthSchemaName() {
-  return process.env.BETTER_AUTH_DB_SCHEMA?.trim() || 'better_auth';
 }
 
 function getGitHubProviderConfig() {
@@ -82,13 +80,18 @@ const zhAuthTranslations = {
   TOO_MANY_ATTEMPTS: '尝试次数过多，请重新获取验证码',
 } satisfies TranslationDictionary;
 
-export const authSchemaName = getBetterAuthSchemaName();
+export const authSchemaName = BETTER_AUTH_SCHEMA_NAME;
 
 export const auth = betterAuth({
   baseURL: getRequiredEnv('BETTER_AUTH_URL'),
   secret: getRequiredEnv('BETTER_AUTH_SECRET'),
   trustedOrigins: getPublicWebOrigins(),
-  database: pgPool,
+  database: drizzleAdapter(db, {
+    provider: 'pg',
+    schema: betterAuthSchema,
+    camelCase: true,
+    transaction: true,
+  }),
   ...(getCookieDomainConfig()
     ? { crossSubDomainCookies: getCookieDomainConfig() }
     : {}),
@@ -97,8 +100,28 @@ export const auth = betterAuth({
       generateId: 'uuid',
     },
   },
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendViaSmtp(
+        user.email,
+        '【万界道友】验证邮箱',
+        [
+          `${user.name || '玩家'}，欢迎来到万界道友。`,
+          '',
+          '请点击下方链接验证邮箱，验证完成后即可进入游戏：',
+          url,
+          '',
+          '若这不是你的操作，可忽略本邮件。',
+        ].join('\n'),
+      );
+    },
+    sendOnSignUp: true,
+    sendOnSignIn: true,
+    autoSignInAfterVerification: true,
+  },
   emailAndPassword: {
     enabled: true,
+    requireEmailVerification: true,
     revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url }) => {
       await sendViaSmtp(

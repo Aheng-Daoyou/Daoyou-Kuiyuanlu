@@ -9,14 +9,18 @@ import { inkFieldVariants } from '@app/components/ui/inkFieldStyles';
 import { AttributeType, ModifierType } from '@shared/engine/battle-v5/core/types';
 import type { TrainingRoomModifierDraft } from '@shared/engine/battle-v5/setup/types';
 import { ATTR_LABELS } from '@shared/engine/battle-v5/effects/affixText/attributes';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import {
+  useCultivatorCondition,
+  useCultivatorIdentity,
+  usePlayerLoadout,
+} from '@app/lib/resources/player';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import type { BattleRecord } from '@shared/types/battle';
 import { simulateBattleV5 } from '@shared/lib/battle/simulateBattleV5';
 import { getResourceText } from '@shared/lib/gameConceptDisplay';
 import {
   buildTrainingBattleInitConfig, createDefaultTrainingRoomDraft, parseTrainingRoomStorage, TRAINING_ROOM_STORAGE_KEY, TRAINING_ROOM_STORAGE_VERSION, type TrainingRoomDraft, type TrainingRoomPreset, } from '@shared/lib/training-room/config';
-import type { Cultivator } from '@shared/types/cultivator';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 const ATTRIBUTE_OPTIONS = Object.values(AttributeType);
@@ -216,7 +220,34 @@ function ModifierEditor({
 
 export default function TrainingRoomPage() {
   const navigate = useNavigate();
-  const { cultivator, isLoading } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const loadout = usePlayerLoadout();
+  const identity = profile.data?.cultivator;
+  const cultivator = useMemo<CultivatorCombatInput | null>(
+    () =>
+      identity && condition.data && loadout.data
+        ? {
+            id: identity.id,
+            name: identity.name,
+            realm: identity.realm,
+            realm_stage: identity.realm_stage,
+            attributes: identity.attributes,
+            spiritual_roots: identity.spiritual_roots,
+            pre_heaven_fates: identity.pre_heaven_fates,
+            condition: condition.data,
+            skills: loadout.data.skills,
+            cultivations: loadout.data.cultivations,
+            equipped: loadout.data.equipped,
+            inventory: { artifacts: loadout.data.artifacts },
+          }
+        : null,
+    [condition.data, identity, loadout.data],
+  );
+  const isLoading =
+    profile.loading ||
+    condition.loading ||
+    loadout.loading;
   const [isFighting, setIsFighting] = useState(false);
   const [battleResult, setBattleResult] = useState<BattleRecord>();
   const [draft, setDraft] = useState<TrainingRoomDraft>(() => {
@@ -251,11 +282,9 @@ export default function TrainingRoomPage() {
       setIsFighting(true);
       setBattleResult(undefined);
 
-      const mockDummy: Cultivator = {
+      const mockDummy: CultivatorCombatInput = {
         id: 'dummy',
         name: '木桩',
-        age: 0,
-        lifespan: 9999,
         attributes: {
           vitality: 10,
           spirit: 10,
@@ -267,10 +296,8 @@ export default function TrainingRoomPage() {
         pre_heaven_fates: [],
         cultivations: [],
         skills: [],
-        inventory: { artifacts: [], consumables: [], materials: [] },
+        inventory: { artifacts: [] },
         equipped: { weapon: null, armor: null, accessory: null },
-        spirit_stones: 0,
-        gender: '男',
         realm: '炼气',
         realm_stage: '初期',
       };

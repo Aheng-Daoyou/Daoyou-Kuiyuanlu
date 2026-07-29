@@ -2,7 +2,6 @@ import {
   NOVICE_DUNGEON_RESOURCE_THRESHOLD,
   type NoviceReadinessResource,
 } from '@shared/lib/noviceGuidance';
-import type { Cultivator } from '@shared/types/cultivator';
 import type { TaskInstance } from '@shared/types/task';
 import { findNextTutorialTask } from './taskClient';
 
@@ -15,7 +14,6 @@ export interface NoviceHomeAction {
 
 export interface NoviceHomeActionInput {
   tasks: TaskInstance[];
-  cultivator: Cultivator | null | undefined;
   hp?: NoviceReadinessResource | null;
   mp?: NoviceReadinessResource | null;
 }

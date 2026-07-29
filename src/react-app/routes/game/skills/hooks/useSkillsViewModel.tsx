@@ -1,23 +1,23 @@
-import { useInkUI } from '@app/components/providers/InkUIProvider';
 import {
   toProductDisplayModel,
   type ProductDisplayModel,
 } from '@app/components/feature/products';
+import { useInkUI } from '@app/components/providers/InkUIProvider';
 import type { InkDialogState } from '@app/components/ui/InkDialog';
 import {
-  usePlayerStateDomainVersion,
-  usePlayerStateView,
-  type PlayerStateView,
-} from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+  usePlayerLoadout,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { MAX_OWNED_CREATION_PRODUCTS_PER_TYPE } from '@shared/config/creationProductLimits';
 import { DEFAULT_MAX_ACTIVE_SKILLS } from '@shared/config/skillLimits';
-import { useCallback, useEffect, useState } from 'react';
+import type { PlayerSessionResource } from '@shared/contracts/player';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export type V2Skill = ProductDisplayModel & { id: string };
 
 export interface UseSkillsViewModelReturn {
-  cultivator: PlayerStateView['cultivator'];
+  cultivator: PlayerSessionResource['activeCultivator'] | undefined;
   skills: V2Skill[];
   isLoading: boolean;
   note: string | undefined;
@@ -36,20 +36,37 @@ export interface UseSkillsViewModelReturn {
 }
 
 export function useSkillsViewModel(): UseSkillsViewModelReturn {
-  const { cultivator, isLoading, note } = usePlayerStateView();
-  const loadoutVersion = usePlayerStateDomainVersion('loadout');
-  const { mutate } = usePlayerStateActions();
+  const session = usePlayerSession();
+  const cultivator = session.data?.activeCultivator;
+  const isLoading = session.loading;
+  const note = session.data?.note;
+  const loadout = usePlayerLoadout(Boolean(cultivator));
+  const { mutate } = useResourceMutation();
   const { pushToast, openDialog } = useInkUI();
 
   const [dialog, setDialog] = useState<InkDialogState | null>(null);
-  const [selectedSkill, setSelectedSkill] = useState<V2Skill | null>(null);
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [skills, setSkills] = useState<V2Skill[]>([]);
+  const [skillProducts, setSkillProducts] = useState<V2Skill[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(Boolean(cultivator));
   const [pendingToggleId, setPendingToggleId] = useState<string | null>(null);
 
   const maxSkills = DEFAULT_MAX_ACTIVE_SKILLS;
   const maxOwnedSkills = MAX_OWNED_CREATION_PRODUCTS_PER_TYPE;
+  const equippedSkillIds = useMemo(
+    () => new Set(loadout.data?.skills.map((skill) => skill.id) ?? []),
+    [loadout.data?.skills],
+  );
+  const skills = useMemo(
+    () =>
+      skillProducts.map((skill) => ({
+        ...skill,
+        isEquipped: equippedSkillIds.has(skill.id),
+      })),
+    [equippedSkillIds, skillProducts],
+  );
+  const selectedSkill =
+    skills.find((skill) => skill.id === selectedSkillId) ?? null;
   const enabledSkillCount = skills.filter((skill) => skill.isEquipped).length;
 
   useEffect(() => {
@@ -62,7 +79,9 @@ export function useSkillsViewModel(): UseSkillsViewModelReturn {
     const loadSkills = async () => {
       setSkillsLoading(true);
       try {
-        const res = await fetch('/api/v2/products?type=skill&page=1&pageSize=100');
+        const res = await fetch(
+          '/api/v2/products?type=skill&page=1&pageSize=100',
+        );
         const data = await res.json();
         if (cancelled) return;
 
@@ -73,7 +92,7 @@ export function useSkillsViewModel(): UseSkillsViewModelReturn {
               ...toProductDisplayModel(r),
             }),
           );
-          setSkills(parsed);
+          setSkillProducts(parsed);
         }
       } catch (e) {
         if (!cancelled) {
@@ -91,18 +110,18 @@ export function useSkillsViewModel(): UseSkillsViewModelReturn {
     return () => {
       cancelled = true;
     };
-  }, [cultivator?.id, loadoutVersion]);
+  }, [cultivator?.id]);
 
   const closeDialog = useCallback(() => setDialog(null), []);
 
   const openSkillDetail = useCallback((skill: V2Skill) => {
-    setSelectedSkill(skill);
+    setSelectedSkillId(skill.id);
     setIsModalOpen(true);
   }, []);
 
   const closeSkillDetail = useCallback(() => {
     setIsModalOpen(false);
-    setSelectedSkill(null);
+    setSelectedSkillId(null);
   }, []);
 
   const toggleSkillEnabled = useCallback(
@@ -158,6 +177,9 @@ export function useSkillsViewModel(): UseSkillsViewModelReturn {
                 method: 'DELETE',
               }),
             );
+            setSkillProducts((current) =>
+              current.filter((item) => item.id !== skill.id),
+            );
             pushToast({
               message: `【${skill.name}】已从道基消散`,
               tone: 'default',
@@ -177,7 +199,7 @@ export function useSkillsViewModel(): UseSkillsViewModelReturn {
   return {
     cultivator,
     skills,
-    isLoading: isLoading || skillsLoading,
+    isLoading: isLoading || skillsLoading || loadout.loading,
     note,
     maxSkills,
     maxOwnedSkills,

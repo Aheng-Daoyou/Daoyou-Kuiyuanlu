@@ -1,4 +1,7 @@
-import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import {
+  getCultivatorDisplayAttributes,
+  type CultivatorDisplayInput,
+} from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import type { BattleInitConfigV5 } from '@shared/engine/battle-v5/setup/types';
 import type { UnitStateSnapshot } from '@shared/engine/battle-v5/systems/state/types';
 import {
@@ -35,6 +38,9 @@ import type {
   TemperingTrackKey,
 } from '@shared/types/condition';
 import type { Cultivator } from '@shared/types/cultivator';
+
+export type ConditionCultivatorFacts = CultivatorDisplayInput &
+  Pick<Cultivator, 'pre_heaven_fates'>;
 
 const WOUND_SEVERITY_ORDER: ConditionStatusKey[] = [
   'minor_wound',
@@ -270,7 +276,7 @@ function toBattleStatusRefs(statuses: ConditionStatusInstance[], now: Date) {
 }
 
 function buildDefaultCondition(
-  cultivator: Cultivator,
+  cultivator: CultivatorDisplayInput,
   now: Date,
 ): CultivatorCondition {
   const display = getCultivatorDisplayAttributes(cultivator);
@@ -351,7 +357,7 @@ function normalizeResourcePoint(args: {
 
 export const ConditionService = {
   getMaxResources(
-    cultivator: Cultivator,
+    cultivator: CultivatorDisplayInput,
     conditionInput?: CultivatorCondition,
   ): { maxHp: number; maxMp: number } {
     const display = getCultivatorDisplayAttributes(
@@ -369,7 +375,7 @@ export const ConditionService = {
   },
 
   normalizeCondition(
-    cultivator: Cultivator,
+    cultivator: CultivatorDisplayInput,
     input?: CultivatorCondition,
     now: Date = new Date(),
     options: NormalizeConditionOptions = {},
@@ -466,7 +472,7 @@ export const ConditionService = {
   },
 
   tickNaturalRecovery(
-    cultivator: Cultivator,
+    cultivator: ConditionCultivatorFacts,
     conditionInput?: CultivatorCondition,
     now: Date = new Date(),
     options: NormalizeConditionOptions = {},
@@ -542,7 +548,7 @@ export const ConditionService = {
   },
 
   applyExternalResourceLoss(
-    cultivator: Cultivator,
+    cultivator: ConditionCultivatorFacts,
     conditionInput: CultivatorCondition | undefined,
     options: {
       hpPercent?: number;
@@ -576,7 +582,7 @@ export const ConditionService = {
   },
 
   previewExternalResourceLoss(
-    cultivator: Cultivator,
+    cultivator: CultivatorDisplayInput,
     conditionInput: CultivatorCondition | undefined,
     options: {
       hpPercent?: number;
@@ -637,7 +643,7 @@ export const ConditionService = {
   },
 
   buildBattleInit(
-    cultivator: Cultivator,
+    cultivator: ConditionCultivatorFacts,
     conditionInput: CultivatorCondition | undefined,
     mode: BattleMode,
     now: Date = new Date(),
@@ -647,7 +653,6 @@ export const ConditionService = {
     }
 
     const condition = this.tickNaturalRecovery(cultivator, conditionInput, now);
-    const { maxHp } = this.getMaxResources(cultivator, condition);
     const battleInitHooks = getBodyCultivationBattleInitHooks(condition);
 
     return {
@@ -672,7 +677,7 @@ export const ConditionService = {
   },
 
   applyBattleOutcome(
-    cultivator: Cultivator,
+    cultivator: ConditionCultivatorFacts,
     conditionInput: CultivatorCondition | undefined,
     playerSnapshot: UnitStateSnapshot,
     mode: BattleMode,
@@ -739,7 +744,7 @@ export const ConditionService = {
   },
 
   getBreakthroughPenalty(
-    cultivator: Cultivator,
+    cultivator: Pick<Cultivator, 'pre_heaven_fates'>,
     conditionInput: CultivatorCondition | undefined,
   ): number {
     return getBreakthroughPenalty(
@@ -749,9 +754,8 @@ export const ConditionService = {
   },
 
   breakthroughBodyCultivationRealm(
-    cultivator: Cultivator,
+    cultivator: Pick<Cultivator, 'realm' | 'condition'>,
     conditionInput: CultivatorCondition | undefined,
-    now: Date = new Date(),
     rng: () => number = Math.random,
   ): {
     condition: CultivatorCondition;
@@ -763,7 +767,10 @@ export const ConditionService = {
     failedAttempts: number;
     guaranteeProgress: number;
   } {
-    const condition = this.normalizeCondition(cultivator, conditionInput, now);
+    const condition = conditionInput ?? cultivator.condition;
+    if (!condition) {
+      throw new Error('角色状态尚未初始化，无法进行肉身破限');
+    }
     const result = advanceBodyCultivationRealm(condition, {
       cultivatorRealm: cultivator.realm,
     }, rng);

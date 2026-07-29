@@ -1,50 +1,35 @@
+import { consumeResourceMutation } from '@app/lib/resources/mutations';
 import type {
   TaskChallengeResponse,
-  TaskDetailResponse,
-  TaskListResponse,
   TaskRewardClaimResponse,
 } from '@shared/contracts/task';
-import { consumePlayerStateMutation } from '@app/lib/player-state/store';
 import { getNextMajorRealm } from '@shared/lib/breakthroughPill';
-import type { Cultivator } from '@shared/types/cultivator';
-import type { TaskInstance, TaskStatus } from '@shared/types/task';
 import {
   TUTORIAL_TASK_ORDER,
   hasClaimedTutorialReward,
 } from '@shared/lib/noviceGuidance';
+import type { Cultivator } from '@shared/types/cultivator';
+import type { TaskInstance } from '@shared/types/task';
 
 async function readJsonOrThrow<T>(response: Response): Promise<T> {
   const payload = await response.json();
   if (!response.ok || !payload?.success) {
     throw new Error(
-      typeof payload?.error === 'string' ? payload.error : `HTTP ${response.status}`,
+      typeof payload?.error === 'string'
+        ? payload.error
+        : `HTTP ${response.status}`,
     );
   }
   return payload as T;
-}
-
-export async function fetchTaskList(status?: TaskStatus) {
-  const params = new URLSearchParams();
-  if (status) {
-    params.set('status', status);
-  }
-
-  const response = await fetch(
-    params.size > 0 ? `/api/tasks?${params.toString()}` : '/api/tasks',
-  );
-  return readJsonOrThrow<TaskListResponse>(response);
-}
-
-export async function fetchTaskDetail(taskId: string) {
-  const response = await fetch(`/api/tasks/${taskId}`);
-  return readJsonOrThrow<TaskDetailResponse>(response);
 }
 
 export async function startTaskChallenge(taskId: string) {
   const response = await fetch(`/api/tasks/${taskId}/challenge`, {
     method: 'POST',
   });
-  return readJsonOrThrow<TaskChallengeResponse>(response);
+  const payload = await readJsonOrThrow<TaskChallengeResponse>(response);
+  await consumeResourceMutation(payload);
+  return payload;
 }
 
 const taskChallengeRequests = new Map<string, Promise<TaskChallengeResponse>>();
@@ -69,14 +54,15 @@ export async function claimTaskReward(taskId: string) {
     method: 'POST',
   });
   const payload = await readJsonOrThrow<TaskRewardClaimResponse>(response);
-  if (payload.state) {
-    await consumePlayerStateMutation(payload);
-  }
+  await consumeResourceMutation(payload);
   return payload;
 }
 
 export function findCurrentMajorBreakthroughTask(
-  cultivator: Cultivator | null | undefined,
+  cultivator:
+    | Pick<Cultivator, 'realm' | 'realm_stage'>
+    | null
+    | undefined,
   tasks: TaskInstance[],
 ): TaskInstance | null {
   if (!cultivator || cultivator.realm_stage !== '圆满') {
@@ -98,7 +84,9 @@ export function findCurrentMajorBreakthroughTask(
   );
 }
 
-export function findNextTutorialTask(tasks: TaskInstance[]): TaskInstance | null {
+export function findNextTutorialTask(
+  tasks: TaskInstance[],
+): TaskInstance | null {
   const tutorialByDefinition = new Map(
     tasks
       .filter((task) => task.category === 'tutorial')

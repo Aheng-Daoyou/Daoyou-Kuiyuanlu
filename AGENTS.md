@@ -17,6 +17,7 @@ AI agents should read this first. Keep changes small, project-specific, and back
 - `src/shared`: shared contracts, game engines, config, pure logic, domain types.
 - `src/server/lib/drizzle/schema.ts`: Drizzle schema for `wanjiedaoyou_*` business tables.
 - `drizzle/`: Drizzle SQL migrations and snapshots.
+- `drizzle-auth/`: independent Drizzle migrations and snapshots for the fixed `better_auth` schema.
 - `docs/`: design and architecture notes; verify against current code before treating old docs as current truth.
 - `.agents/skills/`: project-specific AI skills. Use the matching skill before editing that area.
 
@@ -34,7 +35,7 @@ bun run auth:migrate
 ```
 
 - `bun run build` is two-stage: `tsc -b && vite build --mode client && vite build`.
-- Vitest uses node environment and includes `src/**/*.test.ts(x)` / `src/**/*.spec.ts(x)`.
+- Vitest uses node environment and discovers tests only under `src/shared`.
 - Docker runtime contains only `dist`; `VITE_TURNSTILE_SITE_KEY` is a build-time variable.
 - GitHub Actions currently builds and pushes Docker image on `master`; it is not a lint/test quality gate.
 
@@ -74,7 +75,7 @@ bun run auth:migrate
 ## Data And Domain Rules
 
 - Do not create parallel `src/db` or `src/server/db`; DB entrypoints are `src/server/lib/drizzle/db.ts` and `schema.ts`.
-- Drizzle Kit manages only `wanjiedaoyou_*` business tables. Better Auth tables are migrated by Better Auth, schema default `better_auth`.
+- The main Drizzle Kit flow manages only `wanjiedaoyou_*` business tables. `drizzle.auth.config.ts` independently manages the fixed `better_auth` schema.
 - Pass `DbExecutor` / `DbTransaction` through write paths; do not open a fresh executor inside a transaction.
 - v2 products (`skill`, `artifact`, `gongfa`) use `wanjiedaoyou_creation_products`; equipment state is `creation_products.is_equipped`.
 - `battleProjection` is runtime data rebuilt during rehydrate; do not persist it directly.
@@ -96,11 +97,15 @@ bun run auth:migrate
 
 ## Verification Checklist
 
-- Pick focused tests first, then broader checks if the blast radius is large.
+- Unit tests are forbidden under `src/react-app` and `src/server`; do not add `*.test.*` or `*.spec.*` files there.
+- New unit tests are allowed only for pure, deterministic, reusable engine/domain logic under `src/shared`.
+- Do not write tests that exercise or mock databases, repositories, Hono routes, auth, Redis, LLM/SMTP providers, network APIs, or other third-party services.
+- Frontend and backend changes must be verified with lint, typecheck/build, code inspection, and focused manual/runtime checks instead of unit tests.
+- For eligible shared engine changes, pick focused tests first, then broader shared-engine checks if the blast radius is large.
 - Run `bun run lint`, `bun run test`, or `bun run build` when code/config changes justify it.
-- For route/layout changes, run router tests such as `gameShellRegistry.test.ts` and `routeTitle.test.ts`.
-- For LLM provider changes, run `src/server/lib/llm/allowedHosts.test.ts`.
-- For data/model changes, inspect generated migrations and run nearest repository/service tests.
+- For route/layout changes, run lint/build and inspect the affected navigation and layout behavior manually.
+- For LLM/provider changes, run lint/build and inspect provider validation and runtime behavior without adding provider integration tests.
+- For data/model changes, inspect generated migrations, transaction boundaries, and build output; do not add database/repository tests.
 - For docs/skill-only changes, inspect Markdown structure, skill validation, and `git diff`; full app tests are usually unnecessary.
 - Always report commands run and any checks skipped.
 
@@ -111,4 +116,4 @@ bun run auth:migrate
 - Touch only files needed for the task. Do not clean unrelated code or revert user changes.
 - Match existing patterns even if you would design them differently.
 - Remove only unused imports/variables/functions created by your own change.
-- For bugs or validation changes, prefer a reproducing test first, then make it pass.
+- For bugs in eligible pure shared engine logic, prefer a reproducing test first. For frontend, backend, database, or third-party behavior, use non-test verification.

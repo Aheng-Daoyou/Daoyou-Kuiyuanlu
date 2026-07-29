@@ -120,10 +120,13 @@ export class CombatStateMachine {
     this._states.set(CombatPhase.TURN_ORDER, {
       phase: CombatPhase.TURN_ORDER,
       onEnter: () => {
-        // 按速度排序单位
+        // 按行动速度排序单位
         const units = Array.from(this._context.units.values())
           .filter(u => u.isAlive())
-          .sort((a, b) => b.attributes.getValue(AttributeType.SPEED) - a.attributes.getValue(AttributeType.SPEED));
+          .sort((a, b) =>
+            b.attributes.getValue(AttributeType.ACTION_SPEED) -
+            a.attributes.getValue(AttributeType.ACTION_SPEED)
+          );
         EventBus.instance.publish<TurnOrderEvent>({
           type: 'TurnOrderEvent',
           timestamp: Date.now(),

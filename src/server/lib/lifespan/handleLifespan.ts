@@ -1,14 +1,15 @@
-import {
-  getCultivatorBasicsByIdUnsafe,
-  getCultivatorOwnerId,
-  updateCultivator,
-} from '@server/lib/services/cultivatorService';
+import { cultivators } from '@server/lib/drizzle/schema';
+import type { DbTransaction } from '@server/lib/drizzle/db';
 import { invalidateActiveCultivatorRef } from '@server/lib/hono/middleware';
-import type { DbExecutor, DbTransaction } from '@server/lib/drizzle/db';
+import { findActiveCultivatorOwnerId } from '@server/lib/repositories/cultivatorRepository';
+import { updateCultivator } from '@server/lib/services/cultivator/CultivatorStateRepository';
 import type { BreakthroughModifiers } from '@server/utils/breakthroughCalculator';
-import type { LifespanExhaustedStoryPayload } from '@server/utils/prompts';
+import type {
+  LifespanExhaustedStoryPayload,
+  RetreatStoryCultivator,
+} from '@server/utils/prompts';
 import { RealmStage, RealmType } from '@shared/types/constants';
-import { Cultivator } from '@shared/types/cultivator';
+import { eq } from 'drizzle-orm';
 
 export interface ConsumeLifespanResult {
   depleted: boolean;
@@ -25,18 +26,26 @@ export async function consumeLifespanAndHandleDepletion(
   cultivatorId: string,
   years: number,
   options: {
-    executor?: DbExecutor | DbTransaction;
-    deferSideEffects?: boolean;
+    tx: DbTransaction;
     /** 调用方已完成年龄结算时传入，避免在死亡判定中重复累加 years。 */
     ageAfterConsumption?: number;
-  } = {},
+    storyCultivator: RetreatStoryCultivator;
+  },
 ): Promise<ConsumeLifespanResult> {
   if (years <= 0) {
     return { depleted: false };
   }
 
-  const q = options.executor;
-  const cultivator = await getCultivatorBasicsByIdUnsafe(cultivatorId, q);
+  const [cultivator] = await options.tx
+    .select({
+      age: cultivators.age,
+      lifespan: cultivators.lifespan,
+      realm: cultivators.realm,
+      realmStage: cultivators.realm_stage,
+    })
+    .from(cultivators)
+    .where(eq(cultivators.id, cultivatorId))
+    .limit(1);
   if (!cultivator) {
     return { depleted: false };
   }
@@ -46,27 +55,29 @@ export async function consumeLifespanAndHandleDepletion(
   // 只在寿元耗尽时做自动更新与故事上下文准备；否则不在此处重复写入年龄（调用方已负责写入）
   if (newAge >= (cultivator.lifespan || 0)) {
     // 更新角色为已死，确保 age 被同步为新的年龄
-    let updatedCultivator = null;
     let afterCommit: (() => Promise<void>) | undefined;
     try {
-      const ownerId = await getCultivatorOwnerId(cultivatorId, q);
-      updatedCultivator = await updateCultivator(cultivatorId, {
-        age: newAge,
-        status: 'dead',
-      }, q);
+      const ownerId = await findActiveCultivatorOwnerId(
+        cultivatorId,
+        options.tx,
+      );
+      await updateCultivator(
+        cultivatorId,
+        {
+          age: newAge,
+          status: 'dead',
+        },
+        options.tx,
+      );
       if (ownerId) {
-        if (options.deferSideEffects) {
-          afterCommit = () => invalidateActiveCultivatorRef(ownerId);
-        } else {
-          await invalidateActiveCultivatorRef(ownerId);
-        }
+        afterCommit = () => invalidateActiveCultivatorRef(ownerId);
       }
     } catch (err) {
       console.error('更新角色为死时失败：', err);
     }
 
     const storyCultivator = {
-      ...(updatedCultivator ?? cultivator),
+      ...options.storyCultivator,
       age: newAge,
       status: 'dead' as const,
     };
@@ -75,7 +86,7 @@ export async function consumeLifespanAndHandleDepletion(
       depleted: true,
       storyPayload: {
         // todo 修复
-        cultivator: storyCultivator as Cultivator,
+        cultivator: storyCultivator,
         summary: {
           success: false,
           isMajor: false,
@@ -83,7 +94,7 @@ export async function consumeLifespanAndHandleDepletion(
           chance: 0,
           roll: 0,
           fromRealm: cultivator.realm as RealmType,
-          fromStage: cultivator.realm_stage as RealmStage,
+          fromStage: cultivator.realmStage as RealmStage,
           lifespanGained: 0,
           attributeGrowth: {},
           attributePointReward: 0,

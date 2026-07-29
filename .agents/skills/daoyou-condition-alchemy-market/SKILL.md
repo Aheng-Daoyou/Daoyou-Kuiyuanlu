@@ -40,7 +40,7 @@ For standalone manual draw probability, quality floor, or guarantee rules, use `
 - Do not restore old `effects`, `use_spec`, or `details` persistence.
 - Runtime parsing rejects old consumables without a valid `spec.kind`; old data needs cleanup/migration, not a new compatibility layer.
 - Alchemy shared config defines material types, quality potency, toxicity/stability, and element naming hints.
-- Actual alchemy behavior lives in server services and tests, especially `alchemyServiceV2*`, `AlchemyFormulaService*`, `AlchemyRecipePlanner`, and `AlchemyRecipeRules`.
+- Actual alchemy behavior lives in server services, especially `alchemyServiceV2*`, `AlchemyFormulaService*`, `AlchemyRecipePlanner`, and `AlchemyRecipeRules`.
 - LLM may help narrative/planning, but game-state numeric effects require schema bounds and service-layer validation.
 
 ## Market Facts
@@ -56,10 +56,10 @@ For standalone manual draw probability, quality floor, or guarantee rules, use `
 
 1. Determine whether the change is shared config/type, server service, repository/persistence, or UI presentation.
 2. For condition updates, use operation/service paths and check persistence shape.
-3. For alchemy changes, inspect both shared config and server service tests.
-4. For market changes, inspect service tests and Redis/cache behavior.
+3. For alchemy changes, inspect both shared config and server service behavior.
+4. For market changes, inspect service and Redis/cache behavior.
 5. For LLM-influenced outputs, validate semantic bounds before state changes.
-6. Update targeted tests near the service/config affected.
+6. Add or update tests only when the affected logic is a pure, reusable shared engine rule.
 
 ## Do Not
 
@@ -71,7 +71,7 @@ For standalone manual draw probability, quality floor, or guarantee rules, use `
 
 ## Verify
 
-- Condition/pill changes: run `PersistentStateService`, `PillOperationExecutor`, `ConsumableUseEngine`, and shared condition tests as relevant.
-- Alchemy changes: run `alchemyServiceV2*`, `AlchemyFormulaService*`, and related route tests.
-- Market changes: run `MarketService.test.ts`, `MarketRecycleService.test.ts`, and route tests.
-- Manual draw changes: run `manualDrawConfig.test.ts`.
+- Condition/pill changes: run lint/build and inspect service/persistence behavior; run tests only for eligible pure shared engine rules.
+- Alchemy changes: run lint/build and focused manual/runtime checks; do not add server service or route tests.
+- Market changes: run lint/build and focused manual/runtime checks; do not add server service, Redis, or route tests.
+- Manual draw changes: run eligible pure shared-rule tests when present.

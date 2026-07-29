@@ -3,9 +3,9 @@ import type { ResourceOperation } from '@shared/engine/resource/types';
 import {
   REALM_YIELD_RATES,
   type Quality,
+  type RealmStage,
   type RealmType,
 } from '@shared/types/constants';
-import type { Cultivator } from '@shared/types/cultivator';
 
 export const YIELD_MATERIAL_QUALITY_CHANCE_BY_REALM: Record<
   RealmType,
@@ -113,71 +113,71 @@ export class YieldCalculator {
     return YIELD_MATERIAL_QUALITY_CHANCE_BY_REALM[realm];
   }
 
-  /**
-   * 计算历练奖励列表
-   * @param realm 角色境界
-   * @param hoursElapsed 历练小时数
-   * @param cultivator 完整角色信息（可选，用于精确计算修为）
-   * @returns ResourceOperation[] 奖励列表
-   */
-  static calculateYield(
-    realm: RealmType,
-    hoursElapsed: number,
-    cultivator?: Cultivator,
+  static calculateCultivatorYield(
+    input: {
+      realm: RealmType;
+      realmStage: RealmStage;
+      hoursElapsed: number;
+    },
+    rng: () => number = Math.random,
   ): ResourceOperation[] {
+    const { realm, realmStage, hoursElapsed } = input;
     const operations: ResourceOperation[] = [];
 
-    // 1. 灵石奖励（保留原有逻辑）
     const baseRate = REALM_YIELD_RATES[realm] || 10;
-    const randomMultiplier = 0.8 + Math.random() * 1.2;
+    const randomMultiplier = 0.8 + rng() * 1.2;
     const spiritStones = Math.floor(baseRate * hoursElapsed * randomMultiplier);
     operations.push({
       type: 'spirit_stones',
       value: spiritStones,
     });
 
-    // 2. 修为奖励（使用统筹计算器 offline 场景，不触发顿悟）
-    if (cultivator) {
-      const stage = cultivator.realm_stage ?? '初期';
-      const offlineExp = calculateOfflineExp(realm, stage, hoursElapsed);
-      if (offlineExp > 0) {
-        operations.push({
-          type: 'cultivation_exp',
-          value: offlineExp,
-        });
-      }
-
-      // 感悟值：1小时随机1-2点
-      const insightGain = Math.floor(
-        Math.floor(1 + Math.random() * 2) * hoursElapsed,
-      );
-      if (insightGain > 0) {
-        operations.push({
-          type: 'comprehension_insight',
-          value: insightGain,
-        });
-      }
-    } else {
-      // 降级处理（兼容性，如果未传cultivator）
-      const expGain = Math.floor(baseRate * 0.1 * hoursElapsed);
-      if (expGain > 0) {
-        operations.push({
-          type: 'cultivation_exp',
-          value: expGain,
-        });
-      }
-
-      // 感悟值：每小时10%概率获得1-5点
-      const insightChance = 0.1 * hoursElapsed;
-      if (Math.random() < insightChance) {
-        const insightGain = Math.floor(1 + Math.random() * 5);
-        operations.push({
-          type: 'comprehension_insight',
-          value: insightGain,
-        });
-      }
+    const offlineExp = calculateOfflineExp(
+      realm,
+      realmStage,
+      hoursElapsed,
+      rng,
+    );
+    if (offlineExp > 0) {
+      operations.push({
+        type: 'cultivation_exp',
+        value: offlineExp,
+      });
     }
 
+    const insightGain = Math.floor(Math.floor(1 + rng() * 2) * hoursElapsed);
+    if (insightGain > 0) {
+      operations.push({
+        type: 'comprehension_insight',
+        value: insightGain,
+      });
+    }
+
+    return operations;
+  }
+
+  static calculateRealmYield(
+    realm: RealmType,
+    hoursElapsed: number,
+    rng: () => number = Math.random,
+  ): ResourceOperation[] {
+    const baseRate = REALM_YIELD_RATES[realm] || 10;
+    const operations: ResourceOperation[] = [
+      {
+        type: 'spirit_stones',
+        value: Math.floor(baseRate * hoursElapsed * (0.8 + rng() * 1.2)),
+      },
+    ];
+    const expGain = Math.floor(baseRate * 0.1 * hoursElapsed);
+    if (expGain > 0) {
+      operations.push({ type: 'cultivation_exp', value: expGain });
+    }
+    if (rng() < 0.1 * hoursElapsed) {
+      operations.push({
+        type: 'comprehension_insight',
+        value: Math.floor(1 + rng() * 5),
+      });
+    }
     return operations;
   }
 

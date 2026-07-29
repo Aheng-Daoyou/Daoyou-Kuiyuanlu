@@ -1,16 +1,16 @@
 import { handleAuthRequest } from '@server/lib/auth/hono';
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { logger } from 'hono/logger';
-import { apiCorsOptions } from '@server/lib/http/cors';
-import { runWithContext } from '@server/lib/http/context';
-import { unsafeRequestOriginGuard } from '@server/lib/http/originGuard';
 import { apiIpRateLimit } from '@server/lib/hono/apiIpRateLimit';
-import { jsonError } from '@server/lib/hono/middleware';
+import { jsonError, redisLockErrorResponse } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
+import { runWithContext } from '@server/lib/http/context';
+import { apiCorsOptions } from '@server/lib/http/cors';
+import { unsafeRequestOriginGuard } from '@server/lib/http/originGuard';
 import { validateLlmBaseUrl } from '@server/lib/llm/allowedHosts';
 import apiRouter from '@server/routes/api';
 import internalRouter from '@server/routes/internal';
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { logger } from 'hono/logger';
 
 const app = new Hono<AppEnv>();
 
@@ -19,10 +19,7 @@ app.use('/internal/*', logger());
 
 app.use('*', async (context, next) => runWithContext(context, next));
 
-app.use(
-  '/api/*',
-  cors(apiCorsOptions),
-);
+app.use('/api/*', cors(apiCorsOptions));
 app.use('/api/*', unsafeRequestOriginGuard());
 
 app.use('*', async (context, next) => {
@@ -72,6 +69,10 @@ app.route('/internal', internalRouter);
 app.notFound((c) => c.redirect('https://client.daoyou.org'));
 
 app.onError((error, c) => {
+  const lockErrorResponse = redisLockErrorResponse(error);
+  if (lockErrorResponse) {
+    return lockErrorResponse;
+  }
   console.error('Unhandled Hono error:', error);
   return c.json(
     {

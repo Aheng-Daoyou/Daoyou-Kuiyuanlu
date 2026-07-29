@@ -1,12 +1,13 @@
 import {
-  QI_RESTORE_TALISMAN_SCENARIOS,
-  isQiRestoreTalismanScenario,
-} from '@shared/config/qiSystem';
-import {
   ATTRIBUTE_RESET_TALISMAN_NAME,
   ATTRIBUTE_RESET_TALISMAN_SCENARIO,
   isAttributeResetTalismanScenario,
 } from '@shared/config/attributeResetTalisman';
+import { IDENTITY_RESHAPE_SCENARIO } from '@shared/config/identityReshape';
+import {
+  QI_RESTORE_TALISMAN_SCENARIOS,
+  isQiRestoreTalismanScenario,
+} from '@shared/config/qiSystem';
 import {
   AUCTION_PRIVATE_LISTING_TALISMAN_SCENARIO,
   FRIEND_MAIL_TALISMAN_SCENARIO,
@@ -18,6 +19,7 @@ import { buildManualDrawHref } from '@shared/types/manualDraw';
 const TALISMAN_SCENARIO_LABELS: Record<string, string> = {
   [ATTRIBUTE_RESET_TALISMAN_SCENARIO]: '根基属性重洗',
   fate_reshape: '命格重塑',
+  [IDENTITY_RESHAPE_SCENARIO]: '改天换地·身份重塑',
   draw_gongfa: '问法寻卷·功法抽取',
   draw_skill: '问法寻卷·神通抽取',
   [FRIEND_MAIL_TALISMAN_SCENARIO]: '传音玉简·好友传音',
@@ -26,6 +28,7 @@ const TALISMAN_SCENARIO_LABELS: Record<string, string> = {
 
 const TALISMAN_SCENARIO_HREFS: Record<string, string> = {
   fate_reshape: '/game/fate-reshape',
+  [IDENTITY_RESHAPE_SCENARIO]: '/game/identity-reshape',
   draw_gongfa: buildManualDrawHref('gongfa'),
   draw_skill: buildManualDrawHref('skill'),
   [FRIEND_MAIL_TALISMAN_SCENARIO]: '/game/mail',
@@ -35,6 +38,7 @@ const TALISMAN_SCENARIO_HREFS: Record<string, string> = {
 const TALISMAN_SCENARIO_ACTION_LABELS: Record<string, string> = {
   [ATTRIBUTE_RESET_TALISMAN_SCENARIO]: '使用',
   fate_reshape: '前往重塑',
+  [IDENTITY_RESHAPE_SCENARIO]: '前往改命',
   draw_gongfa: '抽功法秘籍',
   draw_skill: '抽神通秘籍',
   [FRIEND_MAIL_TALISMAN_SCENARIO]: '去传音',
@@ -42,9 +46,9 @@ const TALISMAN_SCENARIO_ACTION_LABELS: Record<string, string> = {
 };
 
 const TALISMAN_USAGE_HINTS: Record<string, string> = {
-  [ATTRIBUTE_RESET_TALISMAN_SCENARIO]:
-    `【可在背包中直接使用，重置五维自由分配并返还属性点】`,
+  [ATTRIBUTE_RESET_TALISMAN_SCENARIO]: `【可在背包中直接使用，重置五维自由分配并返还属性点】`,
   fate_reshape: '【前往命格重塑功能页启封，开启时立即扣除】',
+  [IDENTITY_RESHAPE_SCENARIO]: '【前往身份重塑文戏启封，开启时立即扣除】',
   draw_gongfa: '【前往问法寻卷，直接消耗符箓抽取功法秘籍】',
   draw_skill: '【前往问法寻卷，直接消耗符箓抽取神通秘籍】',
   [FRIEND_MAIL_TALISMAN_SCENARIO]:
@@ -130,18 +134,18 @@ export function buildTalismanDetailText(consumable: Consumable): string {
         consumable.description,
       ]
     : restoreText
-    ? [
-        `用途：${restoreText}`,
-        '使用方式：可在背包中直接使用',
-        consumable.spec.notes,
-        consumable.description,
-      ]
-    : [
-        `适用玩法：${getTalismanScenarioLabel(consumable.spec.scenario)}`,
-        '使用方式：需在对应玩法入口使用',
-        consumable.spec.notes,
-        consumable.description,
-      ];
+      ? [
+          `用途：${restoreText}`,
+          '使用方式：可在背包中直接使用',
+          consumable.spec.notes,
+          consumable.description,
+        ]
+      : [
+          `适用玩法：${getTalismanScenarioLabel(consumable.spec.scenario)}`,
+          '使用方式：需在对应玩法入口使用',
+          consumable.spec.notes,
+          consumable.description,
+        ];
 
   return lines.filter(Boolean).join('\n');
 }

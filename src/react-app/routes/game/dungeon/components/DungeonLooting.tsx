@@ -8,7 +8,7 @@ import { DungeonRunPanel } from './DungeonRunPanel';
 
 interface DungeonLootingProps {
   state: DungeonState;
-  cultivator: Cultivator | null;
+  cultivator: Pick<Cultivator, 'realm' | 'condition'> | null;
   displayResources?: CultivatorDisplaySnapshot['resources'];
   onContinue: () => Promise<void>;
   onEscape: () => Promise<void>;

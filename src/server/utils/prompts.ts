@@ -1,13 +1,14 @@
 import { renderPrompt } from '@server/lib/prompts';
 import type { LogSpan } from '@shared/engine/battle-v5/systems/log/types';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import type { RealmStage, RealmType } from '@shared/types/constants';
 import type { Attributes, Cultivator } from '@shared/types/cultivator';
 import { getAttributeInfo } from '@shared/lib/gameConceptDisplay';
 import type { BreakthroughModifiers } from './breakthroughCalculator';
 
 interface BattlePromptPayload {
-  player: Cultivator;
-  opponent: Cultivator;
+  player: CultivatorCombatInput;
+  opponent: CultivatorCombatInput;
   battleResult: {
     winnerId: string;
     turns: number;
@@ -20,11 +21,28 @@ interface BattlePromptPayload {
   };
 }
 
-function summarizeRootElements(cultivator: Cultivator): string {
+export type RetreatStoryCultivator = Pick<
+  Cultivator,
+  | 'name'
+  | 'realm'
+  | 'realm_stage'
+  | 'age'
+  | 'lifespan'
+  | 'attributes'
+  | 'spiritual_roots'
+  | 'pre_heaven_fates'
+  | 'cultivations'
+>;
+
+function summarizeRootElements(
+  cultivator: Pick<Cultivator, 'spiritual_roots'>,
+): string {
   return cultivator.spiritual_roots?.map((root) => root.element).join('，') ?? '未知';
 }
 
-function summarizeFateNames(cultivator: Cultivator): string {
+function summarizeFateNames(
+  cultivator: Pick<Cultivator, 'pre_heaven_fates'>,
+): string {
   return cultivator.pre_heaven_fates?.map((fate) => fate.name).join('，') ?? '无';
 }
 
@@ -48,7 +66,7 @@ function formatSpansAsBattleLog(spans: LogSpan[]): string {
     .join('\n');
 }
 
-function summarizeCultivator(cultivator: Cultivator): string {
+function summarizeCultivator(cultivator: CultivatorCombatInput): string {
   const attrs = cultivator.attributes;
   const roots = cultivator.spiritual_roots
     .map((root) => `${root.element}`)
@@ -96,7 +114,7 @@ export function getBattleReportPrompt({
 }
 
 export interface BreakthroughStoryPayload {
-  cultivator: Cultivator;
+  cultivator: RetreatStoryCultivator;
   summary: {
     success: boolean;
     isMajor: boolean;
@@ -163,7 +181,7 @@ export function getBreakthroughStoryPrompt({
 }
 
 export interface LifespanExhaustedStoryPayload {
-  cultivator: Cultivator;
+  cultivator: RetreatStoryCultivator;
   summary: {
     success: boolean;
     isMajor: boolean;

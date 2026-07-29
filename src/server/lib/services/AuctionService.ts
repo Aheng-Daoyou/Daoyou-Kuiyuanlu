@@ -1,18 +1,21 @@
 import { redis } from '@server/lib/redis';
 import * as auctionRepository from '@server/lib/repositories/auctionRepository';
 import * as creationProductRepository from '@server/lib/repositories/creationProductRepository';
+import { AUCTION_PRIVATE_LISTING_TALISMAN_SCENARIO } from '@shared/config/socialConfig';
 import {
   TEMP_DISABLED_MESSAGES,
   temporaryRestrictions,
 } from '@shared/config/temporaryRestrictions';
-import { AUCTION_PRIVATE_LISTING_TALISMAN_SCENARIO } from '@shared/config/socialConfig';
 import { isPillConsumable } from '@shared/lib/consumables';
 import { QUALITY_ORDER, type Quality } from '@shared/types/constants';
 import type { Artifact, Consumable, Material } from '@shared/types/cultivator';
 import { and, eq, sql } from 'drizzle-orm';
-import { getExecutor, type DbExecutor, type DbTransaction } from '../drizzle/db';
+import {
+  getExecutor,
+  type DbExecutor,
+  type DbTransaction,
+} from '../drizzle/db';
 import * as schema from '../drizzle/schema';
-import { MailService } from './MailService';
 import { mapConsumableRow } from './consumablePersistence';
 import { toArtifactFromProduct } from './creationProductArtifactSupport';
 import {
@@ -20,6 +23,7 @@ import {
   FriendServiceError,
   getInviteTarget,
 } from './FriendService';
+import { MailService } from './MailService';
 import {
   consumeFirstTalismanByScenario,
   TalismanScenarioError,
@@ -30,8 +34,6 @@ import {
 // ============================================================================
 
 const AUCTION_CACHE_PREFIX = 'auction:';
-const BUY_LOCK_PREFIX = 'auction:buy:lock:';
-const LIST_LOCK_PREFIX = 'auction:list:lock:';
 
 const MAX_ACTIVE_LISTINGS_PER_SELLER = 5;
 const LISTING_DURATION_HOURS = 48;
@@ -111,6 +113,23 @@ export interface ListItemResult {
   message: string;
 }
 
+export type AuctionInventoryChange =
+  | {
+      kind: 'materials';
+      operation: 'upsert';
+      item: Material;
+    }
+  | {
+      kind: 'consumables';
+      operation: 'upsert';
+      item: Consumable;
+    }
+  | {
+      kind: 'materials' | 'artifacts' | 'consumables';
+      operation: 'remove';
+      id: string;
+    };
+
 export interface BuyItemInput {
   listingId: string;
   buyerCultivatorId: string;
@@ -132,12 +151,12 @@ export interface AuctionMutationOptions {
 async function getArtifactProductSnapshot(
   itemId: string,
   cultivatorId: string,
-  executor?: DbExecutor,
+  executor: DbExecutor = getExecutor(),
 ) {
   const rows = await creationProductRepository.findArtifactsByIdsAndCultivator(
     cultivatorId,
     [itemId],
-    executor ?? getExecutor(),
+    executor,
   );
 
   return rows[0] || null;
@@ -147,9 +166,9 @@ export async function getAuctionItemSnapshot(
   itemType: AuctionItemType,
   itemId: string,
   cultivatorId: string,
-  executor?: DbExecutor,
+  executor: DbExecutor = getExecutor(),
 ): Promise<Material | Artifact | Consumable | null> {
-  const q = executor ?? getExecutor();
+  const q = executor;
   switch (itemType) {
     case 'material': {
       const [material] = await q
@@ -293,7 +312,10 @@ export function assertAuctionListableItem(
 export async function listItem(
   input: ListItemInput,
   options: AuctionMutationOptions = {},
-): Promise<ListItemResult> {
+): Promise<{
+  result: ListItemResult;
+  inventoryChanges: AuctionInventoryChange[];
+}> {
   const q = getExecutor(options.tx);
   const {
     cultivatorId,
@@ -382,238 +404,271 @@ export async function listItem(
     );
   }
 
-  // 4. 获取分布式锁，防止并发上架
-  const lockKey = `${LIST_LOCK_PREFIX}${cultivatorId}`;
-  const acquiredLock = await redis.set(lockKey, 'locked', 'EX', 10, 'NX');
-
-  if (!acquiredLock) {
+  // 分布式锁由 API/Application 层统一获取。
+  // 5. 校验寄售位数量
+  const activeCount = await auctionRepository.countActiveBySeller(
+    cultivatorId,
+    q,
+  );
+  if (activeCount >= MAX_ACTIVE_LISTINGS_PER_SELLER) {
     throw new AuctionServiceError(
-      AuctionError.CONCURRENT_PURCHASE,
-      '正在处理其他请求，请稍后再试',
+      AuctionError.MAX_LISTINGS,
+      `寄售位已满（最多${MAX_ACTIVE_LISTINGS_PER_SELLER}个）`,
     );
   }
 
-  try {
-    // 5. 校验寄售位数量
-    const activeCount = await auctionRepository.countActiveBySeller(
-      cultivatorId,
-      q,
+  // 6. 获取物品快照并校验所有权
+  const itemSnapshot = await getAuctionItemSnapshot(
+    itemType,
+    itemId,
+    cultivatorId,
+    q,
+  );
+  if (!itemSnapshot) {
+    throw new AuctionServiceError(
+      AuctionError.ITEM_NOT_FOUND,
+      '物品不存在或已消耗',
     );
-    if (activeCount >= MAX_ACTIVE_LISTINGS_PER_SELLER) {
-      throw new AuctionServiceError(
-        AuctionError.MAX_LISTINGS,
-        `寄售位已满（最多${MAX_ACTIVE_LISTINGS_PER_SELLER}个）`,
-      );
-    }
+  }
+  assertAuctionListableItem(itemType, itemSnapshot, quantity);
+  const itemQuality = normalizeAuctionItemQuality(itemType, itemSnapshot);
 
-    // 6. 获取物品快照并校验所有权
-    const itemSnapshot = await getAuctionItemSnapshot(
+  // 按品质校验价格上限
+  const qualityCap = QUALITY_PRICE_CAPS[itemQuality];
+  if (qualityCap !== undefined && price > qualityCap) {
+    throw new AuctionServiceError(
+      AuctionError.INVALID_PRICE,
+      `${itemQuality}物品价格不得超过 ${qualityCap.toLocaleString()} 灵石`,
+    );
+  }
+
+  // 7. 在事务中：扣减/删除物品 + 创建拍卖记录
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + LISTING_DURATION_HOURS);
+
+  const persistListing = async (
+    tx: DbTransaction,
+  ): Promise<AuctionInventoryChange[]> => {
+    const inventoryChanges: AuctionInventoryChange[] = [];
+    // 事务内二次校验并按数量扣减
+    const ownedItem = await getAuctionItemSnapshot(
       itemType,
       itemId,
       cultivatorId,
-      q,
+      tx,
     );
-    if (!itemSnapshot) {
+    if (!ownedItem) {
       throw new AuctionServiceError(
         AuctionError.ITEM_NOT_FOUND,
-        '物品不存在或已消耗',
+        '物品不存在或已被消耗',
       );
     }
-    assertAuctionListableItem(itemType, itemSnapshot, quantity);
-    const itemQuality = normalizeAuctionItemQuality(itemType, itemSnapshot);
+    assertAuctionListableItem(itemType, ownedItem, quantity);
 
-    // 按品质校验价格上限
-    const qualityCap = QUALITY_PRICE_CAPS[itemQuality];
-    if (qualityCap !== undefined && price > qualityCap) {
-      throw new AuctionServiceError(
-        AuctionError.INVALID_PRICE,
-        `${itemQuality}物品价格不得超过 ${qualityCap.toLocaleString()} 灵石`,
-      );
+    if (visibility === 'private') {
+      if (!targetCultivatorId) {
+        throw new AuctionServiceError(
+          AuctionError.INVALID_VISIBILITY,
+          '专属交易必须指定好友',
+        );
+      }
+      try {
+        await assertFriend(cultivatorId, targetCultivatorId, tx);
+        const consumedTalisman = await consumeFirstTalismanByScenario(
+          cultivatorId,
+          AUCTION_PRIVATE_LISTING_TALISMAN_SCENARIO,
+          tx,
+        );
+        inventoryChanges.push(
+          consumedTalisman.remaining
+            ? {
+                kind: 'consumables',
+                operation: 'upsert',
+                item: consumedTalisman.remaining,
+              }
+            : {
+                kind: 'consumables',
+                operation: 'remove',
+                id: consumedTalisman.itemId,
+              },
+        );
+      } catch (error) {
+        if (error instanceof FriendServiceError) {
+          throw new AuctionServiceError(
+            AuctionError.TARGET_NOT_FRIEND,
+            error.message,
+          );
+        }
+        if (error instanceof TalismanScenarioError) {
+          throw new AuctionServiceError(
+            AuctionError.MISSING_TALISMAN,
+            '缺少拍卖行贵宾符，可前往天骄宝阁购买后再上架专属交易',
+          );
+        }
+        throw error;
+      }
     }
 
-    // 7. 在事务中：扣减/删除物品 + 创建拍卖记录
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + LISTING_DURATION_HOURS);
+    const listingSnapshot =
+      itemType === 'artifact'
+        ? ownedItem
+        : ({ ...ownedItem, quantity } as Material | Consumable);
 
-    const persistListing = async (tx: DbTransaction) => {
-      // 事务内二次校验并按数量扣减
-      const ownedItem = await getAuctionItemSnapshot(
-        itemType,
+    if (itemType === 'artifact') {
+      const artifact = await getArtifactProductSnapshot(
         itemId,
         cultivatorId,
         tx,
       );
-      if (!ownedItem) {
+      if (!artifact) {
         throw new AuctionServiceError(
           AuctionError.ITEM_NOT_FOUND,
           '物品不存在或已被消耗',
         );
       }
-      assertAuctionListableItem(itemType, ownedItem, quantity);
-
-      if (visibility === 'private') {
-        if (!targetCultivatorId) {
-          throw new AuctionServiceError(
-            AuctionError.INVALID_VISIBILITY,
-            '专属交易必须指定好友',
-          );
-        }
-        try {
-          await assertFriend(cultivatorId, targetCultivatorId, tx);
-          await consumeFirstTalismanByScenario(
-            cultivatorId,
-            AUCTION_PRIVATE_LISTING_TALISMAN_SCENARIO,
-            tx,
-          );
-        } catch (error) {
-          if (error instanceof FriendServiceError) {
-            throw new AuctionServiceError(
-              AuctionError.TARGET_NOT_FRIEND,
-              error.message,
-            );
-          }
-          if (error instanceof TalismanScenarioError) {
-            throw new AuctionServiceError(
-              AuctionError.MISSING_TALISMAN,
-              '缺少拍卖行贵宾符，可前往天骄宝阁购买后再上架专属交易',
-            );
-          }
-          throw error;
-        }
+      if (artifact.isEquipped) {
+        throw new AuctionServiceError(
+          AuctionError.INVALID_ITEM_TYPE,
+          '已装备法宝不可寄售，请先卸下',
+        );
       }
 
-      const listingSnapshot =
-        itemType === 'artifact'
-          ? ownedItem
-          : ({ ...ownedItem, quantity } as Material | Consumable);
+      const deleted =
+        await creationProductRepository.deleteArtifactsByIdsAndCultivator(
+          cultivatorId,
+          [itemId],
+          tx,
+        );
 
-      if (itemType === 'artifact') {
-        const artifact = await getArtifactProductSnapshot(itemId, cultivatorId, tx);
-        if (!artifact) {
-          throw new AuctionServiceError(
-            AuctionError.ITEM_NOT_FOUND,
-            '物品不存在或已被消耗',
-          );
-        }
-        if (artifact.isEquipped) {
-          throw new AuctionServiceError(
-            AuctionError.INVALID_ITEM_TYPE,
-            '已装备法宝不可寄售，请先卸下',
-          );
-        }
-
-        const deleted =
-          await creationProductRepository.deleteArtifactsByIdsAndCultivator(
-            cultivatorId,
-            [itemId],
-            tx,
-          );
-
-        if (deleted.length !== 1) {
-          throw new AuctionServiceError(
-            AuctionError.ITEM_NOT_FOUND,
-            '物品不存在或已被消耗',
-          );
-        }
-      } else if (itemType === 'material') {
-        const current = ownedItem as Material;
-        if (quantity > current.quantity) {
-          throw new AuctionServiceError(
-            AuctionError.INVALID_QUANTITY,
-            `上架数量不足，当前仅有 ${current.quantity}`,
-          );
-        }
-
-        if (quantity === current.quantity) {
-          await tx
-            .delete(schema.materials)
-            .where(
-              and(
-                eq(schema.materials.id, itemId),
-                eq(schema.materials.cultivatorId, cultivatorId),
-              ),
-            );
-        } else {
-          await tx
-            .update(schema.materials)
-            .set({ quantity: current.quantity - quantity })
-            .where(
-              and(
-                eq(schema.materials.id, itemId),
-                eq(schema.materials.cultivatorId, cultivatorId),
-              ),
-            );
-        }
-      } else {
-        const current = ownedItem as Consumable;
-        if (quantity > current.quantity) {
-          throw new AuctionServiceError(
-            AuctionError.INVALID_QUANTITY,
-            `上架数量不足，当前仅有 ${current.quantity}`,
-          );
-        }
-
-        if (quantity === current.quantity) {
-          await tx
-            .delete(schema.consumables)
-            .where(
-              and(
-                eq(schema.consumables.id, itemId),
-                eq(schema.consumables.cultivatorId, cultivatorId),
-              ),
-            );
-        } else {
-          await tx
-            .update(schema.consumables)
-            .set({ quantity: current.quantity - quantity })
-            .where(
-              and(
-                eq(schema.consumables.id, itemId),
-                eq(schema.consumables.cultivatorId, cultivatorId),
-              ),
-            );
-        }
+      if (deleted.length !== 1) {
+        throw new AuctionServiceError(
+          AuctionError.ITEM_NOT_FOUND,
+          '物品不存在或已被消耗',
+        );
       }
-
-      // 创建拍卖记录
-      await auctionRepository.createListing({
-        sellerId: cultivatorId,
-        sellerName: cultivatorName,
-        itemType,
-        itemId,
-        itemName: listingSnapshot.name,
-        itemQuality: normalizeAuctionItemQuality(itemType, listingSnapshot),
-        itemCategory: getAuctionItemCategory(itemType, listingSnapshot),
-        itemSnapshot: listingSnapshot,
-        price,
-        visibility,
-        targetCultivatorId:
-          visibility === 'private' ? targetCultivatorId : undefined,
-        targetCultivatorName:
-          visibility === 'private' ? targetCultivatorName : undefined,
-        expiresAt,
-        tx,
+      inventoryChanges.push({
+        kind: 'artifacts',
+        operation: 'remove',
+        id: itemId,
       });
-    };
+    } else if (itemType === 'material') {
+      const current = ownedItem as Material;
+      if (quantity > current.quantity) {
+        throw new AuctionServiceError(
+          AuctionError.INVALID_QUANTITY,
+          `上架数量不足，当前仅有 ${current.quantity}`,
+        );
+      }
 
-    if (options.tx) {
-      await persistListing(options.tx);
+      if (quantity === current.quantity) {
+        await tx
+          .delete(schema.materials)
+          .where(
+            and(
+              eq(schema.materials.id, itemId),
+              eq(schema.materials.cultivatorId, cultivatorId),
+            ),
+          );
+        inventoryChanges.push({
+          kind: 'materials',
+          operation: 'remove',
+          id: itemId,
+        });
+      } else {
+        await tx
+          .update(schema.materials)
+          .set({ quantity: current.quantity - quantity })
+          .where(
+            and(
+              eq(schema.materials.id, itemId),
+              eq(schema.materials.cultivatorId, cultivatorId),
+            ),
+          );
+        inventoryChanges.push({
+          kind: 'materials',
+          operation: 'upsert',
+          item: { ...current, quantity: current.quantity - quantity },
+        });
+      }
     } else {
-      await getExecutor().transaction(persistListing);
+      const current = ownedItem as Consumable;
+      if (quantity > current.quantity) {
+        throw new AuctionServiceError(
+          AuctionError.INVALID_QUANTITY,
+          `上架数量不足，当前仅有 ${current.quantity}`,
+        );
+      }
+
+      if (quantity === current.quantity) {
+        await tx
+          .delete(schema.consumables)
+          .where(
+            and(
+              eq(schema.consumables.id, itemId),
+              eq(schema.consumables.cultivatorId, cultivatorId),
+            ),
+          );
+        inventoryChanges.push({
+          kind: 'consumables',
+          operation: 'remove',
+          id: itemId,
+        });
+      } else {
+        await tx
+          .update(schema.consumables)
+          .set({ quantity: current.quantity - quantity })
+          .where(
+            and(
+              eq(schema.consumables.id, itemId),
+              eq(schema.consumables.cultivatorId, cultivatorId),
+            ),
+          );
+        inventoryChanges.push({
+          kind: 'consumables',
+          operation: 'upsert',
+          item: { ...current, quantity: current.quantity - quantity },
+        });
+      }
     }
 
-    // 8. 清除缓存
-    if (!options.deferCacheClear) {
-      await clearAuctionListingsCache();
-    }
+    // 创建拍卖记录
+    await auctionRepository.createListing({
+      sellerId: cultivatorId,
+      sellerName: cultivatorName,
+      itemType,
+      itemId,
+      itemName: listingSnapshot.name,
+      itemQuality: normalizeAuctionItemQuality(itemType, listingSnapshot),
+      itemCategory: getAuctionItemCategory(itemType, listingSnapshot),
+      itemSnapshot: listingSnapshot,
+      price,
+      visibility,
+      targetCultivatorId:
+        visibility === 'private' ? targetCultivatorId : undefined,
+      targetCultivatorName:
+        visibility === 'private' ? targetCultivatorName : undefined,
+      expiresAt,
+      tx,
+    });
+    return inventoryChanges;
+  };
 
-    return {
+  const inventoryChanges = options.tx
+    ? await persistListing(options.tx)
+    : await getExecutor().transaction(persistListing);
+
+  // 8. 清除缓存
+  if (!options.deferCacheClear) {
+    await clearAuctionListingsCache();
+  }
+
+  return {
+    result: {
       listingId: itemId, // 实际上是拍卖记录ID，这里简化返回
       message: '物品已成功寄售',
-    };
-  } finally {
-    await redis.del(lockKey);
-  }
+    },
+    inventoryChanges,
+  };
 }
 
 /**
@@ -626,169 +681,162 @@ export async function buyItem(
   const q = getExecutor(options.tx);
   const { listingId, buyerCultivatorId } = input;
 
-  // 1. 获取分布式锁
-  const lockKey = `${BUY_LOCK_PREFIX}${listingId}`;
-  const acquiredLock = await redis.set(lockKey, 'locked', 'EX', 10, 'NX');
-
-  if (!acquiredLock) {
+  // 分布式锁由 API/Application 层统一获取。
+  // 2. 查询拍卖记录
+  const listing = await auctionRepository.findById(listingId, q);
+  if (!listing) {
     throw new AuctionServiceError(
-      AuctionError.CONCURRENT_PURCHASE,
-      '此物正被其他道友争抢，请稍后再试',
+      AuctionError.LISTING_NOT_FOUND,
+      '此物品已下架或售出',
     );
   }
 
-  try {
-    // 2. 查询拍卖记录
-    const listing = await auctionRepository.findById(listingId, q);
-    if (!listing) {
+  // 3. 校验状态和过期时间
+  if (listing.status !== 'active') {
+    throw new AuctionServiceError(
+      AuctionError.LISTING_NOT_FOUND,
+      '此物品已下架或售出',
+    );
+  }
+  if (new Date() > listing.expiresAt) {
+    throw new AuctionServiceError(AuctionError.LISTING_EXPIRED, '此拍卖已过期');
+  }
+
+  // 4. 不能购买自己的物品
+  if (listing.sellerId === buyerCultivatorId) {
+    throw new AuctionServiceError(
+      AuctionError.NOT_OWNER,
+      '无法购买自己寄售的物品',
+    );
+  }
+  if (
+    listing.visibility === 'private' &&
+    listing.targetCultivatorId !== buyerCultivatorId
+  ) {
+    throw new AuctionServiceError(
+      AuctionError.NOT_TARGET_BUYER,
+      '此物为专属交易，不可购买',
+    );
+  }
+
+  const price = listing.price;
+  const feeAmount = Math.floor(price * FEE_RATE);
+  const sellerAmount = price - feeAmount;
+
+  // 5. 事务：扣除买家灵石 + 更新拍卖状态 + 发送邮件
+  const persistPurchase = async (tx: DbTransaction) => {
+    // 5.0 禁止同一用户（userId）下不同角色之间的交易（防止小号对敲刷灵石）
+    const [buyerRow] = await tx
+      .select({ userId: schema.cultivators.userId })
+      .from(schema.cultivators)
+      .where(eq(schema.cultivators.id, buyerCultivatorId))
+      .limit(1);
+    const [sellerRow] = await tx
+      .select({ userId: schema.cultivators.userId })
+      .from(schema.cultivators)
+      .where(eq(schema.cultivators.id, listing.sellerId))
+      .limit(1);
+
+    if (buyerRow && sellerRow && buyerRow.userId === sellerRow.userId) {
       throw new AuctionServiceError(
-        AuctionError.LISTING_NOT_FOUND,
-        '此物品已下架或售出',
+        AuctionError.SAME_OWNER,
+        '不可与自己账号下的角色进行交易',
       );
     }
 
-    // 3. 校验状态和过期时间
-    if (listing.status !== 'active') {
-      throw new AuctionServiceError(
-        AuctionError.LISTING_NOT_FOUND,
-        '此物品已下架或售出',
-      );
-    }
-    if (new Date() > listing.expiresAt) {
-      throw new AuctionServiceError(
-        AuctionError.LISTING_EXPIRED,
-        '此拍卖已过期',
-      );
-    }
+    // 5.1 扣除买家灵石（原子操作）
+    const [updatedBuyer] = await tx
+      .update(schema.cultivators)
+      .set({
+        spirit_stones: sql`${schema.cultivators.spirit_stones} - ${price}`,
+      })
+      .where(
+        sql`${schema.cultivators.id} = ${buyerCultivatorId} AND ${schema.cultivators.spirit_stones} >= ${price}`,
+      )
+      .returning({ id: schema.cultivators.id });
 
-    // 4. 不能购买自己的物品
-    if (listing.sellerId === buyerCultivatorId) {
-      throw new AuctionServiceError(
-        AuctionError.NOT_OWNER,
-        '无法购买自己寄售的物品',
-      );
-    }
-    if (
-      listing.visibility === 'private' &&
-      listing.targetCultivatorId !== buyerCultivatorId
-    ) {
-      throw new AuctionServiceError(
-        AuctionError.NOT_TARGET_BUYER,
-        '此物为专属交易，不可购买',
-      );
-    }
-
-    const price = listing.price;
-    const feeAmount = Math.floor(price * FEE_RATE);
-    const sellerAmount = price - feeAmount;
-
-    // 5. 事务：扣除买家灵石 + 更新拍卖状态 + 发送邮件
-    const persistPurchase = async (tx: DbTransaction) => {
-      // 5.0 禁止同一用户（userId）下不同角色之间的交易（防止小号对敲刷灵石）
-      const [buyerRow] = await tx
-        .select({ userId: schema.cultivators.userId })
+    if (!updatedBuyer) {
+      // 查询余额以确定错误信息
+      const [buyer] = await tx
+        .select({ money: schema.cultivators.spirit_stones })
         .from(schema.cultivators)
         .where(eq(schema.cultivators.id, buyerCultivatorId))
         .limit(1);
-      const [sellerRow] = await tx
-        .select({ userId: schema.cultivators.userId })
-        .from(schema.cultivators)
-        .where(eq(schema.cultivators.id, listing.sellerId))
-        .limit(1);
 
-      if (buyerRow && sellerRow && buyerRow.userId === sellerRow.userId) {
+      if (buyer) {
         throw new AuctionServiceError(
-          AuctionError.SAME_OWNER,
-          '不可与自己账号下的角色进行交易',
+          AuctionError.INSUFFICIENT_FUNDS,
+          `囊中羞涩，灵石不足 (需 ${price}，余 ${buyer.money})`,
         );
       }
-
-      // 5.1 扣除买家灵石（原子操作）
-      const [updatedBuyer] = await tx
-        .update(schema.cultivators)
-        .set({
-          spirit_stones: sql`${schema.cultivators.spirit_stones} - ${price}`,
-        })
-        .where(
-          sql`${schema.cultivators.id} = ${buyerCultivatorId} AND ${schema.cultivators.spirit_stones} >= ${price}`,
-        )
-        .returning({ id: schema.cultivators.id });
-
-      if (!updatedBuyer) {
-        // 查询余额以确定错误信息
-        const [buyer] = await tx
-          .select({ money: schema.cultivators.spirit_stones })
-          .from(schema.cultivators)
-          .where(eq(schema.cultivators.id, buyerCultivatorId))
-          .limit(1);
-
-        if (buyer) {
-          throw new AuctionServiceError(
-            AuctionError.INSUFFICIENT_FUNDS,
-            `囊中羞涩，灵石不足 (需 ${price}，余 ${buyer.money})`,
-          );
-        }
-        throw new AuctionServiceError(
-          AuctionError.LISTING_NOT_FOUND,
-          '道友查无此人，请重新登录',
-        );
-      }
-
-      // 5.2 更新拍卖状态
-      await auctionRepository.updateStatus(tx, listingId, 'sold', new Date());
-
-      // 5.3 发送邮件给买家（物品）
-      const itemSnapshot = listing.itemSnapshot as
-        | Material
-        | Artifact
-        | Consumable;
-      const itemQuantity =
-        'quantity' in itemSnapshot ? itemSnapshot.quantity || 1 : 1;
-      await MailService.sendMail(
-        buyerCultivatorId,
-        '拍卖行交易成功',
-        `恭喜道友成功购入【${itemSnapshot.name}】，附件为您的战利品。`,
-        [
-          {
-            type: listing.itemType as 'material' | 'artifact' | 'consumable',
-            name: itemSnapshot.name,
-            quantity: itemQuantity,
-            data: itemSnapshot,
-          },
-        ],
-        'reward',
-        tx,
+      throw new AuctionServiceError(
+        AuctionError.LISTING_NOT_FOUND,
+        '道友查无此人，请重新登录',
       );
-
-      // 5.4 发送邮件给卖家（扣除手续费后的灵石）
-      await MailService.sendMail(
-        listing.sellerId,
-        '拍卖行物品售出',
-        `道友寄售的【${itemSnapshot.name}】已售出，扣除${FEE_RATE * 100}%手续费后获得 ${sellerAmount} 灵石，请收取附件。`,
-        [
-          {
-            type: 'spirit_stones',
-            name: '灵石',
-            quantity: sellerAmount,
-          },
-        ],
-        'reward',
-        tx,
-      );
-    };
-
-    if (options.tx) {
-      await persistPurchase(options.tx);
-    } else {
-      await getExecutor().transaction(persistPurchase);
     }
 
-    // 6. 清除缓存
-    if (!options.deferCacheClear) {
-      await clearAuctionListingsCache();
+    // 5.2 只有 active -> sold 的唯一竞争者可以继续创建交易邮件。
+    const sold = await auctionRepository.transitionStatus(
+      tx,
+      listingId,
+      'active',
+      'sold',
+      { soldAt: new Date() },
+    );
+    if (!sold) {
+      throw new AuctionServiceError(
+        AuctionError.LISTING_NOT_FOUND,
+        '此物品已下架或售出',
+      );
     }
-  } finally {
-    await redis.del(lockKey);
+
+    // 5.3 发送邮件给买家（物品）
+    const itemSnapshot = listing.itemSnapshot as
+      Material | Artifact | Consumable;
+    const itemQuantity =
+      'quantity' in itemSnapshot ? itemSnapshot.quantity || 1 : 1;
+    await MailService.sendMail(
+      buyerCultivatorId,
+      '拍卖行交易成功',
+      `恭喜道友成功购入【${itemSnapshot.name}】，附件为您的战利品。`,
+      [
+        {
+          type: listing.itemType as 'material' | 'artifact' | 'consumable',
+          name: itemSnapshot.name,
+          quantity: itemQuantity,
+          data: itemSnapshot,
+        },
+      ],
+      'reward',
+      tx,
+    );
+
+    // 5.4 发送邮件给卖家（扣除手续费后的灵石）
+    await MailService.sendMail(
+      listing.sellerId,
+      '拍卖行物品售出',
+      `道友寄售的【${itemSnapshot.name}】已售出，扣除${FEE_RATE * 100}%手续费后获得 ${sellerAmount} 灵石，请收取附件。`,
+      [
+        {
+          type: 'spirit_stones',
+          name: '灵石',
+          quantity: sellerAmount,
+        },
+      ],
+      'reward',
+      tx,
+    );
+  };
+
+  if (options.tx) {
+    await persistPurchase(options.tx);
+  } else {
+    await getExecutor().transaction(persistPurchase);
+  }
+
+  // 6. 清除缓存
+  if (!options.deferCacheClear) {
+    await clearAuctionListingsCache();
   }
 }
 
@@ -820,30 +868,25 @@ export async function cancelListing(
     );
   }
 
-  // 4. 事务：行锁 + 二次校验状态 + 更新 + 发送邮件
+  // 4. 事务：active -> cancelled 条件迁移 + 发送邮件
   const persistCancel = async (tx: DbTransaction) => {
-    // 使用 SELECT FOR UPDATE 获取行锁，防止与购买/过期操作并发冲突
-    const [locked] = await tx
-      .select()
-      .from(schema.auctionListings)
-      .where(eq(schema.auctionListings.id, listingId))
-      .for('update')
-      .limit(1);
-
-    if (!locked || locked.status !== 'active') {
+    const cancelled = await auctionRepository.transitionStatus(
+      tx,
+      listingId,
+      'active',
+      'cancelled',
+      { sellerId: cultivatorId },
+    );
+    if (!cancelled) {
       throw new AuctionServiceError(
         AuctionError.LISTING_NOT_FOUND,
         '此物品已售出或下架',
       );
     }
 
-    await auctionRepository.updateStatus(tx, listingId, 'cancelled');
-
     // 发送邮件返还物品
-    const itemSnapshot = locked.itemSnapshot as
-      | Material
-      | Artifact
-      | Consumable;
+    const itemSnapshot = cancelled.itemSnapshot as
+      Material | Artifact | Consumable;
     const itemQuantity =
       'quantity' in itemSnapshot ? itemSnapshot.quantity || 1 : 1;
     await MailService.sendMail(
@@ -852,7 +895,7 @@ export async function cancelListing(
       `道友寄售的【${itemSnapshot.name}】已下架，附件返还物品。`,
       [
         {
-          type: locked.itemType as 'material' | 'artifact' | 'consumable',
+          type: cancelled.itemType as 'material' | 'artifact' | 'consumable',
           name: itemSnapshot.name,
           quantity: itemQuantity,
           data: itemSnapshot,
@@ -892,9 +935,7 @@ export async function expireListings(): Promise<number> {
     // 逐个发送返还邮件
     for (const listing of expiredListings) {
       const itemSnapshot = listing.itemSnapshot as
-        | Material
-        | Artifact
-        | Consumable;
+        Material | Artifact | Consumable;
       const itemQuantity =
         'quantity' in itemSnapshot ? itemSnapshot.quantity || 1 : 1;
       await MailService.sendMail(

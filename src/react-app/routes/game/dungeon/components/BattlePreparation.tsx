@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 
 interface BattlePreparationProps {
   battleId: string;
-  player: Cultivator;
+  player: Pick<Cultivator, 'realm' | 'attributes'>;
   onStart: (enemyName: string) => void;
   onAbandon: (result: DungeonAbandonBattleResult) => Promise<void>;
 }

@@ -28,13 +28,19 @@ export const WorldChatCreateMessageSchema = z.discriminatedUnion(
 );
 
 export const WorldChatListQuerySchema = z.object({
-  channel: z.enum(['all', 'system', 'world']).optional().default('all'),
+  channel: z.enum(['all', 'system', 'world']).optional().default('world'),
   limit: z.coerce.number().int().min(1).max(50).optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
+});
+
+export const SectChatListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
 });
 
 export type WorldChatCreateMessageRequest = z.infer<
   typeof WorldChatCreateMessageSchema
 >;
 export type WorldChatListQuery = z.infer<typeof WorldChatListQuerySchema>;
+export type SectChatListQuery = z.infer<typeof SectChatListQuerySchema>;

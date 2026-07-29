@@ -1,9 +1,11 @@
 import { InkButton } from '@app/components/ui';
-import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import {
+  getCultivatorDisplayAttributes,
+  type CultivatorDisplayInput,
+} from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { AttributeType } from '@shared/engine/battle-v5/core/types';
 import { attrLabel } from '@shared/engine/battle-v5/effects/affixText/attributes';
 import { cn } from '@shared/lib/cn';
-import type { Cultivator } from '@shared/types/cultivator';
 import { useState, type ReactNode } from 'react';
 
 type PrimaryAttributeType =
@@ -26,6 +28,7 @@ const SECONDARY_ATTR_ORDER: AttributeType[] = [
   AttributeType.DEF,
   AttributeType.MAGIC_ATK,
   AttributeType.MAGIC_DEF,
+  AttributeType.ACTION_SPEED,
   AttributeType.CRIT_RATE,
   AttributeType.CRIT_DAMAGE_MULT,
   AttributeType.EVASION_RATE,
@@ -93,7 +96,7 @@ export function CultivatorAttributeOverview({
   expandable = true,
   footerActions,
 }: {
-  cultivator: Cultivator;
+  cultivator: CultivatorDisplayInput;
   defaultExpanded?: boolean;
   expandable?: boolean;
   footerActions?: ReactNode;

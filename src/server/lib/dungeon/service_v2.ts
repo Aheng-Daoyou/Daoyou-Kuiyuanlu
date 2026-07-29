@@ -1,20 +1,27 @@
 import { renderPrompt } from '@server/lib/prompts';
-import { simulateBattleV5 } from '@server/lib/services/simulateBattleV5';
 import type { BattleRecord } from '@server/lib/services/battleResult';
+import { simulateBattleV5 } from '@server/lib/services/simulateBattleV5';
 import { object } from '@server/utils/aiClient'; // AI client helper
+import { stableCompactStringify } from '@server/utils/llmPayload';
 import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import type { CultivatorDisplayInput } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import { EnemyGenerator } from '@shared/engine/enemyGenerator';
 import { TYPE_DESCRIPTIONS } from '@shared/engine/material/creation/config';
-import { resourceEngine } from '@shared/engine/resource/ResourceEngine';
-import type { ResourceOperation } from '@shared/engine/resource/types';
+import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
+import type {
+  ResourceOperation,
+  ResourceOperationResult,
+  ResourceOperationSettlement,
+} from '@shared/engine/resource/types';
+import type { SatelliteNode } from '@shared/lib/game/mapSystem';
 import {
   canChallengeDungeonRealm,
+  clampDungeonEnemyRealmStage,
   getMapNode,
   isSatelliteNode,
-  clampDungeonEnemyRealmStage,
   resolveDungeonMapConfig,
 } from '@shared/lib/game/mapSystem';
-import type { SatelliteNode } from '@shared/lib/game/mapSystem';
 import {
   MaterialType,
   Quality,
@@ -22,26 +29,35 @@ import {
   REALM_VALUES,
   RealmType,
 } from '@shared/types/constants';
-import { randomUUID } from 'crypto';
 import type { Cultivator } from '@shared/types/cultivator';
+import { randomUUID } from 'crypto';
+import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 import { getExecutor, type DbTransaction } from '../drizzle/db';
 import { dungeonHistories, dungeonRuns } from '../drizzle/schema';
-import { and, desc, eq, isNull } from 'drizzle-orm';
 import { redis } from '../redis';
 import { parseRedisJson } from '../redis/json';
-import { stableCompactStringify } from '@server/utils/llmPayload';
 import {
-  getCultivatorOwnerId,
+  isRedisLockContention,
+  redisLockKeys,
+  withRedisLock,
+  type RedisLeaseContext,
+} from '../redis/lock';
+import { ConditionService } from '../services/ConditionService';
+import {
+  loadCultivatorCombatInput,
+  loadCultivatorDungeonPromptFacts,
+} from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
+import { findActiveCultivatorOwnerId } from '@server/lib/repositories/cultivatorRepository';
+import {
   getPaginatedInventoryByType,
-  getPlayerRuntimeCultivatorByIdUnsafe,
+} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
+import {
   updateCultivator,
-} from '../services/cultivatorService';
+} from '@server/lib/services/cultivator/CultivatorStateRepository';
 import { QiService } from '../services/QiService';
 import { ServerEnemyCopyProvider } from '../services/ServerEnemyCopyProvider';
 import { TaskService } from '../services/TaskService';
-import { ConditionService } from '../services/ConditionService';
 import { buildDungeonBattleInit } from './battleInit';
-import { withPlayerAbilityStrategySettings } from '@shared/lib/battle/abilityStrategyInit';
 import {
   buildDungeonRoundLlmContext,
   buildDungeonSettlementLlmContext,
@@ -73,7 +89,6 @@ const dungeonEnemyGenerator = new EnemyGenerator({
 });
 
 const REDIS_TTL = 3600; // 1 hour expiration for active sessions
-const START_LOCK_TTL_SECONDS = 180;
 const FLOW_LOCK_TTL_SECONDS = 180;
 const RUN_TERMINAL_STATUSES = new Set(['FINISHED']);
 const DUNGEON_REWARD_BLUEPRINT_LIMIT = 5;
@@ -111,7 +126,9 @@ type DungeonSettlementResult = {
   settlement?: DungeonSettlement;
   isFinished: boolean;
   realGains?: ResourceOperation[];
-  persist?: (tx: DbTransaction) => Promise<void>;
+  persist?: (
+    tx: DbTransaction,
+  ) => Promise<DungeonPersistenceSettlement | void>;
   afterCommit?: () => Promise<void>;
 };
 
@@ -125,12 +142,82 @@ type DungeonSettlementOptions = {
 
 type DungeonFlowOptions = {
   deferPersistence?: boolean;
+  lease?: RedisLeaseContext;
 };
 
 type DungeonPersistenceHooks = {
-  persist: (tx: DbTransaction) => Promise<void>;
+  persist: (
+    tx: DbTransaction,
+  ) => Promise<DungeonPersistenceSettlement | void>;
   afterCommit: () => Promise<void>;
 };
+
+export interface DungeonPersistenceSettlement {
+  condition?: Cultivator['condition'];
+  currency?: {
+    spiritStones?: number;
+    reputation?: number;
+    qi?: number;
+    qiLastRefreshedAt?: string | null;
+  };
+  progress?: Cultivator['cultivation_progress'];
+  profile?: {
+    lifespan?: number;
+  };
+  inventoryChanges?: ResourceOperationSettlement['inventoryChanges'];
+}
+
+function mergeDungeonPersistenceSettlements(
+  ...settlements: Array<DungeonPersistenceSettlement | null | undefined>
+): DungeonPersistenceSettlement {
+  const merged: DungeonPersistenceSettlement = {};
+  const inventoryChanges: ResourceOperationSettlement['inventoryChanges'] = [];
+  for (const settlement of settlements) {
+    if (!settlement) continue;
+    if (settlement.condition !== undefined) {
+      merged.condition = settlement.condition;
+    }
+    if (settlement.progress !== undefined) {
+      merged.progress = settlement.progress;
+    }
+    if (settlement.currency) {
+      merged.currency = { ...merged.currency, ...settlement.currency };
+    }
+    if (settlement.profile) {
+      merged.profile = { ...merged.profile, ...settlement.profile };
+    }
+    inventoryChanges.push(...(settlement.inventoryChanges ?? []));
+  }
+  if (inventoryChanges.length > 0) {
+    merged.inventoryChanges = inventoryChanges;
+  }
+  return merged;
+}
+
+function toDungeonPersistenceSettlement(
+  result: ResourceOperationResult,
+): DungeonPersistenceSettlement {
+  const settlement: ResourceOperationSettlement | undefined =
+    result.settlement;
+  if (!settlement) return {};
+  return {
+    currency: {
+      ...(settlement.spiritStones !== undefined
+        ? { spiritStones: settlement.spiritStones }
+        : {}),
+      ...(settlement.reputation !== undefined
+        ? { reputation: settlement.reputation }
+        : {}),
+    },
+    ...(settlement.lifespan !== undefined
+      ? { profile: { lifespan: settlement.lifespan } }
+      : {}),
+    ...(settlement.cultivationProgress
+      ? { progress: settlement.cultivationProgress }
+      : {}),
+    inventoryChanges: settlement.inventoryChanges,
+  };
+}
 
 function rewardBlueprintKey(reward: RewardBlueprint): string {
   return [
@@ -193,10 +280,10 @@ function normalizeSettlementRewards(
   const extraRewards = settlement.settlement.reward_blueprints.filter(
     (reward) => !inheritedKeys.has(rewardBlueprintKey(reward)),
   );
-  const reward_blueprints = [
-    ...inheritedRewards,
-    ...extraRewards,
-  ].slice(0, DUNGEON_REWARD_BLUEPRINT_LIMIT);
+  const reward_blueprints = [...inheritedRewards, ...extraRewards].slice(
+    0,
+    DUNGEON_REWARD_BLUEPRINT_LIMIT,
+  );
 
   return DungeonSettlementSchema.parse({
     ...settlement,
@@ -258,14 +345,6 @@ function getDungeonKey(cultivatorId: string) {
   return `dungeon:active:${cultivatorId}`;
 }
 
-function getDungeonStartLockKey(cultivatorId: string) {
-  return `dungeon:starting:${cultivatorId}`;
-}
-
-function getDungeonFlowLockKey(cultivatorId: string) {
-  return `dungeon:flow:${cultivatorId}`;
-}
-
 function getDungeonBattleKey(battleId: string) {
   return `dungeon:battle:${battleId}`;
 }
@@ -279,12 +358,21 @@ function isActiveRunStatus(status: string | null | undefined) {
   return Boolean(status && !RUN_TERMINAL_STATUSES.has(status));
 }
 
-function cloneCosts(costs: DungeonOptionCost[] | undefined): DungeonOptionCost[] {
-  return costs ? costs.map((cost) => ({ ...cost, metadata: cost.metadata ? { ...cost.metadata } : undefined })) : [];
+function cloneCosts(
+  costs: DungeonOptionCost[] | undefined,
+): DungeonOptionCost[] {
+  return costs
+    ? costs.map((cost) => ({
+        ...cost,
+        metadata: cost.metadata ? { ...cost.metadata } : undefined,
+      }))
+    : [];
 }
 
 export class DungeonService {
-  private buildFallbackOption(state: Pick<DungeonState, 'currentRound' | 'maxRounds'>) {
+  private buildFallbackOption(
+    state: Pick<DungeonState, 'currentRound' | 'maxRounds'>,
+  ) {
     const isFinalRound = state.currentRound >= state.maxRounds;
     return {
       id: 1,
@@ -318,7 +406,9 @@ export class DungeonService {
 
     const hasBattle = costs.some((cost) => cost.type === 'battle');
     return hasBattle
-      ? costs.filter((cost) => cost.type !== 'hp_loss' && cost.type !== 'mp_loss')
+      ? costs.filter(
+          (cost) => cost.type !== 'hp_loss' && cost.type !== 'mp_loss',
+        )
       : costs;
   }
 
@@ -326,14 +416,16 @@ export class DungeonService {
     roundData: DungeonRound,
     state: Pick<DungeonState, 'currentRound' | 'maxRounds'>,
   ) {
-    roundData.interaction.options = roundData.interaction.options.map((option) => {
-      const costPreview = this.normalizeOptionCosts(option);
-      return {
-        ...option,
-        costs: costPreview,
-        costPreview,
-      };
-    });
+    roundData.interaction.options = roundData.interaction.options.map(
+      (option) => {
+        const costPreview = this.normalizeOptionCosts(option);
+        return {
+          ...option,
+          costs: costPreview,
+          costPreview,
+        };
+      },
+    );
     if (roundData.interaction.options.length === 0) {
       roundData.interaction.options = [this.buildFallbackOption(state)];
     }
@@ -354,7 +446,10 @@ export class DungeonService {
         costPreview,
       };
     });
-    if (state.status === 'EXPLORING' && (state.currentOptions?.length ?? 0) === 0) {
+    if (
+      state.status === 'EXPLORING' &&
+      (state.currentOptions?.length ?? 0) === 0
+    ) {
       state.currentOptions = [this.buildFallbackOption(state)];
     }
     if (state.status === 'RECOVERABLE_ERROR') {
@@ -417,26 +512,45 @@ export class DungeonService {
     };
   }
 
-  private async acquireFlowLock(cultivatorId: string) {
-    const flowLockKey = getDungeonFlowLockKey(cultivatorId);
-    const lockAcquired = await redis.set(
-      flowLockKey,
-      '1',
-      'EX',
-      FLOW_LOCK_TTL_SECONDS,
-      'NX',
-    );
-    if (!lockAcquired) {
+  private async withFlowLock<T>(
+    cultivatorId: string,
+    context: string,
+    task: () => Promise<T>,
+    lease?: RedisLeaseContext,
+  ): Promise<T> {
+    if (lease) {
+      lease.assertHeld();
+      const result = await task();
+      lease.assertHeld();
+      return result;
+    }
+
+    try {
+      return await withRedisLock(
+        {
+          key: redisLockKeys.dungeonCommand(cultivatorId),
+          context,
+          timeoutMs: FLOW_LOCK_TTL_SECONDS * 1000,
+          renewEveryMs: 60_000,
+          retries: 0,
+          delayMs: 50,
+        },
+        async (lease) => {
+          const result = await task();
+          lease.assertHeld();
+          return result;
+        },
+      );
+    } catch (error) {
+      if (!isRedisLockContention(error)) {
+        throw error;
+      }
       throw new DungeonFlowError(
         DungeonFlowErrorCode.INVALID_STATE,
         '副本操作正在处理中，请稍后重试',
         409,
       );
     }
-
-    return async () => {
-      await redis.del(flowLockKey);
-    };
   }
 
   private hasCommittedAction(state: DungeonState, actionId: string) {
@@ -492,10 +606,10 @@ export class DungeonService {
       .reduce((sum, cost) => sum + cost.value, 0);
 
     if (hpPercent <= 0 && mpPercent <= 0) {
-      return;
+      return null;
     }
 
-    const bundle = await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId, tx);
+    const bundle = await loadCultivatorCombatInput(cultivatorId, tx);
     if (!bundle?.cultivator) {
       throw new Error('未找到修真者数据');
     }
@@ -509,11 +623,12 @@ export class DungeonService {
       },
     );
     await updateCultivator(cultivatorId, { condition: nextCondition }, tx);
+    return nextCondition;
   }
 
   private previewOptionResourceLoss(
     costs: DungeonOptionCost[],
-    cultivator: Cultivator,
+    cultivator: CultivatorDisplayInput,
   ) {
     const hpPercent = costs
       .filter((cost) => cost.type === 'hp_loss')
@@ -565,21 +680,23 @@ export class DungeonService {
       return roundData;
     }
 
-    const bundle = await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId);
+    const bundle = await loadCultivatorCombatInput(cultivatorId);
     const cultivator = bundle?.cultivator;
     if (!cultivator) {
       return roundData;
     }
 
-    roundData.interaction.options = roundData.interaction.options.map((option) => {
-      const costPreview = cloneCosts(option.costPreview ?? option.costs);
-      this.previewOptionResourceLoss(costPreview, cultivator);
-      return {
-        ...option,
-        costs: costPreview,
-        costPreview,
-      };
-    });
+    roundData.interaction.options = roundData.interaction.options.map(
+      (option) => {
+        const costPreview = cloneCosts(option.costPreview ?? option.costs);
+        this.previewOptionResourceLoss(costPreview, cultivator);
+        return {
+          ...option,
+          costs: costPreview,
+          costPreview,
+        };
+      },
+    );
 
     return roundData;
   }
@@ -599,9 +716,7 @@ export class DungeonService {
     if (!battlePayload?.session || !battlePayload.enemyObject) {
       const run = await this.loadActiveRun(cultivatorId);
       const persistedPayload = run?.battlePayload as
-        | DungeonBattleCachePayload
-        | null
-        | undefined;
+        DungeonBattleCachePayload | null | undefined;
       if (
         persistedPayload?.session?.battleId === battleId &&
         persistedPayload.enemyObject
@@ -667,20 +782,15 @@ export class DungeonService {
   ): string {
     // 境界碾压场景：简化剧情，降低风险
     if (realmGap >= 2) {
-      if (currentRound === 1)
-        return '探索期：境界占优，宜顺势探查。';
-      if (currentRound < maxRounds - 1)
-        return '收获期：可稳取资源，代价宜轻。';
-      if (currentRound === maxRounds - 1)
-        return '收尾期：阻碍将尽，风险应低。';
+      if (currentRound === 1) return '探索期：境界占优，宜顺势探查。';
+      if (currentRound < maxRounds - 1) return '收获期：可稳取资源，代价宜轻。';
+      if (currentRound === maxRounds - 1) return '收尾期：阻碍将尽，风险应低。';
       return '圆满期：可稳妥结局，满载而归。';
     }
 
     // 正常场景
-    if (currentRound === 1)
-      return '潜入期：先探环境、阵法与入口。';
-    if (currentRound < maxRounds - 1)
-      return '变局期：引入转折，开始消耗资源。';
+    if (currentRound === 1) return '潜入期：先探环境、阵法与入口。';
+    if (currentRound < maxRounds - 1) return '变局期：引入转折，开始消耗资源。';
     if (currentRound === maxRounds - 1)
       return '夺宝期：副本高潮，风险应显著抬升。';
     return '结尾期：根据前情收束结局与余波。';
@@ -713,21 +823,21 @@ export class DungeonService {
     mapNodeId: string,
     options: DungeonFlowOptions = {},
   ) {
-    const startLockKey = getDungeonStartLockKey(cultivatorId);
+    return this.withFlowLock(
+      cultivatorId,
+      'dungeon-start',
+      () => this.startDungeonUnlocked(cultivatorId, mapNodeId, options),
+      options.lease,
+    );
+  }
+
+  private async startDungeonUnlocked(
+    cultivatorId: string,
+    mapNodeId: string,
+    options: DungeonFlowOptions,
+  ) {
     let qiActionInstanceId: string | null = null;
     let qiReservationOpen = false;
-
-    // 防并发：避免重复点击导致并行启动时重复扣次数
-    const lockAcquired = await redis.set(
-      startLockKey,
-      '1',
-      'EX',
-      START_LOCK_TTL_SECONDS,
-      'NX',
-    );
-    if (!lockAcquired) {
-      throw new Error('副本正在启动中，请稍后重试');
-    }
 
     try {
       const existingSession = await this.loadActiveRun(cultivatorId);
@@ -777,11 +887,10 @@ export class DungeonService {
       };
 
       // 3. 首次 AI 调用
-      const roundData =
-        await this.previewRoundResourceLoss(
-          this.normalizeRoundOptions(await this.callAI(state), state),
-          cultivatorId,
-        );
+      const roundData = await this.previewRoundResourceLoss(
+        this.normalizeRoundOptions(await this.callAI(state), state),
+        cultivatorId,
+      );
 
       // 4. 更新历史并存入 Redis
       const acceptedItems = appendRoundRewards(state, roundData.acquired_items);
@@ -815,7 +924,7 @@ export class DungeonService {
             if (!qiActionInstanceId) {
               throw new Error('副本灵气预扣标识缺失');
             }
-            await QiService.reserveQi({
+            const reservation = await QiService.reserveQi({
               cultivatorId,
               action: 'dungeon_start',
               actionInstanceId: qiActionInstanceId,
@@ -833,6 +942,9 @@ export class DungeonService {
               },
               tx,
             });
+            return {
+              currency: { qi: reservation.qiAfter },
+            } satisfies DungeonPersistenceSettlement;
           },
           afterCommit: async () => {
             await this.saveRedisState(cultivatorId, state);
@@ -856,8 +968,6 @@ export class DungeonService {
         }
       }
       throw error;
-    } finally {
-      await redis.del(startLockKey);
     }
   }
 
@@ -870,17 +980,13 @@ export class DungeonService {
     actionId: string = randomUUID(),
     options: DungeonFlowOptions = {},
   ) {
-    const releaseFlowLock = await this.acquireFlowLock(cultivatorId);
-    try {
-      return await this.handleActionUnlocked(
-        cultivatorId,
-        choiceId,
-        actionId,
-        options,
-      );
-    } finally {
-      await releaseFlowLock();
-    }
+    return this.withFlowLock(
+      cultivatorId,
+      'dungeon-action',
+      () =>
+        this.handleActionUnlocked(cultivatorId, choiceId, actionId, options),
+      options.lease,
+    );
   }
 
   private async handleActionUnlocked(
@@ -907,7 +1013,7 @@ export class DungeonService {
       if (actionCosts.length === 0) return;
 
       // 获取 userId
-      const userId = await getCultivatorOwnerId(cultivatorId);
+      const userId = await findActiveCultivatorOwnerId(cultivatorId);
       if (!userId) {
         throw new Error('无法获取修真者所属用户');
       }
@@ -951,21 +1057,36 @@ export class DungeonService {
         }
       }
 
-      const result = await resourceEngine.consume(
-        userId,
-        cultivatorId,
-        actionCosts as ResourceOperation[],
-        dryRun
-          ? undefined
-          : async (tx) => {
+      const costs = actionCosts as ResourceOperation[];
+      const result = dryRun
+        ? await resourceEngine.validate(
+            userId,
+            cultivatorId,
+            costs,
+            getExecutor(),
+          ).then(
+            (validation): ResourceOperationResult => ({
+              success: validation.valid,
+              operations: costs,
+              errors: validation.errors,
+            }),
+          )
+        : await getExecutor().transaction(async (tx) => {
+            const applied = await resourceEngine.applyInTransaction({
+              userId,
+              cultivatorId,
+              consume: costs,
+              tx,
+            });
+            if (applied.success) {
               await this.applyConditionResourceLosses(
                 cultivatorId,
                 actionCosts,
                 tx,
               );
-            },
-        dryRun,
-      );
+            }
+            return applied;
+          });
 
       if (!result.success) {
         throw new Error(result.errors?.join('; ') || '资源消耗失败');
@@ -1056,33 +1177,36 @@ export class DungeonService {
           battleId: session.battleId,
           isFinished: false,
           persist: async (tx: DbTransaction) => {
-            const userId = await getCultivatorOwnerId(cultivatorId);
+            const userId = await findActiveCultivatorOwnerId(cultivatorId);
             if (!userId) {
               throw new Error('无法获取修真者所属用户');
             }
-            const consumeResult = await resourceEngine.consumeInTransaction(
+            const consumeResult = await resourceEngine.applyInTransaction({
               userId,
               cultivatorId,
-              actionCosts as ResourceOperation[],
+              consume: actionCosts as ResourceOperation[],
               tx,
-              async (resourceTx) => {
-                await this.applyConditionResourceLosses(
-                  cultivatorId,
-                  actionCosts,
-                  resourceTx,
-                );
-              },
-            );
+            });
             if (!consumeResult.success) {
               throw new Error(
                 consumeResult.errors?.join('; ') || '资源消耗失败',
               );
             }
+            const condition: Cultivator['condition'] | undefined =
+              (await this.applyConditionResourceLosses(
+                cultivatorId,
+                actionCosts,
+                tx,
+              )) ?? undefined;
             await this.persistStateRecord(
               cultivatorId,
               state,
               battlePayload,
               tx,
+            );
+            return mergeDungeonPersistenceSettlements(
+              toDungeonPersistenceSettlement(consumeResult),
+              condition ? { condition } : null,
             );
           },
           afterCommit: async () => {
@@ -1204,27 +1328,30 @@ export class DungeonService {
         roundData,
         isFinished: false,
         persist: async (tx: DbTransaction) => {
-          const userId = await getCultivatorOwnerId(cultivatorId);
+          const userId = await findActiveCultivatorOwnerId(cultivatorId);
           if (!userId) {
             throw new Error('无法获取修真者所属用户');
           }
-          const consumeResult = await resourceEngine.consumeInTransaction(
+          const consumeResult = await resourceEngine.applyInTransaction({
             userId,
             cultivatorId,
-            actionCosts as ResourceOperation[],
+            consume: actionCosts as ResourceOperation[],
             tx,
-            async (resourceTx) => {
-              await this.applyConditionResourceLosses(
-                cultivatorId,
-                actionCosts,
-                resourceTx,
-              );
-            },
-          );
+          });
           if (!consumeResult.success) {
             throw new Error(consumeResult.errors?.join('; ') || '资源消耗失败');
           }
+          const condition: Cultivator['condition'] | undefined =
+            (await this.applyConditionResourceLosses(
+              cultivatorId,
+              actionCosts,
+              tx,
+            )) ?? undefined;
           await this.persistStateRecord(cultivatorId, state, undefined, tx);
+          return mergeDungeonPersistenceSettlements(
+            toDungeonPersistenceSettlement(consumeResult),
+            condition ? { condition } : null,
+          );
         },
         afterCommit: async () => {
           await this.saveRedisState(cultivatorId, state);
@@ -1279,7 +1406,8 @@ export class DungeonService {
         name: metadata.enemy_name,
         background: metadata.background,
         description: metadata.description,
-        isBoss: mapConfig.difficultyTier === 'boss' && Boolean(metadata.is_boss),
+        isBoss:
+          mapConfig.difficultyTier === 'boss' && Boolean(metadata.is_boss),
       }),
     );
     const enemy = draft.cultivator;
@@ -1324,7 +1452,7 @@ export class DungeonService {
   async handleBattleCallback(
     cultivatorId: string,
     battleResult: BattleRecord,
-    cultivator: Cultivator,
+    cultivator: CultivatorCombatInput,
     options: DungeonFlowOptions = {},
   ): Promise<{
     state?: DungeonState;
@@ -1332,7 +1460,9 @@ export class DungeonService {
     isFinished: boolean;
     realGains?: ResourceOperation[];
     settlement?: DungeonSettlement;
-    persist?: (tx: DbTransaction) => Promise<void>;
+    persist?: (
+      tx: DbTransaction,
+    ) => Promise<DungeonPersistenceSettlement | void>;
     afterCommit?: () => Promise<void>;
   }> {
     const state = await this.getState(cultivatorId);
@@ -1387,10 +1517,20 @@ export class DungeonService {
       return {
         ...settled,
         persist: async (tx) => {
-          await updateCultivator(cultivatorId, { condition: nextCondition }, tx);
-          if (settled.persist) {
-            await settled.persist(tx);
-          }
+          await updateCultivator(
+            cultivatorId,
+            { condition: nextCondition },
+            tx,
+          );
+          const settlement = settled.persist
+            ? await settled.persist(tx)
+            : undefined;
+          return mergeDungeonPersistenceSettlements(
+            settlement && typeof settlement === 'object'
+              ? settlement
+              : undefined,
+            { condition: nextCondition },
+          );
         },
         afterCommit: settled.afterCommit,
       };
@@ -1409,8 +1549,13 @@ export class DungeonService {
         state,
         isFinished: false,
         persist: async (tx) => {
-          await updateCultivator(cultivatorId, { condition: nextCondition }, tx);
+          await updateCultivator(
+            cultivatorId,
+            { condition: nextCondition },
+            tx,
+          );
           await this.persistStateRecord(cultivatorId, state, undefined, tx);
+          return { condition: nextCondition };
         },
         afterCommit: async () => {
           await this.saveRedisState(cultivatorId, state);
@@ -1430,12 +1575,12 @@ export class DungeonService {
     battleId: string,
     options: DungeonFlowOptions = {},
   ) {
-    const releaseFlowLock = await this.acquireFlowLock(cultivatorId);
-    try {
-      return await this.executeBattleUnlocked(cultivatorId, battleId, options);
-    } finally {
-      await releaseFlowLock();
-    }
+    return this.withFlowLock(
+      cultivatorId,
+      'dungeon-battle-execute',
+      () => this.executeBattleUnlocked(cultivatorId, battleId, options),
+      options.lease,
+    );
   }
 
   private async executeBattleUnlocked(
@@ -1448,7 +1593,8 @@ export class DungeonService {
       battleId,
     );
 
-    const cultivatorBundle = await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId);
+    const cultivatorBundle =
+      await loadCultivatorCombatInput(cultivatorId);
     if (!cultivatorBundle?.cultivator) {
       throw new Error('未找到修真者数据');
     }
@@ -1456,16 +1602,13 @@ export class DungeonService {
     const battleResult = simulateBattleV5(
       cultivatorBundle.cultivator,
       enemyObject,
-      withPlayerAbilityStrategySettings(
-        {
-          ...session.battleInit,
-          player: {
-            ...session.battleInit?.player,
-            ...buildDungeonBattleInit(cultivatorBundle.cultivator).player,
-          },
+      {
+        ...session.battleInit,
+        player: {
+          ...session.battleInit?.player,
+          ...buildDungeonBattleInit(cultivatorBundle.cultivator).player,
         },
-        cultivatorBundle.cultivator,
-      ),
+      },
     );
 
     try {
@@ -1529,12 +1672,12 @@ export class DungeonService {
     battleId: string,
     options: DungeonFlowOptions = {},
   ) {
-    const releaseFlowLock = await this.acquireFlowLock(cultivatorId);
-    try {
-      return await this.abandonBattleUnlocked(cultivatorId, battleId, options);
-    } finally {
-      await releaseFlowLock();
-    }
+    return this.withFlowLock(
+      cultivatorId,
+      'dungeon-battle-abandon',
+      () => this.abandonBattleUnlocked(cultivatorId, battleId, options),
+      options.lease,
+    );
   }
 
   private async abandonBattleUnlocked(
@@ -1584,39 +1727,46 @@ export class DungeonService {
     cultivatorId: string,
     options: DungeonFlowOptions = {},
   ) {
-    const releaseFlowLock = await this.acquireFlowLock(cultivatorId);
-    try {
-      const state = await this.getState(cultivatorId);
-      if (!state) {
-        throw new DungeonFlowError(
-          DungeonFlowErrorCode.NOT_FOUND,
-          '副本已失效',
-          404,
-        );
-      }
-      if (state.status !== 'LOOTING') {
-        throw new DungeonFlowError(
-          DungeonFlowErrorCode.INVALID_STATE,
-          '当前副本状态已变化，请刷新后重试',
-          409,
-        );
-      }
+    return this.withFlowLock(
+      cultivatorId,
+      'dungeon-looting-continue',
+      () => this.continueFromLootingUnlocked(cultivatorId, options),
+      options.lease,
+    );
+  }
 
-      state.status = 'GENERATING_NEXT';
-      state.statusReason = undefined;
-      state.recoverableActions = undefined;
-      state.currentRound++;
-
-      if (state.currentRound > state.maxRounds) {
-        return this.settleDungeon(state, {
-          deferPersistence: options.deferPersistence,
-        });
-      }
-
-      return this.generateRoundAfterLooting(cultivatorId, state, options);
-    } finally {
-      await releaseFlowLock();
+  private async continueFromLootingUnlocked(
+    cultivatorId: string,
+    options: DungeonFlowOptions,
+  ) {
+    const state = await this.getState(cultivatorId);
+    if (!state) {
+      throw new DungeonFlowError(
+        DungeonFlowErrorCode.NOT_FOUND,
+        '副本已失效',
+        404,
+      );
     }
+    if (state.status !== 'LOOTING') {
+      throw new DungeonFlowError(
+        DungeonFlowErrorCode.INVALID_STATE,
+        '当前副本状态已变化，请刷新后重试',
+        409,
+      );
+    }
+
+    state.status = 'GENERATING_NEXT';
+    state.statusReason = undefined;
+    state.recoverableActions = undefined;
+    state.currentRound++;
+
+    if (state.currentRound > state.maxRounds) {
+      return this.settleDungeon(state, {
+        deferPersistence: options.deferPersistence,
+      });
+    }
+
+    return this.generateRoundAfterLooting(cultivatorId, state, options);
   }
 
   private async generateRoundAfterLooting(
@@ -1682,31 +1832,38 @@ export class DungeonService {
     cultivatorId: string,
     options: DungeonFlowOptions = {},
   ) {
-    const releaseFlowLock = await this.acquireFlowLock(cultivatorId);
-    try {
-      const state = await this.getState(cultivatorId);
-      if (!state) {
-        throw new DungeonFlowError(
-          DungeonFlowErrorCode.NOT_FOUND,
-          '副本已失效',
-          404,
-        );
-      }
-      if (state.status !== 'LOOTING') {
-        throw new DungeonFlowError(
-          DungeonFlowErrorCode.INVALID_STATE,
-          '当前副本状态已变化，请刷新后重试',
-          409,
-        );
-      }
-      return this.settleDungeon(state, {
-        abandonedBattle: true,
-        endDisposition: 'retreated_after_battle',
-        deferPersistence: options.deferPersistence,
-      });
-    } finally {
-      await releaseFlowLock();
+    return this.withFlowLock(
+      cultivatorId,
+      'dungeon-looting-escape',
+      () => this.escapeFromLootingUnlocked(cultivatorId, options),
+      options.lease,
+    );
+  }
+
+  private async escapeFromLootingUnlocked(
+    cultivatorId: string,
+    options: DungeonFlowOptions,
+  ) {
+    const state = await this.getState(cultivatorId);
+    if (!state) {
+      throw new DungeonFlowError(
+        DungeonFlowErrorCode.NOT_FOUND,
+        '副本已失效',
+        404,
+      );
     }
+    if (state.status !== 'LOOTING') {
+      throw new DungeonFlowError(
+        DungeonFlowErrorCode.INVALID_STATE,
+        '当前副本状态已变化，请刷新后重试',
+        409,
+      );
+    }
+    return this.settleDungeon(state, {
+      abandonedBattle: true,
+      endDisposition: 'retreated_after_battle',
+      deferPersistence: options.deferPersistence,
+    });
   }
 
   /**
@@ -1724,7 +1881,9 @@ export class DungeonService {
     isFinished: boolean;
     settlement?: DungeonSettlement;
     realGains?: ResourceOperation[];
-    persist?: (tx: DbTransaction) => Promise<void>;
+    persist?: (
+      tx: DbTransaction,
+    ) => Promise<DungeonPersistenceSettlement | void>;
     afterCommit?: () => Promise<void>;
   }> {
     const state = await this.getState(cultivatorId);
@@ -1862,23 +2021,27 @@ export class DungeonService {
     );
 
     if (pendingActionToCommit) {
-      const userId = await getCultivatorOwnerId(state.cultivatorId);
+      const userId = await findActiveCultivatorOwnerId(state.cultivatorId);
       if (!userId) {
         throw new Error('无法获取修真者所属用户');
       }
       if (!deferPersistence) {
-        const result = await resourceEngine.consume(
-          userId,
-          state.cultivatorId,
-          pendingActionToCommit.costs as ResourceOperation[],
-          async (tx) => {
+        const result = await getExecutor().transaction(async (tx) => {
+          const applied = await resourceEngine.applyInTransaction({
+            userId,
+            cultivatorId: state.cultivatorId,
+            consume: pendingActionToCommit.costs as ResourceOperation[],
+            tx,
+          });
+          if (applied.success) {
             await this.applyConditionResourceLosses(
               state.cultivatorId,
               pendingActionToCommit.costs,
               tx,
             );
-          },
-        );
+          }
+          return applied;
+        });
         if (!result.success) {
           state.status = 'EXPLORING';
           state.pendingAction = {
@@ -1922,14 +2085,14 @@ export class DungeonService {
         state.dangerScore, // 传递危险分数用于奖励计算
         state.playerInfo, // 传递玩家信息用于修为计算
         mapNode ? resolveDungeonMapConfig(mapNode).difficultyTier : undefined,
-    );
+      );
     state.realGains = realGains;
     if (!deferPersistence) {
       await this.saveState(state.cultivatorId, state);
     }
 
     // 获取 userId
-    const userId = await getCultivatorOwnerId(state.cultivatorId);
+    const userId = await findActiveCultivatorOwnerId(state.cultivatorId);
     if (!userId) {
       throw new Error('无法获取修真者所属用户');
     }
@@ -1948,12 +2111,14 @@ export class DungeonService {
       ];
       if (!deferPersistence) {
         const runId = state.runId;
-        const result = await resourceEngine.gain(
-          userId,
-          state.cultivatorId,
-          realGains as ResourceOperation[],
-          runId
-            ? async (tx) => {
+        const result = await getExecutor().transaction(async (tx) => {
+          const applied = await resourceEngine.applyInTransaction({
+            userId,
+            cultivatorId: state.cultivatorId,
+            gain: realGains as ResourceOperation[],
+            tx,
+          });
+          if (applied.success && runId) {
                 await tx
                   .update(dungeonRuns)
                   .set({
@@ -1965,9 +2130,9 @@ export class DungeonService {
                     gainLedger: nextGainLedger,
                   })
                   .where(eq(dungeonRuns.id, runId));
-              }
-            : undefined,
-        );
+          }
+          return applied;
+        });
 
         if (!result.success) {
           throw new Error(result.errors?.join('; ') || '资源获得失败');
@@ -2018,35 +2183,39 @@ export class DungeonService {
       persist: async (tx) => {
         await this.assertTerminalRunCanCommit(tx, state);
 
+        let consumedSettlement: DungeonPersistenceSettlement | undefined;
+        let gainedSettlement: DungeonPersistenceSettlement | undefined;
+        let condition: Cultivator['condition'] | undefined;
         if (pendingActionToCommit) {
-          const consumeResult = await resourceEngine.consumeInTransaction(
+          const consumeResult = await resourceEngine.applyInTransaction({
             userId,
-            state.cultivatorId,
-            pendingActionToCommit.costs as ResourceOperation[],
+            cultivatorId: state.cultivatorId,
+            consume: pendingActionToCommit.costs as ResourceOperation[],
             tx,
-            async (resourceTx) => {
-              await this.applyConditionResourceLosses(
-                state.cultivatorId,
-                pendingActionToCommit.costs,
-                resourceTx,
-              );
-            },
-          );
+          });
           if (!consumeResult.success) {
             throw new Error(consumeResult.errors?.join('; ') || '资源消耗失败');
           }
+          condition =
+            (await this.applyConditionResourceLosses(
+              state.cultivatorId,
+              pendingActionToCommit.costs,
+              tx,
+            )) ?? undefined;
+          consumedSettlement =
+            toDungeonPersistenceSettlement(consumeResult);
         }
 
         if (!committedSettlementGain) {
           const runId = state.runId;
-          const gainResult = await resourceEngine.gainInTransaction(
+          const gainResult = await resourceEngine.applyInTransaction({
             userId,
-            state.cultivatorId,
-            realGains as ResourceOperation[],
+            cultivatorId: state.cultivatorId,
+            gain: realGains as ResourceOperation[],
             tx,
-            runId
-              ? async (resourceTx) => {
-                  await resourceTx
+          });
+          if (gainResult.success && runId) {
+                  await tx
                     .update(dungeonRuns)
                     .set({
                       runState: {
@@ -2057,12 +2226,11 @@ export class DungeonService {
                       gainLedger: nextGainLedger,
                     })
                     .where(eq(dungeonRuns.id, runId));
-                }
-              : undefined,
-          );
+          }
           if (!gainResult.success) {
             throw new Error(gainResult.errors?.join('; ') || '资源获得失败');
           }
+          gainedSettlement = toDungeonPersistenceSettlement(gainResult);
         }
 
         await this.archiveDungeon(state, settlement, realGains, {
@@ -2070,6 +2238,11 @@ export class DungeonService {
           clearRedis: false,
         });
         await syncTasks(tx);
+        return mergeDungeonPersistenceSettlements(
+          consumedSettlement,
+          gainedSettlement,
+          condition ? { condition } : null,
+        );
       },
       afterCommit: async () => {
         await redis.del(getDungeonKey(state.cultivatorId));
@@ -2184,17 +2357,30 @@ export class DungeonService {
       return;
     }
 
-    const [run] = await tx
-      .select({
-        id: dungeonRuns.id,
-        status: dungeonRuns.status,
-        endedAt: dungeonRuns.endedAt,
+    const claimed = await tx
+      .update(dungeonRuns)
+      .set({
+        status: 'FINISHED',
+        endedAt: new Date(),
       })
+      .where(
+        and(
+          eq(dungeonRuns.id, state.runId),
+          isNull(dungeonRuns.endedAt),
+          ne(dungeonRuns.status, 'FINISHED'),
+        ),
+      )
+      .returning({ id: dungeonRuns.id });
+
+    if (claimed.length === 1) {
+      return;
+    }
+
+    const [run] = await tx
+      .select({ id: dungeonRuns.id })
       .from(dungeonRuns)
       .where(eq(dungeonRuns.id, state.runId))
-      .for('update')
       .limit(1);
-
     if (!run) {
       throw new DungeonFlowError(
         DungeonFlowErrorCode.NOT_FOUND,
@@ -2203,13 +2389,11 @@ export class DungeonService {
       );
     }
 
-    if (run.endedAt || RUN_TERMINAL_STATUSES.has(run.status)) {
-      throw new DungeonFlowError(
-        DungeonFlowErrorCode.INVALID_STATE,
-        '当前副本已完成，请刷新查看结算',
-        409,
-      );
-    }
+    throw new DungeonFlowError(
+      DungeonFlowErrorCode.INVALID_STATE,
+      '当前副本已完成，请刷新查看结算',
+      409,
+    );
   }
 
   private async saveRedisState(cultivatorId: string, state: DungeonState) {
@@ -2224,7 +2408,7 @@ export class DungeonService {
   async getState(cultivatorId: string) {
     const key = getDungeonKey(cultivatorId);
     const run = await this.loadActiveRun(cultivatorId);
-    let state: DungeonState | null = null;
+    let state: DungeonState | null;
     if (run) {
       state = run.runState as DungeonState;
       state.runId = run.id;
@@ -2264,10 +2448,11 @@ export class DungeonService {
   }
 
   async getPlayer(cultivatorId: string) {
-    const cultivatorBundle = await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId);
-    if (!cultivatorBundle || !cultivatorBundle.cultivator)
+    const cultivatorBundle =
+      await loadCultivatorDungeonPromptFacts(cultivatorId);
+    if (!cultivatorBundle)
       throw new Error('未找到名为该道友的记录');
-    const cultivator = cultivatorBundle.cultivator;
+    const cultivator = cultivatorBundle;
     const { finalAttributes, attrs } =
       getCultivatorDisplayAttributes(cultivator);
     return {
@@ -2368,12 +2553,12 @@ export class DungeonService {
     action: DungeonRecoverAction,
     options: DungeonFlowOptions = {},
   ) {
-    const releaseFlowLock = await this.acquireFlowLock(cultivatorId);
-    try {
-      return await this.recoverDungeonUnlocked(cultivatorId, action, options);
-    } finally {
-      await releaseFlowLock();
-    }
+    return this.withFlowLock(
+      cultivatorId,
+      'dungeon-recover',
+      () => this.recoverDungeonUnlocked(cultivatorId, action, options),
+      options.lease,
+    );
   }
 
   private async recoverDungeonUnlocked(
@@ -2482,10 +2667,7 @@ export class DungeonService {
     throw new Error('未知的副本恢复动作');
   }
 
-  async quitDungeon(
-    cultivatorId: string,
-    options: DungeonFlowOptions = {},
-  ) {
+  async quitDungeon(cultivatorId: string, options: DungeonFlowOptions = {}) {
     const key = getDungeonKey(cultivatorId);
 
     const state = await this.getState(cultivatorId);
@@ -2497,24 +2679,22 @@ export class DungeonService {
       state.recoverableActions = undefined;
       state.activeBattleId = undefined;
       const persist = async (tx: DbTransaction) => {
-        await tx
-          .insert(dungeonHistories)
-          .values({
-            cultivatorId: state.cultivatorId,
-            theme: state.theme,
-            result: {
-              settlement: {
-                reward_tier: '放弃',
-                ending_narrative: '道友中途放弃了探索。',
-              },
+        await tx.insert(dungeonHistories).values({
+          cultivatorId: state.cultivatorId,
+          theme: state.theme,
+          result: {
+            settlement: {
+              reward_tier: '放弃',
+              ending_narrative: '道友中途放弃了探索。',
             },
-            log:
-              state.history
-                .map(
-                  (h) => `[Round ${h.round}] ${h.scene} -> Choice: ${h.choice}`,
-                )
-                .join('\n') + '\n[ABANDONED]',
-          });
+          },
+          log:
+            state.history
+              .map(
+                (h) => `[Round ${h.round}] ${h.scene} -> Choice: ${h.choice}`,
+              )
+              .join('\n') + '\n[ABANDONED]',
+        });
         if (state.runId) {
           await tx
             .update(dungeonRuns)

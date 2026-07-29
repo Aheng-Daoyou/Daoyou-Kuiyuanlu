@@ -13,8 +13,11 @@ import {
   InkListItem,
   InkNotice,
 } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import {
+  useCultivatorCurrency,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { getGameConceptInfo } from '@shared/lib/gameConceptDisplay';
 import { Material } from '@shared/types/cultivator';
 import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
@@ -100,8 +103,16 @@ async function readMarketSnapshot(
 export default function MarketPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { cultivator } = usePlayerStateView();
-  const { mutate } = usePlayerStateActions();
+  const session = usePlayerSession();
+  const currency = useCultivatorCurrency();
+  const cultivator =
+    session.data?.activeCultivator && currency.data
+      ? {
+          id: session.data.activeCultivator.id,
+          spiritStones: currency.data.spiritStones,
+        }
+      : null;
+  const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
 
   const nodeId = searchParams.get('nodeId') || DEFAULT_NODE_ID;
@@ -294,7 +305,7 @@ export default function MarketPage() {
       });
       return;
     }
-    if (cultivator.spirit_stones < item.price) {
+    if (cultivator.spiritStones < item.price) {
       pushToast({ message: '囊中羞涩，灵石不足', tone: 'warning' });
       return;
     }
@@ -338,7 +349,7 @@ export default function MarketPage() {
     const selectedItems = listings.filter((l) => selectedIds.has(l.id));
     const totalCost = selectedItems.reduce((acc, curr) => acc + curr.price, 0);
 
-    if (cultivator.spirit_stones < totalCost) {
+    if (cultivator.spiritStones < totalCost) {
       pushToast({ message: '囊中羞涩，灵石不足', tone: 'warning' });
       return;
     }
@@ -523,7 +534,7 @@ export default function MarketPage() {
             <div className="space-y-2 text-sm leading-7">
               <p>
                 {SPIRIT_STONES_INFO.label}余额：
-                {cultivator?.spirit_stones ?? 0}
+                {cultivator?.spiritStones ?? '读取中'}
               </p>
               <p>当前节点：{marketHint.nodeName}</p>
               <p>当前层级：{getLayerLabel(activeLayer)}</p>

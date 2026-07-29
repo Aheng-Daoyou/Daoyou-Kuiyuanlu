@@ -22,8 +22,8 @@ import {
   InkTag,
 } from '@app/components/ui';
 import { ItemCard } from '@app/components/ui/ItemCard';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { usePlayerSession } from '@app/lib/resources/player';
+import { consumeResourceMutation } from '@app/lib/resources/mutations';
 import {
   CHARACTER_GENERATION_DAILY_LIMIT,
   type CharacterGenerationQuota,
@@ -34,8 +34,10 @@ import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapter
 import { AttributeType } from '@shared/engine/battle-v5/core/types';
 import { attrLabel } from '@shared/engine/battle-v5/effects/affixText/attributes';
 import { cn } from '@shared/lib/cn';
-import { getGameConceptIcon } from '@shared/lib/gameConceptDisplay';
-import { getResourceLabel } from '@shared/lib/gameConceptDisplay';
+import {
+  getGameConceptIcon,
+  getResourceLabel,
+} from '@shared/lib/gameConceptDisplay';
 import type { Cultivator } from '@shared/types/cultivator';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -58,6 +60,7 @@ const SECONDARY_ATTR_ORDER: AttributeType[] = [
   AttributeType.DEF,
   AttributeType.MAGIC_ATK,
   AttributeType.MAGIC_DEF,
+  AttributeType.ACTION_SPEED,
   AttributeType.CRIT_RATE,
   AttributeType.CRIT_DAMAGE_MULT,
   AttributeType.EVASION_RATE,
@@ -128,8 +131,9 @@ function chunkPairs<T>(items: T[]): T[][] {
 export default function CreatePage() {
   const navigate = useNavigate();
   const { pushToast, openDialog } = useInkUI();
-  const { hasActiveCultivator, isLoading } = usePlayerStateView();
-  const { refresh } = usePlayerStateActions();
+  const session = usePlayerSession();
+  const hasActiveCultivator = Boolean(session.data?.activeCultivator);
+  const isLoading = session.loading;
   const [userPrompt, setUserPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -176,8 +180,7 @@ export default function CreatePage() {
       try {
         const response = await fetch('/api/generate-character/quota');
         const result = (await response.json()) as
-          | CharacterGenerationQuotaResponse
-          | { success: false; error?: string };
+          CharacterGenerationQuotaResponse | { success: false; error?: string };
 
         if (!response.ok || !result.success) {
           throw new Error(
@@ -357,16 +360,13 @@ export default function CreatePage() {
         }),
       });
 
-      const saveResult = await saveResponse.json();
+      await consumeResourceMutation(saveResponse);
 
-      if (!saveResponse.ok || !saveResult.success) {
-        throw new Error(saveResult.error || '保存角色失败');
-      }
-
-      // 保存成功，跳转到首页
-      pushToast({ message: '道友真形已落地，速回主界。', tone: 'success' });
-      await refresh();
-      navigate('/game');
+      pushToast({
+        message: '道友真形已落地，山门正在云外相候。',
+        tone: 'success',
+      });
+      navigate('/game/sect/onboarding', { replace: true });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : '保存角色失败，请检查控制台';

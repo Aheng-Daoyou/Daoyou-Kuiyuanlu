@@ -1,10 +1,17 @@
 import { BodyCultivationDetailPanel } from '@app/components/feature/cultivator/BodyCultivationPanels';
 import { GameSceneFrame, GameSceneNote } from '@app/components/game-shell';
 import { InkButton, InkNotice } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import {
+  useCultivatorIdentity,
+  usePlayerSession,
+} from '@app/lib/resources/player';
 
 export default function BodyCultivationPage() {
-  const { cultivator, isLoading, note } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const session = usePlayerSession();
+  const cultivator = profile.data?.cultivator;
+  const isLoading = profile.loading || session.loading;
+  const note = session.data?.note;
 
   if (isLoading && !cultivator) {
     return (

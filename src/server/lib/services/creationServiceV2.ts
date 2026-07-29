@@ -1,10 +1,30 @@
+import {
+  getExecutor,
+  type DbExecutor,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
+import { cultivators, materials } from '@server/lib/drizzle/schema';
+import { redis } from '@server/lib/redis';
+import { parseRedisJson } from '@server/lib/redis/json';
+import * as creationProductRepository from '@server/lib/repositories/creationProductRepository';
+import { loadCultivatorSectState } from '@server/lib/repositories/sectRepository';
+import {
+  MAX_EQUIPPED_GONGFA,
+  MAX_OWNED_CREATION_PRODUCTS_PER_TYPE,
+} from '@shared/config/creationProductLimits';
+import { DEFAULT_MAX_ACTIVE_SKILLS } from '@shared/config/skillLimits';
+import { CreationAbilityAdapter } from '@shared/engine/creation-v2/adapters/CreationAbilityAdapter';
 import { DefaultMaterialAnalyzer } from '@shared/engine/creation-v2/analysis/DefaultMaterialAnalyzer';
 import { MaterialFactsBuilder } from '@shared/engine/creation-v2/analysis/MaterialFactsBuilder';
+import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
+import { getCreationProductTypeFromCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
+import {
+  calculateFateAdjustedCraftCost,
+  calculateHighestMaterialRank,
+} from '@shared/engine/creation-v2/CraftCostCalculator';
 import { CreationOrchestrator } from '@shared/engine/creation-v2/CreationOrchestrator';
 import { CreationSession } from '@shared/engine/creation-v2/CreationSession';
-import { CreationAbilityAdapter } from '@shared/engine/creation-v2/adapters/CreationAbilityAdapter';
-import { getCreationProductTypeFromCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
-import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
+import { CreationError } from '@shared/engine/creation-v2/errors';
 import {
   deserializeCraftedOutcomeSnapshot,
   restoreCraftedOutcome,
@@ -21,11 +41,6 @@ import type {
   CraftedOutcome,
   CreationProductType,
 } from '@shared/engine/creation-v2/types';
-import { CreationError } from '@shared/engine/creation-v2/errors';
-import {
-  calculateFateAdjustedCraftCost,
-  calculateHighestMaterialRank,
-} from '@shared/engine/creation-v2/CraftCostCalculator';
 import {
   evaluateFateContext,
   getRefineSpiritStoneMultiplier,
@@ -34,16 +49,6 @@ import {
   getCreationProductTypeLabel,
   getGameConceptLabel,
 } from '@shared/lib/gameConceptDisplay';
-import {
-  MAX_EQUIPPED_GONGFA,
-  MAX_OWNED_CREATION_PRODUCTS_PER_TYPE,
-} from '@shared/config/creationProductLimits';
-import { DEFAULT_MAX_ACTIVE_SKILLS } from '@shared/config/skillLimits';
-import { getExecutor, type DbTransaction } from '@server/lib/drizzle/db';
-import { cultivators, materials } from '@server/lib/drizzle/schema';
-import { redis } from '@server/lib/redis';
-import { parseRedisJson } from '@server/lib/redis/json';
-import * as creationProductRepository from '@server/lib/repositories/creationProductRepository';
 import type {
   ElementType,
   EquipmentSlot,
@@ -52,17 +57,19 @@ import type {
   RealmType,
 } from '@shared/types/constants';
 import type { Material, PreHeavenFate } from '@shared/types/cultivator';
-import { eq, inArray, sql } from 'drizzle-orm';
-import { getPlayerRuntimeCultivatorByIdUnsafe } from './cultivatorService';
+import type { ResourceOperationSettlement } from '@shared/engine/resource/types';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import {
+  getCultivatorPreHeavenFates,
+} from '@server/lib/services/cultivator/CultivatorProfileRepository';
 import { getMysteryMaterialBlockingReason } from './materialMysteryGuard';
+import { sectOrganizationFacade } from './sect-organization';
+import {
+  mapMaterialRow,
+} from './cultivator/CultivatorInventoryRepository';
+import { toArtifactFromProduct } from './creationProductArtifactSupport';
 
-/**
- * processCreation 时的玩家侧可选入参。
- *
- * 设计原则：只开放“玩家必须主动决定”的旋钮，其它（元素倾向 / 语义标签 / LLM 命名是否开启）
- * 一律由材料与引擎决定，避免把复杂的引擎配置暴露给终端玩家。
- */
-export interface ProcessCreationOptions {
+type CreationPreparationOptions = {
   /** 每个材料本次炼制实际消耗数量，未传则默认 1。会被夹紧到 [1, maxQuantityPerMaterial]。 */
   materialQuantities?: Record<string, number>;
   /** 玩家自由书写的命名/风格提示，仅影响 LLM 命名文案，不改变数值。 */
@@ -70,10 +77,12 @@ export interface ProcessCreationOptions {
   /** 仅法宝有效：玩家指定的装备槽位。其它产物传入会被忽略。 */
   requestedSlot?: EquipmentSlot;
   /** 仅神通有效：玩家指定的目标策略（单体/AOE/队友等）。其它产物传入会被忽略。 */
-  requestedTargetPolicy?: { team: 'enemy' | 'ally' | 'self' | 'any'; scope: 'single' | 'aoe' | 'random'; maxTargets?: number };
-  tx?: DbTransaction;
-  deferSideEffects?: boolean;
-}
+  requestedTargetPolicy?: {
+    team: 'enemy' | 'ally' | 'self' | 'any';
+    scope: 'single' | 'aoe' | 'random';
+    maxTargets?: number;
+  };
+};
 
 export class CreationServiceError extends Error {
   constructor(
@@ -109,9 +118,26 @@ export interface CreationV2Result {
   maxCount?: number;
 }
 
-type CreationV2ServiceResult = CreationV2Result & {
-  afterCommit?: () => Promise<void>;
+type PendingCreationPayload = {
+  snapshot: string;
+  previewName?: string;
+  previewQuality?: string | null;
+  previewElement?: string | null;
 };
+
+type LoadedPendingCreation = {
+  payload: PendingCreationPayload;
+};
+
+const PENDING_CREATION_TTL_SECONDS = 3600;
+
+export interface PreparedCreationV2 {
+  commit(tx: DbTransaction): Promise<{
+    result: CreationV2Result;
+    inventoryChanges: ResourceOperationSettlement['inventoryChanges'];
+    afterCommit?: () => Promise<void>;
+  }>;
+}
 
 export interface PendingCreationItem {
   snapshot: string;
@@ -181,8 +207,7 @@ function buildCreationResult(
     rehydrateStoredProductModel(
       row.productModel as Record<string, unknown>,
       (row.element as ElementType | null) ?? undefined,
-    ) ??
-    (row.productModel as Record<string, unknown>);
+    ) ?? (row.productModel as Record<string, unknown>);
 
   return {
     id,
@@ -207,8 +232,7 @@ function buildPendingCreationItem(
     rehydrateStoredProductModel(
       row.productModel as Record<string, unknown>,
       (row.element as ElementType | null) ?? undefined,
-    ) ??
-    (row.productModel as Record<string, unknown>);
+    ) ?? (row.productModel as Record<string, unknown>);
 
   return {
     snapshot,
@@ -221,6 +245,52 @@ function buildPendingCreationItem(
     score: row.score ?? 0,
     productModel: productModel as unknown as Record<string, unknown>,
   };
+}
+
+function getPendingCreationKey(
+  cultivatorId: string,
+  craftType: string,
+): string {
+  return `creation_pending_v2:${cultivatorId}:${craftType}`;
+}
+
+function parsePendingCreationPayload(value: unknown): PendingCreationPayload {
+  const payload = value as Partial<PendingCreationPayload> | null;
+  if (!payload || typeof payload.snapshot !== 'string' || !payload.snapshot) {
+    throw new CreationServiceError('待确认造物的临时状态无效', 500);
+  }
+  return payload as PendingCreationPayload;
+}
+
+async function cachePendingCreation(
+  cultivatorId: string,
+  craftType: string,
+  payload: PendingCreationPayload | null,
+): Promise<void> {
+  const pendingKey = getPendingCreationKey(cultivatorId, craftType);
+  if (!payload) {
+    await redis.del(pendingKey);
+    return;
+  }
+  await redis.set(
+    pendingKey,
+    JSON.stringify(payload),
+    'EX',
+    PENDING_CREATION_TTL_SECONDS,
+  );
+}
+
+async function loadPendingCreation(
+  cultivatorId: string,
+  craftType: string,
+): Promise<LoadedPendingCreation | null> {
+  const pendingKey = getPendingCreationKey(cultivatorId, craftType);
+  const pendingPayload = parseRedisJson<PendingCreationPayload>(
+    await redis.get(pendingKey),
+    pendingKey,
+  );
+  if (!pendingPayload) return null;
+  return { payload: parsePendingCreationPayload(pendingPayload) };
 }
 
 function toCreationMaterial(
@@ -252,8 +322,9 @@ async function loadOwnedMaterials(
   cultivatorId: string,
   materialIds: string[],
   options: { rejectMystery?: boolean } = {},
+  q: DbExecutor | DbTransaction = getExecutor(),
 ): Promise<MaterialRow[]> {
-  const selectedMaterials = await getExecutor()
+  const selectedMaterials = await q
     .select()
     .from(materials)
     .where(inArray(materials.id, materialIds));
@@ -319,9 +390,7 @@ function buildCreationPreviewValidation(
 
 function getEffectiveProductLimit(
   productType: CreationProductType,
-  cultivator: unknown,
 ): number | null {
-  void cultivator;
   if (productType === 'skill') return DEFAULT_MAX_ACTIVE_SKILLS;
   if (productType === 'gongfa') return MAX_EQUIPPED_GONGFA;
   return null;
@@ -397,9 +466,11 @@ export async function previewCreationSelection(
     throw new CreationServiceError(`未知的造物类型: ${craftType}`);
   }
 
-  const selectedMaterials = await loadOwnedMaterials(cultivatorId, materialIds, {
-    rejectMystery: false,
-  });
+  const selectedMaterials = await loadOwnedMaterials(
+    cultivatorId,
+    materialIds,
+    { rejectMystery: false },
+  );
   const mysteryReason = getMysteryMaterialBlockingReason(selectedMaterials);
   if (mysteryReason) {
     return {
@@ -417,22 +488,21 @@ export async function previewCreationSelection(
     productType,
     toCreationMaterials(selectedMaterials),
   );
-  const validation =
-    baseValidation.valid
-      ? (() => {
-          const blockingReason = resolvePreviewExecutionBlockingReason(
-            productType,
-            selectedMaterials,
-          );
-          return blockingReason
-            ? {
-                ...baseValidation,
-                valid: false,
-                blockingReason,
-              }
-            : baseValidation;
-        })()
-      : baseValidation;
+  const validation = baseValidation.valid
+    ? (() => {
+        const blockingReason = resolvePreviewExecutionBlockingReason(
+          productType,
+          selectedMaterials,
+        );
+        return blockingReason
+          ? {
+              ...baseValidation,
+              valid: false,
+              blockingReason,
+            }
+          : baseValidation;
+      })()
+    : baseValidation;
 
   return {
     productType,
@@ -445,12 +515,12 @@ export async function previewCreationSelection(
  * 主造物入口（炼器/神通/功法）。
  * 对应旧 CreationEngine.processRequest，但完全使用 v2 引擎和 creation_products 表。
  */
-export async function processCreation(
+export async function prepareCreation(
   cultivatorId: string,
   materialIds: string[],
   craftType: string,
-  options: ProcessCreationOptions = {},
-): Promise<CreationV2ServiceResult> {
+  options: CreationPreparationOptions = {},
+): Promise<PreparedCreationV2> {
   const productType = getCreationProductTypeFromCraftType(craftType);
   if (!productType) {
     throw new CreationServiceError(`未知的造物类型: ${craftType}`);
@@ -471,180 +541,294 @@ export async function processCreation(
   const effectiveRequestedTargetPolicy =
     productType === 'skill' ? requestedTargetPolicy : undefined;
 
-  // 1. Redis 分布式锁
-  const lockKey = `craft:lock:${cultivatorId}`;
-  const acquired = await redis.set(lockKey, 'locked', 'EX', 30, 'NX');
-  if (!acquired) {
-    throw new CreationServiceError('炉火正旺，道友莫急', 429);
+  // 分布式锁由 API/Application 层统一获取。
+  const q = getExecutor();
+  // 2. 加载并校验材料归属
+  const selectedMaterials = await loadOwnedMaterials(
+    cultivatorId,
+    materialIds,
+    {},
+    q,
+  );
+
+  // 3. 加载角色（用于资源校验和容量检查）
+  const [cultivator] = await q
+    .select({
+      userId: cultivators.userId,
+      name: cultivators.name,
+      realm: cultivators.realm,
+      realm_stage: cultivators.realm_stage,
+      spirit_stones: cultivators.spirit_stones,
+      cultivation_progress: cultivators.cultivation_progress,
+    })
+    .from(cultivators)
+    .where(eq(cultivators.id, cultivatorId))
+    .limit(1);
+
+  if (!cultivator) {
+    throw new CreationServiceError('道友查无此人', 404);
   }
 
-  try {
-    // 2. 加载并校验材料归属
-    const selectedMaterials = await loadOwnedMaterials(cultivatorId, materialIds);
+  const preHeavenFates = await getCultivatorPreHeavenFates(
+    cultivatorId,
+    q,
+  );
+  const fateContext = evaluateFateContext(preHeavenFates);
 
-    // 3. 加载角色（用于资源校验和容量检查）
-    const q = options.tx ?? getExecutor();
-    const [cultivator] = await q
-      .select()
-      .from(cultivators)
-      .where(eq(cultivators.id, cultivatorId))
-      .limit(1);
+  // 4. 计算资源消耗
+  const highestMaterialRank = calculateHighestMaterialRank(
+    selectedMaterials as unknown as Array<{ rank: Quality }>,
+  );
+  const resourceType =
+    productType === 'artifact' ? 'spiritStone' : 'comprehension';
+  const baseCostAmount = calculateFateAdjustedCraftCost(
+    highestMaterialRank,
+    resourceType,
+    resourceType === 'spiritStone'
+      ? getRefineSpiritStoneMultiplier(fateContext)
+      : fateContext.enlightenmentInsightMultiplier,
+  );
+  const costAmount =
+    resourceType === 'spiritStone'
+      ? await sectOrganizationFacade.applyCraftDiscount(
+          cultivatorId,
+          baseCostAmount,
+          'sect.craft.refinery',
+          q,
+        )
+      : baseCostAmount;
 
-    if (!cultivator) {
-      throw new CreationServiceError('道友查无此人', 404);
-    }
-
-    const fullCultivator = await getPlayerRuntimeCultivatorByIdUnsafe(
-      cultivatorId,
-      q,
-    );
-    const fateContext = evaluateFateContext(
-      fullCultivator?.cultivator.pre_heaven_fates ?? [],
-    );
-
-    // 4. 计算资源消耗
-    const highestMaterialRank = calculateHighestMaterialRank(
-      selectedMaterials as unknown as Array<{ rank: Quality }>,
-    );
-    const resourceType =
-      productType === 'artifact' ? 'spiritStone' : 'comprehension';
-    const costAmount = calculateFateAdjustedCraftCost(
-      highestMaterialRank,
-      resourceType,
-      resourceType === 'spiritStone'
-        ? getRefineSpiritStoneMultiplier(fateContext)
-        : fateContext.enlightenmentInsightMultiplier,
-    );
-
-    // 校验资源是否充足
-    if (resourceType === 'spiritStone') {
-      if ((cultivator.spirit_stones ?? 0) < costAmount) {
-        throw new CreationServiceError(
-          `${getGameConceptLabel('spirit_stones')}不足，需要 ${costAmount} 枚`,
-        );
-      }
-    } else {
-      const progress = cultivator.cultivation_progress as {
-        comprehension_insight?: number;
-      } | null;
-      if ((progress?.comprehension_insight ?? 0) < costAmount) {
-        throw new CreationServiceError(
-          `${getGameConceptLabel('comprehension_insight')}不足，需要 ${costAmount} 点`,
-        );
-      }
-    }
-
-    // 5. 计算每种材料本次“实际投入数量”（dose）。
-    //
-    // 来源：前端传入的 materialQuantities（可选，每个 id 映射 1..3 的整数）。
-    // 规则：
-    //   - 未传视为 1；
-    //   - 被夹紧到 [minQuantityPerMaterial, maxQuantityPerMaterial]（V2 引擎硬约束）；
-    //   - 不能超过仓库现存库存。
-    //
-    // 这里把 DB 行里的 quantity（仓库库存）换成 dose 再交给 orchestrator，
-    // 既避免 CreationInputValidator 因库存 > 3 报 400，也允许玩家自由决定
-    // 本次投入多少份，以影响 energyValue/dominantTags 等后续计算。
-    const { minQuantityPerMaterial, maxQuantityPerMaterial } =
-      CREATION_INPUT_CONSTRAINTS;
-
-    const dosePerMaterial = new Map<string, number>();
-    for (const material of selectedMaterials) {
-      const requested = materialQuantities?.[material.id] ?? 1;
-      if (!Number.isFinite(requested)) {
-        throw new CreationServiceError(
-          `材料「${material.name}」投入数量非法：${requested}`,
-        );
-      }
-
-      const clamped = Math.min(
-        maxQuantityPerMaterial,
-        Math.max(minQuantityPerMaterial, Math.floor(requested)),
+  // 校验资源是否充足
+  if (resourceType === 'spiritStone') {
+    if ((cultivator.spirit_stones ?? 0) < costAmount) {
+      throw new CreationServiceError(
+        `${getGameConceptLabel('spirit_stones')}不足，需要 ${costAmount} 枚`,
       );
-      if (clamped > (material.quantity ?? 0)) {
-        throw new CreationServiceError(
-          `材料「${material.name}」库存不足：需要 ${clamped}，仅剩 ${material.quantity ?? 0}`,
-        );
+    }
+  } else {
+    const progress = cultivator.cultivation_progress as {
+      comprehension_insight?: number;
+    } | null;
+    if ((progress?.comprehension_insight ?? 0) < costAmount) {
+      throw new CreationServiceError(
+        `${getGameConceptLabel('comprehension_insight')}不足，需要 ${costAmount} 点`,
+      );
+    }
+  }
+
+  // 5. 计算每种材料本次“实际投入数量”（dose）。
+  //
+  // 来源：前端传入的 materialQuantities（可选，每个 id 映射 1..3 的整数）。
+  // 规则：
+  //   - 未传视为 1；
+  //   - 被夹紧到 [minQuantityPerMaterial, maxQuantityPerMaterial]（V2 引擎硬约束）；
+  //   - 不能超过仓库现存库存。
+  //
+  // 这里把 DB 行里的 quantity（仓库库存）换成 dose 再交给 orchestrator，
+  // 既避免 CreationInputValidator 因库存 > 3 报 400，也允许玩家自由决定
+  // 本次投入多少份，以影响 energyValue/dominantTags 等后续计算。
+  const { minQuantityPerMaterial, maxQuantityPerMaterial } =
+    CREATION_INPUT_CONSTRAINTS;
+
+  const dosePerMaterial = new Map<string, number>();
+  for (const material of selectedMaterials) {
+    const requested = materialQuantities?.[material.id] ?? 1;
+    if (!Number.isFinite(requested)) {
+      throw new CreationServiceError(
+        `材料「${material.name}」投入数量非法：${requested}`,
+      );
+    }
+
+    const clamped = Math.min(
+      maxQuantityPerMaterial,
+      Math.max(minQuantityPerMaterial, Math.floor(requested)),
+    );
+    if (clamped > (material.quantity ?? 0)) {
+      throw new CreationServiceError(
+        `材料「${material.name}」库存不足：需要 ${clamped}，仅剩 ${material.quantity ?? 0}`,
+      );
+    }
+    dosePerMaterial.set(material.id, clamped);
+  }
+
+  const engineMaterials = toCreationMaterials(
+    selectedMaterials,
+    dosePerMaterial,
+  );
+
+  const session = await orchestrator.craftAsync({
+    cultivatorId,
+    creatorName: cultivator.name,
+    realm: cultivator.realm as RealmType,
+    realmStage: cultivator.realm_stage as RealmStage,
+    productType,
+    materials: engineMaterials,
+    ...(userPrompt?.trim() ? { userPrompt: userPrompt.trim() } : {}),
+    ...(effectiveRequestedSlot
+      ? { requestedSlot: effectiveRequestedSlot }
+      : {}),
+    ...(effectiveRequestedTargetPolicy
+      ? { requestedTargetPolicy: effectiveRequestedTargetPolicy }
+      : {}),
+    ...(productType === 'skill'
+      ? {
+          projectionContext: {
+            ownerKind: 'player',
+            paceProfile: 'standard',
+          },
+        }
+      : {}),
+  });
+
+  const outcome = session.state.outcome;
+  if (!outcome) {
+    const failure = session.state.failureReason;
+    throw new CreationServiceError(failure ?? '造物失败，请检查材料组合');
+  }
+
+  // 6. 映射为 DB 行
+  const row = toRow(outcome, cultivatorId);
+
+  return {
+    async commit(tx: DbTransaction) {
+      const inventoryChanges: ResourceOperationSettlement['inventoryChanges'] =
+        [];
+      const commitRow = { ...row };
+      const stableMaterialIds = [...materialIds].sort();
+      const currentRows = await loadOwnedMaterials(
+        cultivatorId,
+        stableMaterialIds,
+        {},
+        tx,
+      );
+      const currentById = new Map(currentRows.map((item) => [item.id, item]));
+      const expectedById = new Map(
+        selectedMaterials.map((item) => [item.id, item]),
+      );
+
+      for (const id of stableMaterialIds) {
+        const current = currentById.get(id);
+        const expected = expectedById.get(id);
+        if (
+          !current ||
+          !expected ||
+          current.quantity !== expected.quantity ||
+          current.rank !== expected.rank ||
+          current.type !== expected.type ||
+          current.element !== expected.element
+        ) {
+          throw new CreationServiceError(
+            '材料已发生变化，请重新确认造物。',
+            409,
+          );
+        }
       }
-      dosePerMaterial.set(material.id, clamped);
-    }
 
-    const engineMaterials = toCreationMaterials(selectedMaterials, dosePerMaterial);
-
-    const session = await orchestrator.craftAsync({
-      cultivatorId,
-      creatorName: cultivator.name,
-      realm: cultivator.realm as RealmType,
-      realmStage: cultivator.realm_stage as RealmStage,
-      productType,
-      materials: engineMaterials,
-      ...(userPrompt?.trim() ? { userPrompt: userPrompt.trim() } : {}),
-      ...(effectiveRequestedSlot
-        ? { requestedSlot: effectiveRequestedSlot }
-        : {}),
-      ...(effectiveRequestedTargetPolicy
-        ? { requestedTargetPolicy: effectiveRequestedTargetPolicy }
-        : {}),
-      ...(productType === 'skill'
-        ? {
-            projectionContext: {
-              ownerKind: 'player',
-              paceProfile: 'standard',
-            },
-          }
-        : {}),
-    });
-
-    const outcome = session.state.outcome;
-    if (!outcome) {
-      const failure = session.state.failureReason;
-      throw new CreationServiceError(failure ?? '造物失败，请检查材料组合');
-    }
-
-    // 6. 映射为 DB 行
-    const row = toRow(outcome, cultivatorId);
-
-    // 7. 事务：扣资源 + 消耗材料 + 写入/暂存产物
-    let insertedId: string | null = null;
-    let needsReplace = false;
-    let currentCount = 0;
-    let maxCount = 0;
-
-    let afterCommit: (() => Promise<void>) | undefined;
-    const writeCreation = async (tx: DbTransaction) => {
-      // 7.1 扣除资源
       if (resourceType === 'spiritStone') {
-        await tx
+        const [charged] = await tx
           .update(cultivators)
           .set({
             spirit_stones: sql`${cultivators.spirit_stones} - ${costAmount}`,
           })
-          .where(eq(cultivators.id, cultivatorId));
+          .where(
+            and(
+              eq(cultivators.id, cultivatorId),
+              eq(cultivators.userId, cultivator.userId),
+              sql`${cultivators.spirit_stones} >= ${costAmount}`,
+            ),
+          )
+          .returning({ id: cultivators.id });
+        if (!charged) {
+          throw new CreationServiceError(
+            `${getGameConceptLabel('spirit_stones')}不足，需要 ${costAmount} 枚`,
+            409,
+          );
+        }
       } else {
-        await tx
+        const [charged] = await tx
           .update(cultivators)
           .set({
             cultivation_progress: sql`jsonb_set(
               COALESCE(${cultivators.cultivation_progress}, '{}'),
               '{comprehension_insight}',
-              to_jsonb(GREATEST(0, COALESCE((${cultivators.cultivation_progress}->>'comprehension_insight')::int, 0) - ${costAmount}))
+              to_jsonb(COALESCE((${cultivators.cultivation_progress}->>'comprehension_insight')::int, 0) - ${costAmount})
             )`,
           })
-          .where(eq(cultivators.id, cultivatorId));
-      }
-
-      for (const material of selectedMaterials) {
-        const dose = dosePerMaterial.get(material.id) ?? 1;
-        const stock = material.quantity ?? 0;
-        if (stock > dose) {
-          await tx
-            .update(materials)
-            .set({ quantity: sql`${materials.quantity} - ${dose}` })
-            .where(eq(materials.id, material.id));
-        } else {
-          await tx.delete(materials).where(eq(materials.id, material.id));
+          .where(
+            and(
+              eq(cultivators.id, cultivatorId),
+              eq(cultivators.userId, cultivator.userId),
+              sql`COALESCE((${cultivators.cultivation_progress}->>'comprehension_insight')::int, 0) >= ${costAmount}`,
+            ),
+          )
+          .returning({ id: cultivators.id });
+        if (!charged) {
+          throw new CreationServiceError(
+            `${getGameConceptLabel('comprehension_insight')}不足，需要 ${costAmount} 点`,
+            409,
+          );
         }
       }
+
+      for (const id of stableMaterialIds) {
+        const expected = expectedById.get(id);
+        const dose = dosePerMaterial.get(id) ?? 1;
+        if (!expected) {
+          throw new CreationServiceError('材料记录异常，无法扣除', 500);
+        }
+        if (expected.quantity > dose) {
+          const updated = await tx
+            .update(materials)
+            .set({ quantity: sql`${materials.quantity} - ${dose}` })
+            .where(
+              and(
+                eq(materials.id, id),
+                eq(materials.cultivatorId, cultivatorId),
+                eq(materials.quantity, expected.quantity),
+              ),
+            )
+            .returning();
+          if (updated.length !== 1) {
+            throw new CreationServiceError(
+              '材料已发生变化，请重新确认造物。',
+              409,
+            );
+          }
+          inventoryChanges.push({
+            kind: 'materials',
+            operation: 'upsert',
+            item: mapMaterialRow(updated[0]),
+          });
+        } else {
+          const deleted = await tx
+            .delete(materials)
+            .where(
+              and(
+                eq(materials.id, id),
+                eq(materials.cultivatorId, cultivatorId),
+                eq(materials.quantity, expected.quantity),
+              ),
+            )
+            .returning({ id: materials.id });
+          if (deleted.length !== 1) {
+            throw new CreationServiceError(
+              '材料已发生变化，请重新确认造物。',
+              409,
+            );
+          }
+          inventoryChanges.push({
+            kind: 'materials',
+            operation: 'remove',
+            id,
+          });
+        }
+      }
+
+      let insertedId = '';
+      let needsReplace = false;
+      let currentCount = 0;
+      let maxCount = 0;
+      let afterCommit: (() => Promise<void>) | undefined;
 
       if (isEquipManagedProductType(productType)) {
         currentCount = await creationProductRepository.countByType(
@@ -653,62 +837,59 @@ export async function processCreation(
           tx,
         );
         maxCount = MAX_OWNED_CREATION_PRODUCTS_PER_TYPE;
-        if (currentCount >= maxCount) needsReplace = true;
+        needsReplace = currentCount >= maxCount;
 
-        const effectiveLimit = getEffectiveProductLimit(productType, cultivator);
-        const equippedCount = await creationProductRepository.countEquippedByType(
-          cultivatorId,
-          productType,
-          tx,
-        );
-        row.isEquipped =
+        const effectiveLimit = getEffectiveProductLimit(productType);
+        const equippedCount =
+          await creationProductRepository.countEquippedByType(
+            cultivatorId,
+            productType,
+            tx,
+          );
+        commitRow.isEquipped =
           effectiveLimit !== null && equippedCount < effectiveLimit;
+        if (
+          productType === 'skill' &&
+          (await loadCultivatorSectState(cultivatorId, tx))?.status === 'active'
+        ) {
+          commitRow.isEquipped = false;
+        }
       }
 
       if (needsReplace) {
-        // 暂存到 Redis，等待用户替换确认
         const snapshot = snapshotCraftedOutcome(outcome);
-        const pendingPayload = JSON.stringify({
+        const pendingPayload: PendingCreationPayload = {
           snapshot: serializeCraftedOutcomeSnapshot(snapshot),
-          previewName: row.name,
-          previewQuality: row.quality ?? null,
-          previewElement: row.element ?? null,
-        });
-        const pendingKey = `creation_pending_v2:${cultivatorId}:${craftType}`;
+          previewName: commitRow.name,
+          previewQuality: commitRow.quality ?? null,
+          previewElement: commitRow.element ?? null,
+        };
         afterCommit = async () => {
-          await redis.set(pendingKey, pendingPayload, 'EX', 3600);
+          await cachePendingCreation(cultivatorId, craftType, pendingPayload);
         };
       } else {
-        // 直接写入
-        const record = await creationProductRepository.insert(row, tx);
+        const record = await creationProductRepository.insert(commitRow, tx);
         insertedId = record.id;
+        if (productType === 'artifact') {
+          inventoryChanges.push({
+            kind: 'artifacts',
+            operation: 'upsert',
+            item: toArtifactFromProduct(record),
+          });
+        }
       }
-    };
 
-    if (options.tx) {
-      await writeCreation(options.tx);
-    } else {
-      await getExecutor().transaction(writeCreation);
-    }
-    if (afterCommit && !options.deferSideEffects) {
-      await afterCommit();
-    }
-
-    if (needsReplace) {
-      // 返回"需要替换"标识，不含 id
-      return {
-        ...buildCreationResult(outcome, row, ''),
-        needs_replace: true,
-        currentCount,
-        maxCount,
-        afterCommit: options.deferSideEffects ? afterCommit : undefined,
-      };
-    }
-
-    return buildCreationResult(outcome, row, insertedId!);
-  } finally {
-    await redis.del(lockKey);
-  }
+      const result = needsReplace
+        ? {
+            ...buildCreationResult(outcome, commitRow, ''),
+            needs_replace: true,
+            currentCount,
+            maxCount,
+          }
+        : buildCreationResult(outcome, commitRow, insertedId);
+      return { result, inventoryChanges, afterCommit };
+    },
+  };
 }
 
 /**
@@ -718,118 +899,124 @@ export async function getPendingCreation(
   cultivatorId: string,
   craftType: string,
 ): Promise<PendingCreationItem | null> {
-  const pendingKey = `creation_pending_v2:${cultivatorId}:${craftType}`;
-  const payload = parseRedisJson<{ snapshot: string }>(
-    await redis.get(pendingKey),
-    pendingKey,
-  );
-  if (!payload) return null;
+  const pending = await loadPendingCreation(cultivatorId, craftType);
+  if (!pending) return null;
   const productType = getCreationProductTypeFromCraftType(craftType);
   if (!productType) {
     throw new CreationServiceError(`未知的造物类型: ${craftType}`);
   }
 
-  const snapshot = deserializeCraftedOutcomeSnapshot(payload.snapshot);
+  const snapshot = deserializeCraftedOutcomeSnapshot(pending.payload.snapshot);
   const outcome = restoreCraftedOutcome(snapshot, new CreationAbilityAdapter());
   const row = toRow(outcome, cultivatorId);
 
-  return buildPendingCreationItem(outcome, row, payload.snapshot);
+  return buildPendingCreationItem(outcome, row, pending.payload.snapshot);
 }
 
-/**
- * 确认替换：将 Redis 暂存的产物写入 DB，可选先删除一条旧产物。
- */
-export async function confirmCreation(
+export async function prepareCreationConfirmation(
   cultivatorId: string,
   craftType: string,
   replaceId: string | null,
-  options: { tx?: DbTransaction; deferSideEffects?: boolean } = {},
-): Promise<CreationV2ServiceResult> {
-  const pendingKey = `creation_pending_v2:${cultivatorId}:${craftType}`;
-  const payload = parseRedisJson<{ snapshot: string }>(
-    await redis.get(pendingKey),
-    pendingKey,
-  );
-  if (!payload) {
+) {
+  const pending = await loadPendingCreation(cultivatorId, craftType);
+  if (!pending) {
     throw new CreationServiceError('未找到待确认的造物结果，可能已过期', 404);
   }
-  const snapshot = deserializeCraftedOutcomeSnapshot(payload.snapshot);
+  const snapshot = deserializeCraftedOutcomeSnapshot(pending.payload.snapshot);
   const outcome = restoreCraftedOutcome(snapshot, new CreationAbilityAdapter());
-  const row = toRow(outcome, cultivatorId);
-  const productType = row.productType as CreationProductType;
-
-  const q = options.tx ?? getExecutor();
-  const [cultivator] = await q
-    .select()
-    .from(cultivators)
-    .where(eq(cultivators.id, cultivatorId))
-    .limit(1);
-  if (!cultivator) {
-    throw new CreationServiceError('道友查无此人', 404);
-  }
-
-  let insertedId!: string;
-  const writeConfirm = async (tx: DbTransaction) => {
-    let replacedWasEquipped = false;
-    if (replaceId) {
-      // 验证被替换产物归属
-      const existing = await creationProductRepository.findById(replaceId, tx);
-      if (!existing || existing.cultivatorId !== cultivatorId) {
-        throw new CreationServiceError('目标产物不存在或不属于你', 403);
-      }
-      if (existing.productType !== productType) {
-        throw new CreationServiceError('只能替换同类产物', 400);
-      }
-      replacedWasEquipped = existing.isEquipped;
-      await creationProductRepository.deleteById(replaceId, tx);
-    }
-
-    if (isEquipManagedProductType(productType)) {
-      const currentCount = await creationProductRepository.countByType(
-        cultivatorId,
-        productType,
-        tx,
-      );
-      if (
-        currentCount >= MAX_OWNED_CREATION_PRODUCTS_PER_TYPE &&
-        !replaceId
-      ) {
-        throw new CreationServiceError(
-          `${getCreationProductTypeLabel(productType)}数量已达上限，请先选择一项替换`,
-          409,
-        );
-      }
-
-      const effectiveLimit = getEffectiveProductLimit(productType, cultivator);
-      const equippedCount = await creationProductRepository.countEquippedByType(
-        cultivatorId,
-        productType,
-        tx,
-      );
-      row.isEquipped =
-        replacedWasEquipped ||
-        (effectiveLimit !== null && equippedCount < effectiveLimit);
-    }
-
-    const record = await creationProductRepository.insert(row, tx);
-    insertedId = record.id;
-  };
-
-  if (options.tx) {
-    await writeConfirm(options.tx);
-  } else {
-    await getExecutor().transaction(writeConfirm);
-  }
-  const afterCommit = async () => {
-    await redis.del(pendingKey);
-  };
-  if (!options.deferSideEffects) {
-    await afterCommit();
-  }
+  const preparedRow = toRow(outcome, cultivatorId);
+  const productType = preparedRow.productType as CreationProductType;
 
   return {
-    ...buildCreationResult(outcome, row, insertedId),
-    afterCommit: options.deferSideEffects ? afterCommit : undefined,
+    async commit(tx: DbTransaction) {
+      const inventoryChanges: ResourceOperationSettlement['inventoryChanges'] =
+        [];
+      const [cultivator] = await tx
+        .select({ id: cultivators.id })
+        .from(cultivators)
+        .where(eq(cultivators.id, cultivatorId))
+        .limit(1);
+      if (!cultivator) {
+        throw new CreationServiceError('道友查无此人', 404);
+      }
+
+      const row = { ...preparedRow };
+      let replacedWasEquipped = false;
+      if (replaceId) {
+        // 验证被替换产物归属
+        const existing = await creationProductRepository.findById(
+          replaceId,
+          tx,
+        );
+        if (!existing || existing.cultivatorId !== cultivatorId) {
+          throw new CreationServiceError('目标产物不存在或不属于你', 403);
+        }
+        if (existing.productType !== productType) {
+          throw new CreationServiceError('只能替换同类产物', 400);
+        }
+        replacedWasEquipped = existing.isEquipped;
+        await creationProductRepository.deleteById(replaceId, tx);
+        if (productType === 'artifact') {
+          inventoryChanges.push({
+            kind: 'artifacts',
+            operation: 'remove',
+            id: replaceId,
+          });
+        }
+      }
+
+      if (isEquipManagedProductType(productType)) {
+        const currentCount = await creationProductRepository.countByType(
+          cultivatorId,
+          productType,
+          tx,
+        );
+        if (
+          currentCount >= MAX_OWNED_CREATION_PRODUCTS_PER_TYPE &&
+          !replaceId
+        ) {
+          throw new CreationServiceError(
+            `${getCreationProductTypeLabel(productType)}数量已达上限，请先选择一项替换`,
+            409,
+          );
+        }
+
+        const effectiveLimit = getEffectiveProductLimit(productType);
+        const equippedCount =
+          await creationProductRepository.countEquippedByType(
+            cultivatorId,
+            productType,
+            tx,
+          );
+        row.isEquipped =
+          replacedWasEquipped ||
+          (effectiveLimit !== null && equippedCount < effectiveLimit);
+        if (
+          productType === 'skill' &&
+          (await loadCultivatorSectState(cultivatorId, tx))?.status === 'active'
+        ) {
+          row.isEquipped = false;
+        }
+      }
+
+      const record = await creationProductRepository.insert(row, tx);
+      const insertedId = record.id;
+      if (productType === 'artifact') {
+        inventoryChanges.push({
+          kind: 'artifacts',
+          operation: 'upsert',
+          item: toArtifactFromProduct(record),
+        });
+      }
+
+      return {
+        result: buildCreationResult(outcome, row, insertedId),
+        inventoryChanges,
+        afterCommit: async () => {
+          await cachePendingCreation(cultivatorId, craftType, null);
+        },
+      };
+    },
   };
 }
 
@@ -840,8 +1027,7 @@ export async function abandonPending(
   cultivatorId: string,
   craftType: string,
 ): Promise<void> {
-  const pendingKey = `creation_pending_v2:${cultivatorId}:${craftType}`;
-  await redis.del(pendingKey);
+  await cachePendingCreation(cultivatorId, craftType, null);
 }
 
 /**
@@ -868,23 +1054,31 @@ function extractAffixSummary(
 }
 
 /** 造物消耗预估（供 GET /api/craft 使用） */
-export function estimateCost(
+export async function estimateCost(
   selectedMaterials: Array<{ rank: Quality }>,
   craftType: string,
   fates: PreHeavenFate[] = [],
-): { spiritStones?: number; comprehension?: number } {
+  cultivatorId?: string,
+): Promise<{ spiritStones?: number; comprehension?: number }> {
   const productType = getCreationProductTypeFromCraftType(craftType);
   if (!productType) return {};
 
   const highestMaterialRank = calculateHighestMaterialRank(selectedMaterials);
   const fateContext = evaluateFateContext(fates);
   if (productType === 'artifact') {
+    const baseCost = calculateFateAdjustedCraftCost(
+      highestMaterialRank,
+      'spiritStone',
+      getRefineSpiritStoneMultiplier(fateContext),
+    );
     return {
-      spiritStones: calculateFateAdjustedCraftCost(
-        highestMaterialRank,
-        'spiritStone',
-        getRefineSpiritStoneMultiplier(fateContext),
-      ),
+      spiritStones: cultivatorId
+        ? await sectOrganizationFacade.applyCraftDiscount(
+            cultivatorId,
+            baseCost,
+            'sect.craft.refinery',
+          )
+        : baseCost,
     };
   }
 

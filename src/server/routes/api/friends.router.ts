@@ -1,4 +1,4 @@
-import { requireActiveCultivator } from '@server/lib/hono/middleware';
+import { requireActiveCultivatorRef } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
 import {
@@ -17,18 +17,18 @@ const CultivatorIdSchema = z.object({
 
 const router = new Hono<AppEnv>();
 
-router.get('/', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.get('/', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
 
-  const friends = await listFriends(cultivator.id);
+  const friends = await listFriends(cultivator.cultivatorId);
   return c.json({ friends });
 });
 
-router.get('/invite/:cultivatorId', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.get('/invite/:cultivatorId', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
@@ -37,7 +37,7 @@ router.get('/invite/:cultivatorId', requireActiveCultivator(), async (c) => {
     const { cultivatorId } = CultivatorIdSchema.parse({
       cultivatorId: c.req.param('cultivatorId'),
     });
-    const result = await getInviteTarget(cultivator.id, cultivatorId);
+    const result = await getInviteTarget(cultivator.cultivatorId, cultivatorId);
     return c.json(result);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -51,8 +51,8 @@ router.get('/invite/:cultivatorId', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/:cultivatorId', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.post('/:cultivatorId', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
@@ -61,7 +61,7 @@ router.post('/:cultivatorId', requireActiveCultivator(), async (c) => {
     const { cultivatorId } = CultivatorIdSchema.parse({
       cultivatorId: c.req.param('cultivatorId'),
     });
-    const friend = await addFriendPair(cultivator.id, cultivatorId);
+    const friend = await addFriendPair(cultivator.cultivatorId, cultivatorId);
     return c.json({ friend, message: '已加入好友名录' });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -75,8 +75,8 @@ router.post('/:cultivatorId', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.delete('/:cultivatorId', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.delete('/:cultivatorId', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
@@ -85,7 +85,7 @@ router.delete('/:cultivatorId', requireActiveCultivator(), async (c) => {
     const { cultivatorId } = CultivatorIdSchema.parse({
       cultivatorId: c.req.param('cultivatorId'),
     });
-    await removeFriendPair(cultivator.id, cultivatorId);
+    await removeFriendPair(cultivator.cultivatorId, cultivatorId);
     return c.json({ message: '已移出好友名录' });
   } catch (error) {
     if (error instanceof z.ZodError) {

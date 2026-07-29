@@ -5,7 +5,6 @@ import {
   normalizeFates as normalizeSharedFates,
 } from '@shared/lib/fates';
 import type {
-  Cultivator,
   FateGenerationCategory,
   PreHeavenFate,
 } from '@shared/types/cultivator';
@@ -163,10 +162,8 @@ export const FateEngine = {
   },
 
   async generateCandidatePool(
-    cultivator: Cultivator,
     options: FateGenerationOptions | (() => number) = {},
   ): Promise<PreHeavenFate[]> {
-    void cultivator;
     const rng = typeof options === 'function' ? options : options.rng ?? Math.random;
     const candidateCount =
       typeof options === 'function'

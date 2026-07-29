@@ -24,7 +24,7 @@ import type {
   RealmStage,
   RealmType,
 } from '@shared/types/constants';
-import { QUALITY_VALUES, REALM_VALUES } from '@shared/types/constants';
+import { QUALITY_VALUES } from '@shared/types/constants';
 import type { Material } from '@shared/types/cultivator';
 import type { PlayerInfo } from '../types';
 import {
@@ -67,7 +67,7 @@ export class RewardFactory {
 
     // 1. 灵石奖励 (基于挂机收益)
     const rewardHours = this.rollRewardHoursByTier(tier);
-    const yieldOps = YieldCalculator.calculateYield(mapRealm, rewardHours);
+    const yieldOps = YieldCalculator.calculateRealmYield(mapRealm, rewardHours);
     const spiritStones =
       yieldOps.find((op) => op.type === 'spirit_stones')?.value ?? 0;
     if (spiritStones > 0) {
@@ -333,8 +333,8 @@ export class RewardFactory {
   /**
    * 生成材料品质。
    *
-   * 品质由材料自身稀有度主导；副本评级和危险分只影响临界分，
-   * 避免同一副本内所有材料随总评价同步升品。
+   * 以境界历练品质分布为基准，再由材料稀有度、副本评级与危险分
+   * 对整个品质曲线进行连续加权。
    */
   private static rollMaterialQuality(
     mapRealm: RealmType,
@@ -342,53 +342,52 @@ export class RewardFactory {
     dangerScore: number,
     rewardScore: number = 50,
   ): Quality {
-    const realmIndex = REALM_VALUES.indexOf(mapRealm);
     const capQuality = REALM_QUALITY_CAP[mapRealm] || '神品';
     const capIndex = QUALITY_VALUES.indexOf(capQuality);
     const safeRewardScore =
       Number.isFinite(rewardScore) && rewardScore >= 0 && rewardScore <= 100
         ? rewardScore
         : 50;
-
-    const baseIndex = Math.min(realmIndex, QUALITY_VALUES.length - 1);
-    const tierScoreBias: Record<string, number> = {
-      S: 2,
-      A: 1,
+    const safeDangerScore =
+      Number.isFinite(dangerScore) && dangerScore >= 0 && dangerScore <= 100
+        ? dangerScore
+        : 50;
+    const tierRarityBias: Record<string, number> = {
+      S: 0.12,
+      A: 0.06,
       B: 0,
-      C: -2,
-      D: -4,
+      C: -0.06,
+      D: -0.12,
     };
-    const dangerScoreBias =
-      dangerScore >= 80 ? 3 : dangerScore >= 60 ? 2 : dangerScore >= 40 ? 1 : 0;
-    const effectiveScore = Math.max(
+    // 材料自身评分是品质曲线偏移的主因，评级和危险度仅作次级修正。
+    const rarityBias =
+      ((safeRewardScore - 50) / 50) * 0.9 +
+      (tierRarityBias[tier] ?? 0) +
+      ((safeDangerScore - 50) / 50) * 0.06;
+    const baseChanceMap =
+      YieldCalculator.getMaterialQualityChanceMap(mapRealm);
+    const weightedQualities = QUALITY_VALUES.map((quality, index) => ({
+      quality,
+      weight:
+        index <= capIndex
+          ? baseChanceMap[quality] * Math.exp(index * rarityBias)
+          : 0,
+    }));
+    const totalWeight = weightedQualities.reduce(
+      (total, entry) => total + entry.weight,
       0,
-      Math.min(
-        100,
-        safeRewardScore + (tierScoreBias[tier] ?? 0) + dangerScoreBias,
-      ),
     );
-    const rarityOffset =
-      effectiveScore < 20
-        ? -1
-        : effectiveScore < 70
-          ? 0
-          : effectiveScore < 85
-            ? 1
-            : 2;
+    let roll = Math.random() * totalWeight;
+    let fallbackQuality: Quality = QUALITY_VALUES[0];
 
-    const maxAllowedIndex = Math.min(capIndex, baseIndex + 2);
-    const minAllowedIndex = Math.max(0, baseIndex - 1);
+    for (const entry of weightedQualities) {
+      if (entry.weight <= 0) continue;
+      fallbackQuality = entry.quality;
+      roll -= entry.weight;
+      if (roll <= 0) return entry.quality;
+    }
 
-    const lockedIndex = Math.max(
-      minAllowedIndex,
-      Math.min(
-        baseIndex + rarityOffset,
-        maxAllowedIndex,
-        QUALITY_VALUES.length - 1,
-      ),
-    );
-
-    return QUALITY_VALUES[lockedIndex];
+    return fallbackQuality;
   }
 
   /**

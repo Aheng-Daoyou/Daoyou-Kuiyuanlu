@@ -5,14 +5,14 @@ import {
   type ProductRecordLike,
 } from '@app/components/feature/products';
 import { InkList, InkNotice } from '@app/components/ui';
+import type { CultivatorInspectionData } from '@shared/contracts/player';
 import type {
   Artifact,
   CultivationTechnique,
-  Cultivator,
   Skill,
 } from '@shared/types/cultivator';
 
-function getEquippedArtifacts(cultivator: Cultivator): Artifact[] {
+function getEquippedArtifacts(cultivator: CultivatorInspectionData): Artifact[] {
   const artifacts = cultivator.inventory?.artifacts ?? [];
   const equippedIds = [
     cultivator.equipped?.weapon,
@@ -43,7 +43,7 @@ function toSkillDisplayModel(skill: Skill) {
 export function CultivatorLoadoutSections({
   cultivator,
 }: {
-  cultivator: Cultivator;
+  cultivator: CultivatorInspectionData;
 }) {
   const equippedArtifacts = getEquippedArtifacts(cultivator);
   const cultivations = cultivator.cultivations ?? [];

@@ -3,7 +3,7 @@ import { InkButton } from '@app/components/ui/InkButton';
 import { InkList } from '@app/components/ui/InkList';
 import { InkNotice } from '@app/components/ui/InkNotice';
 import { fetchJsonCached } from '@app/lib/client/requestCache';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import { usePlayerSession } from '@app/lib/resources/player';
 import type { BattleRecordUnitSummary } from '@shared/types/battle';
 import { useEffect, useState } from 'react';
 
@@ -18,7 +18,7 @@ type BattleSummary = {
 export function RecentBattles() {
   const [records, setRecords] = useState<BattleSummary[]>([]);
   const [loading, setLoading] = useState(false);
-  const { cultivator } = usePlayerStateView();
+  const cultivator = usePlayerSession().data?.activeCultivator;
 
   useEffect(() => {
     let cancelled = false;

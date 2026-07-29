@@ -1,5 +1,5 @@
 import { useInkUI } from '@app/components/providers/InkUIProvider';
-import { consumePlayerStateMutation } from '@app/lib/player-state/store';
+import { consumeResourceMutation } from '@app/lib/resources/mutations';
 import type {
   DungeonOption,
   DungeonRecoverAction,
@@ -22,11 +22,10 @@ async function readDungeonMutation<T>(
     throw new Error(data.message || data.error || `HTTP ${response.status}`);
   }
 
-  if (data.success && data.state) {
-    return consumePlayerStateMutation<T>(data);
+  if (!data.success || !data.state) {
+    throw new Error('副本状态响应协议无效');
   }
-
-  return data as T;
+  return consumeResourceMutation<T>(data);
 }
 
 /**
@@ -111,9 +110,10 @@ export function useDungeonActions() {
           try {
             setProcessing(true);
             const res = await fetch('/api/dungeon/quit', { method: 'POST' });
-
-            if (!res.ok) {
-              throw new Error('放弃失败');
+            const data =
+              await readDungeonMutation<{ state?: DungeonState }>(res);
+            if ('conflict' in data) {
+              throw new Error(data.message ?? '放弃失败');
             }
 
             pushToast({ message: '已放弃探索', tone: 'success' });

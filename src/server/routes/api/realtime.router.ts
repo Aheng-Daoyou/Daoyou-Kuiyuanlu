@@ -1,18 +1,23 @@
-import { requireActiveCultivatorRef } from '@server/lib/hono/middleware';
+import { requireUser } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
+import { db } from '@server/lib/drizzle/db';
+import { cultivators, sectMemberships } from '@server/lib/drizzle/schema';
 import { isAllowedRealtimeOrigin } from '@server/lib/http/realtimeOrigin';
 import {
   recordRealtimeConnectionClose,
   recordRealtimeConnectionHeartbeat,
   recordRealtimeConnectionOpen,
 } from '@server/lib/services/onlinePresenceService';
-import { subscribePlayerStateEvents } from '@server/lib/services/playerStateBroadcaster';
+import { subscribeResourceEvents } from '@server/lib/services/playerStateBroadcaster';
+import { subscribeSectChatMessages } from '@server/lib/services/sectChatBroadcaster';
 import { subscribeWorldChatMessages } from '@server/lib/services/worldChatBroadcaster';
 import {
   REALTIME_CHANNELS,
   type RealtimeChannel,
   type RealtimeServerEvent,
 } from '@shared/contracts/realtime';
+import type { ResourceScope } from '@shared/contracts/resources';
+import { and, eq } from 'drizzle-orm';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { upgradeWebSocket } from 'hono/bun';
 import type { WSContext } from 'hono/ws';
@@ -34,7 +39,8 @@ const ipConnectionCounts = new Map<string, number>();
 
 type ConnectionIdentity = {
   userId: string;
-  cultivatorId: string;
+  cultivatorId: string | null;
+  sectId: string | null;
   ip: string;
 };
 
@@ -93,15 +99,18 @@ function reserveConnection(
   if (
     (userConnectionCounts.get(identity.userId) ?? 0) >=
       MAX_CONNECTIONS_PER_USER ||
-    (cultivatorConnectionCounts.get(identity.cultivatorId) ?? 0) >=
-      MAX_CONNECTIONS_PER_CULTIVATOR ||
+    (identity.cultivatorId !== null &&
+      (cultivatorConnectionCounts.get(identity.cultivatorId) ?? 0) >=
+        MAX_CONNECTIONS_PER_CULTIVATOR) ||
     (ipConnectionCounts.get(identity.ip) ?? 0) >= MAX_CONNECTIONS_PER_IP
   ) {
     return null;
   }
 
   incrementCount(userConnectionCounts, identity.userId);
-  incrementCount(cultivatorConnectionCounts, identity.cultivatorId);
+  if (identity.cultivatorId) {
+    incrementCount(cultivatorConnectionCounts, identity.cultivatorId);
+  }
   incrementCount(ipConnectionCounts, identity.ip);
   let released = false;
 
@@ -113,7 +122,9 @@ function reserveConnection(
       }
       released = true;
       decrementCount(userConnectionCounts, identity.userId);
-      decrementCount(cultivatorConnectionCounts, identity.cultivatorId);
+      if (identity.cultivatorId) {
+        decrementCount(cultivatorConnectionCounts, identity.cultivatorId);
+      }
       decrementCount(ipConnectionCounts, identity.ip);
     },
   };
@@ -132,14 +143,29 @@ const reserveRealtimeConnection = (async (c, next) => {
     return c.json({ success: false, error: '未授权访问' }, 401);
   }
 
-  const ref = c.get('activeCultivatorRef');
-  if (!ref) {
-    return c.json({ success: false, error: '当前没有活跃角色' }, 404);
-  }
+  const active = await db.query.cultivators.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(cultivators.userId, user.id),
+      eq(cultivators.status, 'active'),
+    ),
+  });
 
   const reservation = reserveConnection({
     userId: user.id,
-    cultivatorId: ref.cultivatorId,
+    cultivatorId: active?.id ?? null,
+    sectId:
+      active
+        ? (
+        await db.query.sectMemberships.findFirst({
+          columns: { sectId: true },
+          where: and(
+                eq(sectMemberships.cultivatorId, active.id),
+            eq(sectMemberships.status, 'active'),
+          ),
+        })
+          )?.sectId ?? null
+        : null,
     ip: getClientIp(c),
   });
   if (!reservation) {
@@ -164,7 +190,7 @@ const reserveRealtimeConnection = (async (c, next) => {
 router.get(
   '/',
   requireRealtimeOrigin,
-  requireActiveCultivatorRef(),
+  requireUser(),
   reserveRealtimeConnection,
   upgradeWebSocket((rawContext) => {
     const c = rawContext as Context<AppEnv>;
@@ -176,6 +202,15 @@ router.get(
 
     const channels = parseChannels(c.req.query('channels'));
     const { cultivatorId } = reservation;
+    const resourceScopes: ResourceScope[] = [
+      { kind: 'account', id: reservation.userId },
+      ...(cultivatorId
+        ? ([{ kind: 'cultivator', id: cultivatorId }] satisfies ResourceScope[])
+        : []),
+      ...(reservation.sectId
+        ? ([{ kind: 'sect', id: reservation.sectId }] satisfies ResourceScope[])
+        : []),
+    ];
     let lastClientActivityAt = Date.now();
     let heartbeat: ReturnType<typeof setInterval> | undefined;
     let closed = false;
@@ -199,7 +234,7 @@ router.get(
         }
       }
       reservation.release();
-      recordRealtimeConnectionClose(cultivatorId);
+      if (cultivatorId) recordRealtimeConnectionClose(cultivatorId);
     };
     const closeConnection = (ws: WSContext, code: number, reason: string) => {
       if (closed) {
@@ -235,14 +270,14 @@ router.get(
     return {
       onOpen(_event, ws) {
         lastClientActivityAt = Date.now();
-        recordRealtimeConnectionOpen(cultivatorId);
+        if (cultivatorId) recordRealtimeConnectionOpen(cultivatorId);
 
         if (channels.includes('player-state')) {
           unsubscribers.push(
-            subscribePlayerStateEvents(cultivatorId, (events) => {
+            subscribeResourceEvents(resourceScopes, (changes) => {
               sendEnvelope(ws, {
                 type: 'player-state.events',
-                payload: { events },
+                payload: { changes },
               });
             }),
           );
@@ -256,6 +291,16 @@ router.get(
               });
             }),
           );
+          if (reservation.sectId) {
+            unsubscribers.push(
+              subscribeSectChatMessages(reservation.sectId, (message) => {
+                sendEnvelope(ws, {
+                  type: 'world-chat.message',
+                  payload: message,
+                });
+              }),
+            );
+          }
         }
 
         heartbeat = setInterval(() => {
@@ -268,7 +313,7 @@ router.get(
             );
             return;
           }
-          recordRealtimeConnectionHeartbeat(cultivatorId);
+          if (cultivatorId) recordRealtimeConnectionHeartbeat(cultivatorId);
           sendEnvelope(ws, {
             type: 'ping',
             payload: { serverTime: new Date().toISOString() },
@@ -276,7 +321,7 @@ router.get(
         }, HEARTBEAT_INTERVAL_MS);
         sendEnvelope(ws, {
           type: 'ready',
-          payload: { cultivatorId, channels },
+          payload: { cultivatorId, channels, resourceScopes },
         });
       },
       onMessage(event, ws) {

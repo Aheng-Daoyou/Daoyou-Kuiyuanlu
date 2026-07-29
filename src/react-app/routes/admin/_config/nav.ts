@@ -41,6 +41,11 @@ export const adminNavItems: AdminNavItem[] = [
     href: '/admin/reputation-shop',
   },
   {
+    title: '宗门宝库管理',
+    description: '配置宗门贡献兑换商品',
+    href: '/admin/sect-shop',
+  },
+  {
     title: '模板中心',
     description: '运营文案模板管理',
     href: '/admin/templates',

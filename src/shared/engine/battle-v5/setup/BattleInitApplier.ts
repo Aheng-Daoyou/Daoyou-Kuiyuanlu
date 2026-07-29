@@ -1,7 +1,8 @@
-import type { Cultivator } from '@shared/types/cultivator';
 import { getBodyCultivationBattleInitHooks } from '@shared/lib/bodyCultivation/effects';
-import { DefaultAbilitySelectionStrategy } from '../abilities/AbilitySelectionStrategy';
-import { createCombatUnitFromCultivator } from '../adapters/CultivatorCombatAdapter';
+import {
+  createCombatUnitFromCultivator,
+  type CultivatorCombatInput,
+} from '../adapters/CultivatorCombatAdapter';
 import type { AttributeModifierConfig } from '../core/configs';
 import { AttributeType } from '../core/types';
 import { BuffFactory } from '../factories/BuffFactory';
@@ -87,12 +88,9 @@ function applyStartingBuffs(
   for (const entry of spec.startingBuffs) {
     const buff = BuffFactory.create(entry.buff);
     const source = entry.source === 'opponent' ? counterpart : unit;
-    unit.buffs.addBuff(buff, source);
-
     const targetLayers = Math.max(1, Math.floor(entry.stacks ?? 1));
-    if (targetLayers > 1) {
-      buff.setLayer(targetLayers);
-    }
+    buff.setLayer(targetLayers);
+    unit.buffs.addBuff(buff, source);
 
     if (!buff.isPermanent()) {
       buff.refreshToDuration(entry.buff.duration);
@@ -143,7 +141,7 @@ function applyResourceState(
   const resolvedMp = resolveCurrentResource(resourceState.mp, unit.getMaxMp());
 
   if (typeof resolvedHp === 'number') {
-    unit.setHp(resolvedHp);
+    unit.setHp(resolvedHp, 'initialization');
   }
 
   if (typeof resolvedMp === 'number') {
@@ -158,7 +156,7 @@ function applyResourceState(
 
 function mergeBodyCultivationInit(
   spec: BattleUnitInitSpec | undefined,
-  cultivator: Cultivator,
+  cultivator: CultivatorCombatInput,
 ): BattleUnitInitSpec | undefined {
   const hooks = getBodyCultivationBattleInitHooks(cultivator.condition);
   const existingBuffIds = new Set(
@@ -197,11 +195,6 @@ function applyUnitInit(
 
   applyBaseAttributeOverrides(unit, spec);
   mountModifierConfigs(unit, spec.modifiers, `direct:${unit.id}`);
-  if (spec.selectionStrategySettings) {
-    unit.abilities.setSelectionStrategy(
-      new DefaultAbilitySelectionStrategy(spec.selectionStrategySettings),
-    );
-  }
   const deferredResourceState = applyStatusRefs(unit, counterpart, spec.statusRefs);
   applyStartingBuffs(unit, counterpart, spec);
   unit.updateDerivedStats();
@@ -209,8 +202,8 @@ function applyUnitInit(
 }
 
 export function createBattleUnitsWithInit(
-  player: Cultivator,
-  opponent: Cultivator,
+  player: CultivatorCombatInput,
+  opponent: CultivatorCombatInput,
   config?: BattleInitConfigV5,
 ): { playerUnit: Unit; opponentUnit: Unit } {
   const playerUnit = createCombatUnitFromCultivator(player);

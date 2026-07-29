@@ -8,6 +8,7 @@ description: Daoyou PostgreSQL、Drizzle schema/migrations、repositories、tran
 ## Read First
 
 - `drizzle.config.ts`
+- `drizzle.auth.config.ts`
 - `src/server/lib/drizzle/db.ts`
 - `src/server/lib/drizzle/schema.ts`
 - `src/server/lib/auth/schema.ts`
@@ -21,9 +22,9 @@ description: Daoyou PostgreSQL、Drizzle schema/migrations、repositories、tran
 
 - The Drizzle entrypoints are `src/server/lib/drizzle/db.ts` and `src/server/lib/drizzle/schema.ts`.
 - Do not create parallel `src/db` or `src/server/db` layers.
-- Drizzle Kit outputs to `drizzle/`, uses PostgreSQL, and filters `wanjiedaoyou_*` tables only.
-- Better Auth tables are managed by Better Auth migrations, not the main Drizzle migration stream. Schema defaults to `BETTER_AUTH_DB_SCHEMA || "better_auth"`.
-- `pgPool` sets PostgreSQL `search_path` to Better Auth schema plus `public`, max pool size 4, and reuses the Drizzle instance on `globalThis` outside production.
+- The main Drizzle Kit config outputs to `drizzle/` and filters `wanjiedaoyou_*` business tables only.
+- Better Auth uses the separate `drizzle.auth.config.ts` and `drizzle-auth/` migration stream. Its schema is fixed to `better_auth`, with independent migration history.
+- Runtime database access shares one module-level Bun `SQL` pool and one Drizzle instance. `DATABASE_URL` is the only database environment variable; pool and PostgreSQL session settings are fixed in `src/server/lib/drizzle/db.ts`.
 - Use `getExecutor(tx?)` and accept `DbExecutor` / `DbTransaction` when code may be called inside a transaction.
 - Redis also stores important state: locks, market cache, world chat, rate limits, rankings, and temporary generation data.
 
@@ -43,9 +44,9 @@ description: Daoyou PostgreSQL、Drizzle schema/migrations、repositories、tran
 
 1. Locate the owning model and current persistence path before changing schema.
 2. For business tables, edit `src/server/lib/drizzle/schema.ts` and generate/apply Drizzle migrations.
-3. For Better Auth schema changes, use Better Auth scripts (`auth:generate`, `auth:migrate`) instead of main Drizzle.
+3. For Better Auth schema changes, edit `src/server/lib/auth/schema.ts` and use `auth:generate` / `auth:migrate` instead of the main Drizzle flow.
 4. Preserve transaction propagation by passing `tx` through repositories/services.
-5. For JSONB models, update runtime validators/parsers and tests together.
+5. For JSONB models, update runtime validators/parsers together and verify them through lint/build and contract inspection.
 6. Check Redis keys when behavior is cache, lock, ranking, market, or world-chat related.
 
 ## Do Not
@@ -60,7 +61,7 @@ description: Daoyou PostgreSQL、Drizzle schema/migrations、repositories、tran
 
 ## Verify
 
-- Persistence changes: run nearest repository/service tests.
+- Persistence changes: inspect query and transaction paths, then run lint/build; do not add repository/service/database tests.
 - Schema changes: inspect generated migrations and `drizzle/meta/_journal.json`.
-- Auth schema changes: run the relevant Better Auth migration/generation command in an environment with required auth env variables.
-- JSONB contract changes: run parser/mapper tests and build.
+- Auth schema changes: inspect `drizzle-auth/`, run `auth:generate`, and verify it reports no unexpected schema differences.
+- JSONB contract changes: inspect parser/mapper call paths and run build.

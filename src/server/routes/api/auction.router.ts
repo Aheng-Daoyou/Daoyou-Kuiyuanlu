@@ -1,21 +1,17 @@
-import * as auctionRepository from '@server/lib/repositories/auctionRepository';
 import {
-  requireActiveCultivator,
+  redisLockErrorResponse,
+  requireActiveCultivatorRef,
 } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
+import * as auctionRepository from '@server/lib/repositories/auctionRepository';
+import { AuctionServiceError } from '@server/lib/services/AuctionService';
 import {
-  commitPlayerStateMutation,
-  type StateChangeDescriptor,
-  toPlayerStateMutationResponse,
-} from '@server/lib/services/PlayerStateMutationService';
-import {
-  AuctionServiceError,
-  buyItem,
-  cancelListing,
-  clearAuctionListingsCache,
-  listItem,
-} from '@server/lib/services/AuctionService';
+  buyAuctionListing,
+  cancelAuctionListing,
+  listAuctionItem,
+} from '@server/lib/services/AuctionApplicationService';
+import { toPlayerStateMutationResponse } from '@server/lib/services/ResourceMutationResponse';
 import { QUALITY_VALUES } from '@shared/types/constants';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -73,8 +69,8 @@ function getAuctionErrorStatus(error: AuctionServiceError): number {
 
 const router = new Hono<AppEnv>();
 
-router.get('/listings', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.get('/listings', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
@@ -87,8 +83,12 @@ router.get('/listings', requireActiveCultivator(), async (c) => {
       itemQuality: c.req.query('itemQuality') || undefined,
       itemName: c.req.query('itemName') || undefined,
       sellerName: c.req.query('sellerName') || undefined,
-      minPrice: c.req.query('minPrice') ? Number(c.req.query('minPrice')) : undefined,
-      maxPrice: c.req.query('maxPrice') ? Number(c.req.query('maxPrice')) : undefined,
+      minPrice: c.req.query('minPrice')
+        ? Number(c.req.query('minPrice'))
+        : undefined,
+      maxPrice: c.req.query('maxPrice')
+        ? Number(c.req.query('maxPrice'))
+        : undefined,
       sortBy: c.req.query('sortBy') || undefined,
       page: c.req.query('page') ? Number(c.req.query('page')) : undefined,
       limit: c.req.query('limit') ? Number(c.req.query('limit')) : undefined,
@@ -96,7 +96,7 @@ router.get('/listings', requireActiveCultivator(), async (c) => {
 
     const result = await auctionRepository.findActiveListings({
       ...params,
-      viewerCultivatorId: cultivator.id,
+      viewerCultivatorId: cultivator.cultivatorId,
     });
     const page = params.page || 1;
     const limit = params.limit || 20;
@@ -122,9 +122,9 @@ router.get('/listings', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/buy', requireActiveCultivator(), async (c) => {
+router.post('/buy', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
@@ -132,49 +132,27 @@ router.post('/buy', requireActiveCultivator(), async (c) => {
   try {
     const { listingId } = BuySchema.parse(await c.req.json());
 
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'auction_buy',
-      run: async (tx) => {
-        await buyItem(
-          {
-            listingId,
-            buyerCultivatorId: cultivator.id,
-            buyerCultivatorName: cultivator.name,
-          },
-          { tx, deferCacheClear: true },
-        );
-
-        return {
-          result: {
-            message: '成功购入物品，请查收邮件',
-          },
-          changes: [
-            {
-              domain: 'currency',
-              eventType: 'currency.auction.spent',
-              invalidates: ['currency'],
-            },
-            {
-              domain: 'mail',
-              eventType: 'mail.auction.purchase.created',
-              invalidates: ['mail'],
-            },
-          ],
-        };
+    const committed = await buyAuctionListing({
+      actor: {
+        userId: user.id,
+        cultivatorId: cultivator.cultivatorId,
       },
+      listingId,
     });
-
-    await clearAuctionListingsCache();
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof z.ZodError) {
       return c.json({ error: '参数错误', details: error.issues }, 400);
     }
 
     if (error instanceof AuctionServiceError) {
-      return jsonWithStatus(c, { error: error.message }, getAuctionErrorStatus(error));
+      return jsonWithStatus(
+        c,
+        { error: error.message },
+        getAuctionErrorStatus(error),
+      );
     }
 
     console.error('Auction Buy API Error:', error);
@@ -182,65 +160,49 @@ router.post('/buy', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/list', requireActiveCultivator(), async (c) => {
+router.post('/list', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
 
   try {
-    const { itemType, itemId, price, quantity, visibility, targetCultivatorId } =
-      ListSchema.parse(
-      await c.req.json(),
-    );
+    const {
+      itemType,
+      itemId,
+      price,
+      quantity,
+      visibility,
+      targetCultivatorId,
+    } = ListSchema.parse(await c.req.json());
 
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'auction_list',
-      allowEmpty: true,
-      run: async (tx) => {
-        const result = await listItem(
-          {
-            userId: user.id,
-            cultivatorId: cultivator.id,
-            cultivatorName: cultivator.name,
-            itemType,
-            itemId,
-            price,
-            quantity,
-            visibility,
-            targetCultivatorId,
-          },
-          { tx, deferCacheClear: true },
-        );
-
-        const changes: StateChangeDescriptor[] = [];
-        if (itemType === 'artifact') {
-          changes.push({
-            domain: 'loadout',
-            eventType: 'loadout.auction.listed',
-            invalidates: ['loadout'],
-          });
-        }
-
-        return {
-          result,
-          changes,
-        };
+    const committed = await listAuctionItem({
+      actor: {
+        userId: user.id,
+        cultivatorId: cultivator.cultivatorId,
       },
+      itemType,
+      itemId,
+      price,
+      quantity,
+      visibility,
+      targetCultivatorId,
     });
-
-    await clearAuctionListingsCache();
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof z.ZodError) {
       return c.json({ error: '参数错误', details: error.issues }, 400);
     }
 
     if (error instanceof AuctionServiceError) {
-      return jsonWithStatus(c, { error: error.message }, getAuctionErrorStatus(error));
+      return jsonWithStatus(
+        c,
+        { error: error.message },
+        getAuctionErrorStatus(error),
+      );
     }
 
     console.error('Auction List API Error:', error);
@@ -248,42 +210,32 @@ router.post('/list', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.delete('/:id', requireActiveCultivator(), async (c) => {
+router.delete('/:id', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
 
   try {
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'auction_cancel',
-      run: async (tx) => {
-        await cancelListing(c.req.param('id'), cultivator.id, {
-          tx,
-          deferCacheClear: true,
-        });
-        return {
-          result: {
-            message: '物品已下架，将通过邮件返还',
-          },
-          changes: [
-            {
-              domain: 'mail',
-              eventType: 'mail.auction.cancel.created',
-              invalidates: ['mail'],
-            },
-          ],
-        };
+    const listingId = c.req.param('id');
+    const committed = await cancelAuctionListing({
+      actor: {
+        userId: user.id,
+        cultivatorId: cultivator.cultivatorId,
       },
+      listingId,
     });
-    await clearAuctionListingsCache();
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof AuctionServiceError) {
-      return jsonWithStatus(c, { error: error.message }, getAuctionErrorStatus(error));
+      return jsonWithStatus(
+        c,
+        { error: error.message },
+        getAuctionErrorStatus(error),
+      );
     }
 
     console.error('Auction Cancel API Error:', error);

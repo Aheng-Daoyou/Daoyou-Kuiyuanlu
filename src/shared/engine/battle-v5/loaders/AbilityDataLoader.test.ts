@@ -13,9 +13,9 @@ const { rowsState, selectMock } = vi.hoisted(() => {
 });
 
 vi.mock('@server/lib/drizzle/db', () => ({
-  db: vi.fn(() => ({
+  db: {
     select: selectMock,
-  })),
+  },
 }));
 
 vi.mock('@server/lib/drizzle/schema', () => ({

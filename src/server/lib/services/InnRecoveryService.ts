@@ -8,6 +8,13 @@ import { evaluateFateContext, getInnSpiritStoneMultiplier } from '@shared/lib/fa
 import { ConditionService } from './ConditionService';
 import type { CultivatorCondition } from '@shared/types/condition';
 import type { CultivationProgress, Cultivator } from '@shared/types/cultivator';
+import type { CultivatorDisplayInput } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+
+export type InnRecoveryFacts = CultivatorDisplayInput &
+  Pick<
+    Cultivator,
+    'pre_heaven_fates' | 'cultivation_progress' | 'spirit_stones'
+  >;
 
 export interface InnRecoveryResult {
   spiritStoneCost: number;
@@ -20,7 +27,7 @@ export interface InnRecoveryResult {
 
 export const InnRecoveryService = {
   buildRecoveryResult(
-    cultivator: Cultivator,
+    cultivator: InnRecoveryFacts,
     now: Date = new Date(),
     rng: () => number = Math.random,
   ): InnRecoveryResult {

@@ -4,21 +4,10 @@ import {
   runExpiredDataCleanupJob,
   runMarketRefreshCronJob,
   runMaterialLibraryDailyGenerationJob,
-  runPlayerStateEventsCleanupJob,
+  runResourceReplayCleanupJob,
   runRankRewardsJob,
   runTowerEnemySetRefreshJob,
 } from './internalCron';
-
-type BunCronTask = {
-  ref?: () => void;
-  stop?: () => void;
-  unref?: () => void;
-};
-
-type BunCronRegistrar = (
-  schedule: string,
-  callback: () => void | Promise<void>,
-) => BunCronTask;
 
 const AUCTION_EXPIRE_SCHEDULE = '*/2 * * * *';
 const BET_BATTLE_EXPIRE_SCHEDULE = '*/2 * * * *';
@@ -27,25 +16,13 @@ const RANK_REWARDS_SCHEDULE = '0 16 * * *';
 // Market refresh: every 5 minutes to pre-generate listings before 15-min cycle ends
 const MARKET_REFRESH_SCHEDULE = '*/5 * * * *';
 const TOWER_ENEMY_SETS_SCHEDULE = '0 * * * *';
-const PLAYER_STATE_EVENTS_CLEANUP_SCHEDULE = '30 18 * * *';
+const RESOURCE_REPLAY_CLEANUP_SCHEDULE = '30 18 * * *';
 const EXPIRED_DATA_CLEANUP_SCHEDULE = '45 18 * * *';
 // 17:00 UTC equals 01:00 Asia/Shanghai.
 const MATERIAL_LIBRARY_DAILY_GENERATION_SCHEDULE = '0 17 * * *';
 
 let schedulerRegistered = false;
-let scheduledTasks: BunCronTask[] = [];
-
-function getBunCronRegistrar(): BunCronRegistrar | null {
-  const bunValue = (
-    globalThis as typeof globalThis & {
-      Bun?: {
-        cron?: BunCronRegistrar;
-      };
-    }
-  ).Bun;
-
-  return typeof bunValue?.cron === 'function' ? bunValue.cron : null;
-}
+let scheduledTasks: Bun.CronJob[] = [];
 
 async function runScheduledJob(
   jobName: string,
@@ -58,43 +35,43 @@ async function runScheduledJob(
   }
 }
 
-export function registerInternalCronJobs(options: {
-  bunCron?: BunCronRegistrar;
-  enabled?: boolean;
-} = {}): BunCronTask[] {
-  const { bunCron = getBunCronRegistrar(), enabled = process.env.NODE_ENV === 'production' } =
-    options;
+export function registerInternalCronJobs(
+  options: {
+    enabled?: boolean;
+  } = {},
+): Bun.CronJob[] {
+  const { enabled = process.env.NODE_ENV === 'production' } = options;
 
-  if (!enabled || schedulerRegistered || !bunCron) {
+  if (!enabled || schedulerRegistered) {
     return scheduledTasks;
   }
 
   scheduledTasks = [
-    bunCron(AUCTION_EXPIRE_SCHEDULE, () =>
+    Bun.cron(AUCTION_EXPIRE_SCHEDULE, () =>
       runScheduledJob('auction-expire', runAuctionExpireJob),
     ),
-    bunCron(BET_BATTLE_EXPIRE_SCHEDULE, () =>
+    Bun.cron(BET_BATTLE_EXPIRE_SCHEDULE, () =>
       runScheduledJob('bet-battle-expire', runBetBattleExpireJob),
     ),
-    bunCron(RANK_REWARDS_SCHEDULE, () =>
+    Bun.cron(RANK_REWARDS_SCHEDULE, () =>
       runScheduledJob('rank-rewards', runRankRewardsJob),
     ),
-    bunCron(MARKET_REFRESH_SCHEDULE, () =>
+    Bun.cron(MARKET_REFRESH_SCHEDULE, () =>
       runScheduledJob('market-refresh', runMarketRefreshCronJob),
     ),
-    bunCron(TOWER_ENEMY_SETS_SCHEDULE, () =>
+    Bun.cron(TOWER_ENEMY_SETS_SCHEDULE, () =>
       runScheduledJob('tower-enemy-sets', runTowerEnemySetRefreshJob),
     ),
-    bunCron(PLAYER_STATE_EVENTS_CLEANUP_SCHEDULE, () =>
+    Bun.cron(RESOURCE_REPLAY_CLEANUP_SCHEDULE, () =>
       runScheduledJob(
-        'player-state-events-cleanup',
-        runPlayerStateEventsCleanupJob,
+        'resource-replay-cleanup',
+        runResourceReplayCleanupJob,
       ),
     ),
-    bunCron(EXPIRED_DATA_CLEANUP_SCHEDULE, () =>
+    Bun.cron(EXPIRED_DATA_CLEANUP_SCHEDULE, () =>
       runScheduledJob('expired-data-cleanup', runExpiredDataCleanupJob),
     ),
-    bunCron(MATERIAL_LIBRARY_DAILY_GENERATION_SCHEDULE, () =>
+    Bun.cron(MATERIAL_LIBRARY_DAILY_GENERATION_SCHEDULE, () =>
       runScheduledJob(
         'material-library-daily-generation',
         runMaterialLibraryDailyGenerationJob,
@@ -110,7 +87,7 @@ export function registerInternalCronJobs(options: {
     rankRewardsLocal: '00:00 Asia/Shanghai',
     marketRefresh: MARKET_REFRESH_SCHEDULE,
     towerEnemySets: TOWER_ENEMY_SETS_SCHEDULE,
-    playerStateEventsCleanupUtc: PLAYER_STATE_EVENTS_CLEANUP_SCHEDULE,
+    resourceReplayCleanupUtc: RESOURCE_REPLAY_CLEANUP_SCHEDULE,
     expiredDataCleanupUtc: EXPIRED_DATA_CLEANUP_SCHEDULE,
     materialLibraryDailyGenerationUtc:
       MATERIAL_LIBRARY_DAILY_GENERATION_SCHEDULE,

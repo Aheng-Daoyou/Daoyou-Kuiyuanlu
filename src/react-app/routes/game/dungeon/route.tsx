@@ -1,4 +1,9 @@
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import {
+  useCultivatorCondition,
+  useCultivatorIdentity,
+  usePlayerLoadout,
+} from '@app/lib/resources/player';
+import { getCultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { useTaskList } from '@app/lib/hooks/useTaskList';
 import { useDungeonViewModel } from '@app/lib/hooks/dungeon/useDungeonViewModel';
 import { Suspense, useCallback } from 'react';
@@ -16,12 +21,26 @@ import { useNavigate, useSearchParams } from 'react-router';
  * 3. 视图渲染：委托给 DungeonViewRenderer 处理
  */
 function DungeonContent() {
-  const {
-    cultivator,
-    display,
-    isLoading: isCultivatorLoading,
-  } = usePlayerStateView();
-  const { tasks } = useTaskList(cultivator?.id);
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const loadout = usePlayerLoadout();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity && condition.data && loadout.data
+      ? {
+          ...identity,
+          condition: condition.data,
+          cultivations: loadout.data.cultivations,
+          equipped: loadout.data.equipped,
+          inventory: { artifacts: loadout.data.artifacts },
+        }
+      : null;
+  const display = cultivator
+    ? getCultivatorDisplaySnapshot(cultivator)
+    : null;
+  const isCultivatorLoading =
+    profile.loading || condition.loading || loadout.loading;
+  const { tasks, loading: tasksLoading } = useTaskList(cultivator?.id);
   const [searchParams] = useSearchParams();
   const preSelectedNodeId = searchParams.get('nodeId');
   const navigate = useNavigate();
@@ -40,7 +59,7 @@ function DungeonContent() {
 
   // 修正加载状态：ViewModel 内部已经处理了副本状态的加载
   // 这里只需要处理用户信息的加载
-  if (isCultivatorLoading && !cultivator) {
+  if ((isCultivatorLoading && !cultivator) || tasksLoading || !tasks) {
     const descriptor = resolveDungeonSceneDescriptor('loading');
     return (
       <DungeonSceneScreen descriptor={descriptor}>

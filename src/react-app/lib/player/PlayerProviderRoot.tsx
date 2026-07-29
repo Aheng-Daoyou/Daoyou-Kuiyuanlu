@@ -1,19 +1,36 @@
-import { GAME_ROUTE_ID, type UserLoaderData } from '@app/lib/router/routeData';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { usePlayerSession } from '@app/lib/resources/player';
+import { resourceStore } from '@app/lib/resources/store';
 import type { ReactNode } from 'react';
-import { useEffect } from 'react';
-import { useRouteLoaderData } from 'react-router';
+import { useEffect, useLayoutEffect } from 'react';
 
-export function PlayerProvider({ children }: { children: ReactNode }) {
-  const gameLoaderData = useRouteLoaderData(GAME_ROUTE_ID) as
-    | UserLoaderData
-    | undefined;
-  const userId = gameLoaderData?.userId ?? null;
-  const actions = usePlayerStateActions();
+export function PlayerProvider({
+  accountId,
+  children,
+}: {
+  accountId: string;
+  children: ReactNode;
+}) {
+  const session = usePlayerSession();
+  const accountBound = resourceStore.isBoundToAccount(accountId);
+  const cultivatorId = accountBound
+    ? session.data?.activeCultivator?.id ?? null
+    : null;
+  const sectId = accountBound
+    ? session.data?.activeCultivator?.sectId ?? null
+    : null;
+
+  useLayoutEffect(() => {
+    resourceStore.bindAccount(accountId);
+    return () => resourceStore.clear();
+  }, [accountId]);
+
+  useLayoutEffect(() => {
+    resourceStore.bindSession(cultivatorId, sectId);
+  }, [cultivatorId, sectId]);
 
   useEffect(() => {
-    void actions.initialize(userId);
-  }, [actions, userId]);
+    resourceStore.setRealtimeScopes(accountId, cultivatorId, sectId);
+  }, [accountId, cultivatorId, sectId]);
 
   return children;
 }

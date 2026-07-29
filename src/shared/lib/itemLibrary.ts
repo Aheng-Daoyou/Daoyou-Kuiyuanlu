@@ -11,6 +11,7 @@ import {
   REALM_VALUES,
 } from '@shared/types/constants';
 import {
+  ALCHEMY_PROPERTY_KEY_VALUES,
   PILL_APPEARANCE_GRADE_VALUES,
   PILL_FAMILY_VALUES,
   PILL_QUOTA_CATEGORY_VALUES,
@@ -71,6 +72,17 @@ const ConditionOperationSchema = z.discriminatedUnion('type', [
   }),
 ]);
 
+const WeightedAlchemyPropertySchema = z.object({
+  key: z.enum(ALCHEMY_PROPERTY_KEY_VALUES),
+  weight: z.number(),
+});
+
+const AlchemyMaterialPropertyVectorSchema = z.object({
+  materialRef: z.string(),
+  materialName: z.string(),
+  properties: z.array(WeightedAlchemyPropertySchema),
+});
+
 const PillSpecSchema = z.object({
   kind: z.literal('pill'),
   family: z.enum(PILL_FAMILY_VALUES),
@@ -83,6 +95,11 @@ const PillSpecSchema = z.object({
     source: z.enum(['improvised', 'formula']),
     formulaId: z.string().optional(),
     sourceMaterials: z.array(z.string()),
+    analysisVersion: z.number().optional(),
+    propertyVector: z.array(WeightedAlchemyPropertySchema).optional(),
+    sourceMaterialVectors: z
+      .array(AlchemyMaterialPropertyVectorSchema)
+      .optional(),
     dominantElement: z.enum(ELEMENT_VALUES).optional(),
     stability: z.number(),
     toxicityRating: z.number(),

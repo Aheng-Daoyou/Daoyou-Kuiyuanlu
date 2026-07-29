@@ -3,7 +3,7 @@ import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkBadge } from '@app/components/ui/InkBadge';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkNotice } from '@app/components/ui/InkNotice';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { getGameConceptIcon } from '@shared/lib/gameConceptDisplay';
 import { Artifact, Consumable, Material } from '@shared/types/cultivator';
 import { useState } from 'react';
@@ -22,7 +22,7 @@ export function MailDetailModal({
 }: MailDetailModalProps) {
   const [isClaiming, setIsClaiming] = useState(false);
   const { pushToast } = useInkUI();
-  const { mutate } = usePlayerStateActions();
+  const { mutate } = useResourceMutation();
 
   if (!mail) return null;
 

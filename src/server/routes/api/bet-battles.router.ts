@@ -1,19 +1,18 @@
-import { requireActiveCultivator } from '@server/lib/hono/middleware';
+import {
+  redisLockErrorResponse,
+  requireActiveCultivatorRef,
+} from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
 import * as betBattleRepository from '@server/lib/repositories/betBattleRepository';
-import { createMessage } from '@server/lib/repositories/worldChatRepository';
+import { BetBattleServiceError } from '@server/lib/services/BetBattleService';
 import {
-  BetBattleServiceError,
-  cancelBetBattle,
-  challengeBetBattle,
-  createBetBattle,
-} from '@server/lib/services/BetBattleService';
-import {
-  commitPlayerStateMutation,
-  type StateChangeDescriptor,
-  toPlayerStateMutationResponse,
-} from '@server/lib/services/PlayerStateMutationService';
+  cancelBetBattleCommand,
+  challengeBetBattleCommand,
+  createBetBattleCommand,
+} from '@server/lib/services/BetBattleApplicationService';
+import { toPlayerStateMutationResponse } from '@server/lib/services/ResourceMutationResponse';
+import { stableCompactStringify } from '@server/utils/llmPayload';
 import { REALM_VALUES } from '@shared/types/constants';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -76,31 +75,6 @@ const statusMap: Record<string, number> = {
   CONSUMABLE_STAKE_DISABLED: 400,
 };
 
-function buildBetStakeChanges(
-  stakeType: 'spirit_stones' | 'item',
-  stakeItem?: { itemType: 'material' | 'artifact' | 'consumable' } | null,
-): StateChangeDescriptor[] {
-  if (stakeType === 'spirit_stones') {
-    return [
-      {
-        domain: 'currency',
-        eventType: 'currency.bet_battle.staked',
-        invalidates: ['currency'],
-      },
-    ];
-  }
-
-  const changes: StateChangeDescriptor[] = [];
-  if (stakeItem?.itemType === 'artifact') {
-    changes.push({
-      domain: 'loadout',
-      eventType: 'loadout.bet_battle.staked',
-      invalidates: ['loadout'],
-    });
-  }
-  return changes;
-}
-
 const router = new Hono<AppEnv>();
 
 router.get('/listings', async (c) => {
@@ -135,8 +109,8 @@ router.get('/listings', async (c) => {
   }
 });
 
-router.get('/my', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.get('/my', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
@@ -148,7 +122,7 @@ router.get('/my', requireActiveCultivator(), async (c) => {
     });
 
     const result = await betBattleRepository.findMyBetBattles(
-      cultivator.id,
+      cultivator.cultivatorId,
       params,
     );
     const page = params.page || 1;
@@ -175,9 +149,9 @@ router.get('/my', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/create', requireActiveCultivator(), async (c) => {
+router.post('/create', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
@@ -186,67 +160,22 @@ router.post('/create', requireActiveCultivator(), async (c) => {
     const { minRealm, maxRealm, taunt, stakeType, spiritStones, stakeItem } =
       CreateBetBattleSchema.parse(await c.req.json());
 
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'bet_battle_create',
-      allowEmpty: true,
-      run: async (tx) => {
-        const result = await createBetBattle(
-          {
-            creatorId: cultivator.id,
-            creatorName: cultivator.name,
-            minRealm,
-            maxRealm,
-            taunt,
-            stakeType,
-            spiritStones,
-            stakeItem,
-          },
-          { tx },
-        );
-
-        return {
-          result: {
-            battleId: result.battleId,
-            message: '赌战发起成功，等待道友应战',
-          },
-          changes: buildBetStakeChanges(stakeType, stakeItem),
-        };
+    const committed = await createBetBattleCommand({
+      actor: {
+        userId: user.id,
+        cultivatorId: cultivator.cultivatorId,
       },
+      minRealm,
+      maxRealm,
+      taunt,
+      stakeType,
+      spiritStones,
+      stakeItem,
     });
-    const result = committed.result;
-
-    const rumor = taunt?.trim()
-      ? `${cultivator.name}在赌战台放话：${taunt.trim()} 有胆便来应战！`
-      : `${cultivator.name}在赌战台摆下战帖，静候各路道友应战！`;
-
-    try {
-      await createMessage({
-        senderUserId: user.id,
-        senderCultivatorId: null,
-        senderName: '修仙界传闻',
-        senderRealm: '炼气',
-        senderRealmStage: '系统',
-        channel: 'system',
-        messageType: 'duel_invite',
-        textContent: rumor,
-        payload: {
-          battleId: result.battleId,
-          routePath: '/game/bet-battle',
-          taunt: taunt?.trim() || undefined,
-          expiresAt: undefined,
-        },
-      });
-    } catch (chatError) {
-      console.error(
-        'Bet battle created but world chat broadcast failed:',
-        chatError,
-      );
-    }
-
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof z.ZodError) {
       return c.json({ error: '参数错误', details: error.issues }, 400);
     }
@@ -264,36 +193,26 @@ router.post('/create', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/:id/cancel', requireActiveCultivator(), async (c) => {
+router.post('/:id/cancel', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
 
   try {
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'bet_battle_cancel',
-      run: async (tx) => {
-        await cancelBetBattle(c.req.param('id'), cultivator.id, { tx });
-        return {
-          result: {
-            message: '赌战已取消，押注将通过邮件返还',
-          },
-          changes: [
-            {
-              domain: 'mail',
-              eventType: 'mail.bet_battle.cancel.created',
-              invalidates: ['mail'],
-            },
-          ],
-        };
+    const battleId = c.req.param('id');
+    const committed = await cancelBetBattleCommand({
+      actor: {
+        userId: user.id,
+        cultivatorId: cultivator.cultivatorId,
       },
+      battleId,
     });
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof BetBattleServiceError) {
       return jsonWithStatus(
         c,
@@ -307,7 +226,7 @@ router.post('/:id/cancel', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/:id/challenge', requireActiveCultivator(), (c) => {
+router.post('/:id/challenge', requireActiveCultivatorRef(), (c) => {
   return c.json(
     {
       error:
@@ -317,9 +236,9 @@ router.post('/:id/challenge', requireActiveCultivator(), (c) => {
   );
 });
 
-router.post('/:id/challenge/v5', requireActiveCultivator(), async (c) => {
+router.post('/:id/challenge/v5', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
+  const cultivator = c.get('activeCultivatorRef');
   if (!user || !cultivator) {
     return c.json({ error: '未授权访问' }, 401);
   }
@@ -328,55 +247,29 @@ router.post('/:id/challenge/v5', requireActiveCultivator(), async (c) => {
     const { stakeType, spiritStones, stakeItem } =
       ChallengeBetBattleSchema.parse(await c.req.json());
 
-    const committed = await commitPlayerStateMutation({
-      userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'bet_battle_challenge',
-      run: async (tx) => {
-        const result = await challengeBetBattle(
-          {
-            battleId: c.req.param('id'),
-            challengerId: cultivator.id,
-            challengerName: cultivator.name,
-            challengerUserId: user.id,
-            stakeType,
-            spiritStones,
-            stakeItem,
-          },
-          { tx },
-        );
-
-        const isWin = result.winnerId === cultivator.id;
-        const resultMessage = isWin
-          ? '你力压对手，赢得赌战押注，奖励已发放邮件。'
-          : '你此战失利，押注归对方所有，下次再战。';
-
-        return {
-          result: {
-            type: 'battle_result',
-            battleResult: result.battleResult,
-            settlement: {
-              isWin,
-              winnerId: result.winnerId,
-              battleId: result.battleId,
-              battleRecordV2Id: result.battleRecordV2Id,
-              resultMessage,
-            },
-          },
-          changes: [
-            ...buildBetStakeChanges(stakeType, stakeItem),
-            {
-              domain: 'mail',
-              eventType: 'mail.bet_battle.settlement.created',
-              invalidates: ['mail'],
-            },
-          ],
-        };
-      },
+    const battleId = c.req.param('id');
+    const requestFingerprint = stableCompactStringify({
+      battleId,
+      cultivatorId: cultivator.cultivatorId,
+      stakeType,
+      spiritStones: spiritStones ?? 0,
+      stakeItem: stakeItem ?? null,
     });
-
+    const committed = await challengeBetBattleCommand({
+      actor: {
+        userId: user.id,
+        cultivatorId: cultivator.cultivatorId,
+      },
+      battleId,
+      requestFingerprint,
+      stakeType,
+      spiritStones,
+      stakeItem,
+    });
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof z.ZodError) {
       return c.json({ error: '参数错误', details: error.issues }, 400);
     }

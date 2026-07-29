@@ -1,27 +1,71 @@
-import { getExecutor, type DbExecutor, type DbTransaction } from '@server/lib/drizzle/db';
+import {
+  getExecutor,
+  type DbExecutor,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
 import * as schema from '@server/lib/drizzle/schema';
 import {
-  consumeMaterialById,
   consumeConsumableById,
-} from '@server/lib/services/cultivatorService';
+  consumeMaterialById,
+} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
+import type {
+  BodyCultivationBreakthroughCostRequirement,
+  BodyCultivationBreakthroughInventoryRequirement,
+  BodyCultivationBreakthroughReadinessData,
+  BodyCultivationBreakthroughRequest,
+} from '@shared/contracts/bodyCultivation';
+import type { ResourceOperationSettlement } from '@shared/engine/resource/types';
+import { canonicalizeAlchemyPropertyKey } from '@shared/lib/alchemyProperties';
 import {
   previewBodyCultivationRealmBreakthrough,
   type BodyCultivationRealmBreakthroughCost,
 } from '@shared/lib/bodyCultivation/breakthrough';
-import type {
-  BodyCultivationBreakthroughCostRequirement,
-  BodyCultivationBreakthroughInventoryRequirement,
-  BodyCultivationBreakthroughRequest,
-  BodyCultivationBreakthroughReadinessData,
-} from '@shared/contracts/bodyCultivation';
-import { canonicalizeAlchemyPropertyKey } from '@shared/lib/alchemyProperties';
 import { isPillConsumable } from '@shared/lib/consumables';
-import { QUALITY_ORDER } from '@shared/types/constants';
 import type { Quality } from '@shared/types/constants';
+import { QUALITY_ORDER } from '@shared/types/constants';
 import type { CompatibleAlchemyPropertyKey } from '@shared/types/consumable';
-import type { Consumable, Cultivator, Material } from '@shared/types/cultivator';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import type {
+  Consumable,
+  Cultivator,
+  Material,
+} from '@shared/types/cultivator';
+import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { mapConsumableRow } from './consumablePersistence';
+
+export type BodyCultivationFacts = Pick<
+  Cultivator,
+  'id' | 'realm' | 'condition'
+>;
+
+export async function loadPlayerBodyCultivationFacts(
+  userId: string,
+  cultivatorId: string,
+  q: DbExecutor | DbTransaction = getExecutor(),
+): Promise<BodyCultivationFacts | null> {
+  const [row] = await q
+    .select({
+      id: schema.cultivators.id,
+      realm: schema.cultivators.realm,
+      condition: schema.cultivators.condition,
+    })
+    .from(schema.cultivators)
+    .where(
+      and(
+        eq(schema.cultivators.id, cultivatorId),
+        eq(schema.cultivators.userId, userId),
+        eq(schema.cultivators.status, 'active'),
+      ),
+    )
+    .limit(1);
+  return row
+    ? {
+        id: row.id,
+        realm: row.realm as Cultivator['realm'],
+        condition:
+          (row.condition as Cultivator['condition'] | null) ?? undefined,
+      }
+    : null;
+}
 
 export interface BodyCultivationBreakthroughCostPlan {
   requirements: BodyCultivationBreakthroughInventoryRequirement[];
@@ -121,19 +165,21 @@ function isMatchingBodyBreakthroughPill(
     }
 
     return (
-      canonicalizeAlchemyPropertyKey(
-        key as CompatibleAlchemyPropertyKey,
-      ) === cost.property && weight > 0
+      canonicalizeAlchemyPropertyKey(key as CompatibleAlchemyPropertyKey) ===
+        cost.property && weight > 0
     );
   });
 }
 
 export function getBodyCultivationBreakthroughPreviewData(
-  cultivator: Cultivator,
+  cultivator: BodyCultivationFacts,
 ): BodyCultivationBreakthroughReadinessData {
-  const preview = previewBodyCultivationRealmBreakthrough(cultivator.condition, {
-    cultivatorRealm: cultivator.realm,
-  });
+  const preview = previewBodyCultivationRealmBreakthrough(
+    cultivator.condition,
+    {
+      cultivatorRealm: cultivator.realm,
+    },
+  );
 
   return {
     nextRealm: preview.nextRealm,
@@ -147,16 +193,10 @@ export function getBodyCultivationBreakthroughPreviewData(
 }
 
 async function getCandidateMaterialsByIds(
-  cultivator: Cultivator,
+  cultivator: BodyCultivationFacts,
   ids: string[],
   q: DbExecutor | DbTransaction,
 ): Promise<Material[]> {
-  const inventoryMatches = cultivator.inventory.materials?.filter(
-    (material) => material.id && ids.includes(material.id),
-  );
-  if (inventoryMatches?.length) {
-    return inventoryMatches;
-  }
   if (ids.length === 0) return [];
 
   const rows = await q
@@ -173,16 +213,10 @@ async function getCandidateMaterialsByIds(
 }
 
 async function getCandidateConsumablesByIds(
-  cultivator: Cultivator,
+  cultivator: BodyCultivationFacts,
   ids: string[],
   q: DbExecutor | DbTransaction,
 ): Promise<Consumable[]> {
-  const inventoryMatches = cultivator.inventory.consumables?.filter(
-    (consumable) => consumable.id && ids.includes(consumable.id),
-  );
-  if (inventoryMatches?.length) {
-    return inventoryMatches;
-  }
   if (ids.length === 0) return [];
 
   const rows = await q
@@ -245,16 +279,28 @@ function assignSelectionToCost(args: {
 }
 
 export async function listEligibleBodyCultivationBreakthroughItems(
-  cultivator: Cultivator,
+  cultivator: BodyCultivationFacts,
+  options: {
+    materialPage: number;
+    consumablePage: number;
+    pageSize: number;
+  },
   q: DbExecutor | DbTransaction = getExecutor(),
 ): Promise<{
   requirements: BodyCultivationBreakthroughCostRequirement[];
   materials: Array<Material & { requirementLabel: string }>;
   consumables: Array<Consumable & { requirementLabel: string }>;
+  pagination: {
+    materials: { page: number; pageSize: number; total: number };
+    consumables: { page: number; pageSize: number; total: number };
+  };
 }> {
-  const preview = previewBodyCultivationRealmBreakthrough(cultivator.condition, {
-    cultivatorRealm: cultivator.realm,
-  });
+  const preview = previewBodyCultivationRealmBreakthrough(
+    cultivator.condition,
+    {
+      cultivatorRealm: cultivator.realm,
+    },
+  );
   const materialCosts = preview.costs.filter(
     (
       cost,
@@ -272,50 +318,86 @@ export async function listEligibleBodyCultivationBreakthroughItems(
     > => cost.type === 'consumable',
   );
 
-  let materialCandidates = cultivator.inventory.materials ?? [];
-  if (materialCandidates.length === 0 && materialCosts.length > 0) {
-    const materialTypes = [
-      ...new Set(materialCosts.map((cost) => cost.materialType)),
-    ];
-    const qualities = [
-      ...new Set(
-        materialCosts.flatMap((cost) => getEligibleQualities(cost.minQuality)),
-      ),
-    ];
-    const rows = await q
-      .select()
-      .from(schema.materials)
-      .where(
-        and(
-          eq(schema.materials.cultivatorId, cultivator.id!),
-          inArray(schema.materials.type, materialTypes),
-          inArray(schema.materials.rank, qualities),
-          sql`${schema.materials.quantity} > 0`,
+  let materialCandidates: Material[] = [];
+  let materialTotal = 0;
+  if (materialCosts.length > 0) {
+    const condition = and(
+      eq(schema.materials.cultivatorId, cultivator.id!),
+      sql`${schema.materials.quantity} > 0`,
+      or(
+        ...materialCosts.map((cost) =>
+          and(
+            eq(schema.materials.type, cost.materialType),
+            inArray(
+              schema.materials.rank,
+              getEligibleQualities(cost.minQuality),
+            ),
+          ),
         ),
-      );
+      ),
+    );
+    const [rows, totals] = await Promise.all([
+      q
+        .select()
+        .from(schema.materials)
+        .where(condition)
+        .orderBy(desc(schema.materials.createdAt), asc(schema.materials.id))
+        .limit(options.pageSize)
+        .offset((options.materialPage - 1) * options.pageSize),
+      q
+        .select({ total: sql<number>`count(*)::int` })
+        .from(schema.materials)
+        .where(condition),
+    ]);
+    materialTotal = Number(totals[0]?.total ?? 0);
     materialCandidates = rows.map(toMaterial);
   }
 
-  let consumableCandidates = cultivator.inventory.consumables ?? [];
-  if (consumableCandidates.length === 0 && consumableCosts.length > 0) {
-    const qualities = [
-      ...new Set(
-        consumableCosts.flatMap((cost) => getEligibleQualities(cost.minQuality)),
-      ),
-    ];
-    const rows = await q
-      .select()
-      .from(schema.consumables)
-      .where(
-        and(
-          eq(schema.consumables.cultivatorId, cultivator.id!),
-          eq(schema.consumables.type, '丹药'),
-          sql`${schema.consumables.quantity} > 0`,
-          sql`${schema.consumables.spec} ->> 'kind' = 'pill'`,
-          sql`${schema.consumables.spec} ->> 'family' = 'tempering'`,
-          inArray(schema.consumables.quality, qualities),
+  let consumableCandidates: Consumable[] = [];
+  let consumableTotal = 0;
+  if (consumableCosts.length > 0) {
+    const condition = and(
+      eq(schema.consumables.cultivatorId, cultivator.id!),
+      eq(schema.consumables.type, '丹药'),
+      sql`${schema.consumables.quantity} > 0`,
+      sql`${schema.consumables.spec} ->> 'kind' = 'pill'`,
+      or(
+        ...consumableCosts.map((cost) =>
+          and(
+            sql`${schema.consumables.spec} ->> 'family' = ${cost.family}`,
+            inArray(
+              schema.consumables.quality,
+              getEligibleQualities(cost.minQuality),
+            ),
+            sql`exists (
+              select 1
+              from jsonb_array_elements(
+                coalesce(
+                  ${schema.consumables.spec} -> 'alchemyMeta' -> 'propertyVector',
+                  '[]'::jsonb
+                )
+              ) as property
+              where property ->> 'key' = ${cost.property}
+                and coalesce((property ->> 'weight')::numeric, 0) > 0
+            )`,
+          ),
         ),
-      );
+      ),
+    );
+    const [rows, totals] = await Promise.all([
+      q
+        .select()
+        .from(schema.consumables)
+        .where(condition)
+        .orderBy(desc(schema.consumables.createdAt), asc(schema.consumables.id))
+        .limit(options.pageSize)
+        .offset((options.consumablePage - 1) * options.pageSize),
+      q
+        .select({ total: sql<number>`count(*)::int` })
+        .from(schema.consumables)
+        .where(condition),
+    ]);
+    consumableTotal = Number(totals[0]?.total ?? 0);
     consumableCandidates = rows.map(mapConsumableRow);
   }
 
@@ -337,17 +419,32 @@ export async function listEligibleBodyCultivationBreakthroughItems(
         ? [{ ...consumable, requirementLabel: matchedCost.label }]
         : [];
     }),
+    pagination: {
+      materials: {
+        page: options.materialPage,
+        pageSize: options.pageSize,
+        total: materialTotal,
+      },
+      consumables: {
+        page: options.consumablePage,
+        pageSize: options.pageSize,
+        total: consumableTotal,
+      },
+    },
   };
 }
 
 export async function planBodyCultivationBreakthroughSelections(
-  cultivator: Cultivator,
+  cultivator: BodyCultivationFacts,
   request: BodyCultivationBreakthroughRequest,
   q: DbExecutor | DbTransaction = getExecutor(),
 ): Promise<BodyCultivationBreakthroughCostPlan> {
-  const preview = previewBodyCultivationRealmBreakthrough(cultivator.condition, {
-    cultivatorRealm: cultivator.realm,
-  });
+  const preview = previewBodyCultivationRealmBreakthrough(
+    cultivator.condition,
+    {
+      cultivatorRealm: cultivator.realm,
+    },
+  );
   if (!preview.nextRealm) {
     throw new Error('肉身已达最高阶位。');
   }
@@ -376,7 +473,9 @@ export async function planBodyCultivationBreakthroughSelections(
     > => cost.type === 'consumable',
   );
   const materialSelections = normalizeSelections(request.materialSelections);
-  const consumableSelections = normalizeSelections(request.consumableSelections);
+  const consumableSelections = normalizeSelections(
+    request.consumableSelections,
+  );
   const selectedMaterials = await getCandidateMaterialsByIds(
     cultivator,
     materialSelections.map((selection) => selection.id),
@@ -469,24 +568,44 @@ export async function consumeBodyCultivationBreakthroughCosts(
   cultivatorId: string,
   plan: BodyCultivationBreakthroughCostPlan,
   tx: DbTransaction,
-): Promise<void> {
+): Promise<ResourceOperationSettlement['inventoryChanges']> {
+  const changes: ResourceOperationSettlement['inventoryChanges'] = [];
   for (const material of plan.materials) {
-    await consumeMaterialById(
+    const change = await consumeMaterialById(
       userId,
       cultivatorId,
       material.id,
       material.quantity,
       tx,
     );
+    changes.push(
+      change.operation === 'upsert'
+        ? { kind: 'materials', operation: 'upsert', item: change.item }
+        : { kind: 'materials', operation: 'remove', id: change.id },
+    );
   }
 
   for (const consumable of plan.consumables) {
-    await consumeConsumableById(
+    const change = await consumeConsumableById(
       userId,
       cultivatorId,
       consumable.id,
       consumable.quantity,
       tx,
     );
+    changes.push(
+      change.remaining
+        ? {
+            kind: 'consumables',
+            operation: 'upsert',
+            item: change.remaining,
+          }
+        : {
+            kind: 'consumables',
+            operation: 'remove',
+            id: consumable.id,
+          },
+    );
   }
+  return changes;
 }

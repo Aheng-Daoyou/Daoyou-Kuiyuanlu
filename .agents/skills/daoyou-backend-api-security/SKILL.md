@@ -16,7 +16,6 @@ description: Daoyou Hono API、认证、授权、Better Auth、Turnstile、admin
 - `src/server/lib/llm/allowedHosts.ts`
 - `src/shared/config/llmProviders.ts`
 - `src/shared/contracts`
-- Existing route/service tests near the target endpoint
 
 ## API Boundary Facts
 
@@ -40,7 +39,7 @@ description: Daoyou Hono API、认证、授权、Better Auth、Turnstile、admin
 - Non-empty `x-llm-base-url` must pass HTTPS and hostname whitelist validation in `src/server/lib/llm/allowedHosts.ts`.
 - The whitelist source of truth is `src/shared/config/llmProviders.ts`; do not add a second server-only allowlist.
 - LLM metrics use in-memory fallback plus Redis key `admin:llm-metrics:events:v1`; do not add a parallel metrics store.
-- Prompt files under `src/server/prompts/*.md` have `id:` headers. New prompt scenes usually also need `LlmSceneId`, caller `sceneId`, schema/constraint, and tests.
+- Prompt files under `src/server/prompts/*.md` have `id:` headers. New prompt scenes usually also need `LlmSceneId`, caller `sceneId`, and schema/constraint updates.
 - Treat LLM output as untrusted input. Numeric state changes need Zod bounds and service/resource-layer guards.
 - `docs/llm-security-defense.md` contains useful historical risk analysis, but parts are stale relative to current code.
 
@@ -58,8 +57,8 @@ description: Daoyou Hono API、认证、授权、Better Auth、Turnstile、admin
 4. Register new API routes in `src/server/routes/api/index.ts`; register internal jobs in `src/server/routes/internal`.
 5. If the route changes shared request/response shape, update `src/shared/contracts` or `src/shared/types`.
 6. If the route calls LLM or consumes LLM output, check prompt/schema bounds and service-layer guards.
-7. If adding a prompt scene, update prompt id, `LlmSceneId`, caller `sceneId`, schema/constraint, and tests together.
-8. Add focused route/service tests.
+7. If adding a prompt scene, update prompt id, `LlmSceneId`, caller `sceneId`, and schema/constraint together.
+8. Verify server behavior with lint/build, code inspection, and focused manual/runtime checks; do not add route/service/provider tests.
 
 ## Do Not
 
@@ -74,7 +73,7 @@ description: Daoyou Hono API、认证、授权、Better Auth、Turnstile、admin
 
 ## Verify
 
-- Route/middleware changes: run the nearest route test.
-- Auth changes: run auth-related tests and manually check cookie/header behavior when relevant.
-- LLM provider changes: run `src/server/lib/llm/allowedHosts.test.ts`.
-- Cron changes: test the route and verify secret behavior for production and non-production assumptions.
+- Route/middleware changes: run lint/build and inspect middleware registration and responses manually.
+- Auth changes: run lint/build and manually check cookie/header behavior when relevant.
+- LLM provider changes: run lint/build and inspect allowlist/validation behavior without provider tests.
+- Cron changes: verify secret behavior for production and non-production assumptions with focused runtime checks.

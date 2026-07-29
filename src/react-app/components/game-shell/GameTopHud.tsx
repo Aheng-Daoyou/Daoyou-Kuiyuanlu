@@ -3,6 +3,9 @@ import {
   BodyCultivationSummaryContent,
   MarrowWashSummaryContent,
 } from '@app/components/feature/cultivator/BodyCultivationPanels';
+import { useActiveSectContextQuery } from '@app/components/feature/sect/sectResources';
+import { getSectIdentityLabels } from '@app/components/feature/sect/sectIdentityDisplay';
+import { useSectIdentityDialog } from '@app/components/feature/sect/useSectIdentityDialog';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import Link from '@app/components/router/AppLink';
 import { InkButton, InkHorizontalScroll } from '@app/components/ui';
@@ -35,9 +38,9 @@ function HudMeter({
   const barPercent = Math.max(0, Math.min(percent, 100));
   const toneClass =
     tone === 'hp'
-      ? 'bg-crimson'
+      ? 'bg-resource-hp'
       : tone === 'mp'
-        ? 'bg-[var(--color-tier-xuan)]'
+        ? 'bg-resource-mp'
         : tone === 'progress'
           ? 'bg-ink'
           : 'bg-wood';
@@ -250,17 +253,24 @@ function StatusDetailBlock({
 export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
   const { closeDialog, openDialog } = useInkUI();
   const navigate = useNavigate();
+  const openSectIdentityDialog = useSectIdentityDialog();
+  const sectContext = useActiveSectContextQuery();
   const {
     state: qiState,
     loading: qiLoading,
     error: qiError,
   } = useQiState({
     cultivatorId: snapshot?.cultivatorId ?? '',
-    autoRefresh: true,
-    refreshInterval: 60_000,
+    autoTick: true,
+    tickInterval: 60_000,
   });
 
   if (!snapshot) return null;
+
+  const sectIdentity =
+    sectContext.data && !sectContext.error
+      ? getSectIdentityLabels(sectContext.data)
+      : null;
 
   const qiDisplay = qiState
     ? `${qiState.current}/${qiState.max}`
@@ -650,20 +660,9 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
 
   const hudStatusItems: HudStatusItem[] = [
     {
-      key: 'status',
-      label: '状态',
-      value: snapshot.statusText,
-      onClick: openStatusInfo,
-    },
-    {
       key: 'realm',
       value: `${snapshot.realm}·${snapshot.realmStage}`,
       onClick: openRealmInfo,
-    },
-    {
-      key: 'body-cultivation',
-      value: snapshot.bodyCultivation.realm.label,
-      onClick: openBodyCultivationInfo,
     },
     {
       key: 'qi',
@@ -686,6 +685,27 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
       onClick: () => {
         void navigate('/game/tianjiao-vault');
       },
+    },
+    ...(sectIdentity
+      ? [
+          {
+            key: 'sect',
+            label: '宗门',
+            value: sectIdentity.sectName,
+            onClick: openSectIdentityDialog,
+          },
+        ]
+      : []),
+    {
+      key: 'status',
+      label: '状态',
+      value: snapshot.statusText,
+      onClick: openStatusInfo,
+    },
+    {
+      key: 'body-cultivation',
+      value: snapshot.bodyCultivation.realm.label,
+      onClick: openBodyCultivationInfo,
     },
   ];
 

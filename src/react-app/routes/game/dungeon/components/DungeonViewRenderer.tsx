@@ -13,7 +13,7 @@ import { isConditionStatusActive } from '@shared/lib/condition';
 import { getConditionStatusTemplate } from '@shared/lib/conditionStatusRegistry';
 import { DungeonViewState } from '@app/lib/hooks/dungeon/useDungeonViewModel';
 import { DungeonAbandonBattleResult } from '@app/lib/hooks/dungeon/useEnemyProbe';
-import { Cultivator } from '@shared/types/cultivator';
+import type { Cultivator } from '@shared/types/cultivator';
 import type { CultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { evaluateNoviceReadiness } from '@shared/lib/noviceGuidance';
 import type { TaskInstance } from '@shared/types/task';
@@ -32,7 +32,14 @@ import { DungeonRunPanel } from './DungeonRunPanel';
 
 interface DungeonViewRendererProps {
   viewState: DungeonViewState;
-  cultivator: Cultivator | null;
+  cultivator:
+    | Pick<
+        Cultivator,
+        'id' | 'realm' | 'attributes' | 'condition' | 'equipped'
+      > & {
+        inventory: Pick<Cultivator['inventory'], 'artifacts'>;
+      }
+    | null;
   displayResources?: CultivatorDisplaySnapshot['resources'];
   tasks: TaskInstance[];
   processing: boolean;
@@ -68,7 +75,7 @@ function resolveDungeonRunSceneDescriptor(
 }
 
 function renderPreparationNotice(
-  cultivator: Cultivator | null,
+  cultivator: Pick<Cultivator, 'realm' | 'condition'> | null,
   displayResources: CultivatorDisplaySnapshot['resources'] | undefined,
   selectedNode: ReturnType<typeof getMapNode> | null,
   readiness: ReturnType<typeof evaluateNoviceReadiness> | null,

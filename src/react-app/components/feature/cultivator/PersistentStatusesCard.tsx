@@ -1,6 +1,12 @@
 import { GameSceneSection } from '@app/components/game-shell/GameSceneSection';
 import { InkButton, InkDialog, type InkDialogState } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import {
+  useCultivatorCondition,
+  useCultivatorIdentity,
+  useCultivatorProgress,
+  usePlayerLoadout,
+} from '@app/lib/resources/player';
+import { getCultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { cn } from '@shared/lib/cn';
 import {
   getBreakthroughPenaltyPercent,
@@ -75,7 +81,25 @@ function formatRecoveryPerHour(value: number): string {
 }
 
 function usePersistentStatusState() {
-  const { cultivator, display } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const progress = useCultivatorProgress();
+  const loadout = usePlayerLoadout();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity && condition.data && progress.data && loadout.data
+      ? {
+          ...identity,
+          condition: condition.data,
+          cultivation_progress: progress.data,
+          cultivations: loadout.data.cultivations,
+          equipped: loadout.data.equipped,
+          inventory: { artifacts: loadout.data.artifacts },
+        }
+      : null;
+  const display = cultivator
+    ? getCultivatorDisplaySnapshot(cultivator)
+    : null;
   const [now] = useState(() => Date.now());
 
   if (!cultivator) return null;

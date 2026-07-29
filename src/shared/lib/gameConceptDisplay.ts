@@ -58,6 +58,11 @@ export const GAME_CONCEPT_DISPLAY_MAP = {
     icon: '🏵️',
     description: '天骄宝阁兑换所需的声望',
   },
+  contribution: {
+    label: '宗门贡献',
+    icon: '📜',
+    description: '宗门任务与建设所得的宗门内部凭证',
+  },
   cultivation_exp: {
     label: '修为',
     icon: '🧘',
@@ -134,14 +139,14 @@ export const GAME_CONCEPT_DISPLAY_MAP = {
   speed: {
     label: '身法',
     icon: '🦶',
-    shortLabel: '速',
-    description: '身形遁速与出手先后，影响闪避与出手顺序',
+    shortLabel: '身',
+    description: '身形腾挪与步法根基，影响闪避、命中与行动速度',
   },
   willpower: {
     label: '神识',
     icon: '👁️',
     shortLabel: '识',
-    description: '神魂坚韧程度，影响状态抗性、暴击伤害',
+    description: '感知与神魂坚韧程度，影响法术防御、控制与行动速度',
   },
   gongfa: {
     label: '功法',
@@ -275,6 +280,12 @@ export const GAME_CONCEPT_DISPLAY_MAP = {
     label: '法术防御',
     icon: '🛡️',
     shortLabel: '法防',
+  },
+  attribute_action_speed: {
+    label: '速度',
+    icon: '💨',
+    shortLabel: '速度',
+    description: '决定战斗中的出手顺序',
   },
   attribute_crit_rate: {
     label: '暴击率',

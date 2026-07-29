@@ -6,7 +6,12 @@ import {
   GameSceneNote,
   GameSceneSection,
 } from '@app/components/game-shell';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import {
+  useCultivatorCondition,
+  useCultivatorIdentity,
+  usePlayerLoadout,
+} from '@app/lib/resources/player';
+import { getCultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import {
   useTowerActions,
   type TowerProbeResponse,
@@ -583,8 +588,27 @@ function TowerSettlementCard({
 }
 
 export default function TowerPage() {
-  const { cultivator, display, isLoading: cultivatorLoading } =
-    usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const loadout = usePlayerLoadout();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity && condition.data && loadout.data
+      ? {
+          ...identity,
+          condition: condition.data,
+          cultivations: loadout.data.cultivations,
+          equipped: loadout.data.equipped,
+          inventory: { artifacts: loadout.data.artifacts },
+        }
+      : null;
+  const display = cultivator
+    ? getCultivatorDisplaySnapshot(cultivator)
+    : null;
+  const cultivatorLoading =
+    profile.loading ||
+    condition.loading ||
+    loadout.loading;
   const { openDialog } = useInkUI();
   const navigate = useNavigate();
   const { payload, setPayload, loading } = useTowerState(!!cultivator);

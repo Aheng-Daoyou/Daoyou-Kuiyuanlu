@@ -1,30 +1,30 @@
 import {
-  requireActiveCultivator,
+  redisLockErrorResponse,
+  requireActiveCultivatorRef,
 } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
 import {
-  batchBuyMarketItems,
-  buyMarketItem,
+  MarketRecycleError,
+  previewAllLowTierSell,
+  previewSell,
+} from '@server/lib/services/MarketRecycleService';
+import {
   getMarketListings,
   MarketServiceError,
   resolveLayer,
   resolveNodeId,
 } from '@server/lib/services/MarketService';
 import {
-  MarketRecycleError,
-  previewSell,
-  confirmSell,
-} from '@server/lib/services/MarketRecycleService';
+  confirmMarketSell,
+  purchaseMarketItems,
+} from '@server/lib/services/MarketApplicationService';
+import { toPlayerStateMutationResponse } from '@server/lib/services/ResourceMutationResponse';
 import {
-  commitPlayerStateMutation,
-  toPlayerStateMutationResponse,
-  type StateChangeDescriptor,
-} from '@server/lib/services/PlayerStateMutationService';
-import { getPlayerProfileCultivatorById } from '@server/lib/services/cultivatorService';
+  getPlayerPreHeavenFates,
+} from '@server/lib/services/cultivator/CultivatorProfileRepository';
 import type { PreHeavenFate } from '@shared/types/cultivator';
-import { RealmType } from '@shared/types/constants';
-import type { SellConfirmResponse } from '@shared/types/market';
+import { readCultivatorRealm } from '@server/lib/services/cultivator/CultivatorFactsReader';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
@@ -48,13 +48,14 @@ const PreviewSchema = z
     itemType: z.enum(['material', 'artifact']).optional(),
     itemIds: z.array(z.string()).min(1).optional(),
     materialIds: z.array(z.string()).min(1).optional(),
+    selection: z.literal('low-tier-all').optional(),
   })
   .superRefine((value, ctx) => {
     const hasItemIds = Array.isArray(value.itemIds) && value.itemIds.length > 0;
     const hasMaterialIds =
       Array.isArray(value.materialIds) && value.materialIds.length > 0;
 
-    if (!hasItemIds && !hasMaterialIds) {
+    if (!hasItemIds && !hasMaterialIds && !value.selection) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: '请至少选择一件物品',
@@ -74,59 +75,27 @@ const ConfirmSchema = z.object({
   sessionId: z.string().min(1),
 });
 
-const SellSchema = z.discriminatedUnion('phase', [PreviewSchema, ConfirmSchema]);
+const SellSchema = z.discriminatedUnion('phase', [
+  PreviewSchema,
+  ConfirmSchema,
+]);
 
 const router = new Hono<AppEnv>();
 
-function marketBuyChanges(): StateChangeDescriptor[] {
-  return [
-    {
-      domain: 'currency',
-      eventType: 'currency.changed',
-      invalidates: ['currency'],
-    },
-  ];
-}
-
-function marketSellChanges(
-  result: SellConfirmResponse,
-): StateChangeDescriptor[] {
-  const changes: StateChangeDescriptor[] = [
-    {
-      domain: 'currency',
-      eventType: 'currency.changed',
-      patch: {
-        currency: {
-          spiritStones: result.remainingSpiritStones,
-        },
-      },
-      invalidates: ['currency'],
-    },
-  ];
-
-  if (result.itemType === 'artifact') {
-    changes.push({
-      domain: 'loadout',
-      eventType: 'loadout.changed',
-      invalidates: ['loadout'],
-    });
-  }
-
-  return changes;
-}
-
-async function loadMarketFates(
-  cultivator: { id: string; userId: string },
-): Promise<PreHeavenFate[]> {
-  const profileCultivator = await getPlayerProfileCultivatorById(
-    cultivator.userId,
-    cultivator.id,
+async function loadMarketFates(cultivator: {
+  cultivatorId: string;
+  userId: string;
+}): Promise<PreHeavenFate[]> {
+  return (
+    (await getPlayerPreHeavenFates(
+      cultivator.userId,
+      cultivator.cultivatorId,
+    )) ?? []
   );
-  return profileCultivator?.pre_heaven_fates ?? [];
 }
 
-router.post('/sell', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.post('/sell', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
@@ -136,38 +105,33 @@ router.post('/sell', requireActiveCultivator(), async (c) => {
 
     if (parsed.phase === 'preview') {
       const itemType = parsed.itemType || 'material';
+      if (parsed.selection === 'low-tier-all') {
+        const result = await previewAllLowTierSell(
+          { id: cultivator.cultivatorId },
+          itemType,
+        );
+        return c.json(result);
+      }
       const itemIds = parsed.itemIds || parsed.materialIds || [];
-      const result = await previewSell({ id: cultivator.id }, itemIds, itemType);
+      const result = await previewSell(
+        { id: cultivator.cultivatorId },
+        itemIds,
+        itemType,
+      );
       return c.json(result);
     }
 
-    let afterCommit: (() => Promise<void>) | undefined;
-    const committed = await commitPlayerStateMutation({
-      userId: cultivator.userId,
-      cultivatorId: cultivator.id,
-      source: 'market_sell',
-      run: async (tx) => {
-        const { afterCommit: sellAfterCommit, ...result } = await confirmSell(
-          cultivator.id,
-          parsed.sessionId,
-          { tx, deferSideEffects: true },
-        );
-        afterCommit = sellAfterCommit
-          ? async () => {
-              await sellAfterCommit();
-            }
-          : undefined;
-        return {
-          result,
-          changes: marketSellChanges(result),
-        };
+    const committed = await confirmMarketSell({
+      actor: {
+        userId: cultivator.userId,
+        cultivatorId: cultivator.cultivatorId,
       },
+      sessionId: parsed.sessionId,
     });
-    if (afterCommit) {
-      await afterCommit();
-    }
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof z.ZodError) {
       return c.json({ error: error.issues[0]?.message || '参数格式错误' }, 400);
     }
@@ -180,8 +144,8 @@ router.post('/sell', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.get('/:nodeId', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.get('/:nodeId', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
@@ -189,12 +153,15 @@ router.get('/:nodeId', requireActiveCultivator(), async (c) => {
   try {
     const nodeId = resolveNodeId(c.req.param('nodeId'));
     const layer = resolveLayer(c.req.query('layer'));
-    const fates = await loadMarketFates(cultivator);
+    const [{ realm }, fates] = await Promise.all([
+      readCultivatorRealm(cultivator.cultivatorId),
+      loadMarketFates(cultivator),
+    ]);
     const result = await getMarketListings({
       nodeId,
       layer,
       userId: cultivator.userId,
-      cultivatorRealm: cultivator.realm as RealmType,
+      cultivatorRealm: realm,
       fates,
     });
 
@@ -209,8 +176,8 @@ router.get('/:nodeId', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/:nodeId/buy', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.post('/:nodeId/buy', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
@@ -219,38 +186,17 @@ router.post('/:nodeId/buy', requireActiveCultivator(), async (c) => {
     const parsed = BuySchema.parse(await c.req.json());
     const nodeId = resolveNodeId(c.req.param('nodeId'));
     const layer = parsed.layer || resolveLayer(c.req.query('layer'));
-    const fates = await loadMarketFates(cultivator);
-
     if (parsed.items && parsed.items.length > 0) {
-      const items = parsed.items;
-      let afterCommit: (() => Promise<void>) | undefined;
-      const committed = await commitPlayerStateMutation({
-        userId: cultivator.userId,
-        cultivatorId: cultivator.id,
-        source: 'market_batch_buy',
-        run: async (tx) => {
-          const { afterCommit: buyAfterCommit, ...result } =
-            await batchBuyMarketItems({
-              nodeId,
-              layer,
-              items,
-              userId: cultivator.userId,
-              cultivatorId: cultivator.id,
-              cultivatorRealm: cultivator.realm as RealmType,
-              fates,
-              tx,
-              deferSideEffects: true,
-            });
-          afterCommit = buyAfterCommit;
-          return {
-            result,
-            changes: marketBuyChanges(),
-          };
+      const committed = await purchaseMarketItems({
+        actor: {
+          userId: cultivator.userId,
+          cultivatorId: cultivator.cultivatorId,
         },
+        nodeId,
+        layer,
+        items: parsed.items,
+        quantity: parsed.quantity,
       });
-      if (afterCommit) {
-        await afterCommit();
-      }
       return c.json(toPlayerStateMutationResponse(committed));
     }
 
@@ -259,37 +205,20 @@ router.post('/:nodeId/buy', requireActiveCultivator(), async (c) => {
     }
     const listingId = parsed.listingId;
 
-    let afterCommit: (() => Promise<void>) | undefined;
-    const committed = await commitPlayerStateMutation({
-      userId: cultivator.userId,
-      cultivatorId: cultivator.id,
-      source: 'market_buy',
-      run: async (tx) => {
-        const { afterCommit: buyAfterCommit, ...result } = await buyMarketItem({
-          nodeId,
-          layer,
-          listingId,
-          quantity: parsed.quantity,
-          userId: cultivator.userId,
-          cultivatorId: cultivator.id,
-          cultivatorRealm: cultivator.realm as RealmType,
-          fates,
-          tx,
-          deferSideEffects: true,
-        });
-        afterCommit = buyAfterCommit;
-        return {
-          result,
-          changes: marketBuyChanges(),
-        };
+    const committed = await purchaseMarketItems({
+      actor: {
+        userId: cultivator.userId,
+        cultivatorId: cultivator.cultivatorId,
       },
+      nodeId,
+      layer,
+      listingId,
+      quantity: parsed.quantity,
     });
-    if (afterCommit) {
-      await afterCommit();
-    }
-
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
+    const lockErrorResponse = redisLockErrorResponse(error);
+    if (lockErrorResponse) return lockErrorResponse;
     if (error instanceof MarketServiceError) {
       return jsonWithStatus(c, { error: error.message }, error.status);
     }

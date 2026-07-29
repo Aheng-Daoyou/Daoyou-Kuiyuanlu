@@ -1,16 +1,14 @@
-import { getExecutor, type DbExecutor, type DbTransaction } from '@server/lib/drizzle/db';
-import { mails } from '@server/lib/drizzle/schema';
-import {
-  requireActiveCultivator,
-  requireActiveCultivatorRef,
-} from '@server/lib/hono/middleware';
+import { requireActiveCultivatorRef } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
 import {
-  commitPlayerStateMutation,
   toPlayerStateMutationResponse,
-} from '@server/lib/services/PlayerStateMutationService';
+} from '@server/lib/services/ResourceMutationResponse';
+import { readResourceWithMeta } from '@server/lib/services/ResourceReadService';
+import {
+  claimTaskRewardCommand,
+  executeTaskChallengeCommand,
+} from '@server/lib/services/TaskApplicationService';
 import { TaskService } from '@server/lib/services/TaskService';
-import { and, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
@@ -20,18 +18,6 @@ const ListQuerySchema = z.object({
 
 const router = new Hono<AppEnv>();
 
-async function countUnreadMail(
-  cultivatorId: string,
-  q: DbExecutor | DbTransaction = getExecutor(),
-): Promise<number> {
-  const [result] = await q
-    .select({ count: sql<number>`count(*)::int` })
-    .from(mails)
-    .where(and(eq(mails.cultivatorId, cultivatorId), eq(mails.isRead, false)));
-
-  return Number(result?.count ?? 0);
-}
-
 router.get('/', requireActiveCultivatorRef(), async (c) => {
   const ref = c.get('activeCultivatorRef');
   if (!ref) {
@@ -40,16 +26,14 @@ router.get('/', requireActiveCultivatorRef(), async (c) => {
 
   try {
     const { status } = ListQuerySchema.parse(c.req.query());
-    const tasks = await TaskService.listCultivatorTasks(
-      ref.cultivatorId,
-      status,
+    return c.json(
+      await readResourceWithMeta(
+        { kind: 'cultivator', id: ref.cultivatorId },
+        'player.tasks',
+        (tx) =>
+          TaskService.readCultivatorTasks(ref.cultivatorId, status, tx),
+      ),
     );
-    return c.json({
-      success: true,
-      data: {
-        tasks,
-      },
-    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return c.json({ error: error.issues[0]?.message || '查询参数错误' }, 400);
@@ -86,22 +70,20 @@ router.get('/:id', requireActiveCultivatorRef(), async (c) => {
   }
 });
 
-router.post('/:id/challenge', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
-  if (!cultivator) {
+router.post('/:id/challenge', requireActiveCultivatorRef(), async (c) => {
+  const user = c.get('user');
+  const ref = c.get('activeCultivatorRef');
+  if (!user || !ref) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
 
   try {
-    const result = await TaskService.runTaskChallenge(
-      cultivator.id,
-      c.req.param('id'),
-    );
-
-    return c.json({
-      success: true,
-      data: result,
+    const committed = await executeTaskChallengeCommand({
+      userId: user.id,
+      cultivatorId: ref.cultivatorId,
+      taskId: c.req.param('id'),
     });
+    return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {
     const message =
       error instanceof Error ? error.message : '试炼失败，请稍后再试';
@@ -115,44 +97,18 @@ router.post('/:id/challenge', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/:id/claim-reward', requireActiveCultivator(), async (c) => {
+router.post('/:id/claim-reward', requireActiveCultivatorRef(), async (c) => {
   const user = c.get('user');
-  const cultivator = c.get('cultivator');
-  if (!user || !cultivator) {
+  const ref = c.get('activeCultivatorRef');
+  if (!user || !ref) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
 
   try {
-    const committed = await commitPlayerStateMutation({
+    const committed = await claimTaskRewardCommand({
       userId: user.id,
-      cultivatorId: cultivator.id,
-      source: 'task_claim_reward',
-      run: async (tx) => {
-        const result = await TaskService.claimTaskReward(
-          user.id,
-          cultivator.id,
-          c.req.param('id'),
-          { tx },
-        );
-        const unreadMailCount = await countUnreadMail(cultivator.id, tx);
-
-        return {
-          result,
-          changes: [
-            {
-              domain: 'tasks' as const,
-              eventType: 'tasks.reward_claimed',
-              invalidates: ['tasks' as const],
-            },
-            {
-              domain: 'mail' as const,
-              eventType: 'mail.reward_created',
-              patch: { unreadMailCount },
-              invalidates: ['mail' as const],
-            },
-          ],
-        };
-      },
+      cultivatorId: ref.cultivatorId,
+      taskId: c.req.param('id'),
     });
 
     return c.json(toPlayerStateMutationResponse(committed));

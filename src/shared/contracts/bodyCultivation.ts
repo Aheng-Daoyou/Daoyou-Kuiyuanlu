@@ -1,7 +1,7 @@
-import type { ApiSuccess } from './http';
 import type { BodyCultivationRealm } from '@shared/types/condition';
 import type { MaterialType, Quality } from '@shared/types/constants';
 import type { AlchemyPropertyKey, PillFamily } from '@shared/types/consumable';
+import type { ApiSuccess } from './http';
 
 export type BodyCultivationBreakthroughCostType = 'material' | 'consumable';
 
@@ -16,8 +16,7 @@ export interface BodyCultivationBreakthroughCostRequirement {
   minQuality?: Quality;
 }
 
-export interface BodyCultivationBreakthroughInventoryRequirement
-  extends BodyCultivationBreakthroughCostRequirement {
+export interface BodyCultivationBreakthroughInventoryRequirement extends BodyCultivationBreakthroughCostRequirement {
   ownedQuantity: number;
   met: boolean;
 }
@@ -69,6 +68,16 @@ export interface BodyCultivationBreakthroughEligibleData {
     quantity: number;
     requirementLabel: string;
   }>;
+  pagination: {
+    materials: BodyCultivationBreakthroughEligiblePage;
+    consumables: BodyCultivationBreakthroughEligiblePage;
+  };
+}
+
+export interface BodyCultivationBreakthroughEligiblePage {
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 export type BodyCultivationBreakthroughEligibleResponse =

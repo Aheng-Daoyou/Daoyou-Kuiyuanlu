@@ -10,6 +10,7 @@ import type {
 } from '@shared/types/condition';
 import type { ConditionOperation, PillSpec } from '@shared/types/consumable';
 import type { Cultivator } from '@shared/types/cultivator';
+import type { CultivatorDisplayInput } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { isPillConsumable } from '@shared/lib/consumables';
 import {
   getPillUsageLimitReachedText,
@@ -76,8 +77,18 @@ interface TrackLevelUpResult {
   newLevel: number;
 }
 
+export type PillCultivatorFacts = CultivatorDisplayInput &
+  Pick<
+    Cultivator,
+    | 'lifespan'
+    | 'unallocated_attribute_points'
+    | 'spiritual_roots'
+    | 'pre_heaven_fates'
+    | 'cultivation_progress'
+  >;
+
 export interface PillExecutionResult {
-  cultivator: Cultivator;
+  cultivator: PillCultivatorFacts;
   consumed: Consumable & { spec: PillSpec };
   trackLevelUps: TrackLevelUpResult[];
 }
@@ -86,7 +97,9 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function cloneCultivator(cultivator: Cultivator): Cultivator {
+function cloneCultivator(
+  cultivator: PillCultivatorFacts,
+): PillCultivatorFacts {
   return structuredClone(cultivator);
 }
 
@@ -95,7 +108,7 @@ function createUntilRemovedDuration(): ConditionStatusDuration {
 }
 
 function assertPillQualityAllowed(
-  cultivator: Cultivator,
+  cultivator: PillCultivatorFacts,
   consumable: Consumable & { spec: PillSpec },
 ): void {
   const maxQuality = CULTIVATION_PILL_MAX_QUALITY_BY_REALM[cultivator.realm];
@@ -199,9 +212,9 @@ function setTrackState(
 }
 
 function applyTrackReward(
-  cultivator: Cultivator,
+  cultivator: PillCultivatorFacts,
   track: ConditionTrackPath,
-): Cultivator {
+): PillCultivatorFacts {
   const nextCultivator = cultivator;
   const reward = getTrackConfig(track).reward;
 
@@ -242,11 +255,15 @@ function getEffectiveTrackProgressValue(value: number): number {
 }
 
 function applyTrackProgress(
-  cultivator: Cultivator,
+  cultivator: PillCultivatorFacts,
   condition: CultivatorCondition,
   track: ConditionTrackPath,
   value: number,
-): { cultivator: Cultivator; condition: CultivatorCondition; levelUps: TrackLevelUpResult[] } {
+): {
+  cultivator: PillCultivatorFacts;
+  condition: CultivatorCondition;
+  levelUps: TrackLevelUpResult[];
+} {
   let nextCultivator = cultivator;
   let nextCondition = condition;
   const levelUps: TrackLevelUpResult[] = [];
@@ -275,7 +292,7 @@ function applyTrackProgress(
 }
 
 function applyRestoreResourceOperation(
-  cultivator: Cultivator,
+  cultivator: PillCultivatorFacts,
   condition: CultivatorCondition,
   operation: Extract<ConditionOperation, { type: 'restore_resource' }>,
 ): CultivatorCondition {
@@ -389,9 +406,9 @@ function applyAddStatusOperation(
 }
 
 function applyGainProgressOperation(
-  cultivator: Cultivator,
+  cultivator: PillCultivatorFacts,
   operation: Extract<ConditionOperation, { type: 'gain_progress' }>,
-): Cultivator {
+): PillCultivatorFacts {
   const progress = getOrInitCultivationProgress(
     (cultivator.cultivation_progress ?? {}) as CultivationProgress,
     cultivator.realm,
@@ -421,9 +438,9 @@ function applyGainProgressOperation(
 }
 
 function applyIncreaseLifespanOperation(
-  cultivator: Cultivator,
+  cultivator: PillCultivatorFacts,
   operation: Extract<ConditionOperation, { type: 'increase_lifespan' }>,
-): Cultivator {
+): PillCultivatorFacts {
   if (!Number.isFinite(operation.value) || operation.value <= 0) {
     throw new Error('寿元丹药效异常，无法服用。');
   }
@@ -505,7 +522,6 @@ function assertBodyCultivationPillTrackCaps(
       const needed = threshold - progress;
       if (remaining < needed) {
         progress += remaining;
-        remaining = 0;
         break;
       }
 
@@ -530,7 +546,7 @@ function assertBodyCultivationPillTrackCaps(
 }
 
 function assertMarrowWashPillTrackCaps(
-  cultivator: Cultivator,
+  cultivator: PillCultivatorFacts,
   condition: CultivatorCondition,
   spec: PillSpec,
 ): void {
@@ -562,7 +578,6 @@ function assertMarrowWashPillTrackCaps(
       const needed = threshold - progress;
       if (remaining < needed) {
         progress += remaining;
-        remaining = 0;
         break;
       }
 
@@ -617,7 +632,7 @@ export const PillOperationExecutor = {
   sortOperations,
 
   execute(
-    cultivator: Cultivator,
+    cultivator: PillCultivatorFacts,
     consumable: Consumable,
     now: Date = new Date(),
   ): PillExecutionResult {
@@ -772,7 +787,7 @@ export const PillOperationExecutor = {
 
   consumeBreakthroughSupportStatuses(
     conditionInput: CultivatorCondition | undefined,
-    cultivator: Cultivator,
+    cultivator: PillCultivatorFacts,
     now: Date = new Date(),
   ): CultivatorCondition {
     const condition = ConditionService.normalizeCondition(cultivator, conditionInput, now);

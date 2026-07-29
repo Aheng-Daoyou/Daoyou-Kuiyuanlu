@@ -19,7 +19,12 @@ import {
   inkFieldVariants,
 } from '@app/components/ui';
 import { ItemCard } from '@app/components/ui/ItemCard';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
+import {
+  useArtifactInventoryResource,
+  useConsumableInventoryResource,
+  useMaterialInventoryResource,
+} from '@app/lib/resources/inventory';
 import { cn } from '@shared/lib/cn';
 import { isPillConsumable } from '@shared/lib/consumables';
 import {
@@ -36,21 +41,23 @@ import {
 import type {
   Artifact,
   Consumable,
-  Cultivator,
   Material,
 } from '@shared/types/cultivator';
+import type { Cultivator } from '@shared/types/cultivator';
 import {
   CONSUMABLE_TYPE_DISPLAY_MAP,
   getEquipmentSlotInfo,
   getMaterialTypeInfo,
   getResourceTypeLabel,
 } from '@shared/lib/gameConceptDisplay';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 interface ListItemModalProps {
   onClose: () => void;
   onSuccess: () => void;
-  cultivator: Cultivator | null;
+  cultivator:
+    | Pick<Cultivator, 'id' | 'realm' | 'condition'>
+    | null;
 }
 
 type ItemType = 'material' | 'artifact' | 'consumable';
@@ -58,7 +65,6 @@ type SelectableItem = (Material | Artifact | Consumable) & {
   itemType: ItemType;
 };
 
-type InventoryApiType = 'materials' | 'artifacts' | 'consumables';
 type ListingVisibility = 'public' | 'private';
 
 interface FriendSummary {
@@ -68,23 +74,6 @@ interface FriendSummary {
   realm: string;
   realmStage: string;
   status: string;
-}
-
-interface InventoryPagination {
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
-  hasMore: boolean;
-}
-
-interface InventoryApiPayload {
-  success: boolean;
-  data?: {
-    items?: Array<Material | Artifact | Consumable>;
-    pagination?: InventoryPagination;
-  };
-  error?: string;
 }
 
 interface MaterialListFilters {
@@ -122,20 +111,6 @@ const QUALITY_PRICE_CAPS: Partial<Record<Quality, number>> = {
   天品: 800_000,
   仙品: 1_600_000,
   // 神品: 无品质上限，仅受 AUCTION_MAX_PRICE 全局上限约束
-};
-
-const defaultPagination: InventoryPagination = {
-  page: 1,
-  pageSize: PAGE_SIZE,
-  total: 0,
-  totalPages: 0,
-  hasMore: false,
-};
-
-const itemTypeToApiTypeMap: Record<ItemType, InventoryApiType> = {
-  material: 'materials',
-  artifact: 'artifacts',
-  consumable: 'consumables',
 };
 
 const AUCTION_ALLOWED_QUALITIES = QUALITY_VALUES.filter(
@@ -208,7 +183,7 @@ export function ListItemModal({
   onSuccess,
   cultivator,
 }: ListItemModalProps) {
-  const { mutate } = usePlayerStateActions();
+  const { mutate } = useResourceMutation();
   const [step, setStep] = useState<'select' | 'price'>('select');
   const [activeType, setActiveType] = useState<ItemType>('material');
   const [selectedItem, setSelectedItem] = useState<SelectableItem | null>(null);
@@ -221,15 +196,7 @@ export function ListItemModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [listError, setListError] = useState('');
-  const [isItemsLoading, setIsItemsLoading] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [itemsByType, setItemsByType] = useState<
-    Record<ItemType, SelectableItem[]>
-  >({
-    material: [],
-    artifact: [],
-    consumable: [],
-  });
   const [materialFilters, setMaterialFilters] = useState<MaterialListFilters>(
     defaultMaterialFilters,
   );
@@ -238,14 +205,56 @@ export function ListItemModal({
   );
   const [consumableFilters, setConsumableFilters] =
     useState<ConsumableListFilters>(defaultConsumableFilters);
-  const [paginationByType, setPaginationByType] = useState<
-    Record<ItemType, InventoryPagination>
-  >({
-    material: defaultPagination,
-    artifact: defaultPagination,
-    consumable: defaultPagination,
+  const materialInventory = useMaterialInventoryResource({
+    pageSize: PAGE_SIZE,
+    enabled: Boolean(cultivator?.id) && activeType === 'material',
+    materialRanks:
+      materialFilters.rank === 'all'
+        ? AUCTION_ALLOWED_QUALITIES
+        : [materialFilters.rank],
+    materialTypes:
+      materialFilters.type === 'all' ? undefined : [materialFilters.type],
+    materialElements:
+      materialFilters.element === 'all' ? undefined : [materialFilters.element],
+    materialSortBy: materialFilters.sortBy,
+    materialSortOrder: materialFilters.sortOrder,
   });
-  const requestIdRef = useRef(0);
+  const artifactInventory = useArtifactInventoryResource({
+    pageSize: PAGE_SIZE,
+    enabled: Boolean(cultivator?.id) && activeType === 'artifact',
+  });
+  const consumableInventory = useConsumableInventoryResource({
+    pageSize: PAGE_SIZE,
+    enabled: Boolean(cultivator?.id) && activeType === 'consumable',
+  });
+  const activeInventory =
+    activeType === 'material'
+      ? materialInventory
+      : activeType === 'artifact'
+        ? artifactInventory
+        : consumableInventory;
+  const isItemsLoading = activeInventory.loading;
+  const itemsByType = useMemo<Record<ItemType, SelectableItem[]>>(
+    () => ({
+      material: (materialInventory.items ?? []).map((item) => ({
+        ...item,
+        itemType: 'material' as const,
+      })),
+      artifact: (artifactInventory.items ?? []).map((item) => ({
+        ...item,
+        itemType: 'artifact' as const,
+      })),
+      consumable: (consumableInventory.items ?? []).map((item) => ({
+        ...item,
+        itemType: 'consumable' as const,
+      })),
+    }),
+    [
+      artifactInventory.items,
+      consumableInventory.items,
+      materialInventory.items,
+    ],
+  );
 
   useEffect(() => {
     if (!cultivator?.id || step !== 'price') {
@@ -282,147 +291,6 @@ export function ListItemModal({
       cancelled = true;
     };
   }, [cultivator?.id, step]);
-
-  const fetchItemPage = useCallback(
-    async (itemType: ItemType, page: number) => {
-      if (!cultivator?.id) return;
-
-      const requestId = ++requestIdRef.current;
-      setIsItemsLoading(true);
-      setListError('');
-
-      try {
-        const apiType = itemTypeToApiTypeMap[itemType];
-        const params = new URLSearchParams({
-          type: apiType,
-          page: String(Math.max(1, page)),
-          pageSize: String(PAGE_SIZE),
-        });
-
-        if (itemType === 'material') {
-          params.set(
-            'materialRanks',
-            materialFilters.rank === 'all'
-              ? AUCTION_ALLOWED_QUALITIES.join(',')
-              : materialFilters.rank,
-          );
-          if (materialFilters.type !== 'all') {
-            params.set('materialTypes', materialFilters.type);
-          }
-          if (materialFilters.element !== 'all') {
-            params.set('materialElements', materialFilters.element);
-          }
-          params.set('materialSortBy', materialFilters.sortBy);
-          params.set('materialSortOrder', materialFilters.sortOrder);
-        }
-
-        const res = await fetch(
-          `/api/cultivator/inventory?${params.toString()}`,
-        );
-        const result = (await res.json()) as InventoryApiPayload;
-        if (!res.ok || !result.success) {
-          throw new Error(result.error || '读取背包失败');
-        }
-
-        if (requestId !== requestIdRef.current) return;
-
-        const mappedItems = (result.data?.items || []).map((item) => ({
-          ...item,
-          itemType,
-        })) as SelectableItem[];
-
-        setItemsByType((prev) => ({
-          ...prev,
-          [itemType]: mappedItems,
-        }));
-        setPaginationByType((prev) => ({
-          ...prev,
-          [itemType]: result.data?.pagination || {
-            ...defaultPagination,
-            pageSize: PAGE_SIZE,
-          },
-        }));
-      } catch (e) {
-        if (requestId !== requestIdRef.current) return;
-        setListError(e instanceof Error ? e.message : '读取背包失败');
-      } finally {
-        if (requestId === requestIdRef.current) {
-          setIsItemsLoading(false);
-        }
-      }
-    },
-    [cultivator?.id, materialFilters],
-  );
-
-  useEffect(() => {
-    if (!cultivator?.id) return;
-
-    let cancelled = false;
-
-    const loadActiveTypePage = async () => {
-      try {
-        const apiType = itemTypeToApiTypeMap[activeType];
-        const params = new URLSearchParams({
-          type: apiType,
-          page: '1',
-          pageSize: String(PAGE_SIZE),
-        });
-
-        if (activeType === 'material') {
-          params.set(
-            'materialRanks',
-            materialFilters.rank === 'all'
-              ? AUCTION_ALLOWED_QUALITIES.join(',')
-              : materialFilters.rank,
-          );
-          if (materialFilters.type !== 'all') {
-            params.set('materialTypes', materialFilters.type);
-          }
-          if (materialFilters.element !== 'all') {
-            params.set('materialElements', materialFilters.element);
-          }
-          params.set('materialSortBy', materialFilters.sortBy);
-          params.set('materialSortOrder', materialFilters.sortOrder);
-        }
-
-        const res = await fetch(`/api/cultivator/inventory?${params.toString()}`);
-        const result = (await res.json()) as InventoryApiPayload;
-        if (!res.ok || !result.success) {
-          throw new Error(result.error || '读取背包失败');
-        }
-
-        if (cancelled) return;
-
-        const mappedItems = (result.data?.items || []).map((item) => ({
-          ...item,
-          itemType: activeType,
-        })) as SelectableItem[];
-
-        setItemsByType((prev) => ({
-          ...prev,
-          [activeType]: mappedItems,
-        }));
-        setPaginationByType((prev) => ({
-          ...prev,
-          [activeType]: result.data?.pagination || {
-            ...defaultPagination,
-            pageSize: PAGE_SIZE,
-          },
-        }));
-        setListError('');
-      } catch (e) {
-        if (!cancelled) {
-          setListError(e instanceof Error ? e.message : '读取背包失败');
-        }
-      }
-    };
-
-    void loadActiveTypePage();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeType, cultivator?.id, materialFilters]);
 
   const handleSelectItem = (item: SelectableItem) => {
     if (
@@ -640,7 +508,14 @@ export function ListItemModal({
     );
   };
 
-  const currentPagination = paginationByType[activeType];
+  const currentPagination = activeInventory.pagination ?? {
+    page: activeInventory.page,
+    pageSize: PAGE_SIZE,
+    total: 0,
+    totalPages: 0,
+    hasMore: false,
+  };
+  const inventoryError = activeInventory.error ?? listError;
   const hasAnyLoadedItems = itemsByType[activeType].length > 0;
   const hasAnyAuctionItems = itemsByType[activeType].some(isAuctionListableItem);
 
@@ -691,7 +566,7 @@ export function ListItemModal({
 
       return filtered.sort((a, b) => {
         const multiplier = consumableFilters.sortOrder === 'asc' ? 1 : -1;
-        let result = 0;
+        let result: number;
 
         if (consumableFilters.sortBy === 'name') {
           result = a.name.localeCompare(b.name, 'zh-CN');
@@ -1069,8 +944,8 @@ export function ListItemModal({
               <InkNotice>请先登录后再上架物品</InkNotice>
             ) : isItemsLoading && currentItems.length === 0 ? (
               <div className="py-8 text-center">正在读取背包物品...</div>
-            ) : listError ? (
-              <InkNotice>{listError}</InkNotice>
+            ) : inventoryError ? (
+              <InkNotice>{inventoryError}</InkNotice>
             ) : currentItems.length > 0 ? (
               <InkList>
                 {currentItems.map((item) => {
@@ -1171,9 +1046,7 @@ export function ListItemModal({
               <InkButton
                 variant="secondary"
                 disabled={isItemsLoading || currentPagination.page <= 1}
-                onClick={() =>
-                  void fetchItemPage(activeType, currentPagination.page - 1)
-                }
+                onClick={activeInventory.goPrevPage}
               >
                 上一页
               </InkButton>
@@ -1186,9 +1059,7 @@ export function ListItemModal({
                   isItemsLoading ||
                   currentPagination.page >= currentPagination.totalPages
                 }
-                onClick={() =>
-                  void fetchItemPage(activeType, currentPagination.page + 1)
-                }
+                onClick={activeInventory.goNextPage}
               >
                 下一页
               </InkButton>

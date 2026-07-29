@@ -434,7 +434,7 @@ export const SKILL_AFFIXES: AffixDefinition[] = [
           statusTags: [GameplayTags.STATUS.CATEGORY.BUFF],
           modifiers: [
             {
-              attrType: AttributeType.SPEED,
+              attrType: AttributeType.ACTION_SPEED,
               type: ModifierType.ADD,
               value: 0.2,
             },
@@ -909,7 +909,7 @@ export const SKILL_AFFIXES: AffixDefinition[] = [
           statusTags: [GameplayTags.STATUS.CATEGORY.BUFF],
           modifiers: [
             {
-              attrType: AttributeType.SPEED,
+              attrType: AttributeType.ACTION_SPEED,
               type: ModifierType.ADD,
               value: 0.25,
             },
@@ -1107,7 +1107,7 @@ export const SKILL_AFFIXES: AffixDefinition[] = [
           ],
           modifiers: [
             {
-              attrType: AttributeType.SPEED,
+              attrType: AttributeType.ACTION_SPEED,
               type: ModifierType.ADD,
               value: -0.3,
             },
@@ -2097,7 +2097,7 @@ export const SKILL_AFFIXES: AffixDefinition[] = [
   {
     id: 'skill-variant-wind-exchange-step',
     displayName: '借风换位',
-    displayDescription: '伤害较低并获得身法；若触发则下一次命中必暴',
+    displayDescription: '伤害较低并获得速度；若触发则下一次命中必暴',
     slot: 'modifier',
     rarity: 'rare',
     match: {
@@ -2137,7 +2137,7 @@ export const SKILL_AFFIXES: AffixDefinition[] = [
                 tags: [GameplayTags.BUFF.TYPE.BUFF],
                 modifiers: [
                   {
-                    attrType: AttributeType.SPEED,
+                    attrType: AttributeType.ACTION_SPEED,
                     type: ModifierType.ADD,
                     value: 0.18,
                   },

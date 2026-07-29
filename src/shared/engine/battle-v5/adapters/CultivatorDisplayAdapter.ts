@@ -5,6 +5,8 @@ import {
   scaleArtifactMainPanelFixedModifiers,
 } from '@shared/engine/shared/artifactRealmScaling';
 import { buildBodyCultivationAttributeModifiers } from '@shared/lib/bodyCultivation/effects';
+import { projectSectMethodModifiers } from '@shared/engine/sect';
+import { sectRegistry } from '@shared/engine/sect/content';
 import type { AttributeModifierConfig } from '../core/configs';
 import { AttributeType, ModifierType, type AttributeModifier, type UnitId } from '../core/types';
 import type { AttrsStateView } from '../systems/state/types';
@@ -22,6 +24,21 @@ type ModifierCarrier = {
   id?: string;
   name: string;
   attributeModifiers?: AttributeModifierConfig[];
+};
+
+export type CultivatorDisplayInput = Pick<
+  Cultivator,
+  | 'id'
+  | 'name'
+  | 'attributes'
+  | 'cultivations'
+  | 'sect'
+  | 'equipped'
+  | 'realm'
+  | 'realm_stage'
+  | 'condition'
+> & {
+  inventory: Pick<Cultivator['inventory'], 'artifacts'>;
 };
 
 function mountModifiers(
@@ -48,7 +65,7 @@ function mountModifiers(
 }
 
 export function createDisplayUnitFromCultivator(
-  cultivator: Cultivator,
+  cultivator: CultivatorDisplayInput,
   isMirror: boolean = false,
 ): Unit {
   const baseAttrs: Partial<Record<AttributeType, number>> = {};
@@ -64,6 +81,16 @@ export function createDisplayUnitFromCultivator(
 
   for (const cultivation of cultivator.cultivations ?? []) {
     mountModifiers(unit, 'gongfa', cultivation);
+  }
+
+  for (const method of cultivator.sect
+    ? projectSectMethodModifiers(cultivator.sect, sectRegistry.require(cultivator.sect.sectId).definition)
+    : []) {
+    mountModifiers(unit, 'sect-method', {
+      id: method.methodId,
+      name: method.methodName,
+      attributeModifiers: method.modifiers,
+    });
   }
 
   const equippedIds = new Set(
@@ -183,6 +210,7 @@ function buildAttrsView(unit: Unit): AttrsStateView {
     def: unit.attributes.getValue(AttributeType.DEF),
     magicAtk: unit.attributes.getValue(AttributeType.MAGIC_ATK),
     magicDef: unit.attributes.getValue(AttributeType.MAGIC_DEF),
+    actionSpeed: unit.attributes.getValue(AttributeType.ACTION_SPEED),
     critRate: unit.attributes.getValue(AttributeType.CRIT_RATE),
     critDamageMult: unit.attributes.getValue(AttributeType.CRIT_DAMAGE_MULT),
     evasionRate: unit.attributes.getValue(AttributeType.EVASION_RATE),
@@ -208,7 +236,7 @@ function buildAttrsView(unit: Unit): AttrsStateView {
 }
 
 export function getCultivatorDisplayAttributes(
-  cultivator: Cultivator,
+  cultivator: CultivatorDisplayInput,
 ): CultivatorDisplayAttributes {
   const unit = createDisplayUnitFromCultivator(cultivator);
   const attrs = buildAttrsView(unit);
@@ -235,7 +263,7 @@ export function getCultivatorDisplayAttributes(
 }
 
 export function getCultivatorDisplaySnapshot(
-  cultivator: Cultivator,
+  cultivator: CultivatorDisplayInput,
 ): CultivatorDisplaySnapshot {
   const { attrs } = getCultivatorDisplayAttributes(cultivator);
 

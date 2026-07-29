@@ -2,6 +2,11 @@ import { getExecutor, type DbTransaction } from '@server/lib/drizzle/db';
 import { cultivators, materials } from '@server/lib/drizzle/schema';
 import { redis } from '@server/lib/redis';
 import { parseRedisJson } from '@server/lib/redis/json';
+import {
+  isRedisLockContention,
+  redisLockKeys,
+  withRedisLock,
+} from '@server/lib/redis/lock';
 import { createMessage } from '@server/lib/repositories/worldChatRepository';
 import {
   BASE_PRICES,
@@ -16,6 +21,7 @@ import {
   scaleFateAdjustedValue,
 } from '@shared/lib/fates';
 import {
+  BLACK_MARKET_HIGH_TIER_MIN,
   getCurrentCycle,
   getCycleEndTime,
   getDefaultMarketNodeId,
@@ -25,7 +31,6 @@ import {
   getRegionFlavor,
   getRegionProfile,
   isMarketNodeEnabled,
-  BLACK_MARKET_HIGH_TIER_MIN,
   MARKET_STALE_RETRY_MS,
   resolveLayerConfig,
   validateLayerAccess,
@@ -61,15 +66,13 @@ import {
   type MaterialLibrarySampleRequest,
 } from './MaterialLibraryService';
 import { QiService } from './QiService';
+import { mapMaterialRow } from './cultivator/CultivatorInventoryRepository';
 
 // ─── Redis 键前缀 ───
 
 const MARKET_CACHE_NAMESPACE = 'market:v2';
 const MARKET_CACHE_PREFIX = `${MARKET_CACHE_NAMESPACE}:listings`;
 const MARKET_BOUGHT_PREFIX = `${MARKET_CACHE_NAMESPACE}:bought`;
-const MARKET_LOCK_PREFIX = `${MARKET_CACHE_NAMESPACE}:generating`;
-const BUY_LOCK_PREFIX = `${MARKET_CACHE_NAMESPACE}:buy:lock`;
-const IDENTIFY_LOCK_PREFIX = 'market:identify:lock';
 const MYSTERY_PREFIX = 'market:mystery';
 const MARKET_CACHE_WAIT_MS = 150;
 const MARKET_CACHE_WAIT_RETRIES = 3;
@@ -98,8 +101,6 @@ export type BuyInput = {
   cultivatorId: string;
   cultivatorRealm: RealmType;
   fates?: PreHeavenFate[];
-  tx?: DbTransaction;
-  deferSideEffects?: boolean;
 };
 
 export type BatchBuyInput = {
@@ -110,15 +111,11 @@ export type BatchBuyInput = {
   cultivatorId: string;
   cultivatorRealm: RealmType;
   fates?: PreHeavenFate[];
-  tx?: DbTransaction;
-  deferSideEffects?: boolean;
 };
 
 type IdentifyInput = {
   materialId: string;
   cultivatorId: string;
-  tx?: DbTransaction;
-  deferSideEffects?: boolean;
 };
 
 export class MarketServiceError extends Error {
@@ -142,18 +139,6 @@ function getBoughtKey(
   cycle: number,
 ) {
   return `${MARKET_BOUGHT_PREFIX}:${userId}:${nodeId}:${layer}:${cycle}`;
-}
-
-function getLockKey(nodeId: string, layer: MarketLayer, cycle: number) {
-  return `${MARKET_LOCK_PREFIX}:${nodeId}:${layer}:${cycle}`;
-}
-
-function getBuyLockKey(userId: string, nodeId: string, layer: MarketLayer) {
-  return `${BUY_LOCK_PREFIX}:${userId}:${nodeId}:${layer}`;
-}
-
-function getIdentifyLockKey(materialId: string) {
-  return `${IDENTIFY_LOCK_PREFIX}:${materialId}`;
 }
 
 function getMysteryKey(cultivatorId: string, mysteryId: string) {
@@ -199,7 +184,8 @@ function rollQualityInRange(
     if (order >= minOrder && order <= maxOrder) {
       candidates.push({
         quality,
-        weight: qualityWeights?.[quality] ?? QUALITY_CHANCE_MAP[quality] ?? 0.01,
+        weight:
+          qualityWeights?.[quality] ?? QUALITY_CHANCE_MAP[quality] ?? 0.01,
       });
     }
   }
@@ -794,9 +780,7 @@ async function generateFromMaterialLibrary(
 ): Promise<InternalMarketListing[]> {
   const requests = buildMarketSampleRequests(layer, profile, layerConfig);
 
-  const sampled = await sampleMaterialLibraryEntries(
-    requests,
-  );
+  const sampled = await sampleMaterialLibraryEntries(requests);
   const listings: InternalMarketListing[] = [];
   const shortages: Array<{
     type: MaterialType;
@@ -886,26 +870,34 @@ async function generateAndCache(
   layer: MarketLayer,
   cycle: number,
 ): Promise<CachedMarketData | null> {
-  const lockKey = getLockKey(nodeId, layer, cycle);
-  const lock = await redis.set(lockKey, '1', 'EX', 120, 'NX');
-
-  if (!lock) {
-    return null;
-  }
-
   try {
-    const listings = await generateListings(nodeId, layer);
-    const data: CachedMarketData = { listings, generatedAt: Date.now() };
-    const ttlSec = Math.ceil(getRefreshInterval(layer) / 1000) + 3600;
-    await redis.set(
-      getCacheKey(nodeId, layer, cycle),
-      JSON.stringify(data),
-      'EX',
-      ttlSec,
+    return await withRedisLock(
+      {
+        key: redisLockKeys.marketGeneration(nodeId, layer, String(cycle)),
+        context: 'market-generation',
+        timeoutMs: 120_000,
+        renewEveryMs: 30_000,
+        retries: 0,
+      },
+      async (lease) => {
+        const listings = await generateListings(nodeId, layer);
+        lease.assertHeld();
+        const data: CachedMarketData = { listings, generatedAt: Date.now() };
+        const ttlSec = Math.ceil(getRefreshInterval(layer) / 1000) + 3600;
+        await redis.set(
+          getCacheKey(nodeId, layer, cycle),
+          JSON.stringify(data),
+          'EX',
+          ttlSec,
+        );
+        return data;
+      },
     );
-    return data;
-  } finally {
-    await redis.del(lockKey);
+  } catch (error) {
+    if (isRedisLockContention(error)) {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -1031,7 +1023,9 @@ export async function getMarketListings(input: {
   };
 }
 
-export async function buyMarketItem(input: BuyInput) {
+export async function prepareMarketItemPurchase(
+  input: BuyInput,
+) {
   const {
     nodeId,
     layer,
@@ -1056,38 +1050,39 @@ export async function buyMarketItem(input: BuyInput) {
 
   const cycle = getCurrentCycle(layer);
 
-  // 获取防并发锁
-  const lockKey = getBuyLockKey(userId, nodeId, layer);
-  const gotLock = await redis.set(lockKey, '1', 'EX', 10, 'NX');
-  if (!gotLock) {
-    throw new MarketServiceError(429, '交易处理中，请稍后再试');
+  // 分布式锁由 API/Application 层统一获取；Redis 读取全部在 DB 事务外。
+  const cacheKey = getCacheKey(nodeId, layer, cycle);
+  const cachedData = parseCachedData(await redis.get(cacheKey));
+  if (!cachedData) {
+    throw new MarketServiceError(404, '坊市正在进货中，暂未开启');
   }
 
-  try {
-    // 读取共享缓存
-    const cacheKey = getCacheKey(nodeId, layer, cycle);
-    const cachedData = parseCachedData(await redis.get(cacheKey));
-    if (!cachedData) {
-      throw new MarketServiceError(404, '坊市正在进货中，暂未开启');
-    }
+  const item = cachedData.listings.find((l) => l.id === listingId);
+  if (!item) {
+    throw new MarketServiceError(404, '此物已不再坊市之中');
+  }
 
-    const item = cachedData.listings.find((l) => l.id === listingId);
-    if (!item) {
-      throw new MarketServiceError(404, '此物已不再坊市之中');
-    }
+  // 检查个人是否已购买
+  const boughtKey = getBoughtKey(userId, nodeId, layer, cycle);
+  const alreadyBought = Boolean(await redis.sismember(boughtKey, listingId));
 
-    // 检查个人是否已购买
-    const boughtKey = getBoughtKey(userId, nodeId, layer, cycle);
-    const alreadyBought = await redis.sismember(boughtKey, listingId);
-    if (alreadyBought) {
-      throw new MarketServiceError(400, '本批此物你已购入，不可重复购买');
-    }
+  const itemPrice = getDiscountedMarketPrice(item.price, input.fates);
+  const totalPrice = itemPrice * quantity;
+  const preparedMysteryId = item.isMystery ? crypto.randomUUID() : null;
+  const preparedHiddenReveal = item.isMystery
+    ? buildHiddenMysteryReveal(item)
+    : null;
+  const ttl = getBoughtTtlSec(layer);
+  const markPurchased = async () => {
+    await redis.sadd(boughtKey, listingId);
+    await redis.expire(boughtKey, ttl);
+  };
 
-    const itemPrice = getDiscountedMarketPrice(item.price, input.fates);
-    const totalPrice = itemPrice * quantity;
-
-    const afterCommitJobs: Array<() => Promise<void>> = [];
-    const writePurchase = async (tx: DbTransaction) => {
+  return {
+    async commit(tx: DbTransaction) {
+      if (alreadyBought) {
+        throw new MarketServiceError(400, '本批此物你已购入，不可重复购买');
+      }
       const [updatedCultivator] = await tx
         .update(cultivators)
         .set({
@@ -1102,29 +1097,35 @@ export async function buyMarketItem(input: BuyInput) {
         throw new MarketServiceError(400, '囊中羞涩，灵石不足');
       }
 
+      let purchasedMaterial;
       if (item.isMystery) {
-        const mysteryId = crypto.randomUUID();
-        const hiddenReveal = buildHiddenMysteryReveal(item);
-        if (!hiddenReveal) {
+        if (!preparedHiddenReveal || !preparedMysteryId) {
           throw new MarketServiceError(503, '黑市鉴宝册缺页，请稍后再试');
         }
         const publicDetails = {
           ...(sanitizeMaterialDetails(item.details) ?? {}),
-          mystery: buildMysteryDetails(item, mysteryId),
+          mystery: buildMysteryDetails(item, preparedMysteryId),
         };
 
-        await tx.insert(materials).values({
-          cultivatorId,
-          name: item.mysteryMask?.disguisedName || item.name,
-          type: item.type,
-          rank: item.rank,
-          element: item.element,
-          description: item.description,
-          quantity,
-          details: withHiddenMysteryReveal(publicDetails, hiddenReveal),
-        });
+        const [inserted] = await tx
+          .insert(materials)
+          .values({
+            cultivatorId,
+            name: item.mysteryMask?.disguisedName || item.name,
+            type: item.type,
+            rank: item.rank,
+            element: item.element,
+            description: item.description,
+            quantity,
+            details: withHiddenMysteryReveal(
+              publicDetails,
+              preparedHiddenReveal,
+            ),
+          })
+          .returning();
+        purchasedMaterial = mapMaterialRow(inserted);
       } else {
-        await addMaterialStackToInventory(
+        const stored = await addMaterialStackToInventory(
           cultivatorId,
           {
             name: item.name,
@@ -1137,42 +1138,36 @@ export async function buyMarketItem(input: BuyInput) {
           },
           tx,
         );
+        const [row] = await tx
+          .select()
+          .from(materials)
+          .where(
+            and(
+              eq(materials.id, stored.id),
+              eq(materials.cultivatorId, cultivatorId),
+            ),
+          )
+          .limit(1);
+        if (!row) throw new MarketServiceError(500, '坊市物品入库失败');
+        purchasedMaterial = mapMaterialRow(row);
       }
-    };
 
-    if (input.tx) {
-      await writePurchase(input.tx);
-    } else {
-      await getExecutor().transaction(writePurchase);
-    }
-
-    // 记录已购买
-    const ttl = getBoughtTtlSec(layer);
-    afterCommitJobs.push(async () => {
-      await redis.sadd(boughtKey, listingId);
-      await redis.expire(boughtKey, ttl);
-    });
-    const afterCommit = async () => {
-      for (const job of afterCommitJobs) {
-        await job();
-      }
-    };
-    if (!input.deferSideEffects) {
-      await afterCommit();
-    }
-
-    return {
-      success: true,
-      message: `成功购入 ${item.name} x${quantity}`,
-      item: applyMarketPurchaseDiscount(sanitizeListing(item), input.fates),
-      afterCommit: input.deferSideEffects ? afterCommit : undefined,
-    };
-  } finally {
-    await redis.del(lockKey);
-  }
+      return {
+        result: {
+          success: true,
+          message: `成功购入 ${item.name} x${quantity}`,
+          item: applyMarketPurchaseDiscount(sanitizeListing(item), input.fates),
+        },
+        inventoryItems: [purchasedMaterial],
+        afterCommit: markPurchased,
+      };
+    },
+  };
 }
 
-export async function batchBuyMarketItems(input: BatchBuyInput) {
+export async function prepareBatchMarketPurchase(
+  input: BatchBuyInput,
+) {
   const { nodeId, layer, items, userId, cultivatorId, cultivatorRealm } = input;
 
   if (items.length === 0) {
@@ -1199,41 +1194,59 @@ export async function batchBuyMarketItems(input: BatchBuyInput) {
   }
 
   const cycle = getCurrentCycle(layer);
-  const lockKey = getBuyLockKey(userId, nodeId, layer);
-  const gotLock = await redis.set(lockKey, '1', 'EX', 30, 'NX');
-  if (!gotLock) {
-    throw new MarketServiceError(429, '坊市人声鼎沸，请稍后再往');
+  // 分布式锁由 API/Application 层统一获取；Redis 读取全部在 DB 事务外。
+  const cacheKey = getCacheKey(nodeId, layer, cycle);
+  const cachedData = parseCachedData(await redis.get(cacheKey));
+  if (!cachedData) {
+    throw new MarketServiceError(404, '坊市正在进货中，暂未开启');
   }
 
-  try {
-    const cacheKey = getCacheKey(nodeId, layer, cycle);
-    const cachedData = parseCachedData(await redis.get(cacheKey));
-    if (!cachedData) {
-      throw new MarketServiceError(404, '坊市正在进货中，暂未开启');
+  const boughtKey = getBoughtKey(userId, nodeId, layer, cycle);
+  const boughtIds = new Set(await redis.smembers(boughtKey));
+
+  let totalCost = 0;
+  const processItems: { item: InternalMarketListing; quantity: number }[] = [];
+  let alreadyBoughtItemName: string | null = null;
+
+  for (const buyReq of items) {
+    const item = cachedData.listings.find((l) => l.id === buyReq.listingId);
+    if (!item) {
+      throw new MarketServiceError(404, `物品已售罄或下架`);
     }
-
-    const boughtKey = getBoughtKey(userId, nodeId, layer, cycle);
-    const boughtIds = new Set(await redis.smembers(boughtKey));
-
-    let totalCost = 0;
-    const processItems: { item: InternalMarketListing; quantity: number }[] =
-      [];
-
-    for (const buyReq of items) {
-      const item = cachedData.listings.find((l) => l.id === buyReq.listingId);
-      if (!item) {
-        throw new MarketServiceError(404, `物品已售罄或下架`);
-      }
-      if (boughtIds.has(item.id)) {
-        throw new MarketServiceError(400, `你已购入过 ${item.name}`);
-      }
-      totalCost +=
-        getDiscountedMarketPrice(item.price, input.fates) * buyReq.quantity;
-      processItems.push({ item, quantity: buyReq.quantity });
+    if (boughtIds.has(item.id) && !alreadyBoughtItemName) {
+      alreadyBoughtItemName = item.name;
     }
+    totalCost +=
+      getDiscountedMarketPrice(item.price, input.fates) * buyReq.quantity;
+    processItems.push({ item, quantity: buyReq.quantity });
+  }
 
-    const afterCommitJobs: Array<() => Promise<void>> = [];
-    const writeBatchPurchase = async (tx: DbTransaction) => {
+  const preparedMysteries = new Map(
+    processItems
+      .filter(({ item }) => item.isMystery)
+      .map(({ item }) => [
+        item.id,
+        {
+          mysteryId: crypto.randomUUID(),
+          hiddenReveal: buildHiddenMysteryReveal(item),
+        },
+      ]),
+  );
+  const stableListingIds = processItems.map(({ item }) => item.id).sort();
+  const ttl = getBoughtTtlSec(layer);
+  const markPurchased = async () => {
+    await redis.sadd(boughtKey, ...stableListingIds);
+    await redis.expire(boughtKey, ttl);
+  };
+
+  return {
+    async commit(tx: DbTransaction) {
+      if (alreadyBoughtItemName) {
+        throw new MarketServiceError(
+          400,
+          `你已购入过 ${alreadyBoughtItemName}`,
+        );
+      }
       const [updatedCultivator] = await tx
         .update(cultivators)
         .set({
@@ -1248,30 +1261,37 @@ export async function batchBuyMarketItems(input: BatchBuyInput) {
         throw new MarketServiceError(400, '囊中羞涩，灵石不足');
       }
 
+      const inventoryItems = [];
       for (const { item, quantity } of processItems) {
         if (item.isMystery) {
-          const mysteryId = crypto.randomUUID();
-          const hiddenReveal = buildHiddenMysteryReveal(item);
-          if (!hiddenReveal) {
+          const preparedMystery = preparedMysteries.get(item.id);
+          if (!preparedMystery?.hiddenReveal) {
             throw new MarketServiceError(503, '黑市鉴宝册缺页，请稍后再试');
           }
           const publicDetails = {
             ...(sanitizeMaterialDetails(item.details) ?? {}),
-            mystery: buildMysteryDetails(item, mysteryId),
+            mystery: buildMysteryDetails(item, preparedMystery.mysteryId),
           };
 
-          await tx.insert(materials).values({
-            cultivatorId,
-            name: item.mysteryMask?.disguisedName || item.name,
-            type: item.type,
-            rank: item.rank,
-            element: item.element,
-            description: item.description,
-            quantity,
-            details: withHiddenMysteryReveal(publicDetails, hiddenReveal),
-          });
+          const [inserted] = await tx
+            .insert(materials)
+            .values({
+              cultivatorId,
+              name: item.mysteryMask?.disguisedName || item.name,
+              type: item.type,
+              rank: item.rank,
+              element: item.element,
+              description: item.description,
+              quantity,
+              details: withHiddenMysteryReveal(
+                publicDetails,
+                preparedMystery.hiddenReveal,
+              ),
+            })
+            .returning();
+          inventoryItems.push(mapMaterialRow(inserted));
         } else {
-          await addMaterialStackToInventory(
+          const stored = await addMaterialStackToInventory(
             cultivatorId,
             {
               name: item.name,
@@ -1284,116 +1304,101 @@ export async function batchBuyMarketItems(input: BatchBuyInput) {
             },
             tx,
           );
+          const [row] = await tx
+            .select()
+            .from(materials)
+            .where(
+              and(
+                eq(materials.id, stored.id),
+                eq(materials.cultivatorId, cultivatorId),
+              ),
+            )
+            .limit(1);
+          if (!row) throw new MarketServiceError(500, '坊市物品入库失败');
+          inventoryItems.push(mapMaterialRow(row));
         }
       }
-    };
 
-    if (input.tx) {
-      await writeBatchPurchase(input.tx);
-    } else {
-      await getExecutor().transaction(writeBatchPurchase);
-    }
-
-    // 批量记录已购买
-    const ttl = getBoughtTtlSec(layer);
-    const listingIds = processItems.map(({ item }) => item.id);
-    afterCommitJobs.push(async () => {
-      await redis.sadd(boughtKey, ...listingIds);
-      await redis.expire(boughtKey, ttl);
-    });
-    const afterCommit = async () => {
-      for (const job of afterCommitJobs) {
-        await job();
-      }
-    };
-    if (!input.deferSideEffects) {
-      await afterCommit();
-    }
-
-    return {
-      success: true,
-      message: `成功批量购入 ${processItems.length} 种物品`,
-      totalCost,
-      afterCommit: input.deferSideEffects ? afterCommit : undefined,
-    };
-  } finally {
-    await redis.del(lockKey);
-  }
+      return {
+        result: {
+          success: true,
+          message: `成功批量购入 ${processItems.length} 种物品`,
+          totalCost,
+        },
+        inventoryItems,
+        afterCommit: markPurchased,
+      };
+    },
+  };
 }
 
-// ─── 鉴定（保持不变）───
+// ─── 鉴定 ───
 
-export async function identifyMysteryMaterial(input: IdentifyInput) {
+export async function prepareMysteryMaterialIdentification(
+  input: IdentifyInput,
+) {
   const { materialId, cultivatorId } = input;
-  const lockKey = getIdentifyLockKey(materialId);
-  const gotLock = await redis.set(lockKey, '1', 'EX', 10, 'NX');
-  if (!gotLock) {
-    throw new MarketServiceError(429, '鉴定事务处理中，请稍后再试');
+  const current = await getExecutor()
+    .select()
+    .from(materials)
+    .where(
+      and(
+        eq(materials.id, materialId),
+        eq(materials.cultivatorId, cultivatorId),
+      ),
+    )
+    .limit(1);
+  const target = current[0];
+  if (!target) {
+    throw new MarketServiceError(404, '未找到待鉴定物品');
   }
 
-  try {
-    const q = input.tx ?? getExecutor();
-    const current = await q
-      .select()
-      .from(materials)
-      .where(
-        and(
-          eq(materials.id, materialId),
-          eq(materials.cultivatorId, cultivatorId),
-        ),
-      )
-      .limit(1);
-    const target = current[0];
-    if (!target) {
-      throw new MarketServiceError(404, '未找到待鉴定物品');
+  const details = (target.details || {}) as Record<string, unknown>;
+  const mystery = (details.mystery || null) as {
+    mysteryId?: string;
+    identifyCost?: number;
+    disguiseTier?: keyof typeof QUALITY_ORDER;
+    type?: MaterialType;
+    rankRange?: { min: Quality; max: Quality };
+    nodeId?: string;
+    layer?: MarketLayer;
+    regionTags?: string[];
+  } | null;
+
+  if (!mystery?.mysteryId) {
+    throw new MarketServiceError(400, '此物并非神秘物品，无需鉴定');
+  }
+
+  const mysteryKey = getMysteryKey(cultivatorId, mystery.mysteryId);
+  const cost = QiService.getCost('market_identify');
+  const revealContext = resolveMysteryRevealContext(target, mystery);
+  let revealedMaterial = getHiddenMysteryReveal(details);
+  if (!revealedMaterial) {
+    const sampled = await sampleMaterialForRange({
+      materialType: revealContext.type,
+      rankRange: revealContext.rankRange,
+      count: 1,
+    });
+    if (!sampled) {
+      throw new MarketServiceError(503, '鉴定材料库暂无匹配灵材，请稍后再试');
     }
+    const sampledMaterial = materialLibraryEntryToMaterial(sampled);
+    revealedMaterial = {
+      name: sampledMaterial.name,
+      type: sampledMaterial.type,
+      rank: sampledMaterial.rank,
+      element: sampledMaterial.element,
+      description: sampledMaterial.description,
+      details: sanitizeMaterialDetails(sampledMaterial.details) ?? {},
+      quantity: 1,
+      itemLibraryItemId: sampled.itemId,
+      boundAt: new Date().toISOString(),
+    };
+  }
 
-    const details = (target.details || {}) as Record<string, unknown>;
-    const mystery = (details.mystery || null) as {
-      mysteryId?: string;
-      identifyCost?: number;
-      disguiseTier?: keyof typeof QUALITY_ORDER;
-      type?: MaterialType;
-      rankRange?: { min: Quality; max: Quality };
-      nodeId?: string;
-      layer?: MarketLayer;
-      regionTags?: string[];
-    } | null;
-
-    if (!mystery?.mysteryId) {
-      throw new MarketServiceError(400, '此物并非神秘物品，无需鉴定');
-    }
-
-    const mysteryKey = getMysteryKey(cultivatorId, mystery.mysteryId);
-    const cost = QiService.getCost('market_identify');
-    const revealContext = resolveMysteryRevealContext(target, mystery);
-    let revealedMaterial = getHiddenMysteryReveal(details);
-    if (!revealedMaterial) {
-      const sampled = await sampleMaterialForRange({
-        materialType: revealContext.type,
-        rankRange: revealContext.rankRange,
-        count: 1,
-      });
-      if (!sampled) {
-        throw new MarketServiceError(503, '鉴定材料库暂无匹配灵材，请稍后再试');
-      }
-      const sampledMaterial = materialLibraryEntryToMaterial(sampled);
-      revealedMaterial = {
-        name: sampledMaterial.name,
-        type: sampledMaterial.type,
-        rank: sampledMaterial.rank,
-        element: sampledMaterial.element,
-        description: sampledMaterial.description,
-        details: sanitizeMaterialDetails(sampledMaterial.details) ?? {},
-        quantity: 1,
-        itemLibraryItemId: sampled.itemId,
-        boundAt: new Date().toISOString(),
-      };
-    }
-
-    let revealedMaterialId = materialId;
-    let qiAfter: number | undefined;
-    const writeReveal = async (tx: DbTransaction) => {
+  return {
+    async commit(tx: DbTransaction) {
+      let revealedMaterialId = materialId;
       const qiReservation = await QiService.reserveQi({
         cultivatorId,
         action: 'market_identify',
@@ -1405,15 +1410,33 @@ export async function identifyMysteryMaterial(input: IdentifyInput) {
         },
         tx,
       });
-      qiAfter = qiReservation.qiAfter;
+      const qiAfter = qiReservation.qiAfter;
 
-      if (target.quantity > 1) {
-        await tx
-          .update(materials)
-          .set({ quantity: target.quantity - 1 })
-          .where(eq(materials.id, materialId));
-      } else {
-        await tx.delete(materials).where(eq(materials.id, materialId));
+      const consumed =
+        target.quantity > 1
+          ? await tx
+              .update(materials)
+              .set({ quantity: target.quantity - 1 })
+              .where(
+                and(
+                  eq(materials.id, materialId),
+                  eq(materials.cultivatorId, cultivatorId),
+                  eq(materials.quantity, target.quantity),
+                ),
+              )
+              .returning()
+          : await tx
+              .delete(materials)
+              .where(
+                and(
+                  eq(materials.id, materialId),
+                  eq(materials.cultivatorId, cultivatorId),
+                  eq(materials.quantity, target.quantity),
+                ),
+              )
+              .returning();
+      if (consumed.length !== 1) {
+        throw new MarketServiceError(409, '待鉴定物品已发生变化，请重试');
       }
 
       const [insertedMaterial] = await tx
@@ -1428,7 +1451,7 @@ export async function identifyMysteryMaterial(input: IdentifyInput) {
           quantity: 1,
           details: sanitizeMaterialDetails(revealedMaterial.details) ?? {},
         })
-        .returning({ id: materials.id });
+        .returning();
       revealedMaterialId = insertedMaterial.id;
 
       await QiService.commitReservation({
@@ -1439,94 +1462,99 @@ export async function identifyMysteryMaterial(input: IdentifyInput) {
         },
         tx,
       });
-    };
 
-    if (input.tx) {
-      await writeReveal(input.tx);
-    } else {
-      await getExecutor().transaction(writeReveal);
-    }
+      const disguiseOrder =
+        QUALITY_ORDER[
+          (mystery.disguiseTier || target.rank) as keyof typeof QUALITY_ORDER
+        ];
+      const realOrder = QUALITY_ORDER[revealedMaterial.rank];
+      const delta = realOrder - disguiseOrder;
+      const jackpotLevel =
+        delta >= 3
+          ? 'legendary_win'
+          : delta >= 1
+            ? 'win'
+            : delta <= -2
+              ? 'big_loss'
+              : 'normal';
+      const isHeavenOrAbove = realOrder >= QUALITY_ORDER['天品'];
 
-    const disguiseOrder =
-      QUALITY_ORDER[
-        (mystery.disguiseTier || target.rank) as keyof typeof QUALITY_ORDER
-      ];
-    const realOrder = QUALITY_ORDER[revealedMaterial.rank];
-    const delta = realOrder - disguiseOrder;
-    const jackpotLevel =
-      delta >= 3
-        ? 'legendary_win'
-        : delta >= 1
-          ? 'win'
-          : delta <= -2
-            ? 'big_loss'
-            : 'normal';
-    const isHeavenOrAbove = realOrder >= QUALITY_ORDER['天品'];
-
-    const afterCommit = async () => {
-      await redis.del(mysteryKey);
-      if (!isHeavenOrAbove) {
-        return;
-      }
-      const [sender] = await getExecutor()
-        .select({ userId: cultivators.userId, name: cultivators.name })
-        .from(cultivators)
-        .where(eq(cultivators.id, cultivatorId))
-        .limit(1);
-      if (sender) {
-        const rumorText = `鉴宝司金光冲霄，${sender.name}鉴出${revealedMaterial.rank}「${revealedMaterial.name}」，天降异象，诸界皆闻。`;
-        try {
-          await createMessage({
-            senderUserId: sender.userId,
-            senderCultivatorId: null,
-            senderName: '修仙界传闻',
-            senderRealm: '炼气',
-            senderRealmStage: '系统',
-            channel: 'system',
-            messageType: 'item_showcase',
-            textContent: rumorText,
-            payload: {
-              itemType: 'material',
-              itemId: revealedMaterialId,
-              snapshot: {
-                id: revealedMaterialId,
-                name: revealedMaterial.name,
-                type: revealedMaterial.type,
-                rank: revealedMaterial.rank,
-                element: revealedMaterial.element,
-                description: revealedMaterial.description,
-                quantity: 1,
-              },
-              text: rumorText,
-            },
-          });
-        } catch (chatError) {
-          console.error('鉴定传闻发送失败:', chatError);
+      const afterCommit = async () => {
+        await redis.del(mysteryKey);
+        if (!isHeavenOrAbove) {
+          return;
         }
-      }
-    };
+        const [sender] = await getExecutor()
+          .select({ userId: cultivators.userId, name: cultivators.name })
+          .from(cultivators)
+          .where(eq(cultivators.id, cultivatorId))
+          .limit(1);
+        if (sender) {
+          const rumorText = `鉴宝司金光冲霄，${sender.name}鉴出${revealedMaterial.rank}「${revealedMaterial.name}」，天降异象，诸界皆闻。`;
+          try {
+            await createMessage({
+              senderUserId: sender.userId,
+              senderCultivatorId: null,
+              senderName: '修仙界传闻',
+              senderRealm: '炼气',
+              senderRealmStage: '系统',
+              channel: 'system',
+              messageType: 'item_showcase',
+              textContent: rumorText,
+              payload: {
+                itemType: 'material',
+                itemId: revealedMaterialId,
+                snapshot: {
+                  id: revealedMaterialId,
+                  name: revealedMaterial.name,
+                  type: revealedMaterial.type,
+                  rank: revealedMaterial.rank,
+                  element: revealedMaterial.element,
+                  description: revealedMaterial.description,
+                  quantity: 1,
+                },
+                text: rumorText,
+              },
+            });
+          } catch (chatError) {
+            console.error('鉴定传闻发送失败:', chatError);
+          }
+        }
+      };
 
-    if (!input.deferSideEffects) {
-      await afterCommit();
-    }
-
-    return {
-      success: true,
-      revealedItem: {
-        id: revealedMaterialId,
-        ...revealedMaterial,
-        quantity: 1,
-      },
-      cost,
-      qiAfter,
-      jackpotLevel,
-      revealEffect:
-        delta >= 2 ? '金光冲霄' : delta <= -2 ? '灵尘散尽' : '封印破除',
-      afterCommit: input.deferSideEffects ? afterCommit : undefined,
-    };
-  } finally {
-    await redis.del(lockKey);
-  }
+      return {
+        result: {
+          success: true,
+          revealedItem: {
+            id: revealedMaterialId,
+            ...revealedMaterial,
+            quantity: 1,
+          },
+          cost,
+          qiAfter,
+          jackpotLevel,
+          revealEffect:
+            delta >= 2 ? '金光冲霄' : delta <= -2 ? '灵尘散尽' : '封印破除',
+        },
+        inventoryChanges: [
+          target.quantity > 1
+            ? {
+                operation: 'upsert' as const,
+                item: mapMaterialRow(consumed[0]),
+              }
+            : {
+                operation: 'remove' as const,
+                id: target.id,
+              },
+          {
+            operation: 'upsert' as const,
+            item: mapMaterialRow(insertedMaterial),
+          },
+        ],
+        afterCommit,
+      };
+    },
+  };
 }
 
 // ─── 定时刷新入口（由 MarketScheduler 调用）───

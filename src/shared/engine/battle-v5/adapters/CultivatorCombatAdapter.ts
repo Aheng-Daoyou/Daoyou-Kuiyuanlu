@@ -14,6 +14,26 @@ import {
 } from '../core/types';
 import type { AbilityConfig } from '../core/configs';
 import { Unit } from '../units/Unit';
+import { createSectAbilitySelectionStrategy } from '@shared/engine/sect';
+import { projectSectCombat } from '@shared/engine/sect/content';
+
+export type CultivatorCombatInput = Pick<
+  Cultivator,
+  | 'id'
+  | 'name'
+  | 'realm'
+  | 'realm_stage'
+  | 'attributes'
+  | 'spiritual_roots'
+  | 'pre_heaven_fates'
+  | 'sect'
+  | 'skills'
+  | 'cultivations'
+  | 'equipped'
+  | 'condition'
+> & {
+  inventory: Pick<Cultivator['inventory'], 'artifacts'>;
+};
 
 const ATTRIBUTE_MAP = {
   spirit: AttributeType.SPIRIT,
@@ -23,7 +43,10 @@ const ATTRIBUTE_MAP = {
   willpower: AttributeType.WILLPOWER,
 } as const;
 
-function mountBodyCultivationModifiers(unit: Unit, cultivator: Cultivator): void {
+function mountBodyCultivationModifiers(
+  unit: Unit,
+  cultivator: CultivatorCombatInput,
+): void {
   for (const [index, modifier] of buildBodyCultivationAttributeModifiers(
     cultivator.condition,
   ).entries()) {
@@ -42,7 +65,7 @@ function mountBodyCultivationModifiers(unit: Unit, cultivator: Cultivator): void
 }
 
 export function createCombatUnitFromCultivator(
-  cultivator: Cultivator,
+  cultivator: CultivatorCombatInput,
   isMirror: boolean = false,
 ): Unit {
   const baseAttrs: Partial<Record<AttributeType, number>> = {};
@@ -62,7 +85,11 @@ export function createCombatUnitFromCultivator(
     realmRank: getRealmStageRank(cultivator.realm, cultivator.realm_stage),
   });
 
-  for (const skill of cultivator.skills ?? []) {
+  const sectProjection = cultivator.sect
+    ? projectSectCombat({ sect: cultivator.sect, realm: cultivator.realm })
+    : null;
+
+  for (const skill of sectProjection ? [] : (cultivator.skills ?? [])) {
     if (!skill.abilityConfig) continue;
     unit.abilities.addAbility(AbilityFactory.create(skill.abilityConfig));
   }
@@ -106,6 +133,31 @@ export function createCombatUnitFromCultivator(
   }
 
   mountBodyCultivationModifiers(unit, cultivator);
+
+  if (sectProjection) {
+    for (const resource of sectProjection.resources) {
+      unit.combatResources.define(resource);
+    }
+    if (sectProjection.defaultAttack) {
+      unit.abilities.setDefaultAttack(AbilityFactory.create(sectProjection.defaultAttack));
+    }
+    for (const ability of sectProjection.abilities) {
+      unit.abilities.addAbility(AbilityFactory.create(ability));
+    }
+    const selectionStrategy = createSectAbilitySelectionStrategy(sectProjection);
+    if (selectionStrategy) {
+      unit.abilities.setSelectionStrategy(selectionStrategy);
+    }
+    for (const method of sectProjection.methodModifiers) {
+      for (const [index, modifier] of method.modifiers.entries()) {
+        unit.attributes.addModifier({
+          id: `sect-method:${method.methodId}:${modifier.attrType}:${index}`,
+          ...modifier,
+          source: { sourceType: 'sectMethod', carrierId: method.methodId },
+        });
+      }
+    }
+  }
 
   unit.updateDerivedStats();
   return unit;

@@ -5,7 +5,7 @@ import {
   listCultivatorFormulasPage,
 } from '@server/lib/services/AlchemyFormulaService';
 import { AlchemyServiceError } from '@server/lib/services/AlchemyServiceError';
-import { requireActiveCultivator } from '@server/lib/hono/middleware';
+import { requireActiveCultivatorRef } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
 import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
@@ -44,8 +44,8 @@ const FormulaListQuerySchema = z.object({
   family: z.enum(PILL_FAMILY_VALUES).optional(),
 });
 
-router.get('/formulas', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.get('/formulas', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
@@ -57,7 +57,7 @@ router.get('/formulas', requireActiveCultivator(), async (c) => {
       search: c.req.query('search') || undefined,
       family: c.req.query('family') || undefined,
     });
-    const result = await listCultivatorFormulasPage(cultivator.id, query);
+    const result = await listCultivatorFormulasPage(cultivator.cultivatorId, query);
     return c.json({
       success: true,
       data: {
@@ -76,15 +76,15 @@ router.get('/formulas', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.delete('/formulas/:formulaId', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.delete('/formulas/:formulaId', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
 
   try {
     const { formulaId } = FormulaIdParamSchema.parse(c.req.param());
-    await deleteCultivatorFormula(cultivator.id, formulaId);
+    await deleteCultivatorFormula(cultivator.cultivatorId, formulaId);
 
     return c.json({
       success: true,
@@ -105,8 +105,8 @@ router.delete('/formulas/:formulaId', requireActiveCultivator(), async (c) => {
   }
 });
 
-router.post('/formulas/:formulaId/analyze', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.post('/formulas/:formulaId/analyze', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
@@ -117,7 +117,7 @@ router.post('/formulas/:formulaId/analyze', requireActiveCultivator(), async (c)
       await c.req.json(),
     );
     const result = await analyzeFormulaMaterials(
-      cultivator.id,
+      cultivator.cultivatorId,
       formulaId,
       materialIds,
       materialQuantities,
@@ -142,15 +142,15 @@ router.post('/formulas/:formulaId/analyze', requireActiveCultivator(), async (c)
   }
 });
 
-router.post('/formulas/discovery/confirm', requireActiveCultivator(), async (c) => {
-  const cultivator = c.get('cultivator');
+router.post('/formulas/discovery/confirm', requireActiveCultivatorRef(), async (c) => {
+  const cultivator = c.get('activeCultivatorRef');
   if (!cultivator) {
     return c.json({ error: '当前没有活跃角色' }, 404);
   }
 
   try {
     const { token, accept } = DiscoveryConfirmSchema.parse(await c.req.json());
-    const result = await confirmDiscoveryCandidate(cultivator.id, token, accept);
+    const result = await confirmDiscoveryCandidate(cultivator.cultivatorId, token, accept);
 
     return c.json({
       success: true,

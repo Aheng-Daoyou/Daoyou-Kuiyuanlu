@@ -26,6 +26,7 @@ export const ATTR_LABELS: Record<AttributeType, string> = {
     'attribute_magic_def',
     'short',
   ),
+  [AttributeType.ACTION_SPEED]: getGameConceptLabel('attribute_action_speed'),
   [AttributeType.CRIT_RATE]: getGameConceptLabel('attribute_crit_rate'),
   [AttributeType.CRIT_DAMAGE_MULT]: getGameConceptLabel(
     'attribute_crit_damage',
@@ -50,6 +51,7 @@ export const ATTR_LABELS: Record<AttributeType, string> = {
   ),
   [AttributeType.ACCURACY]: getGameConceptLabel('attribute_accuracy'),
   [AttributeType.HEAL_AMPLIFY]: getGameConceptLabel('attribute_heal_amplify'),
+  [AttributeType.HEAL_RECEIVED_REDUCTION]: '受治疗削弱',
 };
 
 export function attrLabel(attrType: AttributeType): string {

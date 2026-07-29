@@ -15,6 +15,15 @@ import type {
   CultivationProgress,
   Cultivator,
 } from '@shared/types/cultivator';
+
+type BreakthroughCultivator = Pick<
+  Cultivator,
+  | 'condition'
+  | 'cultivation_progress'
+  | 'realm'
+  | 'realm_stage'
+  | 'pre_heaven_fates'
+>;
 import {
   evaluateFateContext,
 } from '@shared/lib/fates';
@@ -74,7 +83,7 @@ export interface BreakthroughChanceResult {
 }
 
 function getActiveStatus(
-  cultivator: Cultivator,
+  cultivator: BreakthroughCultivator,
   statusKey: ConditionStatusKey,
 ): ConditionStatusInstance | null {
   return (
@@ -91,7 +100,7 @@ function getActiveStatus(
  * @returns 突破概率计算结果
  */
 export function calculateBreakthroughChance(
-  cultivator: Cultivator,
+  cultivator: BreakthroughCultivator,
 ): BreakthroughChanceResult {
   // 获取修为进度数据
   const progress = cultivator.cultivation_progress;

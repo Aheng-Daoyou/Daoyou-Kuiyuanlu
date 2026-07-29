@@ -1,11 +1,19 @@
-import { RankingItem } from '@server/lib/redis/rankings';
-
-export type BattleRankingItem = RankingItem;
-
 export interface BodyCultivationRankingInfo {
   realm: string;
   totalLevel: number;
   label: string;
+}
+
+export interface BattleRankingItem {
+  id: string;
+  rank: number;
+  name: string;
+  title: string | null;
+  age: number;
+  realm: string;
+  realm_stage: string;
+  origin: string | null;
+  bodyCultivation?: BodyCultivationRankingInfo;
 }
 
 export type RankingItemType = 'artifact' | 'skill' | 'elixir' | 'technique';

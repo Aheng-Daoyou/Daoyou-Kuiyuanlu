@@ -3,17 +3,13 @@ import { HomeUrgentRow } from '@app/components/feature/home/HomeUrgentRow';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkBadge } from '@app/components/ui/InkBadge';
 import { InkButton } from '@app/components/ui/InkButton';
-import {
-  consumePlayerStateMeta,
-  consumePlayerStateMutation,
-} from '@app/lib/player-state/store';
+import { consumeResourceChanges } from '@app/lib/resources/mutations';
 import { GeneratedMaterial } from '@shared/engine/material/creation/types';
 import { getGameConceptInfo } from '@shared/lib/gameConceptDisplay';
-import type { Cultivator } from '@shared/types/cultivator';
 import { useEffect, useState } from 'react';
 
 interface YieldCardProps {
-  cultivator: Cultivator;
+  cultivator: { last_yield_at?: string };
   onOk?: () => void;
   onInteractionActiveChange?: (active: boolean) => void;
   variant?: 'card' | 'compact';
@@ -95,27 +91,7 @@ export function YieldCard({
               prev ? { ...prev, story: currentStory } : null,
             );
           } else if (data.type === 'state' && data.state) {
-            void consumePlayerStateMeta(data.state, {
-              deferRecovery: true,
-            }).catch((error) => {
-              console.error('Error applying yield state meta', error);
-            });
-          } else if (data.type === 'state' && Array.isArray(data.events)) {
-            void consumePlayerStateMutation(
-              {
-                success: true,
-                data: null,
-                state: {
-                  cultivatorId: data.cultivatorId ?? cultivator.id,
-                  globalVersion: data.globalVersion ?? 0,
-                  domainVersions: data.domainVersions ?? {},
-                  events: data.events,
-                },
-              },
-              { deferRecovery: true },
-            ).catch((error) => {
-              console.error('Error applying yield state events', error);
-            });
+            consumeResourceChanges(data.state);
           } else if (data.type === 'error') {
             pushToast({ message: data.error, tone: 'danger' });
           }

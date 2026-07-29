@@ -3,10 +3,12 @@ import {
   GameSceneFrame,
 } from '@app/components/game-shell';
 import { InkButton, InkNotice } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import { useCultivatorIdentity } from '@app/lib/resources/player';
 
 export default function CultivatorPage() {
-  const { cultivator, isLoading } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const cultivator = profile.data?.cultivator;
+  const isLoading = profile.loading;
 
   if (isLoading && !cultivator) {
     return (

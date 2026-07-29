@@ -18,8 +18,18 @@ import {
 } from '@app/components/ui';
 import { tierColorMap, type Tier } from '@app/components/ui/InkBadge';
 import { ItemCard } from '@app/components/ui/ItemCard';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import {
+  useCultivatorCondition,
+  useCultivatorCurrency,
+  useCultivatorIdentity,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
+import {
+  useArtifactInventoryResource,
+  useConsumableInventoryResource,
+  useMaterialInventoryResource,
+} from '@app/lib/resources/inventory';
 import {
   ItemDetailModal,
   toInventoryItemDetail,
@@ -51,7 +61,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -113,8 +122,6 @@ const PAGE_LIMIT = 20;
 const INVENTORY_PAGE_SIZE = 20;
 
 type ItemType = 'material' | 'artifact' | 'consumable';
-type InventoryApiType = 'materials' | 'artifacts' | 'consumables';
-
 interface InventoryPagination {
   page: number;
   pageSize: number;
@@ -122,29 +129,6 @@ interface InventoryPagination {
   totalPages: number;
   hasMore: boolean;
 }
-
-interface InventoryApiPayload {
-  success: boolean;
-  data?: {
-    items?: Array<Material | Artifact | Consumable>;
-    pagination?: InventoryPagination;
-  };
-  error?: string;
-}
-
-const defaultInventoryPagination: InventoryPagination = {
-  page: 1,
-  pageSize: INVENTORY_PAGE_SIZE,
-  total: 0,
-  totalPages: 0,
-  hasMore: false,
-};
-
-const itemTypeToApiTypeMap: Record<ItemType, InventoryApiType> = {
-  material: 'materials',
-  artifact: 'artifacts',
-  consumable: 'consumables',
-};
 
 function getQuality(item: InventoryItem): string {
   if (item.itemType === 'material') return item.rank;
@@ -310,140 +294,85 @@ function getStatusMeta(status: BetBattleListing['status']) {
 
 function useInventorySelector() {
   const [activeType, setActiveType] = useState<ItemType>('material');
-  const [isItemsLoading, setIsItemsLoading] = useState(false);
   const [listError, setListError] = useState('');
-  const [itemsByType, setItemsByType] = useState<
-    Record<ItemType, InventoryItem[]>
-  >({
-    material: [],
-    artifact: [],
-    consumable: [],
+  const materialInventory = useMaterialInventoryResource({
+    pageSize: INVENTORY_PAGE_SIZE,
+    enabled: activeType === 'material',
   });
-  const [paginationByType, setPaginationByType] = useState<
-    Record<ItemType, InventoryPagination>
-  >({
-    material: defaultInventoryPagination,
-    artifact: defaultInventoryPagination,
-    consumable: defaultInventoryPagination,
+  const artifactInventory = useArtifactInventoryResource({
+    pageSize: INVENTORY_PAGE_SIZE,
+    enabled: activeType === 'artifact',
   });
-  const [loadedByType, setLoadedByType] = useState<Record<ItemType, boolean>>({
-    material: false,
-    artifact: false,
-    consumable: false,
+  const consumableInventory = useConsumableInventoryResource({
+    pageSize: INVENTORY_PAGE_SIZE,
+    enabled: activeType === 'consumable',
   });
-  const requestIdRef = useRef(0);
-
-  const fetchItemPage = useCallback(
-    async (itemType: ItemType, page: number) => {
-      const requestId = ++requestIdRef.current;
-      setIsItemsLoading(true);
-      setListError('');
-
-      try {
-        const apiType = itemTypeToApiTypeMap[itemType];
-        const res = await fetch(
-          `/api/cultivator/inventory?type=${apiType}&page=${Math.max(1, page)}&pageSize=${INVENTORY_PAGE_SIZE}`,
-        );
-        const result = (await res.json()) as InventoryApiPayload;
-        if (!res.ok || !result.success) {
-          throw new Error(result.error || '读取背包失败');
-        }
-
-        if (requestId !== requestIdRef.current) return;
-
-        const mappedItems = (result.data?.items || []).map((item) => ({
-          ...item,
-          itemType,
-        })) as InventoryItem[];
-
-        setItemsByType((prev) => ({ ...prev, [itemType]: mappedItems }));
-        setPaginationByType((prev) => ({
-          ...prev,
-          [itemType]: result.data?.pagination || {
-            ...defaultInventoryPagination,
-            pageSize: INVENTORY_PAGE_SIZE,
-          },
-        }));
-        setLoadedByType((prev) => ({ ...prev, [itemType]: true }));
-      } catch (error) {
-        if (requestId !== requestIdRef.current) return;
-        setListError(error instanceof Error ? error.message : '读取背包失败');
-      } finally {
-        if (requestId === requestIdRef.current) {
-          setIsItemsLoading(false);
-        }
-      }
-    },
-    [],
+  const activeInventory =
+    activeType === 'material'
+      ? materialInventory
+      : activeType === 'artifact'
+        ? artifactInventory
+        : consumableInventory;
+  const items = useMemo<InventoryItem[] | undefined>(
+    () =>
+      activeType === 'material'
+        ? materialInventory.items?.map((item) => ({
+            ...item,
+            itemType: 'material' as const,
+          }))
+        : activeType === 'artifact'
+          ? artifactInventory.items?.map((item) => ({
+              ...item,
+              itemType: 'artifact' as const,
+            }))
+          : consumableInventory.items?.map((item) => ({
+              ...item,
+              itemType: 'consumable' as const,
+            })),
+    [
+      activeType,
+      artifactInventory.items,
+      consumableInventory.items,
+      materialInventory.items,
+    ],
   );
-
-  useEffect(() => {
-    if (loadedByType[activeType]) return;
-
-    let cancelled = false;
-
-    const loadInitialStakeItems = async () => {
-      try {
-        const apiType = itemTypeToApiTypeMap[activeType];
-        const res = await fetch(
-          `/api/cultivator/inventory?type=${apiType}&page=1&pageSize=${INVENTORY_PAGE_SIZE}`,
-        );
-        const result = (await res.json()) as InventoryApiPayload;
-        if (!res.ok || !result.success) {
-          throw new Error(result.error || '读取背包失败');
-        }
-
-        if (cancelled) return;
-
-        const mappedItems = (result.data?.items || []).map((item) => ({
-          ...item,
-          itemType: activeType,
-        })) as InventoryItem[];
-
-        setItemsByType((prev) => ({ ...prev, [activeType]: mappedItems }));
-        setPaginationByType((prev) => ({
-          ...prev,
-          [activeType]: result.data?.pagination || {
-            ...defaultInventoryPagination,
-            pageSize: INVENTORY_PAGE_SIZE,
-          },
-        }));
-        setLoadedByType((prev) => ({ ...prev, [activeType]: true }));
-      } catch (error) {
-        if (!cancelled) {
-          setListError(error instanceof Error ? error.message : '读取背包失败');
-        }
-      } finally {
-        if (!cancelled) {
-          setIsItemsLoading(false);
-        }
-      }
-    };
-
-    void loadInitialStakeItems();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeType, loadedByType]);
+  const setMaterialPage = materialInventory.setPage;
+  const setArtifactPage = artifactInventory.setPage;
+  const setConsumablePage = consumableInventory.setPage;
+  const fetchItemPage = useCallback(
+    (itemType: ItemType, page: number) => {
+      setListError('');
+      const nextPage = Math.max(1, page);
+      if (itemType === 'material') setMaterialPage(nextPage);
+      else if (itemType === 'artifact') setArtifactPage(nextPage);
+      else setConsumablePage(nextPage);
+    },
+    [setArtifactPage, setConsumablePage, setMaterialPage],
+  );
 
   return {
     activeType,
     setActiveType,
-    isItemsLoading,
-    listError,
+    isItemsLoading: activeInventory.loading,
+    listError: activeInventory.error ?? listError,
     setListError,
-    itemsByType,
-    paginationByType,
+    items,
+    pagination: activeInventory.pagination as
+      | InventoryPagination
+      | undefined,
     fetchItemPage,
   };
 }
 
 export default function BetBattlePage() {
-  const { cultivator } = usePlayerStateView();
+  const session = usePlayerSession();
+  const profile = useCultivatorIdentity();
+  const currency = useCultivatorCurrency();
   const { pushToast } = useInkUI();
-  const { mutate } = usePlayerStateActions();
-  const cultivatorId = cultivator?.id;
+  const { mutate } = useResourceMutation();
+  const cultivatorId = session.data?.activeCultivator?.id;
+  const viewerRealm = profile.data?.cultivator.realm;
+  const spiritStones = currency.data?.spiritStones;
   const [now, setNow] = useState(() => Date.now());
 
   const [activeTab, setActiveTab] = useState<'hall' | 'mine'>('hall');
@@ -460,50 +389,6 @@ export default function BetBattlePage() {
     useState<Cultivator | null>(null);
   const [selectedStakeDetail, setSelectedStakeDetail] =
     useState<ItemDetailPayload | null>(null);
-
-  const loadHall = async () => {
-    setLoadingHall(true);
-    try {
-      setHallListings(
-        await readBetBattleListings(
-          `/api/bet-battles/listings?page=1&limit=${PAGE_LIMIT}`,
-          '获取赌战列表失败',
-        ),
-      );
-    } catch (error) {
-      pushToast({
-        message: error instanceof Error ? error.message : '获取赌战列表失败',
-        tone: 'danger',
-      });
-    } finally {
-      setLoadingHall(false);
-    }
-  };
-
-  const loadMine = async () => {
-    if (!cultivatorId) {
-      setMyListings([]);
-      setLoadingMine(false);
-      return;
-    }
-
-    setLoadingMine(true);
-    try {
-      setMyListings(
-        await readBetBattleListings(
-          `/api/bet-battles/my?page=1&limit=${PAGE_LIMIT}`,
-          '获取我的赌战失败',
-        ),
-      );
-    } catch (error) {
-      pushToast({
-        message: error instanceof Error ? error.message : '获取我的赌战失败',
-        tone: 'danger',
-      });
-    } finally {
-      setLoadingMine(false);
-    }
-  };
 
   useEffect(() => {
     let cancelled = false;
@@ -558,22 +443,32 @@ export default function BetBattlePage() {
   }, []);
 
   const canCreateMore = useMemo(() => {
-    if (!cultivator) return false;
+    if (!cultivatorId) return false;
     return !myListings.some(
-      (l) => l.creatorId === cultivator.id && l.status === 'pending',
+      (l) => l.creatorId === cultivatorId && l.status === 'pending',
     );
-  }, [cultivator, myListings]);
+  }, [cultivatorId, myListings]);
 
   const handleCancel = async (battleId: string) => {
     setPendingActionId(battleId);
     try {
-      const data = await mutate<{ message: string }>(
+      const data = await mutate<{
+        message: string;
+        listing: BetBattleListing;
+      }>(
         fetch(`/api/bet-battles/${battleId}/cancel`, {
           method: 'POST',
         }),
       );
       pushToast({ message: data.message || '已取消', tone: 'success' });
-      await Promise.all([loadHall(), loadMine()]);
+      setHallListings((current) =>
+        current.filter((listing) => listing.id !== data.listing.id),
+      );
+      setMyListings((current) =>
+        current.map((listing) =>
+          listing.id === data.listing.id ? data.listing : listing,
+        ),
+      );
     } catch (error) {
       pushToast({
         message: error instanceof Error ? error.message : '取消失败',
@@ -585,7 +480,7 @@ export default function BetBattlePage() {
   };
 
   const handleProbe = async (targetId: string) => {
-    if (!cultivator?.id) return;
+    if (!cultivatorId) return;
     setProbingId(targetId);
     try {
       const response = await fetch('/api/rankings/probe', {
@@ -611,13 +506,13 @@ export default function BetBattlePage() {
   };
 
   const renderItem = (item: BetBattleListing, mine = false) => {
-    const isCreator = item.creatorId === cultivator?.id;
+    const isCreator = item.creatorId === cultivatorId;
     const isConsumableStakeDisabled =
       temporaryRestrictions.disableConsumableBetBattle &&
       item.creatorStakeSnapshot.stakeType === 'item' &&
       item.creatorStakeSnapshot.item?.itemType === 'consumable';
     const canChallenge =
-      !!cultivator &&
+      !!cultivatorId &&
       !isCreator &&
       item.status === 'pending' &&
       new Date(item.expiresAt).getTime() > now &&
@@ -754,7 +649,8 @@ export default function BetBattlePage() {
                 以灵石或器物为筹，邀天下道友一战分高下。胜者得赌注，败者留名于台。
               </p>
               <div className="text-battle-muted mt-3 text-sm">
-                当前灵石：{cultivator?.spirit_stones ?? 0}
+                当前灵石：
+                {spiritStones ?? '读取中…'}
               </div>
             </div>
 
@@ -763,7 +659,7 @@ export default function BetBattlePage() {
               <InkButton
                 variant="primary"
                 onClick={() => setShowCreateModal(true)}
-                disabled={!cultivator || !canCreateMore}
+                disabled={!cultivatorId || !canCreateMore}
               >
                 发起赌战
               </InkButton>
@@ -822,17 +718,28 @@ export default function BetBattlePage() {
           )}
         </div>
 
-        {showCreateModal && cultivator && (
+        {showCreateModal && cultivatorId && (
               <BetBattleCreateModal
                 onClose={() => setShowCreateModal(false)}
-                onSuccess={async () => {
+                onSuccess={(listing) => {
                   setShowCreateModal(false);
-                  await Promise.all([loadHall(), loadMine()]);
+                  setHallListings((current) =>
+                    [
+                      listing,
+                      ...current.filter((item) => item.id !== listing.id),
+                    ].slice(0, PAGE_LIMIT),
+                  );
+                  setMyListings((current) =>
+                    [
+                      listing,
+                      ...current.filter((item) => item.id !== listing.id),
+                    ].slice(0, PAGE_LIMIT),
+                  );
                 }}
               />
         )}
 
-        {challengeTarget && cultivator && (
+        {challengeTarget && cultivatorId && (
           <BetBattleChallengeModal
             battle={challengeTarget}
             onClose={() => setChallengeTarget(null)}
@@ -850,7 +757,7 @@ export default function BetBattlePage() {
           isOpen={!!selectedStakeDetail}
           onClose={() => setSelectedStakeDetail(null)}
           item={selectedStakeDetail}
-          viewerRealm={cultivator?.realm}
+          viewerRealm={viewerRealm}
         />
       </div>
     </div>
@@ -862,11 +769,12 @@ function BetBattleCreateModal({
   onSuccess,
 }: {
   onClose: () => void;
-  onSuccess: () => Promise<void>;
+  onSuccess: (listing: BetBattleListing) => void;
 }) {
   const { pushToast } = useInkUI();
-  const { cultivator } = usePlayerStateView();
-  const { mutate } = usePlayerStateActions();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const { mutate } = useResourceMutation();
   const [selectedStakeType, setSelectedStakeType] = useState<
     'spirit_stones' | 'material' | 'artifact'
   >('spirit_stones');
@@ -883,13 +791,11 @@ function BetBattleCreateModal({
     isItemsLoading,
     listError,
     setListError,
-    itemsByType,
-    paginationByType,
+    items: currentItems,
+    pagination: currentPagination,
     fetchItemPage,
   } = useInventorySelector();
 
-  const currentItems = itemsByType[activeType];
-  const currentPagination = paginationByType[activeType];
   const spiritStoneValue = Math.max(0, Number(spiritStones) || 0);
   const canProceedToRuleStep =
     selectedStakeType === 'spirit_stones'
@@ -937,7 +843,10 @@ function BetBattleCreateModal({
 
     setSubmitting(true);
     try {
-      const data = await mutate<{ message: string }>(
+      const data = await mutate<{
+        message: string;
+        listing: BetBattleListing;
+      }>(
         fetch('/api/bet-battles/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -960,7 +869,7 @@ function BetBattleCreateModal({
       );
 
       pushToast({ message: data.message || '赌战发起成功', tone: 'success' });
-      await onSuccess();
+      onSuccess(data.listing);
     } catch (error) {
       pushToast({
         message: error instanceof Error ? error.message : '发起赌战失败',
@@ -1048,10 +957,10 @@ function BetBattleCreateModal({
             />
           ) : (
             <>
-              {isItemsLoading && currentItems.length === 0 ? (
-                <div className="py-8 text-center">正在读取背包物品...</div>
-              ) : listError ? (
+              {listError ? (
                 <InkNotice>{listError}</InkNotice>
+              ) : currentItems === undefined ? (
+                <div className="py-8 text-center">正在读取背包物品...</div>
               ) : currentItems.length === 0 ? (
                 <InkNotice>该分类暂无可押注物品</InkNotice>
               ) : (
@@ -1059,8 +968,8 @@ function BetBattleCreateModal({
                   {currentItems.map((item) => {
                     if (!item.id) return null;
                     const card = getInventoryCardProps(item, {
-                      realm: cultivator?.realm,
-                      condition: cultivator?.condition,
+                      realm: profile.data?.cultivator.realm,
+                      condition: condition.data,
                     });
                     const checked = selectedItem?.itemId === item.id;
                     return (
@@ -1090,7 +999,7 @@ function BetBattleCreateModal({
                 </InkList>
               )}
 
-              {currentPagination.totalPages > 1 && (
+              {currentPagination && currentPagination.totalPages > 1 && (
                 <div className="mt-2 flex items-center justify-center gap-4">
                   <InkButton
                     variant="secondary"
@@ -1210,7 +1119,8 @@ function BetBattleChallengeModal({
   onClose: () => void;
 }) {
   const { pushToast } = useInkUI();
-  const { cultivator } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
   const navigate = useNavigate();
   const creatorStake = battle.creatorStakeSnapshot;
   const [selectedItem, setSelectedItem] = useState<SelectedStake | null>(null);
@@ -1224,8 +1134,8 @@ function BetBattleChallengeModal({
     isItemsLoading,
     listError,
     setListError,
-    itemsByType,
-    paginationByType,
+    items,
+    pagination: currentPagination,
     fetchItemPage,
   } = useInventorySelector();
 
@@ -1243,7 +1153,8 @@ function BetBattleChallengeModal({
 
   const availableCandidates = useMemo(() => {
     if (creatorStake.stakeType !== 'item' || !requiredItem) return [];
-    return itemsByType[activeType].filter((item) => {
+    if (!items) return undefined;
+    return items.filter((item) => {
       const maxQuantity = getMaxQuantity(item);
       const quality = getQuality(item);
       return (
@@ -1252,9 +1163,7 @@ function BetBattleChallengeModal({
         maxQuantity >= requiredItem.quantity
       );
     });
-  }, [activeType, creatorStake.stakeType, itemsByType, requiredItem]);
-
-  const currentPagination = paginationByType[activeType];
+  }, [creatorStake.stakeType, items, requiredItem]);
 
   const selectCandidate = (item: InventoryItem, fixedQuantity: number) => {
     const itemId = item.id;
@@ -1374,10 +1283,10 @@ function BetBattleChallengeModal({
               }}
             />
 
-            {isItemsLoading && availableCandidates.length === 0 ? (
-              <div className="py-8 text-center">正在读取背包物品...</div>
-            ) : listError ? (
+            {listError ? (
               <InkNotice>{listError}</InkNotice>
+            ) : availableCandidates === undefined ? (
+              <div className="py-8 text-center">正在读取背包物品...</div>
             ) : (
               <InkList>
                 {availableCandidates.length === 0 ? (
@@ -1387,8 +1296,8 @@ function BetBattleChallengeModal({
                     if (!requiredItem || !item.id) return null;
                     const checked = selectedItem?.itemId === item.id;
                     const card = getInventoryCardProps(item, {
-                      realm: cultivator?.realm,
-                      condition: cultivator?.condition,
+                      realm: profile.data?.cultivator.realm,
+                      condition: condition.data,
                     });
                     return (
                       <ItemCard
@@ -1421,6 +1330,7 @@ function BetBattleChallengeModal({
         )}
 
         {creatorStake.stakeType === 'item' &&
+          currentPagination &&
           currentPagination.totalPages > 1 && (
             <div className="mt-2 flex items-center justify-center gap-4">
               <InkButton

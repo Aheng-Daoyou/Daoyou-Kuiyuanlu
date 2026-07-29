@@ -17,6 +17,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 export default function LoginPasswordRoute() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const verificationSent = searchParams.get('verification') === 'sent';
   const { signInWithPassword } = useAuth();
   const { showErrorDialog } = useAuthFeedback();
   const {
@@ -79,7 +80,11 @@ export default function LoginPasswordRoute() {
   return (
     <AuthPageShell
       title="【密码登录】"
-      lead="使用邮箱和密码登录。"
+      lead={
+        verificationSent
+          ? `验证邮件已发送至 ${email.trim()}，请点击邮件中的链接完成验证。`
+          : '使用邮箱和密码登录。'
+      }
       backHref="/login"
       footer={
         <div className="flex flex-wrap items-center justify-center gap-2">
@@ -102,6 +107,15 @@ export default function LoginPasswordRoute() {
           void handleSubmit();
         }}
       >
+        {verificationSent ? (
+          <p
+            role="status"
+            className="border-crimson/25 bg-crimson/5 text-ink-secondary border border-dashed px-3 py-2 text-sm leading-6"
+          >
+            完成验证后会自动登录并进入游戏。若未收到邮件，请检查垃圾邮件；
+            也可在此使用刚设置的密码登录，系统会重新发送验证邮件。
+          </p>
+        ) : null}
         <InkInput
           label="邮箱"
           type="email"

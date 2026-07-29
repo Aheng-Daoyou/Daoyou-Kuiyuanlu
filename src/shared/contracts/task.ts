@@ -1,16 +1,15 @@
 import type { ApiSuccess } from './http';
 import type { PlayerStateMutationResponse } from './player';
+import type { ResourceReadResponse } from './resources';
 import type { TaskInstance } from '@shared/types/task';
 
-export type TaskListResponse = ApiSuccess<{
-  tasks: TaskInstance[];
-}>;
+export type TaskListResponse = ResourceReadResponse<'player.tasks'>;
 
 export type TaskDetailResponse = ApiSuccess<{
   task: TaskInstance;
 }>;
 
-export type TaskChallengeResponse = ApiSuccess<{
+export type TaskChallengeResponse = PlayerStateMutationResponse<{
   task: TaskInstance;
   battleResult: import('@shared/types/battle').BattleRecord;
   isWin: boolean;

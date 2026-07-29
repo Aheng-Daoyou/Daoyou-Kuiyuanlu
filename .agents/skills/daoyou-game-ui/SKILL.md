@@ -171,7 +171,7 @@ description: 为本项目的主流程游戏 UI 提供抽象规范与审查方法
 - `src/react-app/router.tsx` 中的 route、`handle={scene(...)}` 和 document title
 - `src/react-app/components/game-shell/gameNavigation.ts` 中对应 scene metadata、dock label、href
 - 需要 immersive chrome 时的特殊返回 descriptor
-- `src/react-app/lib/router/gameShellRegistry.test.ts`、`src/react-app/lib/router/routeTitle.test.ts` 或相邻路由测试
+- `src/react-app/lib/router/gameShellRegistry.ts`、`src/react-app/lib/router/routeTitle.ts` 的注册与标题行为
 - `docs/game-layout-ownership.md` 是否仍准确
 
 ## Review Questions
@@ -188,7 +188,7 @@ description: 为本项目的主流程游戏 UI 提供抽象规范与审查方法
 8. 交互反馈是否安静、一致、可预期。
 9. 共享组件进入正文后，是否仍保留了不合时宜的展示感。
 10. 页面是否仍然把注意力锁在当前场景任务上。
-11. 新增场景是否同步了 route handle、scene registry、dock 信息和路由测试。
+11. 新增场景是否同步了 route handle、scene registry、dock 信息，并完成手工路由检查。
 
 ## Anti-Patterns
 
@@ -203,7 +203,7 @@ description: 为本项目的主流程游戏 UI 提供抽象规范与审查方法
 - 用相邻双边框、双虚线或嵌套边框表达同一种分隔语义
 - 用正文底部按钮组承担跨场景导航
 - 用壳层透传 class 或全局语义 CSS 修补局部视觉问题
-- 新增主流程页只加页面文件，漏掉 scene registry、dock、title 或测试
+- 新增主流程页只加页面文件，漏掉 scene registry、dock、title 或手工路由检查
 
 ## Validation
 

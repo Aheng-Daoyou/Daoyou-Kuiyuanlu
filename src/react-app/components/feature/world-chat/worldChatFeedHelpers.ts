@@ -30,7 +30,10 @@ export function countNewWorldChatMessages(
   const seenIndex = messages.findIndex(
     (message) => message.id === lastSeenMessageId,
   );
-  if (seenIndex <= 0) {
+  if (seenIndex < 0) {
+    return messages.length;
+  }
+  if (seenIndex === 0) {
     return 0;
   }
 
@@ -41,9 +44,5 @@ export function filterWorldChatMessagesByChannel(
   messages: WorldChatMessageDTO[],
   channel: WorldChatChannel,
 ) {
-  if (channel === 'all') {
-    return messages;
-  }
-
   return messages.filter((message) => message.channel === channel);
 }

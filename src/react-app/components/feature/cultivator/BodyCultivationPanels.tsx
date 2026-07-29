@@ -2,7 +2,10 @@ import {
   GameSceneSection,
 } from '@app/components/game-shell/GameSceneSection';
 import { InkBadge, InkButton, InkNotice } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import {
+  useCultivatorCondition,
+  useCultivatorIdentity,
+} from '@app/lib/resources/player';
 import { cn } from '@shared/lib/cn';
 import {
   getBodyCultivationSummary,
@@ -228,11 +231,13 @@ export function BodyCultivationSummaryContent({
 }
 
 export function BodyCultivationEntrySection() {
-  const { cultivator } = usePlayerStateView();
-  if (!cultivator) return null;
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const identity = profile.data?.cultivator;
+  if (!identity || !condition.data) return null;
 
-  const summary = getBodyCultivationSummary(cultivator.condition, {
-    cultivatorRealm: cultivator.realm,
+  const summary = getBodyCultivationSummary(condition.data, {
+    cultivatorRealm: identity.realm,
   });
   const nextRealm = summary.nextRealm;
   const nextRealmStatus = nextRealm
@@ -344,13 +349,15 @@ export function MarrowWashSummaryContent({
 }
 
 export function MarrowWashEntrySection() {
-  const { cultivator } = usePlayerStateView();
-  if (!cultivator) return null;
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const identity = profile.data?.cultivator;
+  if (!identity || !condition.data) return null;
 
-  const summary = getMarrowWashSummary(cultivator.condition, {
-    cultivatorRealm: cultivator.realm,
+  const summary = getMarrowWashSummary(condition.data, {
+    cultivatorRealm: identity.realm,
   });
-  const unallocatedPoints = cultivator.unallocated_attribute_points ?? 0;
+  const unallocatedPoints = identity.unallocated_attribute_points ?? 0;
 
   return (
     <GameSceneSection title="洗髓">
@@ -368,15 +375,20 @@ export function MarrowWashEntrySection() {
 }
 
 export function BodyCultivationDetailPanel() {
-  const { cultivator } = usePlayerStateView();
-  const summary = cultivator
-    ? getBodyCultivationSummary(cultivator.condition, {
-        cultivatorRealm: cultivator.realm,
-      })
-    : null;
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const identity = profile.data?.cultivator;
+  const summary =
+    identity && condition.data
+      ? getBodyCultivationSummary(condition.data, {
+          cultivatorRealm: identity.realm,
+        })
+      : null;
   const nextRealm = summary?.nextRealm ?? null;
 
-  if (!cultivator || !summary) return <InkNotice>尚无角色资料。</InkNotice>;
+  if (!identity || !condition.data || !summary) {
+    return <InkNotice>尚无角色资料。</InkNotice>;
+  }
   const breakthroughStatus = nextRealm
     ? nextRealm.canAttempt
       ? '可破限'
@@ -452,7 +464,7 @@ export function BodyCultivationDetailPanel() {
 export function BodyCultivationInspectionSection({
   cultivator,
 }: {
-  cultivator: Cultivator;
+  cultivator: Pick<Cultivator, 'condition' | 'realm'>;
 }) {
   const summary = getBodyCultivationSummary(cultivator.condition, {
     cultivatorRealm: cultivator.realm,

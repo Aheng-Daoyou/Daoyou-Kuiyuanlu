@@ -6,17 +6,22 @@ import { InkModal } from '@app/components/layout';
 import { MailDetailModal } from '@app/components/mail/MailDetailModal';
 import { Mail, MailList } from '@app/components/mail/MailList';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
+import { InkBadge, InkList, InkTabs } from '@app/components/ui';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkInput } from '@app/components/ui/InkInput';
 import { InkNotice } from '@app/components/ui/InkNotice';
 import { InkSelect } from '@app/components/ui/InkSelect';
-import { InkBadge, InkList, InkTabs } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { usePlayerSession } from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
+import {
+  useArtifactInventoryResource,
+  useConsumableInventoryResource,
+  useMaterialInventoryResource,
+} from '@app/lib/resources/inventory';
 import { isPillConsumable } from '@shared/lib/consumables';
 import { QUALITY_ORDER, type Quality } from '@shared/types/constants';
 import type { Artifact, Consumable, Material } from '@shared/types/cultivator';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 const PAGE_SIZE = 20;
@@ -50,15 +55,6 @@ type SelectableAttachment = (Material | Artifact | Consumable) & {
   itemType: AttachmentItemType;
 };
 
-type InventoryApiPayload = {
-  success: boolean;
-  data?: {
-    items?: Array<Material | Artifact | Consumable>;
-    pagination?: InventoryPagination;
-  };
-  error?: string;
-};
-
 type InventoryPagination = {
   page: number;
   pageSize: number;
@@ -77,9 +73,10 @@ const defaultAttachmentPagination: InventoryPagination = {
 
 function isTransferableQuality(quality: string | undefined): boolean {
   return Boolean(
-    quality && quality in QUALITY_ORDER &&
-      QUALITY_ORDER[quality as keyof typeof QUALITY_ORDER] >=
-        QUALITY_ORDER[MIN_TRANSFER_QUALITY],
+    quality &&
+    quality in QUALITY_ORDER &&
+    QUALITY_ORDER[quality as keyof typeof QUALITY_ORDER] >=
+      QUALITY_ORDER[MIN_TRANSFER_QUALITY],
   );
 }
 
@@ -92,7 +89,9 @@ function getAttachmentQuality(item: SelectableAttachment): Quality {
   return quality in QUALITY_ORDER ? quality : '凡品';
 }
 
-function getAttachmentUnsupportedReason(item: SelectableAttachment): string | null {
+function getAttachmentUnsupportedReason(
+  item: SelectableAttachment,
+): string | null {
   if (item.itemType === 'artifact' && (item as Artifact).isEquipped) {
     return '已装备法宝不可附带';
   }
@@ -105,7 +104,9 @@ function getAttachmentUnsupportedReason(item: SelectableAttachment): string | nu
   return null;
 }
 
-function toAttachmentOption(item: SelectableAttachment): AttachmentOption | null {
+function toAttachmentOption(
+  item: SelectableAttachment,
+): AttachmentOption | null {
   if (!item.id || getAttachmentUnsupportedReason(item)) {
     return null;
   }
@@ -115,13 +116,16 @@ function toAttachmentOption(item: SelectableAttachment): AttachmentOption | null
     itemType: item.itemType,
     itemId: item.id,
     name: item.name,
-    quantity: item.itemType === 'artifact' ? 1 : (item as Material | Consumable).quantity,
+    quantity:
+      item.itemType === 'artifact'
+        ? 1
+        : (item as Material | Consumable).quantity,
     qualityLabel: getAttachmentQuality(item),
   };
 }
 
 export default function MailPage() {
-  const { cultivator } = usePlayerStateView();
+  const cultivator = usePlayerSession().data?.activeCultivator;
   const [mails, setMails] = useState<Mail[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -145,25 +149,32 @@ export default function MailPage() {
   const [selectedAttachment, setSelectedAttachment] =
     useState<AttachmentOption | null>(null);
   const [attachmentQuantity, setAttachmentQuantity] = useState('1');
-  const [attachmentItems, setAttachmentItems] = useState<
-    Record<AttachmentItemType, SelectableAttachment[]>
-  >({
-    material: [],
-    artifact: [],
-    consumable: [],
+  const materialInventory = useMaterialInventoryResource({
+    pageSize: PAGE_SIZE,
+    enabled:
+      showAttachmentPicker && activeAttachmentType === 'material',
+    materialRanks: TRANSFER_ALLOWED_QUALITIES,
+    materialSortBy: 'rank',
+    materialSortOrder: 'desc',
   });
-  const [attachmentPagination, setAttachmentPagination] = useState<
-    Record<AttachmentItemType, InventoryPagination>
-  >({
-    material: defaultAttachmentPagination,
-    artifact: defaultAttachmentPagination,
-    consumable: defaultAttachmentPagination,
+  const artifactInventory = useArtifactInventoryResource({
+    pageSize: PAGE_SIZE,
+    enabled:
+      showAttachmentPicker && activeAttachmentType === 'artifact',
   });
-  const [attachmentLoading, setAttachmentLoading] = useState(false);
-  const [attachmentError, setAttachmentError] = useState('');
+  const consumableInventory = useConsumableInventoryResource({
+    pageSize: PAGE_SIZE,
+    enabled:
+      showAttachmentPicker && activeAttachmentType === 'consumable',
+  });
+  const activeAttachmentInventory =
+    activeAttachmentType === 'material'
+      ? materialInventory
+      : activeAttachmentType === 'artifact'
+        ? artifactInventory
+        : consumableInventory;
   const [searchParams, setSearchParams] = useSearchParams();
-  const attachmentRequestIdRef = useRef(0);
-  const { mutate } = usePlayerStateActions();
+  const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
 
   const clearInviteParam = useCallback(() => {
@@ -174,92 +185,32 @@ export default function MailPage() {
     });
   }, [setSearchParams]);
 
-  const fetchFriends = useCallback(async (options: { showLoading?: boolean } = {}) => {
-    try {
-      if (options.showLoading) {
-        setFriendsLoading(true);
-      }
-      const res = await fetch('/api/friends');
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || '获取好友名录失败');
-      }
-      const nextFriends = (data.friends || []) as FriendSummary[];
-      setFriends(nextFriends);
-      setRecipientId((current) => current || nextFriends[0]?.id || '');
-    } catch (error) {
-      pushToast({
-        message: error instanceof Error ? error.message : '获取好友名录失败',
-        tone: 'warning',
-      });
-    } finally {
-      if (options.showLoading) {
-        setFriendsLoading(false);
-      }
-    }
-  }, [pushToast]);
-
-  const fetchAttachmentPage = useCallback(
-    async (itemType: AttachmentItemType, pageNumber: number) => {
-      if (!cultivator?.id) return;
-
-      const requestId = ++attachmentRequestIdRef.current;
-      setAttachmentLoading(true);
-      setAttachmentError('');
-
+  const fetchFriends = useCallback(
+    async (options: { showLoading?: boolean } = {}) => {
       try {
-        const apiType =
-          itemType === 'material'
-            ? 'materials'
-            : itemType === 'artifact'
-              ? 'artifacts'
-              : 'consumables';
-        const params = new URLSearchParams({
-          type: apiType,
-          page: String(Math.max(1, pageNumber)),
-          pageSize: String(PAGE_SIZE),
-        });
-
-        if (itemType === 'material') {
-          params.set('materialRanks', TRANSFER_ALLOWED_QUALITIES.join(','));
-          params.set('materialSortBy', 'rank');
-          params.set('materialSortOrder', 'desc');
+        if (options.showLoading) {
+          setFriendsLoading(true);
         }
-
-        const res = await fetch(
-          `/api/cultivator/inventory?${params.toString()}`,
-        );
-        const result = (await res.json()) as InventoryApiPayload;
-        if (!res.ok || !result.success) {
-          throw new Error(result.error || '读取背包失败');
+        const res = await fetch('/api/friends');
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || '获取好友名录失败');
         }
-        if (requestId !== attachmentRequestIdRef.current) return;
-
-        const mappedItems = (result.data?.items || []).map((item) => ({
-          ...item,
-          itemType,
-        })) as SelectableAttachment[];
-        setAttachmentItems((prev) => ({
-          ...prev,
-          [itemType]: mappedItems,
-        }));
-        setAttachmentPagination((prev) => ({
-          ...prev,
-          [itemType]: result.data?.pagination || defaultAttachmentPagination,
-        }));
+        const nextFriends = (data.friends || []) as FriendSummary[];
+        setFriends(nextFriends);
+        setRecipientId((current) => current || nextFriends[0]?.id || '');
       } catch (error) {
-        if (requestId === attachmentRequestIdRef.current) {
-          setAttachmentError(
-            error instanceof Error ? error.message : '读取背包失败',
-          );
-        }
+        pushToast({
+          message: error instanceof Error ? error.message : '获取好友名录失败',
+          tone: 'warning',
+        });
       } finally {
-        if (requestId === attachmentRequestIdRef.current) {
-          setAttachmentLoading(false);
+        if (options.showLoading) {
+          setFriendsLoading(false);
         }
       }
     },
-    [cultivator?.id],
+    [pushToast],
   );
 
   const fetchMails = useCallback(
@@ -518,7 +469,6 @@ export default function MailPage() {
 
   const handleOpenAttachmentPicker = () => {
     setShowAttachmentPicker(true);
-    void fetchAttachmentPage(activeAttachmentType, 1);
   };
 
   const handleConfirmInvite = async () => {
@@ -576,17 +526,16 @@ export default function MailPage() {
     }
 
     const quantity = Math.max(1, Number(attachmentQuantity) || 1);
-    const attachment =
-      selectedAttachment
-        ? {
-            itemType: selectedAttachment.itemType,
-            itemId: selectedAttachment.itemId,
-            quantity:
-              selectedAttachment.itemType === 'artifact'
-                ? 1
-                : Math.min(quantity, selectedAttachment.quantity),
-          }
-        : undefined;
+    const attachment = selectedAttachment
+      ? {
+          itemType: selectedAttachment.itemType,
+          itemId: selectedAttachment.itemId,
+          quantity:
+            selectedAttachment.itemType === 'artifact'
+              ? 1
+              : Math.min(quantity, selectedAttachment.quantity),
+        }
+      : undefined;
 
     try {
       setSending(true);
@@ -625,11 +574,38 @@ export default function MailPage() {
     { label: '法宝', value: 'artifact' },
     { label: '丹药', value: 'consumable' },
   ];
-  const currentAttachmentItems = attachmentItems[activeAttachmentType]
-    .map(toAttachmentOption)
-    .filter((item): item is AttachmentOption => Boolean(item));
+  const currentAttachmentItems = useMemo(() => {
+    const items =
+      activeAttachmentType === 'material'
+        ? (materialInventory.items ?? []).map((item) => ({
+            ...item,
+            itemType: 'material' as const,
+          }))
+        : activeAttachmentType === 'artifact'
+          ? (artifactInventory.items ?? []).map((item) => ({
+              ...item,
+              itemType: 'artifact' as const,
+            }))
+          : (consumableInventory.items ?? []).map((item) => ({
+              ...item,
+              itemType: 'consumable' as const,
+            }));
+    return items
+      .map(toAttachmentOption)
+      .filter((item): item is AttachmentOption => Boolean(item));
+  }, [
+    activeAttachmentType,
+    artifactInventory.items,
+    consumableInventory.items,
+    materialInventory.items,
+  ]);
   const currentAttachmentPagination =
-    attachmentPagination[activeAttachmentType];
+    activeAttachmentInventory.pagination ?? {
+      ...defaultAttachmentPagination,
+      page: activeAttachmentInventory.page,
+    };
+  const attachmentLoading = activeAttachmentInventory.loading;
+  const attachmentError = activeAttachmentInventory.error;
 
   return (
     <GameSceneFrame
@@ -647,7 +623,10 @@ export default function MailPage() {
           <GameSceneAsideSection title="好友名录">
             <div className="space-y-3 text-sm">
               <div className="flex flex-wrap gap-2">
-                <InkButton onClick={handleCopyInviteLink} disabled={!cultivator}>
+                <InkButton
+                  onClick={handleCopyInviteLink}
+                  disabled={!cultivator}
+                >
                   复制邀请链接
                 </InkButton>
                 <InkButton
@@ -764,7 +743,8 @@ export default function MailPage() {
             <option value="">选择好友</option>
             {friends.map((friend) => (
               <option key={friend.id} value={friend.id}>
-                {friend.name} · {friend.realm}{friend.realmStage}
+                {friend.name} · {friend.realm}
+                {friend.realmStage}
               </option>
             ))}
           </InkSelect>
@@ -853,8 +833,6 @@ export default function MailPage() {
             onChange={(value) => {
               const nextType = value as AttachmentItemType;
               setActiveAttachmentType(nextType);
-              setAttachmentError('');
-              void fetchAttachmentPage(nextType, 1);
             }}
           />
           {attachmentError ? (
@@ -908,12 +886,7 @@ export default function MailPage() {
                 disabled={
                   attachmentLoading || currentAttachmentPagination.page <= 1
                 }
-                onClick={() =>
-                  void fetchAttachmentPage(
-                    activeAttachmentType,
-                    currentAttachmentPagination.page - 1,
-                  )
-                }
+                onClick={activeAttachmentInventory.goPrevPage}
               >
                 上一页
               </InkButton>
@@ -928,12 +901,7 @@ export default function MailPage() {
                   currentAttachmentPagination.page >=
                     currentAttachmentPagination.totalPages
                 }
-                onClick={() =>
-                  void fetchAttachmentPage(
-                    activeAttachmentType,
-                    currentAttachmentPagination.page + 1,
-                  )
-                }
+                onClick={activeAttachmentInventory.goNextPage}
               >
                 下一页
               </InkButton>

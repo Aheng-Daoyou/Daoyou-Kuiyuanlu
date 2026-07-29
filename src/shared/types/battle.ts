@@ -19,8 +19,8 @@ export type {
 };
 
 export interface BattleRecord {
-  winner: Cultivator;
-  loser: Cultivator;
+  winner: BattleRecordUnitSummary;
+  loser: BattleRecordUnitSummary;
   logs: string[];
   turns: number;
   player: string;

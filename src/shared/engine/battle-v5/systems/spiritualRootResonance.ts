@@ -1,10 +1,14 @@
-import { ELEMENT_TO_RUNTIME_ABILITY_TAG } from '@shared/engine/shared/tag-domain';
+import {
+  ELEMENT_TO_RUNTIME_ABILITY_TAG,
+  GameplayTags,
+} from '@shared/engine/shared/tag-domain';
 import type { ElementType } from '@shared/types/constants';
 import type { DamageRequestEvent } from '../core/events';
 import { DamageSource } from '../core/types';
 
 const SPIRITUAL_ROOT_DAMAGE_MATCH_PER_STRENGTH = 0.002;
-const SPIRITUAL_ROOT_DAMAGE_MISMATCH_MULTIPLIER = 0.85;
+const SPIRITUAL_ROOT_DAMAGE_MISMATCH_MULTIPLIER = 1;
+const SPIRITUAL_ROOT_NEUTRAL_RESONANCE_RATIO = 0.3;
 
 const RUNTIME_ABILITY_TAG_TO_ELEMENT = Object.fromEntries(
   Object.entries(ELEMENT_TO_RUNTIME_ABILITY_TAG).map(([element, tag]) => [
@@ -35,16 +39,25 @@ function collectEventElements(
 export function calculateSpiritualRootDamageMultiplier(
   event: Pick<DamageRequestEvent, 'ability' | 'buff' | 'caster' | 'damageSource'>,
 ): number {
-  if (event.damageSource === DamageSource.REFLECT) {
+  if (event.damageSource === DamageSource.REFLECT || !event.caster) {
     return 1;
   }
 
   const elements = collectEventElements(event);
+  const spiritualRoots = event.caster.getSpiritualRoots();
   if (elements.length === 0) {
-    return 1;
+    const strongestStrength = spiritualRoots.reduce(
+      (strongest, root) => Math.max(strongest, root.strength),
+      -1,
+    );
+    return strongestStrength >= 0
+      ? 1 +
+          strongestStrength *
+            SPIRITUAL_ROOT_DAMAGE_MATCH_PER_STRENGTH *
+            SPIRITUAL_ROOT_NEUTRAL_RESONANCE_RATIO
+      : 1;
   }
 
-  const spiritualRoots = event.caster?.getSpiritualRoots() ?? [];
   let strongestMatchedStrength = -1;
 
   for (const root of spiritualRoots) {
@@ -55,6 +68,17 @@ export function calculateSpiritualRootDamageMultiplier(
 
   if (strongestMatchedStrength >= 0) {
     return 1 + strongestMatchedStrength * SPIRITUAL_ROOT_DAMAGE_MATCH_PER_STRENGTH;
+  }
+
+  const ignoresMismatch =
+    event.ability?.tags.hasTag(
+      GameplayTags.ABILITY.MECHANIC.IGNORE_SPIRITUAL_ROOT_MISMATCH,
+    ) ||
+    event.buff?.tags.hasTag(
+      GameplayTags.ABILITY.MECHANIC.IGNORE_SPIRITUAL_ROOT_MISMATCH,
+    );
+  if (ignoresMismatch) {
+    return 1;
   }
 
   return SPIRITUAL_ROOT_DAMAGE_MISMATCH_MULTIPLIER;

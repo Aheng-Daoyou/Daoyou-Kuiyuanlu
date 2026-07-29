@@ -1,37 +1,39 @@
 import { redis } from '@server/lib/redis';
 import { parseRedisJson } from '@server/lib/redis/json';
-import { isTalismanConsumable } from '@shared/lib/consumables';
+import {
+  isRedisLockContention,
+  redisLockKeys,
+  withRedisLock,
+  type RedisLeaseContext,
+} from '@server/lib/redis/lock';
 import type {
   FateReshapeSessionDTO,
   FateReshapeSessionStore,
 } from '@shared/types/fateReshape';
-import type { PreHeavenFate } from '@shared/types/cultivator';
-import { and, eq } from 'drizzle-orm';
-import { getExecutor, type DbTransaction } from '../drizzle/db';
+import { and, asc, eq, sql } from 'drizzle-orm';
+import {
+  getExecutor,
+  type DbExecutor,
+  type DbTransaction,
+} from '../drizzle/db';
 import * as schema from '../drizzle/schema';
 import { FATE_RESHAPE_CANDIDATE_COUNT } from './FateConfig';
 import { FateEngine } from './FateEngine';
+import type { ConsumableRow } from './consumablePersistence';
 import {
   consumeConsumableById,
-  getPlayerRuntimeCultivatorById,
-  getPlayerRuntimeCultivatorByIdUnsafe,
+} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
+import { findActiveCultivatorOwnerId } from '@server/lib/repositories/cultivatorRepository';
+import {
+  getPlayerPreHeavenFates,
   replacePreHeavenFates,
-} from './cultivatorService';
-import { mapConsumableRow, type ConsumableRow } from './consumablePersistence';
+} from '@server/lib/services/cultivator/CultivatorProfileRepository';
 
 const FATE_RESHAPE_SESSION_TTL_SEC = 3600;
 const FATE_RESHAPE_SCENARIO = 'fate_reshape';
 
-export interface FateReshapeMutationOptions {
-  tx?: DbTransaction;
-}
-
 function buildSessionKey(cultivatorId: string): string {
   return `fate-reshape-session:${cultivatorId}`;
-}
-
-function buildLockKey(cultivatorId: string): string {
-  return `fate-reshape-lock:${cultivatorId}`;
 }
 
 function getRemainingTtlSeconds(expiresAt: number): number {
@@ -68,7 +70,7 @@ function validateSelectedIndices(
   }
 }
 
-async function readSession(
+async function readRedisSession(
   cultivatorId: string,
 ): Promise<FateReshapeSessionStore | null> {
   const key = buildSessionKey(cultivatorId);
@@ -88,17 +90,26 @@ async function readSession(
   return session;
 }
 
-async function restoreSession(session: FateReshapeSessionStore): Promise<void> {
-  if (session.expiresAt <= Date.now()) {
+async function writeSession(
+  cultivatorId: string,
+  session: FateReshapeSessionStore | null,
+): Promise<void> {
+  if (!session) {
+    await redis.del(buildSessionKey(cultivatorId));
     return;
   }
-
   await redis.set(
-    buildSessionKey(session.cultivatorId),
+    buildSessionKey(cultivatorId),
     JSON.stringify(session),
     'EX',
     getRemainingTtlSeconds(session.expiresAt),
   );
+}
+
+async function readSession(
+  cultivatorId: string,
+): Promise<FateReshapeSessionStore | null> {
+  return readRedisSession(cultivatorId);
 }
 
 async function requireSession(
@@ -113,48 +124,46 @@ async function requireSession(
 
 async function withCultivatorLock<T>(
   cultivatorId: string,
-  task: () => Promise<T>,
+  task: (lease: RedisLeaseContext) => Promise<T>,
 ): Promise<T> {
-  const lockKey = buildLockKey(cultivatorId);
-  const acquiredLock = await redis.set(lockKey, 'locked', 'EX', 10, 'NX');
-  if (!acquiredLock) {
-    throw new FateReshapeServiceError(429, '命格重塑处理中，请稍后再试');
-  }
-
   try {
-    return await task();
-  } finally {
-    await redis.del(lockKey);
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cultivatorMutation(cultivatorId),
+        context: 'fate-reshape',
+        timeoutMs: 60_000,
+        renewEveryMs: 20_000,
+        retries: 0,
+      },
+      task,
+    );
+  } catch (error) {
+    if (isRedisLockContention(error)) {
+      throw new FateReshapeServiceError(429, '命格重塑处理中，请稍后再试');
+    }
+    throw error;
   }
 }
 
 async function loadMatchingTalismanRows(
   cultivatorId: string,
+  q: DbExecutor | DbTransaction = getExecutor(),
 ): Promise<ConsumableRow[]> {
-  const rows = await getExecutor()
+  const rows = await q
     .select()
     .from(schema.consumables)
     .where(
       and(
         eq(schema.consumables.cultivatorId, cultivatorId),
         eq(schema.consumables.type, '符箓'),
+        sql`${schema.consumables.quantity} > 0`,
+        sql`${schema.consumables.spec}->>'kind' = 'talisman'`,
+        sql`${schema.consumables.spec}->>'scenario' = ${FATE_RESHAPE_SCENARIO}`,
       ),
     )
-    .limit(100);
+    .orderBy(asc(schema.consumables.createdAt), asc(schema.consumables.id));
 
-  return rows
-    .filter((row) => {
-      if (row.quantity <= 0) return false;
-      const consumable = mapConsumableRow(row);
-      return (
-        isTalismanConsumable(consumable) &&
-        consumable.spec.scenario === FATE_RESHAPE_SCENARIO
-      );
-    })
-    .sort(
-      (left, right) =>
-        (left.createdAt?.getTime() ?? 0) - (right.createdAt?.getTime() ?? 0),
-    );
+  return rows;
 }
 
 export class FateReshapeServiceError extends Error {
@@ -167,8 +176,97 @@ export class FateReshapeServiceError extends Error {
   }
 }
 
+export async function prepareFateReshapeStart(
+  userId: string,
+  cultivatorId: string,
+) {
+  const existing = await readSession(cultivatorId);
+  if (existing) {
+    return {
+      commit: async () => ({
+        session: toSessionDto(existing),
+        consumption: null,
+        afterCommit: async () => undefined,
+      }),
+    };
+  }
+
+  const currentFates = await getPlayerPreHeavenFates(userId, cultivatorId);
+  if (!currentFates) {
+    throw new FateReshapeServiceError(404, '当前没有可重塑命格的角色');
+  }
+
+  const talismanRows = await loadMatchingTalismanRows(cultivatorId);
+  const availableTalisman = talismanRows[0];
+  if (!availableTalisman?.id) {
+    throw new FateReshapeServiceError(400, '缺少天机逆命符，无法开启命格重塑');
+  }
+
+  const currentCandidates = await FateEngine.generateCandidatePool({
+    candidateCount: FATE_RESHAPE_CANDIDATE_COUNT,
+  });
+  const createdAt = Date.now();
+  const session: FateReshapeSessionStore = {
+    sessionId: crypto.randomUUID(),
+    cultivatorId,
+    originalFates: FateEngine.normalizeFates(currentFates),
+    currentCandidates,
+    rerollUsed: false,
+    createdAt,
+    expiresAt: createdAt + FATE_RESHAPE_SESSION_TTL_SEC * 1000,
+  };
+
+  return {
+    async commit(tx: DbTransaction) {
+      const consumption = await consumeConsumableById(
+        userId,
+        cultivatorId,
+        availableTalisman.id!,
+        1,
+        tx,
+      );
+      return {
+        session: toSessionDto(session),
+        consumption: {
+          itemId: availableTalisman.id!,
+          ...consumption,
+        },
+        afterCommit: async () => {
+          await writeSession(cultivatorId, session);
+        },
+      };
+    },
+  };
+}
+
+export async function prepareFateReshapeConfirmation(
+  userId: string,
+  cultivatorId: string,
+  selectedIndices: number[],
+) {
+  const session = await requireSession(cultivatorId);
+  validateSelectedIndices(selectedIndices, session.currentCandidates.length);
+  const selectedFates = selectedIndices.map(
+    (index) => session.currentCandidates[index],
+  );
+
+  return {
+    async commit(tx: DbTransaction) {
+      await replacePreHeavenFates(userId, cultivatorId, selectedFates, tx);
+      return {
+        selectedFates: FateEngine.normalizeFates(selectedFates),
+        afterCommit: async () => {
+          await writeSession(cultivatorId, null);
+        },
+      };
+    },
+  };
+}
+
 export const FateReshapeService = {
-  async getSession(cultivatorId: string): Promise<FateReshapeSessionDTO | null> {
+  async getSession(
+    cultivatorId: string,
+  ): Promise<FateReshapeSessionDTO | null> {
     const session = await readSession(cultivatorId);
     return session ? toSessionDto(session) : null;
   },
@@ -178,93 +276,20 @@ export const FateReshapeService = {
     return rows.reduce((sum, row) => sum + row.quantity, 0);
   },
 
-  async startSession(
-    userId: string,
-    cultivatorId: string,
-    options: FateReshapeMutationOptions = {},
-  ): Promise<FateReshapeSessionDTO> {
-    return withCultivatorLock(cultivatorId, async () => {
-      const existing = await readSession(cultivatorId);
-      if (existing) {
-        return toSessionDto(existing);
-      }
-
-      const cultivator = await getPlayerRuntimeCultivatorById(
-        userId,
-        cultivatorId,
-      );
-      if (!cultivator) {
-        throw new FateReshapeServiceError(404, '当前没有可重塑命格的角色');
-      }
-
-      const talismanRows = await loadMatchingTalismanRows(cultivatorId);
-      const availableTalisman = talismanRows[0];
-      if (!availableTalisman?.id) {
-        throw new FateReshapeServiceError(400, '缺少天机逆命符，无法开启命格重塑');
-      }
-
-      const currentCandidates = await FateEngine.generateCandidatePool(
-        cultivator,
-        { candidateCount: FATE_RESHAPE_CANDIDATE_COUNT },
-      );
-      const createdAt = Date.now();
-      const session: FateReshapeSessionStore = {
-        sessionId: crypto.randomUUID(),
-        cultivatorId,
-        originalFates: FateEngine.normalizeFates(cultivator.pre_heaven_fates),
-        currentCandidates,
-        rerollUsed: false,
-        createdAt,
-        expiresAt: createdAt + FATE_RESHAPE_SESSION_TTL_SEC * 1000,
-      };
-
-      const persistStart = async (tx: DbTransaction) => {
-        await consumeConsumableById(
-          userId,
-          cultivatorId,
-          availableTalisman.id!,
-          1,
-          tx,
-        );
-        await redis.set(
-          buildSessionKey(cultivatorId),
-          JSON.stringify(session),
-          'EX',
-          FATE_RESHAPE_SESSION_TTL_SEC,
-        );
-      };
-
-      try {
-        if (options.tx) {
-          await persistStart(options.tx);
-        } else {
-          await getExecutor().transaction(persistStart);
-        }
-      } catch (error) {
-        await redis.del(buildSessionKey(cultivatorId));
-        throw error;
-      }
-
-      return toSessionDto(session);
-    });
-  },
-
   async rerollSession(cultivatorId: string): Promise<FateReshapeSessionDTO> {
-    return withCultivatorLock(cultivatorId, async () => {
+    return withCultivatorLock(cultivatorId, async (lease) => {
       const session = await requireSession(cultivatorId);
       if (session.rerollUsed) {
         throw new FateReshapeServiceError(400, '本次命格重塑已无法再重抽');
       }
 
-      const bundle = await getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId);
-      if (!bundle?.cultivator) {
+      if (!(await findActiveCultivatorOwnerId(cultivatorId))) {
         throw new FateReshapeServiceError(404, '当前没有可重塑命格的角色');
       }
 
-      const currentCandidates = await FateEngine.generateCandidatePool(
-        bundle.cultivator,
-        { candidateCount: FATE_RESHAPE_CANDIDATE_COUNT },
-      );
+      const currentCandidates = await FateEngine.generateCandidatePool({
+        candidateCount: FATE_RESHAPE_CANDIDATE_COUNT,
+      });
 
       const nextSession: FateReshapeSessionStore = {
         ...session,
@@ -272,55 +297,18 @@ export const FateReshapeService = {
         rerollUsed: true,
       };
 
-      await redis.set(
-        buildSessionKey(cultivatorId),
-        JSON.stringify(nextSession),
-        'EX',
-        getRemainingTtlSeconds(session.expiresAt),
-      );
+      lease.assertHeld();
+      await writeSession(cultivatorId, nextSession);
 
       return toSessionDto(nextSession);
     });
   },
 
-  async confirmSession(
-    userId: string,
-    cultivatorId: string,
-    selectedIndices: number[],
-    options: FateReshapeMutationOptions = {},
-  ): Promise<PreHeavenFate[]> {
-    return withCultivatorLock(cultivatorId, async () => {
-      const session = await requireSession(cultivatorId);
-      validateSelectedIndices(selectedIndices, session.currentCandidates.length);
-
-      const selectedFates = selectedIndices.map(
-        (index) => session.currentCandidates[index],
-      );
-
-      const persistConfirm = async (tx: DbTransaction) => {
-        await replacePreHeavenFates(userId, cultivatorId, selectedFates, tx);
-        await redis.del(buildSessionKey(cultivatorId));
-      };
-
-      try {
-        if (options.tx) {
-          await persistConfirm(options.tx);
-        } else {
-          await getExecutor().transaction(persistConfirm);
-        }
-      } catch (error) {
-        await restoreSession(session);
-        throw error;
-      }
-
-      return FateEngine.normalizeFates(selectedFates);
-    });
-  },
-
   async abandonSession(cultivatorId: string): Promise<void> {
-    await withCultivatorLock(cultivatorId, async () => {
+    await withCultivatorLock(cultivatorId, async (lease) => {
       await requireSession(cultivatorId);
-      await redis.del(buildSessionKey(cultivatorId));
+      lease.assertHeld();
+      await writeSession(cultivatorId, null);
     });
   },
 };

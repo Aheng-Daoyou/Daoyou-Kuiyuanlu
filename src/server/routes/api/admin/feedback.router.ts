@@ -10,7 +10,9 @@ import {
 import { requireAdmin } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
 import { MailService } from '@server/lib/services/MailService';
-import { updateSpiritStones } from '@server/lib/services/cultivatorService';
+import {
+  updateSpiritStones,
+} from '@server/lib/services/cultivator/CultivatorStateRepository';
 import { and, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';

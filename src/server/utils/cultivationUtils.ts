@@ -59,7 +59,10 @@ export function stripExpCapForStorage(
 }
 
 export function getCultivationProgress(
-  cultivator: Cultivator,
+  cultivator: Pick<
+    Cultivator,
+    'realm' | 'realm_stage' | 'cultivation_progress'
+  >,
 ): CultivationProgress {
   // 确保有修为进度数据（用 cultivation_exp 是否存在来判断，exp_cap 已不再持久化）
   if (
@@ -149,7 +152,7 @@ export function calculateSpiritualRootMultiplier(
  * 获取功法系数
  */
 export function getCultivationTechniqueMultiplier(
-  cultivator: Cultivator,
+  cultivator: Pick<Cultivator, 'cultivations'>,
 ): number {
   if (!cultivator.cultivations || cultivator.cultivations.length === 0) {
     return NO_TECHNIQUE_MULTIPLIER;
@@ -208,7 +211,14 @@ export interface CultivationExpResult {
 }
 
 export function calculateCultivationExp(
-  cultivator: Cultivator,
+  cultivator: Pick<
+    Cultivator,
+    | 'realm'
+    | 'realm_stage'
+    | 'cultivation_progress'
+    | 'spiritual_roots'
+    | 'cultivations'
+  >,
   years: number,
   rng: () => number = Math.random,
 ): CultivationExpResult {
@@ -247,7 +257,7 @@ export function calculateCultivationExp(
     randomFactor;
 
   // 8. 顿悟加成：修为翻倍 + 感悟值
-  let insight_gained = 0;
+  let insight_gained: number;
   if (epiphany_triggered) {
     exp_gained *= EPIPHANY_EXP_MULTIPLIER;
     insight_gained = Math.floor(EPIPHANY_INSIGHT_MIN + rng() * EPIPHANY_INSIGHT_RANGE);

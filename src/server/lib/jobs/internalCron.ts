@@ -1,49 +1,41 @@
-import {
-  getExecutor,
-  type DbExecutor,
-  type DbTransaction,
-} from '@server/lib/drizzle/db';
-import { cultivators, mails } from '@server/lib/drizzle/schema';
+import { db, getExecutor } from '@server/lib/drizzle/db';
+import { cultivators } from '@server/lib/drizzle/schema';
 import { redis } from '@server/lib/redis';
+import {
+  isRedisLockContention,
+  redisLockKeys,
+  withRedisLock,
+} from '@server/lib/redis/lock';
 import { getTopRankingCultivatorIds } from '@server/lib/redis/rankings';
-import { prunePlayerStateEventsOlderThan } from '@server/lib/repositories/playerStateRepository';
+import { getItemLibraryDailyMaterialGenerationSettings } from '@server/lib/repositories/appSettingsRepository';
+import { pruneCompletedLocalTransactionMessages } from '@server/lib/repositories/localTransactionMessageRepository';
+import {
+  prunePlayerMutationRequestsOlderThan,
+  pruneResourceEventsOlderThan,
+} from '@server/lib/repositories/playerStateRepository';
 import {
   pruneExpiredData,
   type ExpiredDataCleanupResult,
 } from '@server/lib/repositories/retentionRepository';
-import { getItemLibraryDailyMaterialGenerationSettings } from '@server/lib/repositories/appSettingsRepository';
 import { expireListings } from '@server/lib/services/AuctionService';
 import { expireBetBattles } from '@server/lib/services/BetBattleService';
-import {
-  MailService,
-  type MailAttachment,
-} from '@server/lib/services/MailService';
+import type { MailAttachment } from '@server/lib/services/MailService';
 import { runMarketRefreshJob } from '@server/lib/services/MarketScheduler';
 import {
   generateDailyMarketMaterialLibraryEntries,
   ITEM_LIBRARY_SYSTEM_USER_ID,
 } from '@server/lib/services/MaterialLibraryService';
-import { commitPlayerStateMutation } from '@server/lib/services/PlayerStateMutationService';
+import { sendWeeklyRankingRewardCommand } from '@server/lib/services/RankingApplicationService';
 import { towerEnemySetService } from '@server/lib/tower/enemySets';
 import { RANKING_REWARDS, REALM_VALUES } from '@shared/types/constants';
-import { and, eq, sql } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 
-const AUCTION_EXPIRE_LOCK_KEY = 'cron:auction-expire:lock';
-const BET_BATTLE_EXPIRE_LOCK_KEY = 'cron:bet-battle-expire:lock';
-const RANK_REWARD_LOCK_KEY = 'golden_rank:rewards:lock';
-const TOWER_ENEMY_SETS_LOCK_KEY = 'cron:tower-enemy-sets:lock';
-const PLAYER_STATE_EVENTS_CLEANUP_LOCK_KEY =
-  'cron:player-state-events-cleanup:lock';
-const EXPIRED_DATA_CLEANUP_LOCK_KEY = 'cron:expired-data-cleanup:lock';
-const MATERIAL_LIBRARY_DAILY_GENERATION_LOCK_KEY =
-  'cron:material-library-daily-generation:lock';
 const RANK_REWARD_SETTLED_PREFIX = 'golden_rank:weekly_rewards:settled:';
 const LOCK_TTL_SECONDS = 15 * 60;
 const TOWER_ENEMY_SETS_LOCK_TTL_SECONDS = 2 * 60 * 60;
 const MATERIAL_LIBRARY_DAILY_GENERATION_LOCK_TTL_SECONDS = 2 * 60 * 60;
 const SETTLED_TTL_SECONDS = 7 * 24 * 60 * 60;
-const PLAYER_STATE_EVENT_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
+const RESOURCE_REPLAY_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
 const MAIL_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const QI_LOG_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const DUNGEON_HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -51,6 +43,7 @@ const DUNGEON_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const BATTLE_RECORD_V2_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const REPUTATION_SHOP_PURCHASE_RETENTION_MS = 21 * 24 * 60 * 60 * 1000;
 const AUCTION_LISTING_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+const LOCAL_TRANSACTION_MESSAGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type CronJobResult = {
   success: true;
@@ -71,7 +64,9 @@ export type TowerEnemySetsJobResult = CronJobResult & {
 };
 
 export type ExpiredDataCleanupJobResult = CronJobResult & {
-  deleted: ExpiredDataCleanupResult;
+  deleted: ExpiredDataCleanupResult & {
+    localTransactionMessages: number;
+  };
 };
 
 function getRewardByRank(rank: number): number {
@@ -104,18 +99,6 @@ function buildRankingRewardMailContent(args: {
   ].join('\n');
 }
 
-async function countUnreadMail(
-  cultivatorId: string,
-  q: DbExecutor | DbTransaction = getExecutor(),
-): Promise<number> {
-  const [result] = await q
-    .select({ count: sql<number>`count(*)::int` })
-    .from(mails)
-    .where(and(eq(mails.cultivatorId, cultivatorId), eq(mails.isRead, false)));
-
-  return Number(result?.count ?? 0);
-}
-
 function getSettlementDateCN(now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
@@ -134,38 +117,48 @@ function isSettlementMondayCN(now = new Date()): boolean {
   );
 }
 
-async function releaseJobLock(
-  lockKey: string,
-  lockToken: string,
-): Promise<void> {
-  await redis.eval(
-    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-    1,
-    lockKey,
-    lockToken,
-  );
-}
-
 async function withJobLock<T extends CronJobResult>(
   jobName: string,
-  lockKey: string,
   run: () => Promise<T>,
   ttlSeconds: number = LOCK_TTL_SECONDS,
 ): Promise<T | CronJobResult> {
   const startedAt = Date.now();
-  const lockToken = randomUUID();
 
   console.info(`[cron] ${jobName} started`);
 
-  const lockResult = await redis.set(
-    lockKey,
-    lockToken,
-    'EX',
-    ttlSeconds,
-    'NX',
-  );
-
-  if (lockResult !== 'OK') {
+  try {
+    return await withRedisLock(
+      {
+        key: redisLockKeys.cron(jobName),
+        context: `cron:${jobName}`,
+        timeoutMs: ttlSeconds * 1000,
+        renewEveryMs: Math.max(1_000, Math.floor((ttlSeconds * 1000) / 3)),
+        retries: 0,
+      },
+      async (lease) => {
+        try {
+          const result = await run();
+          lease.assertHeld();
+          console.info(`[cron] ${jobName} finished`, {
+            processed: result.processed,
+            skipped: result.skipped,
+            reason: result.reason,
+            durationMs: Date.now() - startedAt,
+          });
+          return result;
+        } catch (error) {
+          console.error(
+            `[cron] ${jobName} failed after ${Date.now() - startedAt}ms`,
+            error,
+          );
+          throw error;
+        }
+      },
+    );
+  } catch (error) {
+    if (!isRedisLockContention(error)) {
+      throw error;
+    }
     const result: CronJobResult = {
       success: true,
       processed: 0,
@@ -178,29 +171,10 @@ async function withJobLock<T extends CronJobResult>(
     });
     return result;
   }
-
-  try {
-    const result = await run();
-    console.info(`[cron] ${jobName} finished`, {
-      processed: result.processed,
-      skipped: result.skipped,
-      reason: result.reason,
-      durationMs: Date.now() - startedAt,
-    });
-    return result;
-  } catch (error) {
-    console.error(
-      `[cron] ${jobName} failed after ${Date.now() - startedAt}ms`,
-      error,
-    );
-    throw error;
-  } finally {
-    await releaseJobLock(lockKey, lockToken);
-  }
 }
 
 export async function runAuctionExpireJob(): Promise<CronJobResult> {
-  return withJobLock('auction-expire', AUCTION_EXPIRE_LOCK_KEY, async () => {
+  return withJobLock('auction-expire', async () => {
     const processed = await expireListings();
     return {
       success: true,
@@ -211,22 +185,18 @@ export async function runAuctionExpireJob(): Promise<CronJobResult> {
 }
 
 export async function runBetBattleExpireJob(): Promise<CronJobResult> {
-  return withJobLock(
-    'bet-battle-expire',
-    BET_BATTLE_EXPIRE_LOCK_KEY,
-    async () => {
-      const processed = await expireBetBattles();
-      return {
-        success: true,
-        processed,
-        skipped: false,
-      };
-    },
-  );
+  return withJobLock('bet-battle-expire', async () => {
+    const processed = await expireBetBattles();
+    return {
+      success: true,
+      processed,
+      skipped: false,
+    };
+  });
 }
 
 export async function runRankRewardsJob(): Promise<RankRewardsJobResult> {
-  return withJobLock('rank-rewards', RANK_REWARD_LOCK_KEY, async () => {
+  return withJobLock('rank-rewards', async () => {
     const now = new Date();
     const settlementDate = getSettlementDateCN(now);
     if (!isSettlementMondayCN(now)) {
@@ -241,7 +211,6 @@ export async function runRankRewardsJob(): Promise<RankRewardsJobResult> {
 
     const settledKey = `${RANK_REWARD_SETTLED_PREFIX}${settlementDate}`;
     const alreadySettled = await redis.exists(settledKey);
-
     if (alreadySettled > 0) {
       return {
         success: true,
@@ -259,14 +228,14 @@ export async function runRankRewardsJob(): Promise<RankRewardsJobResult> {
       const topCultivatorIds = await getTopRankingCultivatorIds(realm, 100);
       processed += topCultivatorIds.length;
 
-      for (let i = 0; i < topCultivatorIds.length; i++) {
-        const rank = i + 1;
+      for (let index = 0; index < topCultivatorIds.length; index += 1) {
+        const cultivatorId = topCultivatorIds[index]!;
+        const rank = index + 1;
         const reward = getRewardByRank(rank);
-
         const [cultivator] = await getExecutor()
           .select({ userId: cultivators.userId })
           .from(cultivators)
-          .where(eq(cultivators.id, topCultivatorIds[i]))
+          .where(eq(cultivators.id, cultivatorId))
           .limit(1);
 
         if (!cultivator) {
@@ -274,47 +243,26 @@ export async function runRankRewardsJob(): Promise<RankRewardsJobResult> {
           continue;
         }
 
-        await commitPlayerStateMutation({
+        const committed = await sendWeeklyRankingRewardCommand({
           userId: cultivator.userId,
-          cultivatorId: topCultivatorIds[i],
-          source: 'rank_weekly_rewards',
-          run: async (tx) => {
-            const mail = await MailService.sendMail(
-              topCultivatorIds[i],
-              '天骄榜每周声望奖励',
-              buildRankingRewardMailContent({
-                realm,
-                rank,
-                reward,
-                settlementDate,
-              }),
-              buildRankingRewardAttachment(reward),
-              'reward',
-              tx,
-            );
-            const unreadMailCount = await countUnreadMail(
-              topCultivatorIds[i],
-              tx,
-            );
-
-            return {
-              result: null,
-              changes: [
-                {
-                  domain: 'mail',
-                  eventType: 'mail.rank_weekly_reward.created',
-                  patch: {
-                    unreadMailCount,
-                    mailIds: [mail.id],
-                  },
-                  invalidates: ['mail'],
-                },
-              ],
-            };
-          },
+          cultivatorId,
+          requestKey: `rank-reward:${settlementDate}:${realm}`,
+          requestFingerprint: `${settlementDate}:${realm}:${cultivatorId}`,
+          title: '天骄榜每周声望奖励',
+          content: buildRankingRewardMailContent({
+            realm,
+            rank,
+            reward,
+            settlementDate,
+          }),
+          attachments: buildRankingRewardAttachment(reward),
         });
 
-        logs.push(`${realm} Rank ${rank}: mailed +${reward} reputation`);
+        logs.push(
+          committed.state.replayed
+            ? `${realm} Rank ${rank}: already mailed +${reward} reputation`
+            : `${realm} Rank ${rank}: mailed +${reward} reputation`,
+        );
       }
     }
 
@@ -336,7 +284,7 @@ export async function runRankRewardsJob(): Promise<RankRewardsJobResult> {
 }
 
 export async function runMarketRefreshCronJob(): Promise<CronJobResult> {
-  return withJobLock('market-refresh', 'cron:market-refresh:lock', async () => {
+  return withJobLock('market-refresh', async () => {
     const result = await runMarketRefreshJob();
     return {
       success: true,
@@ -349,7 +297,6 @@ export async function runMarketRefreshCronJob(): Promise<CronJobResult> {
 export async function runMaterialLibraryDailyGenerationJob(): Promise<CronJobResult> {
   return withJobLock(
     'material-library-daily-generation',
-    MATERIAL_LIBRARY_DAILY_GENERATION_LOCK_KEY,
     async () => {
       const settings = await getItemLibraryDailyMaterialGenerationSettings();
       if (!settings.enabled) {
@@ -383,7 +330,6 @@ export async function runTowerEnemySetRefreshJob(): Promise<
 > {
   return withJobLock(
     'tower-enemy-sets',
-    TOWER_ENEMY_SETS_LOCK_KEY,
     async () => {
       const results =
         await towerEnemySetService.refreshCurrentAndNextIfNeeded();
@@ -416,52 +362,56 @@ export async function runTowerEnemySetRefreshJob(): Promise<
   );
 }
 
-export async function runPlayerStateEventsCleanupJob(): Promise<CronJobResult> {
-  return withJobLock(
-    'player-state-events-cleanup',
-    PLAYER_STATE_EVENTS_CLEANUP_LOCK_KEY,
-    async () => {
-      const cutoff = new Date(Date.now() - PLAYER_STATE_EVENT_RETENTION_MS);
-      const processed = await prunePlayerStateEventsOlderThan(cutoff);
-      return {
-        success: true,
-        processed,
-        skipped: false,
-      };
-    },
-  );
+export async function runResourceReplayCleanupJob(): Promise<CronJobResult> {
+  return withJobLock('resource-replay-cleanup', async () => {
+    const cutoff = new Date(Date.now() - RESOURCE_REPLAY_RETENTION_MS);
+    const [requests, events] = await db.transaction(async (tx) => [
+      await prunePlayerMutationRequestsOlderThan(cutoff, tx),
+      await pruneResourceEventsOlderThan(cutoff, tx),
+    ]);
+    return {
+      success: true,
+      processed: events + requests,
+      skipped: false,
+    };
+  });
 }
 
 export async function runExpiredDataCleanupJob(): Promise<
   ExpiredDataCleanupJobResult | CronJobResult
 > {
-  return withJobLock(
-    'expired-data-cleanup',
-    EXPIRED_DATA_CLEANUP_LOCK_KEY,
-    async () => {
-      const now = Date.now();
-      const deleted = await pruneExpiredData({
-        mails: new Date(now - MAIL_RETENTION_MS),
-        qiLogs: new Date(now - QI_LOG_RETENTION_MS),
-        dungeonHistories: new Date(now - DUNGEON_HISTORY_RETENTION_MS),
-        dungeonRuns: new Date(now - DUNGEON_RUN_RETENTION_MS),
-        battleRecordsV2: new Date(now - BATTLE_RECORD_V2_RETENTION_MS),
-        reputationShopPurchases: new Date(
-          now - REPUTATION_SHOP_PURCHASE_RETENTION_MS,
-        ),
-        auctionListings: new Date(now - AUCTION_LISTING_RETENTION_MS),
-      });
-      const processed = Object.values(deleted).reduce(
-        (sum, count) => sum + count,
-        0,
-      );
+  return withJobLock('expired-data-cleanup', async () => {
+    const now = Date.now();
+    const deleted = await db.transaction(async (tx) => ({
+      ...(await pruneExpiredData(
+        {
+          mails: new Date(now - MAIL_RETENTION_MS),
+          qiLogs: new Date(now - QI_LOG_RETENTION_MS),
+          dungeonHistories: new Date(now - DUNGEON_HISTORY_RETENTION_MS),
+          dungeonRuns: new Date(now - DUNGEON_RUN_RETENTION_MS),
+          battleRecordsV2: new Date(now - BATTLE_RECORD_V2_RETENTION_MS),
+          reputationShopPurchases: new Date(
+            now - REPUTATION_SHOP_PURCHASE_RETENTION_MS,
+          ),
+          auctionListings: new Date(now - AUCTION_LISTING_RETENTION_MS),
+        },
+        tx,
+      )),
+      localTransactionMessages: await pruneCompletedLocalTransactionMessages(
+        new Date(now - LOCAL_TRANSACTION_MESSAGE_RETENTION_MS),
+        tx,
+      ),
+    }));
+    const processed = Object.values(deleted).reduce(
+      (sum, count) => sum + count,
+      0,
+    );
 
-      return {
-        success: true,
-        processed,
-        skipped: false,
-        deleted,
-      };
-    },
-  );
+    return {
+      success: true,
+      processed,
+      skipped: false,
+      deleted,
+    };
+  });
 }

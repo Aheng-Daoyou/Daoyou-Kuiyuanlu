@@ -1,14 +1,10 @@
-import {
-  CultivatorCurrentStatusSection,
-} from '@app/components/feature/cultivator/PersistentStatusesCard';
+import { getAttributeDetailActionLabel } from '@app/components/feature/cultivator/attributeActionLabels';
 import {
   BodyCultivationEntrySection,
   MarrowWashEntrySection,
 } from '@app/components/feature/cultivator/BodyCultivationPanels';
-import {
-  CultivatorAttributeOverview,
-} from '@app/components/feature/cultivator/CultivatorAttributeOverview';
-import { getAttributeDetailActionLabel } from '@app/components/feature/cultivator/attributeActionLabels';
+import { CultivatorAttributeOverview } from '@app/components/feature/cultivator/CultivatorAttributeOverview';
+import { CultivatorCurrentStatusSection } from '@app/components/feature/cultivator/PersistentStatusesCard';
 import { TitleEditorModal } from '@app/components/feature/cultivator/TitleEditorModal';
 import { FateDetailModal } from '@app/components/feature/fates/FateDetailModal';
 import { toFateDisplayModel } from '@app/components/feature/fates/FateDisplayAdapter';
@@ -19,6 +15,9 @@ import {
   toProductDisplayModel,
   type ProductRecordLike,
 } from '@app/components/feature/products';
+import { SectIdentityDetails } from '@app/components/feature/sect/SectIdentity';
+import { useActiveSectContextQuery } from '@app/components/feature/sect/sectResources';
+import { useSectIdentityDialog } from '@app/components/feature/sect/useSectIdentityDialog';
 import { LingGen } from '@app/components/func/LingGen';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import {
@@ -30,13 +29,17 @@ import {
   type InkDialogState,
 } from '@app/components/ui';
 import { ItemCard } from '@app/components/ui/ItemCard';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
+import {
+  useCultivatorCondition,
+  useCultivatorIdentity,
+  usePlayerLoadout,
+} from '@app/lib/resources/player';
 import { AttributeType } from '@shared/engine/battle-v5/core/types';
 import { attrLabel } from '@shared/engine/battle-v5/effects/affixText/attributes';
 import { cn } from '@shared/lib/cn';
-import type { Cultivator } from '@shared/types/cultivator';
 import { getEquipmentSlotInfo } from '@shared/lib/gameConceptDisplay';
+import type { Cultivator } from '@shared/types/cultivator';
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { GameSceneSection } from './GameSceneSection';
@@ -44,7 +47,7 @@ import { GameSceneSection } from './GameSceneSection';
 const PRIMARY_ATTRIBUTE_HELP = [
   {
     label: attrLabel(AttributeType.SPIRIT),
-    description: '滋养术法根基，主要增加法术攻击、法术防御，并补益一些法力。',
+    description: '滋养术法根基，主要增加法术攻击与法力。',
   },
   {
     label: attrLabel(AttributeType.VITALITY),
@@ -52,15 +55,17 @@ const PRIMARY_ATTRIBUTE_HELP = [
   },
   {
     label: attrLabel(AttributeType.SPEED),
-    description: '决定出手快慢，增加一些闪避，并少量补益物理攻击、物理防御与暴击。',
+    description:
+      '提升身形腾挪，主要增加闪避与行动速度，并少量增加命中。',
   },
   {
     label: attrLabel(AttributeType.WILLPOWER),
-    description: '凝练感知与抗衡之力，增加一些控制命中、控制抗性、法术攻防与法力，并少量增加命中。',
+    description:
+      '凝练感知与抗衡之力，增加法术防御、控制命中、控制抗性与法力，并影响行动速度和命中。',
   },
   {
     label: attrLabel(AttributeType.WISDOM),
-    description: '提升临战洞察，增加一些暴击伤害，并少量增加暴击与命中。',
+    description: '提升临战洞察，增加暴击率、暴击伤害与命中。',
   },
 ];
 
@@ -121,10 +126,26 @@ function OverviewDetailItem({
 }
 
 export function CultivatorOverviewPanel() {
-  const { cultivator, inventory, skills, equipped } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const loadout = usePlayerLoadout();
+  const sectContext = useActiveSectContextQuery();
+  const openSectIdentityDialog = useSectIdentityDialog();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity && condition.data && loadout.data
+      ? {
+          ...identity,
+          condition: condition.data,
+          skills: loadout.data.skills,
+          cultivations: loadout.data.cultivations,
+          equipped: loadout.data.equipped,
+          inventory: { artifacts: loadout.data.artifacts },
+        }
+      : null;
   const navigate = useNavigate();
   const { pushToast } = useInkUI();
-  const { mutate } = usePlayerStateActions();
+  const { mutate } = useResourceMutation();
   const [dialog, setDialog] = useState<InkDialogState | null>(null);
   const [detailFate, setDetailFate] = useState<
     Cultivator['pre_heaven_fates'][number] | null
@@ -136,16 +157,19 @@ export function CultivatorOverviewPanel() {
   if (!cultivator) {
     return <InkNotice>尚无角色资料，先去觉醒灵根，再来凝视真形。</InkNotice>;
   }
+  const inventory = cultivator.inventory;
+  const skills = cultivator.skills;
+  const equipped = cultivator.equipped;
 
   const handleReincarnate = async () => {
     try {
-      const res = await fetch('/api/cultivator/active-reincarnate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || '兵解失败');
+      await mutate(
+        fetch('/api/cultivator/active-reincarnate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }),
+      );
       navigate('/game/reincarnate');
     } catch (err) {
       pushToast({
@@ -254,7 +278,11 @@ export function CultivatorOverviewPanel() {
           <OverviewDetailItem
             icon="☯️"
             label="境界"
-            value={<InkBadge className='px-0' tier={cultivator.realm}>{cultivator.realm_stage}</InkBadge>}
+            value={
+              <InkBadge className="px-0" tier={cultivator.realm}>
+                {cultivator.realm_stage}
+              </InkBadge>
+            }
           />
           <OverviewDetailItem
             icon="⏳"
@@ -281,8 +309,35 @@ export function CultivatorOverviewPanel() {
         </div>
       </GameSceneSection>
 
-      <CultivatorCurrentStatusSection />
+      <GameSceneSection
+        title="宗门玉牒"
+        actions={
+          sectContext.data ? (
+            <InkButton onClick={openSectIdentityDialog} className="text-sm">
+              查看晋升
+            </InkButton>
+          ) : undefined
+        }
+      >
+        {sectContext.sessionLoading ? (
+          <p className="loading-tip">宗门名册正在核验……</p>
+        ) : !sectContext.hasSect ? (
+          <InkNotice>尚未拜入宗门，当前仍以散修身份行走。</InkNotice>
+        ) : sectContext.error ? (
+          <InkNotice>
+            <p>{sectContext.error}</p>
+            <InkButton onClick={() => void sectContext.retry()}>
+              重新核验
+            </InkButton>
+          </InkNotice>
+        ) : sectContext.data ? (
+          <SectIdentityDetails context={sectContext.data} showJoinedAt />
+        ) : (
+          <p className="loading-tip">身份玉牒正在显化……</p>
+        )}
+      </GameSceneSection>
 
+      <CultivatorCurrentStatusSection />
 
       <LingGen
         spiritualRoots={cultivator.spiritual_roots || []}

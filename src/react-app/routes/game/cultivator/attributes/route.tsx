@@ -8,18 +8,32 @@ import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkNotice } from '@app/components/ui';
 import {
-  useActiveCultivatorProfile,
-  usePlayerStateStatus,
-} from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+  useCultivatorCondition,
+  useCultivatorIdentity,
+  usePlayerLoadout,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { ATTRIBUTE_RESET_TALISMAN_NAME } from '@shared/config/attributeResetTalisman';
 import type { Attributes } from '@shared/types/cultivator';
 import { useState } from 'react';
 
 export default function CultivatorAttributesPage() {
-  const cultivator = useActiveCultivatorProfile();
-  const { isLoading } = usePlayerStateStatus();
-  const { mutate } = usePlayerStateActions();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const loadout = usePlayerLoadout();
+  const identity = profile.data?.cultivator;
+  const cultivator =
+    identity && condition.data && loadout.data
+      ? {
+          ...identity,
+          condition: condition.data,
+          cultivations: loadout.data.cultivations,
+          equipped: loadout.data.equipped,
+          inventory: { artifacts: loadout.data.artifacts },
+        }
+      : null;
+  const isLoading = profile.loading || condition.loading || loadout.loading;
+  const { mutate } = useResourceMutation();
   const { pushToast, openDialog } = useInkUI();
   const [attributeDraft, setAttributeDraft] = useState<Attributes>(
     createEmptyAttributeDraft(),

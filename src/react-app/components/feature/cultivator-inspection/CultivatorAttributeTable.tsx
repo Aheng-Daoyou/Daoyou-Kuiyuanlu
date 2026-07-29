@@ -3,7 +3,7 @@ import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapter
 import { AttributeType } from '@shared/engine/battle-v5/core/types';
 import { attrLabel } from '@shared/engine/battle-v5/effects/affixText/attributes';
 import { cn } from '@shared/lib/cn';
-import type { Cultivator } from '@shared/types/cultivator';
+import type { CultivatorInspectionData } from '@shared/contracts/player';
 import { useMemo, useState } from 'react';
 
 const PRIMARY_ATTR_ORDER: AttributeType[] = [
@@ -19,6 +19,7 @@ const SECONDARY_ATTR_ORDER: AttributeType[] = [
   AttributeType.DEF,
   AttributeType.MAGIC_ATK,
   AttributeType.MAGIC_DEF,
+  AttributeType.ACTION_SPEED,
   AttributeType.CRIT_RATE,
   AttributeType.CRIT_DAMAGE_MULT,
   AttributeType.EVASION_RATE,
@@ -80,7 +81,7 @@ function chunkPairs<T>(items: T[]): T[][] {
 export function CultivatorAttributeTable({
   cultivator,
 }: {
-  cultivator: Cultivator;
+  cultivator: CultivatorInspectionData;
 }) {
   const [expanded, setExpanded] = useState(false);
   const { primaryRows, secondaryRows, hasSecondaryAttributes } = useMemo(() => {

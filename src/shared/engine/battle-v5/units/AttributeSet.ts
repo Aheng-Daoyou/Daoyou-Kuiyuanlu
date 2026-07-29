@@ -9,6 +9,7 @@ const EXTERNAL_SECONDARY_ATTRS = new Set<AttributeType>([
   AttributeType.CRIT_RESIST,
   AttributeType.CRIT_DAMAGE_REDUCTION,
   AttributeType.HEAL_AMPLIFY,
+  AttributeType.HEAL_RECEIVED_REDUCTION,
 ]);
 
 function curve(x: number, scale: number, cap: number): number {
@@ -134,19 +135,20 @@ class Attribute {
  * 主属性（5维，整数，默认 10）：
  * - SPIRIT    (灵力)    — 法系输出、法力、护盾
  * - VITALITY  (体魄)    — 气血上限、物攻、物防
- * - SPEED     (身法)    — 出手顺序、暴击率基础、闪避率
+ * - SPEED     (身法)    — 行动速度、闪避率、命中
  * - WILLPOWER (神识)    — 控制命中、控制抗性、法防
  * - WISDOM    (悟性)    — 暴击率加成、暴击伤害上限、法力上限
  *
  * 派生型二级属性（浮点，base=公式，modifier 可叠加）：
- * - ATK                物理攻击   = 24 + VITALITY×3.45 + SPEED×1.2
- * - DEF                物理防御   = VITALITY×1.68 + SPEED×0.72
- * - MAGIC_ATK          法术攻击   = 24 + SPIRIT×3.45 + WILLPOWER×1.2
- * - MAGIC_DEF          法术防御   = SPIRIT×1.68 + WILLPOWER×0.72
- * - CRIT_RATE          暴击率     = 0.03 + curve(SPEED×0.65 + WISDOM×0.35, 205, 0.32)
+ * - ATK                物理攻击   = 33 + VITALITY×3.75
+ * - DEF                物理防御   = 6 + VITALITY×1.85
+ * - MAGIC_ATK          法术攻击   = 33 + SPIRIT×3.75
+ * - MAGIC_DEF          法术防御   = 6 + WILLPOWER×1.85
+ * - ACTION_SPEED       行动速度   = SPEED×0.8 + WILLPOWER×0.2
+ * - CRIT_RATE          暴击率     = 0.03 + curve(WISDOM, 205, 0.32)
  * - CRIT_DAMAGE_MULT   暴击伤害   = 1.25 + curve(WISDOM, 240, 0.75)
  * - EVASION_RATE       闪避率     = 0.02 + curve(SPEED, 240, 0.26)
- * - ACCURACY           命中       = 0.04 + curve(WISDOM×0.65 + WILLPOWER×0.35, 220, 0.28)
+ * - ACCURACY           命中       = 0.04 + curve(WISDOM×0.45 + WILLPOWER×0.35 + SPEED×0.2, 220, 0.28)
  * - CONTROL_HIT        控制命中   = 0.05 + curve(WISDOM×0.35 + WILLPOWER×0.65, 240, 0.35)
  * - CONTROL_RESISTANCE 控制抗性   = 0.03 + curve(WILLPOWER, 240, 0.37)
  *
@@ -185,9 +187,7 @@ export class AttributeSet {
         true,
         () =>
           Math.floor(
-            24 +
-              this.getValue(AttributeType.VITALITY) * 3.45 +
-              this.getValue(AttributeType.SPEED) * 1.2,
+            33 + this.getValue(AttributeType.VITALITY) * 3.75,
           ),
       ),
     );
@@ -200,8 +200,7 @@ export class AttributeSet {
         true,
         () =>
           Math.floor(
-            this.getValue(AttributeType.VITALITY) * 1.68 +
-              this.getValue(AttributeType.SPEED) * 0.72,
+            6 + this.getValue(AttributeType.VITALITY) * 1.85,
           ),
       ),
     );
@@ -214,9 +213,7 @@ export class AttributeSet {
         true,
         () =>
           Math.floor(
-            24 +
-              this.getValue(AttributeType.SPIRIT) * 3.45 +
-              this.getValue(AttributeType.WILLPOWER) * 1.2,
+            33 + this.getValue(AttributeType.SPIRIT) * 3.75,
           ),
       ),
     );
@@ -229,9 +226,20 @@ export class AttributeSet {
         true,
         () =>
           Math.floor(
-            this.getValue(AttributeType.SPIRIT) * 1.68 +
-              this.getValue(AttributeType.WILLPOWER) * 0.72,
+            6 + this.getValue(AttributeType.WILLPOWER) * 1.85,
           ),
+      ),
+    );
+
+    this._attributes.set(
+      AttributeType.ACTION_SPEED,
+      new Attribute(
+        AttributeType.ACTION_SPEED,
+        0,
+        true,
+        () =>
+          this.getValue(AttributeType.SPEED) * 0.8 +
+          this.getValue(AttributeType.WILLPOWER) * 0.2,
       ),
     );
 
@@ -240,8 +248,7 @@ export class AttributeSet {
       new Attribute(AttributeType.CRIT_RATE, 0, true, () =>
         0.03 +
         curve(
-          this.getValue(AttributeType.SPEED) * 0.65 +
-            this.getValue(AttributeType.WISDOM) * 0.35,
+          this.getValue(AttributeType.WISDOM),
           205,
           0.32,
         ),
@@ -267,8 +274,9 @@ export class AttributeSet {
       new Attribute(AttributeType.ACCURACY, 0, true, () =>
         0.04 +
         curve(
-          this.getValue(AttributeType.WISDOM) * 0.65 +
-            this.getValue(AttributeType.WILLPOWER) * 0.35,
+          this.getValue(AttributeType.WISDOM) * 0.45 +
+            this.getValue(AttributeType.WILLPOWER) * 0.35 +
+            this.getValue(AttributeType.SPEED) * 0.2,
           220,
           0.28,
         ),

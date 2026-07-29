@@ -8,8 +8,12 @@ import { ArtifactListCard } from '@app/components/feature/products';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkNotice } from '@app/components/ui';
 import { InkButton } from '@app/components/ui/InkButton';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { usePlayerLoadout } from '@app/lib/resources/player';
+import {
+  useArtifactInventoryResource,
+  useConsumableInventoryResource,
+} from '@app/lib/resources/inventory';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import type { CultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { isQiRestoreTalismanScenario } from '@shared/config/qiSystem';
 import { isConditionStatusActive } from '@shared/lib/condition';
@@ -18,24 +22,17 @@ import { isPillConsumable, isTalismanConsumable } from '@shared/lib/consumables'
 import type { DungeonState } from '@shared/lib/dungeon/types';
 import type { Artifact, Consumable, Cultivator } from '@shared/types/cultivator';
 import { getResourceTypeLabel } from '@shared/lib/gameConceptDisplay';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 interface DungeonRunPanelProps {
   state: DungeonState;
-  cultivator: Cultivator | null;
+  cultivator: Pick<Cultivator, 'realm' | 'condition'> | null;
   displayResources?: CultivatorDisplaySnapshot['resources'];
   onQuit: () => Promise<boolean>;
 }
 
 type DrawerMainTab = 'status' | 'inventory';
 type DrawerInventoryTab = 'artifacts' | 'consumables';
-type DrawerInventoryPage = {
-  items: Artifact[] | Consumable[];
-  page: number;
-  totalPages: number;
-  isLoaded: boolean;
-};
-
 const DRAWER_INVENTORY_PAGE_SIZE = 6;
 
 function isDirectUseConsumable(item: Consumable) {
@@ -116,28 +113,28 @@ export function DungeonRunPanel({
   displayResources,
   onQuit,
 }: DungeonRunPanelProps) {
-  const { equipped } = usePlayerStateView();
+  const loadout = usePlayerLoadout();
+  const equipped = loadout.data?.equipped;
   const { pushToast } = useInkUI();
-  const { mutate } = usePlayerStateActions();
+  const { mutate } = useResourceMutation();
   const [expanded, setExpanded] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState<DrawerMainTab>('status');
   const [activeInventoryTab, setActiveInventoryTab] =
     useState<DrawerInventoryTab>('artifacts');
-  const [isInventoryLoading, setIsInventoryLoading] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [artifactPage, setArtifactPage] = useState<DrawerInventoryPage>({
-    items: [],
-    page: 1,
-    totalPages: 1,
-    isLoaded: false,
+  const inventoryOpen = expanded && activeMainTab === 'inventory';
+  const artifactInventory = useArtifactInventoryResource({
+    pageSize: DRAWER_INVENTORY_PAGE_SIZE,
+    enabled: inventoryOpen && activeInventoryTab === 'artifacts',
   });
-  const [pillPage, setPillPage] = useState<DrawerInventoryPage>({
-    items: [],
-    page: 1,
-    totalPages: 1,
-    isLoaded: false,
+  const consumableInventory = useConsumableInventoryResource({
+    pageSize: DRAWER_INVENTORY_PAGE_SIZE,
+    enabled: inventoryOpen && activeInventoryTab === 'consumables',
   });
-  const requestSeqRef = useRef(0);
+  const isInventoryLoading =
+    activeInventoryTab === 'artifacts'
+      ? artifactInventory.loading
+      : consumableInventory.loading;
   const hp = formatResource(displayResources?.hp);
   const mp = formatResource(displayResources?.mp);
   const activeStatuses = (cultivator?.condition?.statuses ?? []).filter(
@@ -149,70 +146,9 @@ export function DungeonRunPanel({
   const rewardNames = (state.accumulatedRewards ?? [])
     .map((reward) => reward.name || '神秘机缘')
     .slice(-4);
-  const artifacts = artifactPage.items as Artifact[];
-  const directUseConsumables = (pillPage.items as Consumable[]).filter(
+  const artifacts = artifactInventory.items ?? [];
+  const directUseConsumables = (consumableInventory.items ?? []).filter(
     isDirectUseConsumable,
-  );
-
-  const fetchDrawerInventoryPage = useCallback(
-    async (tab: DrawerInventoryTab, page = 1) => {
-      const requestId = ++requestSeqRef.current;
-      setIsInventoryLoading(true);
-      try {
-        const type = tab === 'artifacts' ? 'artifacts' : 'consumables';
-        const params = new URLSearchParams({
-          type,
-          page: String(Math.max(1, page)),
-          pageSize: String(DRAWER_INVENTORY_PAGE_SIZE),
-        });
-        const response = await fetch(`/api/cultivator/inventory?${params}`);
-        const result = await response.json();
-        if (!response.ok || !result.success) {
-          throw new Error(result.error || '简易储物袋检索失败');
-        }
-        if (requestId !== requestSeqRef.current) return;
-
-        const pagination = result.data?.pagination ?? {};
-        const nextPage = Math.max(1, Number(pagination.page ?? page));
-        const totalPages = Math.max(1, Number(pagination.totalPages ?? 1));
-        if (tab === 'artifacts') {
-          setArtifactPage({
-            items: (result.data?.items ?? []) as Artifact[],
-            page: nextPage,
-            totalPages,
-            isLoaded: true,
-          });
-        } else {
-          setPillPage({
-            items: (result.data?.items ?? []) as Consumable[],
-            page: nextPage,
-            totalPages,
-            isLoaded: true,
-          });
-        }
-      } catch (error) {
-        pushToast({
-          message:
-            error instanceof Error
-              ? `简易储物袋检索失败：${error.message}`
-              : '简易储物袋检索失败。',
-          tone: 'danger',
-        });
-      } finally {
-        setIsInventoryLoading(false);
-      }
-    },
-    [pushToast],
-  );
-
-  const ensureDrawerInventoryPageLoaded = useCallback(
-    (tab: DrawerInventoryTab) => {
-      const pageState = tab === 'artifacts' ? artifactPage : pillPage;
-      if (!pageState.isLoaded) {
-        void fetchDrawerInventoryPage(tab);
-      }
-    },
-    [artifactPage, fetchDrawerInventoryPage, pillPage],
   );
 
   const handleToggleExpanded = useCallback(() => {
@@ -225,25 +161,13 @@ export function DungeonRunPanel({
     });
   }, []);
 
-  const handleMainTabChange = useCallback(
-    (value: string) => {
-      const nextTab = value as DrawerMainTab;
-      setActiveMainTab(nextTab);
-      if (nextTab === 'inventory') {
-        ensureDrawerInventoryPageLoaded(activeInventoryTab);
-      }
-    },
-    [activeInventoryTab, ensureDrawerInventoryPageLoaded],
-  );
+  const handleMainTabChange = useCallback((value: string) => {
+    setActiveMainTab(value as DrawerMainTab);
+  }, []);
 
-  const handleInventoryTabChange = useCallback(
-    (value: string) => {
-      const nextTab = value as DrawerInventoryTab;
-      setActiveInventoryTab(nextTab);
-      ensureDrawerInventoryPageLoaded(nextTab);
-    },
-    [ensureDrawerInventoryPageLoaded],
-  );
+  const handleInventoryTabChange = useCallback((value: string) => {
+    setActiveInventoryTab(value as DrawerInventoryTab);
+  }, []);
 
   const handleEquipToggle = useCallback(
     async (item: Artifact) => {
@@ -263,7 +187,6 @@ export function DungeonRunPanel({
         );
 
         pushToast({ message: '法宝灵性已调顺。', tone: 'success' });
-        await fetchDrawerInventoryPage('artifacts', artifactPage.page);
       } catch (error) {
         pushToast({
           message:
@@ -276,7 +199,7 @@ export function DungeonRunPanel({
         setPendingId(null);
       }
     },
-    [artifactPage.page, fetchDrawerInventoryPage, mutate, pushToast],
+    [mutate, pushToast],
   );
 
   const handleConsumeConsumable = useCallback(
@@ -303,7 +226,6 @@ export function DungeonRunPanel({
           message: result.message || `${item.name}已使用。`,
           tone: 'success',
         });
-        await fetchDrawerInventoryPage('consumables', pillPage.page);
       } catch (error) {
         pushToast({
           message:
@@ -314,12 +236,7 @@ export function DungeonRunPanel({
         setPendingId(null);
       }
     },
-    [
-      fetchDrawerInventoryPage,
-      mutate,
-      pillPage.page,
-      pushToast,
-    ],
+    [mutate, pushToast],
   );
 
   return (
@@ -416,7 +333,11 @@ export function DungeonRunPanel({
                 />
                 {activeInventoryTab === 'artifacts' ? (
                   <div className="space-y-2">
-                    {!artifactPage.isLoaded && isInventoryLoading ? (
+                    {!equipped ? (
+                      <InkNotice className="my-2">
+                        {loadout.error ?? '正在读取装备状态。'}
+                      </InkNotice>
+                    ) : !artifactInventory.data && isInventoryLoading ? (
                       <InkNotice className="my-2">正在检索法宝。</InkNotice>
                     ) : artifacts.length === 0 ? (
                       <InkNotice className="my-2">暂无法宝。</InkNotice>
@@ -444,33 +365,25 @@ export function DungeonRunPanel({
                         );
                       })
                     )}
-                    {artifactPage.totalPages > 1 ? (
+                    {(artifactInventory.pagination?.totalPages ?? 1) > 1 ? (
                       <div className="flex items-center justify-center gap-3 pt-1 text-sm">
                         <InkButton
-                          disabled={artifactPage.page <= 1 || isInventoryLoading}
-                          onClick={() =>
-                            fetchDrawerInventoryPage(
-                              'artifacts',
-                              artifactPage.page - 1,
-                            )
-                          }
+                          disabled={artifactInventory.page <= 1 || isInventoryLoading}
+                          onClick={artifactInventory.goPrevPage}
                         >
                           上一页
                         </InkButton>
                         <span className="text-ink-secondary">
-                          {artifactPage.page}/{artifactPage.totalPages}
+                          {artifactInventory.page}/
+                          {artifactInventory.pagination?.totalPages ?? 1}
                         </span>
                         <InkButton
                           disabled={
-                            artifactPage.page >= artifactPage.totalPages ||
+                            artifactInventory.page >=
+                              (artifactInventory.pagination?.totalPages ?? 1) ||
                             isInventoryLoading
                           }
-                          onClick={() =>
-                            fetchDrawerInventoryPage(
-                              'artifacts',
-                              artifactPage.page + 1,
-                            )
-                          }
+                          onClick={artifactInventory.goNextPage}
                         >
                           下一页
                         </InkButton>
@@ -479,7 +392,7 @@ export function DungeonRunPanel({
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {!pillPage.isLoaded && isInventoryLoading ? (
+                    {!consumableInventory.data && isInventoryLoading ? (
                       <InkNotice className="my-2">正在检索消耗品。</InkNotice>
                     ) : directUseConsumables.length === 0 ? (
                       <InkNotice className="my-2">
@@ -527,33 +440,25 @@ export function DungeonRunPanel({
                         );
                       })
                     )}
-                    {pillPage.totalPages > 1 ? (
+                    {(consumableInventory.pagination?.totalPages ?? 1) > 1 ? (
                       <div className="flex items-center justify-center gap-3 pt-1 text-sm">
                         <InkButton
-                          disabled={pillPage.page <= 1 || isInventoryLoading}
-                          onClick={() =>
-                            fetchDrawerInventoryPage(
-                              'consumables',
-                              pillPage.page - 1,
-                            )
-                          }
+                          disabled={consumableInventory.page <= 1 || isInventoryLoading}
+                          onClick={consumableInventory.goPrevPage}
                         >
                           上一页
                         </InkButton>
                         <span className="text-ink-secondary">
-                          {pillPage.page}/{pillPage.totalPages}
+                          {consumableInventory.page}/
+                          {consumableInventory.pagination?.totalPages ?? 1}
                         </span>
                         <InkButton
                           disabled={
-                            pillPage.page >= pillPage.totalPages ||
+                            consumableInventory.page >=
+                              (consumableInventory.pagination?.totalPages ?? 1) ||
                             isInventoryLoading
                           }
-                          onClick={() =>
-                            fetchDrawerInventoryPage(
-                              'consumables',
-                              pillPage.page + 1,
-                            )
-                          }
+                          onClick={consumableInventory.goNextPage}
                         >
                           下一页
                         </InkButton>

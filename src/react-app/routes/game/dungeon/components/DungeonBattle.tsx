@@ -22,7 +22,7 @@ export interface BattleCallbackData {
 
 interface DungeonBattleProps {
   battleId: string;
-  player: Cultivator;
+  player: Pick<Cultivator, 'id'>;
   onBattleComplete: (data: BattleCallbackData | null) => void;
 }
 

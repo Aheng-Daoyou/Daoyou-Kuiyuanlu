@@ -4,7 +4,13 @@ import { HomeAside } from '@app/components/feature/home/HomeAside';
 import { HomeUrgentRow } from '@app/components/feature/home/HomeUrgentRow';
 import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
 import { InkButton, InkNotice } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import {
+  useCultivatorCondition,
+  useCultivatorIdentity,
+  useCultivatorProgress,
+  usePlayerLoadout,
+} from '@app/lib/resources/player';
+import { getCultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { useTaskList } from '@app/lib/hooks/useTaskList';
 import { findCurrentMajorBreakthroughTask } from '@app/lib/tasks/taskClient';
 import { getNextNoviceHomeAction } from '@app/lib/tasks/noviceHomeAction';
@@ -27,7 +33,37 @@ function calculateYieldHours(lastYieldAt: Date | string | undefined) {
 }
 
 export function HomeView() {
-  const { cultivator, isLoading, display } = usePlayerStateView();
+  const profile = useCultivatorIdentity();
+  const condition = useCultivatorCondition();
+  const progress = useCultivatorProgress();
+  const loadout = usePlayerLoadout();
+  const identity = profile.data?.cultivator;
+  const cultivator = useMemo(
+    () =>
+      identity &&
+      condition.data &&
+      progress.data &&
+      loadout.data
+        ? {
+            ...identity,
+            condition: condition.data,
+            cultivation_progress: progress.data,
+            cultivations: loadout.data.cultivations,
+            equipped: loadout.data.equipped,
+            inventory: { artifacts: loadout.data.artifacts },
+          }
+        : null,
+    [condition.data, identity, loadout.data, progress.data],
+  );
+  const display = useMemo(
+    () => (cultivator ? getCultivatorDisplaySnapshot(cultivator) : null),
+    [cultivator],
+  );
+  const isLoading =
+    profile.loading ||
+    condition.loading ||
+    progress.loading ||
+    loadout.loading;
   const {
     tasks,
     loading: tasksLoading,
@@ -95,11 +131,12 @@ export function HomeView() {
   }, [cultivator, display]);
 
   const currentMajorTask = useMemo(
-    () => findCurrentMajorBreakthroughTask(cultivator, tasks),
+    () =>
+      tasks ? findCurrentMajorBreakthroughTask(cultivator, tasks) : null,
     [cultivator, tasks],
   );
 
-  if (isLoading) {
+  if (isLoading || tasksLoading || !tasks) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="loading-tip">正在推演天机……</p>
@@ -125,7 +162,6 @@ export function HomeView() {
     cultivator.unallocated_attribute_points ?? 0;
   const noviceAction = getNextNoviceHomeAction({
     tasks,
-    cultivator,
     hp: display?.resources.hp,
     mp: display?.resources.mp,
   });

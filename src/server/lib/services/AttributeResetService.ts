@@ -1,20 +1,21 @@
 import { getExecutor, type DbTransaction } from '@server/lib/drizzle/db';
 import * as schema from '@server/lib/drizzle/schema';
 import {
-  createRedisLock,
-  releaseRedisLock,
+  redisLockKeys,
+  withRedisLock,
+  type RedisLeaseContext,
 } from '@server/lib/redis/lock';
 import {
   ATTRIBUTE_RESET_TALISMAN_NAME,
   ATTRIBUTE_RESET_TALISMAN_SCENARIO,
 } from '@shared/config/attributeResetTalisman';
 import { getRealmStageNaturalAttributeValue } from '@shared/config/realmProgression';
-import { isTalismanConsumable } from '@shared/lib/consumables';
 import type { RealmStage, RealmType } from '@shared/types/constants';
 import type { Attributes } from '@shared/types/cultivator';
-import { and, asc, eq } from 'drizzle-orm';
-import { consumeConsumableById } from './cultivatorService';
-import { mapConsumableRow } from './consumablePersistence';
+import { and, asc, eq, sql } from 'drizzle-orm';
+import {
+  consumeConsumableById,
+} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
 
 export class AttributeResetServiceError extends Error {
   constructor(
@@ -34,29 +35,33 @@ export interface AttributeResetResult {
 }
 
 export function getAttributeResetLockKey(cultivatorId: string): string {
-  return `cultivator:attributes:reset:lock:${cultivatorId}`;
+  return redisLockKeys.cultivatorMutation(cultivatorId);
 }
 
 export async function withAttributeResetLock<T>(
   cultivatorId: string,
-  task: () => Promise<T>,
+  task: (lease: RedisLeaseContext) => Promise<T>,
+  lease?: RedisLeaseContext,
 ): Promise<T> {
-  const lockKey = getAttributeResetLockKey(cultivatorId);
-  const lock = createRedisLock({
-    retries: 0,
-    delay: 50,
-  });
-  let lockAcquired = false;
-
-  try {
-    await lock.acquire(lockKey);
-    lockAcquired = true;
-    return await task();
-  } finally {
-    if (lockAcquired) {
-      await releaseRedisLock(lock, lockKey);
-    }
+  if (lease) {
+    lease.assertHeld();
+    const result = await task(lease);
+    lease.assertHeld();
+    return result;
   }
+
+  return withRedisLock(
+    {
+      key: getAttributeResetLockKey(cultivatorId),
+      context: 'attribute-reset',
+      retries: 0,
+      delayMs: 50,
+    },
+    async (lease) => {
+      lease.assertHeld();
+      return task(lease);
+    },
+  );
 }
 
 async function loadResetTalisman(args: {
@@ -68,6 +73,10 @@ async function loadResetTalisman(args: {
   const conditions = [
     eq(schema.consumables.cultivatorId, args.cultivatorId),
     eq(schema.consumables.type, '符箓'),
+    sql`${schema.consumables.quantity} > 0`,
+    sql`${schema.consumables.spec}->>'kind' = 'talisman'`,
+    sql`${schema.consumables.spec}->>'scenario' = ${ATTRIBUTE_RESET_TALISMAN_SCENARIO}`,
+    sql`${schema.consumables.spec}->>'sessionMode' = 'consume_on_action'`,
   ];
   if (args.consumableId) {
     conditions.push(eq(schema.consumables.id, args.consumableId));
@@ -77,18 +86,10 @@ async function loadResetTalisman(args: {
     .select()
     .from(schema.consumables)
     .where(and(...conditions))
-    .orderBy(asc(schema.consumables.createdAt))
-    .limit(args.consumableId ? 1 : 100);
+    .orderBy(asc(schema.consumables.createdAt), asc(schema.consumables.id))
+    .limit(1);
 
-  return rows.find((row) => {
-    if (row.quantity <= 0) return false;
-    const consumable = mapConsumableRow(row);
-    return (
-      isTalismanConsumable(consumable) &&
-      consumable.spec.scenario === ATTRIBUTE_RESET_TALISMAN_SCENARIO &&
-      consumable.spec.sessionMode === 'consume_on_action'
-    );
-  });
+  return rows[0];
 }
 
 export const AttributeResetService = {

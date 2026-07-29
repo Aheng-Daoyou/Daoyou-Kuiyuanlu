@@ -1,10 +1,12 @@
-import { getExecutor, type DbTransaction } from '@server/lib/drizzle/db';
 import {
-  consumables,
+  getExecutor,
+  type DbExecutor,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
+import {
   cultivators,
   materials,
 } from '@server/lib/drizzle/schema';
-import { redis } from '@server/lib/redis';
 import {
   buildAlchemyBatchPreview,
   buildAlchemyPreviewWarnings,
@@ -44,7 +46,8 @@ import type {
   PillSpec,
 } from '@shared/types/consumable';
 import type { Consumable, PreHeavenFate } from '@shared/types/cultivator';
-import { and, eq, inArray } from 'drizzle-orm';
+import type { ResourceOperationSettlement } from '@shared/engine/resource/types';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { buildDiscoveryCandidate } from './AlchemyFormulaService';
 import { AlchemyNarrativeEnricher } from './AlchemyNarrativeEnricher';
 import {
@@ -53,14 +56,14 @@ import {
 } from './AlchemyRecipePlanner';
 import { AlchemyServiceError } from './AlchemyServiceError';
 import {
-  mapConsumableCraftResult,
-  serializeConsumableSpec,
-} from './consumablePersistence';
+  addConsumableToInventoryInTransaction,
+  mapMaterialRow,
+} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
 import {
-  addConsumableToInventory,
-  getPlayerRuntimeCultivatorByIdUnsafe,
-} from './cultivatorService';
+  getCultivatorPreHeavenFates,
+} from '@server/lib/services/cultivator/CultivatorProfileRepository';
 import { getMysteryMaterialBlockingReason } from './materialMysteryGuard';
+import { sectOrganizationFacade } from './sect-organization';
 
 export { synthesizeAlchemyFromPlan as synthesizeAlchemy } from './AlchemyRecipeRules';
 export { AlchemyServiceError } from './AlchemyServiceError';
@@ -85,6 +88,14 @@ export interface AlchemyPreviewResult {
 export interface ImprovisedAlchemyCraftResult {
   consumable: Consumable;
   formulaDiscovery?: Awaited<ReturnType<typeof buildDiscoveryCandidate>>;
+}
+
+export interface PreparedImprovisedAlchemyCraft {
+  commit(tx: DbTransaction): Promise<{
+    result: ImprovisedAlchemyCraftResult;
+    inventoryChanges: ResourceOperationSettlement['inventoryChanges'];
+    afterCommit: () => Promise<void>;
+  }>;
 }
 
 const alchemyNarrativeEnricher = new AlchemyNarrativeEnricher();
@@ -296,9 +307,10 @@ async function loadPreviewMaterialRows(
 async function loadOwnedMaterials(
   cultivatorId: string,
   materialIds: string[],
+  q: DbExecutor | DbTransaction = getExecutor(),
 ): Promise<MaterialRow[]> {
   const rows = sortRowsByRequestedIds(
-    await getExecutor()
+    await q
       .select()
       .from(materials)
       .where(inArray(materials.id, materialIds)),
@@ -345,12 +357,17 @@ export async function previewAlchemySelection(
 
   const highestMaterialRank = pickHighestRank(rows);
   const fateContext = evaluateFateContext(fates);
-  const spiritStones = highestMaterialRank
+  const baseSpiritStones = highestMaterialRank
     ? scaleFateAdjustedValue(
         calculateCraftCost(highestMaterialRank, 'spiritStone'),
         getAlchemySpiritStoneMultiplier(fateContext),
       )
     : 0;
+  const spiritStones = await sectOrganizationFacade.applyCraftDiscount(
+    cultivatorId,
+    baseSpiritStones,
+    'sect.craft.alchemy',
+  );
 
   const validation = buildSelectionValidation(rows, materialQuantities);
   const preparedMaterials = validation.valid
@@ -367,233 +384,298 @@ export async function previewAlchemySelection(
 export function createAlchemyService(
   planner: Pick<AlchemyRecipePlanner, 'plan'> = alchemyRecipePlanner,
 ) {
-  return {
-    async processAlchemyCraft(
-      cultivatorId: string,
-      materialIds: string[],
-      options: {
-        materialQuantities?: Record<string, number>;
-        userPrompt?: string;
-        tx?: DbTransaction;
-      } = {},
-    ): Promise<ImprovisedAlchemyCraftResult> {
-      const lockKey = `alchemy:lock:${cultivatorId}`;
-      const acquired = await redis.set(lockKey, 'locked', 'EX', 30, 'NX');
-      if (!acquired) {
-        throw new AlchemyServiceError('丹炉已开，道友稍候片刻', 429);
-      }
+  const prepareAlchemyCraft = async (
+    cultivatorId: string,
+    materialIds: string[],
+    options: {
+      materialQuantities?: Record<string, number>;
+      userPrompt?: string;
+    } = {},
+  ): Promise<PreparedImprovisedAlchemyCraft> => {
+    const q = getExecutor();
+    const [selectedMaterials, cultivator, preHeavenFates] = await Promise.all([
+      loadOwnedMaterials(cultivatorId, materialIds, q),
+      q
+        .select({
+          userId: cultivators.userId,
+          spirit_stones: cultivators.spirit_stones,
+          cultivation_progress: cultivators.cultivation_progress,
+          realm: cultivators.realm,
+          realm_stage: cultivators.realm_stage,
+        })
+        .from(cultivators)
+        .where(eq(cultivators.id, cultivatorId))
+        .limit(1)
+        .then((rows) => rows[0]),
+      getCultivatorPreHeavenFates(cultivatorId, q),
+    ]);
 
-      try {
-        const [selectedMaterials, cultivator, fullCultivator] =
-          await Promise.all([
-            loadOwnedMaterials(cultivatorId, materialIds),
-            (options.tx ?? getExecutor())
-              .select()
-              .from(cultivators)
-              .where(eq(cultivators.id, cultivatorId))
-              .limit(1)
-              .then((rows) => rows[0]),
-            getPlayerRuntimeCultivatorByIdUnsafe(cultivatorId, options.tx),
-          ]);
+    if (!cultivator) {
+      throw new AlchemyServiceError('道友查无此人', 404);
+    }
 
-        if (!cultivator) {
-          throw new AlchemyServiceError('道友查无此人', 404);
-        }
+    const prompt = options.userPrompt?.trim();
+    if (!prompt) {
+      throw new AlchemyServiceError('请注入神念，描述丹药功效。');
+    }
 
-        const prompt = options.userPrompt?.trim();
-        if (!prompt) {
-          throw new AlchemyServiceError('请注入神念，描述丹药功效。');
-        }
+    const highestMaterialRank = calculateHighestMaterialRank(
+      selectedMaterials as Array<{ rank: Quality }>,
+    );
+    const fateContext = evaluateFateContext(
+      preHeavenFates,
+    );
+    const baseCost = scaleFateAdjustedValue(
+      calculateCraftCost(highestMaterialRank, 'spiritStone'),
+      getAlchemySpiritStoneMultiplier(fateContext),
+    );
+    const cost = await sectOrganizationFacade.applyCraftDiscount(
+      cultivatorId,
+      baseCost,
+      'sect.craft.alchemy',
+      q,
+    );
 
-        const highestMaterialRank = calculateHighestMaterialRank(
-          selectedMaterials as Array<{ rank: Quality }>,
-        );
-        const fateContext = evaluateFateContext(
-          fullCultivator?.cultivator.pre_heaven_fates ?? [],
-        );
-        const cost = scaleFateAdjustedValue(
-          calculateCraftCost(highestMaterialRank, 'spiritStone'),
-          getAlchemySpiritStoneMultiplier(fateContext),
-        );
+    if ((cultivator.spirit_stones ?? 0) < cost) {
+      throw new AlchemyServiceError(`灵石不足，需要 ${cost} 枚`);
+    }
 
-        if ((cultivator.spirit_stones ?? 0) < cost) {
-          throw new AlchemyServiceError(`灵石不足，需要 ${cost} 枚`);
-        }
+    const preparedMaterials = buildPreparedMaterials(
+      selectedMaterials,
+      options.materialQuantities,
+    );
 
-        const preparedMaterials = buildPreparedMaterials(
-          selectedMaterials,
-          options.materialQuantities,
-        );
+    let recipePlan: AlchemyRecipePlan;
+    try {
+      recipePlan = await planner.plan({
+        materials: preparedMaterials,
+        userPrompt: prompt,
+      });
+    } catch {
+      throw new AlchemyServiceError('丹意未明，请稍后重试。', 503);
+    }
 
-        let recipePlan: AlchemyRecipePlan;
-        try {
-          recipePlan = await planner.plan({
-            materials: preparedMaterials,
-            userPrompt: prompt,
-          });
-        } catch {
-          throw new AlchemyServiceError('丹意未明，请稍后重试。', 503);
-        }
+    const cultivationProgress = cultivator.cultivation_progress as
+      | { exp_cap?: number }
+      | null
+      | undefined;
+    const synthesis = synthesizeAlchemyFromPlan(
+      preparedMaterials,
+      recipePlan,
+      highestMaterialRank,
+      {
+        realm: cultivator.realm as RealmType,
+        realmStage: cultivator.realm_stage as RealmStage,
+        expCap: cultivationProgress?.exp_cap,
+      },
+    );
+    const breakthroughTargetRealm =
+      synthesis.family === 'breakthrough'
+        ? getNextMajorRealm(cultivator.realm as RealmType)
+        : null;
+    const spec = buildAlchemySpec(
+      synthesis,
+      preparedMaterials.map((material) => material.name),
+    );
 
-        const cultivationProgress = cultivator.cultivation_progress as
-          | { exp_cap?: number }
-          | null
-          | undefined;
-        const synthesis = synthesizeAlchemyFromPlan(
-          preparedMaterials,
-          recipePlan,
-          highestMaterialRank,
-          {
-            realm: cultivator.realm as RealmType,
-            realmStage: (cultivator.realm_stage ?? '初期') as RealmStage,
-            expCap: cultivationProgress?.exp_cap,
-          },
-        );
-        const breakthroughTargetRealm =
-          synthesis.family === 'breakthrough'
-            ? getNextMajorRealm(cultivator.realm as RealmType)
-            : null;
-        const spec = buildAlchemySpec(
-          synthesis,
+    const usesFixedBreakthroughName =
+      synthesis.family === 'breakthrough' &&
+      breakthroughTargetRealm !== null &&
+      hasBreakthroughFocusEffect(spec.operations);
+
+    if (usesFixedBreakthroughName) {
+      spec.alchemyMeta.breakthroughTargetRealm = breakthroughTargetRealm;
+      spec.alchemyMeta.breakthroughLabel = getBreakthroughPillLabel(
+        breakthroughTargetRealm,
+      );
+    } else if (
+      synthesis.family === 'breakthrough' &&
+      breakthroughTargetRealm
+    ) {
+      spec.alchemyMeta.breakthroughTargetRealm = breakthroughTargetRealm;
+    }
+    const generatedCopy =
+      await alchemyNarrativeEnricher.generateImprovisedPillCopy({
+        family: synthesis.family,
+        dominantElement: synthesis.dominantElement,
+        quality: highestMaterialRank,
+        materialNames: preparedMaterials.map((material) => material.name),
+        propertyVector: synthesis.propertyVector,
+        operations: spec.operations,
+        stability: synthesis.stability,
+        toxicityRating: synthesis.toxicityRating,
+        userPrompt: prompt,
+        focusMode: synthesis.focusMode,
+      });
+    const resolvedName = usesFixedBreakthroughName
+      ? getBreakthroughPillLabel(breakthroughTargetRealm)
+      : (generatedCopy?.name ??
+        buildFallbackName(
           preparedMaterials.map((material) => material.name),
+          synthesis.dominantElement,
+        ));
+    const consumable: Consumable = {
+      name: resolvedName,
+      type: '丹药',
+      quality: highestMaterialRank,
+      quantity: synthesis.batchProfile.yieldQuantity,
+      prompt,
+      description:
+        generatedCopy?.description ??
+        buildFallbackDescription(
+          preparedMaterials.map((material) => material.name),
+          prompt,
+          describeAlchemyPropertyVector(synthesis.propertyVector),
+          synthesis.stability,
+          synthesis.toxicityRating,
+          synthesis.focusMode,
+        ),
+      spec,
+    };
+    consumable.score = calculateSingleElixirScore(consumable);
+
+    return {
+      async commit(tx: DbTransaction) {
+        const inventoryChanges: ResourceOperationSettlement['inventoryChanges'] =
+          [];
+        const stableMaterialIds = [...materialIds].sort();
+        const currentRows = await loadOwnedMaterials(
+          cultivatorId,
+          stableMaterialIds,
+          tx,
+        );
+        const currentById = new Map(currentRows.map((row) => [row.id, row]));
+        const expectedById = new Map(
+          selectedMaterials.map((row) => [row.id, row]),
         );
 
-        const usesFixedBreakthroughName =
-          synthesis.family === 'breakthrough' &&
-          breakthroughTargetRealm !== null &&
-          hasBreakthroughFocusEffect(spec.operations);
-
-        if (usesFixedBreakthroughName) {
-          spec.alchemyMeta.breakthroughTargetRealm = breakthroughTargetRealm;
-          spec.alchemyMeta.breakthroughLabel = getBreakthroughPillLabel(
-            breakthroughTargetRealm,
-          );
-        } else if (
-          synthesis.family === 'breakthrough' &&
-          breakthroughTargetRealm
-        ) {
-          spec.alchemyMeta.breakthroughTargetRealm = breakthroughTargetRealm;
-        }
-        const generatedCopy =
-          await alchemyNarrativeEnricher.generateImprovisedPillCopy({
-            family: synthesis.family,
-            dominantElement: synthesis.dominantElement,
-            quality: highestMaterialRank,
-            materialNames: preparedMaterials.map((material) => material.name),
-            propertyVector: synthesis.propertyVector,
-            operations: spec.operations,
-            stability: synthesis.stability,
-            toxicityRating: synthesis.toxicityRating,
-            userPrompt: prompt,
-            focusMode: synthesis.focusMode,
-          });
-        const resolvedName = usesFixedBreakthroughName
-          ? getBreakthroughPillLabel(breakthroughTargetRealm)
-          : (generatedCopy?.name ??
-            buildFallbackName(
-              preparedMaterials.map((material) => material.name),
-              synthesis.dominantElement,
-            ));
-        const consumable: Consumable = {
-          name: resolvedName,
-          type: '丹药',
-          quality: highestMaterialRank,
-          quantity: synthesis.batchProfile.yieldQuantity,
-          prompt,
-          description:
-            generatedCopy?.description ??
-            buildFallbackDescription(
-              preparedMaterials.map((material) => material.name),
-              prompt,
-              describeAlchemyPropertyVector(synthesis.propertyVector),
-              synthesis.stability,
-              synthesis.toxicityRating,
-              synthesis.focusMode,
-            ),
-          spec,
-        };
-        consumable.score = calculateSingleElixirScore(consumable);
-
-        const writeAlchemy = async (tx: DbTransaction) => {
-          for (const material of preparedMaterials) {
-            const row = selectedMaterials.find(
-              (item) => item.id === material.id,
+        for (const id of stableMaterialIds) {
+          const current = currentById.get(id);
+          const expected = expectedById.get(id);
+          if (
+            !current ||
+            !expected ||
+            current.quantity !== expected.quantity ||
+            current.rank !== expected.rank ||
+            current.type !== expected.type ||
+            current.element !== expected.element
+          ) {
+            throw new AlchemyServiceError(
+              '材料已发生变化，请重新确认配方。',
+              409,
             );
-            if (!row) {
-              throw new AlchemyServiceError('材料记录异常，无法扣除', 500);
-            }
+          }
+        }
 
-            if (material.dose >= row.quantity) {
-              await tx.delete(materials).where(eq(materials.id, material.id));
-            } else {
-              await tx
-                .update(materials)
-                .set({ quantity: row.quantity - material.dose })
-                .where(eq(materials.id, material.id));
-            }
+        for (const id of stableMaterialIds) {
+          const prepared = preparedMaterials.find((item) => item.id === id);
+          const expected = expectedById.get(id);
+          if (!prepared || !expected) {
+            throw new AlchemyServiceError('材料记录异常，无法扣除', 500);
           }
 
-          await tx
-            .update(cultivators)
-            .set({ spirit_stones: (cultivator.spirit_stones ?? 0) - cost })
-            .where(eq(cultivators.id, cultivatorId));
-
-          await addConsumableToInventory(
-            cultivator.userId,
-            cultivatorId,
-            consumable,
-            tx,
-          );
-        };
-
-        if (options.tx) {
-          await writeAlchemy(options.tx);
-        } else {
-          await getExecutor().transaction(writeAlchemy);
+          if (prepared.dose >= expected.quantity) {
+            const deleted = await tx
+              .delete(materials)
+              .where(
+                and(
+                  eq(materials.id, id),
+                  eq(materials.cultivatorId, cultivatorId),
+                  eq(materials.quantity, expected.quantity),
+                ),
+              )
+              .returning({ id: materials.id });
+            if (deleted.length !== 1) {
+              throw new AlchemyServiceError(
+                '材料已发生变化，请重新确认配方。',
+                409,
+              );
+            }
+            inventoryChanges.push({
+              kind: 'materials',
+              operation: 'remove',
+              id,
+            });
+          } else {
+            const updated = await tx
+              .update(materials)
+              .set({
+                quantity: sql`${materials.quantity} - ${prepared.dose}`,
+              })
+              .where(
+                and(
+                  eq(materials.id, id),
+                  eq(materials.cultivatorId, cultivatorId),
+                  eq(materials.quantity, expected.quantity),
+                ),
+              )
+              .returning();
+            if (updated.length !== 1) {
+              throw new AlchemyServiceError(
+                '材料已发生变化，请重新确认配方。',
+                409,
+              );
+            }
+            inventoryChanges.push({
+              kind: 'materials',
+              operation: 'upsert',
+              item: mapMaterialRow(updated[0]),
+            });
+          }
         }
 
-        const inserted = await (options.tx ?? getExecutor())
-          .select()
-          .from(consumables)
+        const [charged] = await tx
+          .update(cultivators)
+          .set({
+            spirit_stones: sql`${cultivators.spirit_stones} - ${cost}`,
+          })
           .where(
             and(
-              eq(consumables.cultivatorId, cultivatorId),
-              eq(consumables.name, consumable.name),
-              eq(consumables.quality, highestMaterialRank),
-              eq(consumables.type, consumable.type),
+              eq(cultivators.id, cultivatorId),
+              eq(cultivators.userId, cultivator.userId),
+              sql`${cultivators.spirit_stones} >= ${cost}`,
             ),
           )
-          .limit(20);
-        const insertedRow = inserted.find((row) => {
-          try {
-            return (
-              serializeConsumableSpec(row.spec as Consumable['spec']) ===
-              serializeConsumableSpec(spec)
-            );
-          } catch {
-            return false;
-          }
-        });
+          .returning({ id: cultivators.id });
+        if (!charged) {
+          throw new AlchemyServiceError(`灵石不足，需要 ${cost} 枚`, 409);
+        }
 
-        const savedConsumable = insertedRow
-          ? mapConsumableCraftResult(insertedRow, consumable.quantity)
-          : consumable;
-        const formulaDiscovery = await buildDiscoveryCandidate(cultivatorId, {
-          consumable: savedConsumable as Consumable & { spec: PillSpec },
-          materials: preparedMaterials,
-        });
-
-        return {
+        const savedConsumable =
+          await addConsumableToInventoryInTransaction(
+          cultivatorId,
+          consumable,
+          tx,
+        );
+        const result: ImprovisedAlchemyCraftResult = {
           consumable: savedConsumable,
-          formulaDiscovery: formulaDiscovery ?? undefined,
         };
-      } finally {
-        await redis.del(lockKey);
-      }
-    },
+        inventoryChanges.push({
+          kind: 'consumables',
+          operation: 'upsert',
+          item: savedConsumable,
+        });
+        return {
+          result,
+          inventoryChanges,
+          afterCommit: async () => {
+            const formulaDiscovery = await buildDiscoveryCandidate(
+              cultivatorId,
+              {
+                consumable: savedConsumable as Consumable & { spec: PillSpec },
+                materials: preparedMaterials,
+              },
+            );
+            result.formulaDiscovery = formulaDiscovery ?? undefined;
+          },
+        };
+      },
+    };
   };
+
+  return { prepareAlchemyCraft };
 }
 
 const alchemyService = createAlchemyService();
 
-export const processAlchemyCraft = alchemyService.processAlchemyCraft;
+export const prepareAlchemyCraft = alchemyService.prepareAlchemyCraft;

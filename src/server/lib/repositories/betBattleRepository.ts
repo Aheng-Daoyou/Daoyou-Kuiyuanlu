@@ -56,6 +56,27 @@ export async function findById(
   return row || null;
 }
 
+export async function findListingById(
+  id: string,
+  executor?: DbExecutor,
+): Promise<BetBattleListingRecord | null> {
+  const q = executor ?? getExecutor();
+  const [row] = await q
+    .select({
+      battle: schema.betBattles,
+      creatorRealm: schema.cultivators.realm,
+      creatorRealmStage: schema.cultivators.realm_stage,
+    })
+    .from(schema.betBattles)
+    .innerJoin(
+      schema.cultivators,
+      eq(schema.betBattles.creatorId, schema.cultivators.id),
+    )
+    .where(eq(schema.betBattles.id, id))
+    .limit(1);
+  return row ? toListingRecord(row) : null;
+}
+
 export async function countPendingByCreator(
   creatorId: string,
   executor?: DbExecutor,
@@ -158,6 +179,29 @@ export async function updateBetBattleById(
     .update(schema.betBattles)
     .set(patch)
     .where(eq(schema.betBattles.id, id));
+}
+
+export async function transitionPendingBetBattle(
+  tx: DbTransaction,
+  id: string,
+  patch: Partial<typeof schema.betBattles.$inferInsert> & {
+    status: 'settled' | 'cancelled' | 'expired';
+  },
+  creatorId?: string,
+): Promise<BetBattleRecord | null> {
+  const conditions = [
+    eq(schema.betBattles.id, id),
+    eq(schema.betBattles.status, 'pending'),
+  ];
+  if (creatorId) {
+    conditions.push(eq(schema.betBattles.creatorId, creatorId));
+  }
+  const [row] = await tx
+    .update(schema.betBattles)
+    .set(patch)
+    .where(and(...conditions))
+    .returning();
+  return row ?? null;
 }
 
 export async function markExpiredPendingBetBattles(

@@ -1,4 +1,9 @@
-import type { Artifact, Consumable, Material } from '@shared/types/cultivator';
+import type {
+  Artifact,
+  Consumable,
+  CultivationProgress,
+  Material,
+} from '@shared/types/cultivator';
 
 /**
  * 资源类型枚举
@@ -63,13 +68,35 @@ export interface ResourceOperationResult {
   success: boolean;
   operations: ResourceOperation[];
   errors?: string[];
+  settlement?: ResourceOperationSettlement;
 }
 
-/**
- * 资源事务操作选项
- */
-export interface ResourceTransactionOptions {
-  dryRun?: boolean; // 仅校验，不实际执行
-  userId: string;
-  cultivatorId: string;
+export interface ResourceOperationSettlement {
+  activeCultivatorDepleted?: boolean;
+  spiritStones?: number;
+  reputation?: number;
+  lifespan?: number;
+  cultivationProgress?: CultivationProgress;
+  inventoryChanges: Array<
+    | {
+        kind: 'artifacts';
+        operation: 'upsert';
+        item: Artifact;
+      }
+    | {
+        kind: 'materials';
+        operation: 'upsert';
+        item: Material;
+      }
+    | {
+        kind: 'consumables';
+        operation: 'upsert';
+        item: Consumable;
+      }
+    | {
+        kind: 'artifacts' | 'materials' | 'consumables';
+        operation: 'remove';
+        id: string;
+      }
+  >;
 }

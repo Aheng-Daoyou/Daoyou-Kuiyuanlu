@@ -221,6 +221,32 @@ export async function updateStatus(
     .where(eq(schema.auctionListings.id, id));
 }
 
+export async function transitionStatus(
+  tx: DbTransaction,
+  id: string,
+  from: 'active',
+  to: 'sold' | 'expired' | 'cancelled',
+  options: { soldAt?: Date; sellerId?: string } = {},
+): Promise<AuctionListing | null> {
+  const conditions = [
+    eq(schema.auctionListings.id, id),
+    eq(schema.auctionListings.status, from),
+  ];
+  if (options.sellerId) {
+    conditions.push(eq(schema.auctionListings.sellerId, options.sellerId));
+  }
+
+  const [listing] = await tx
+    .update(schema.auctionListings)
+    .set({
+      status: to,
+      ...(options.soldAt ? { soldAt: options.soldAt } : {}),
+    })
+    .where(and(...conditions))
+    .returning();
+  return listing ?? null;
+}
+
 /**
  * 查询过期但状态仍为 active 的拍卖记录
  */

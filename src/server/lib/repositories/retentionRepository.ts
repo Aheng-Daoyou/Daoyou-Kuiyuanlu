@@ -33,7 +33,9 @@ export type ExpiredDataCleanupResult = {
 
 async function deleteExpiredRows(
   q: DbExecutor | DbTransaction,
-  buildDelete: (q: DbExecutor | DbTransaction) => Promise<Array<{ id: unknown }>>,
+  buildDelete: (
+    q: DbExecutor | DbTransaction,
+  ) => Promise<Array<{ id: unknown }>>,
 ): Promise<number> {
   const rows = await buildDelete(q);
   return rows.length;
@@ -83,16 +85,18 @@ export async function pruneExpiredData(
       .returning({ id: battleRecordsV2.id }),
   );
 
-  const reputationShopPurchasesDeleted = await deleteExpiredRows(q, (executor) =>
-    executor
-      .delete(reputationShopPurchases)
-      .where(
-        lt(
-          reputationShopPurchases.createdAt,
-          cutoffs.reputationShopPurchases,
-        ),
-      )
-      .returning({ id: reputationShopPurchases.id }),
+  const reputationShopPurchasesDeleted = await deleteExpiredRows(
+    q,
+    (executor) =>
+      executor
+        .delete(reputationShopPurchases)
+        .where(
+          lt(
+            reputationShopPurchases.createdAt,
+            cutoffs.reputationShopPurchases,
+          ),
+        )
+        .returning({ id: reputationShopPurchases.id }),
   );
 
   const auctionListingsDeleted = await deleteExpiredRows(q, (executor) =>

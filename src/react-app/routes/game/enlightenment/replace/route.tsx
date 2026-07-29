@@ -27,9 +27,9 @@ import {
   InkNotice,
 } from '@app/components/ui';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
+import { useCultivatorIdentity } from '@app/lib/resources/player';
 import { getCreationProductTypeLabel } from '@shared/lib/gameConceptDisplay';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 
@@ -42,11 +42,10 @@ function ReplaceContent() {
   const rawCraftType = searchParams.get('type');
   const activeCraftType: PendingCreationCraftType | null =
     isPendingCreationCraftType(rawCraftType) ? rawCraftType : null;
-  const {
-    cultivator,
-    isLoading: cultivatorLoading,
-  } = usePlayerStateView();
-  const { mutate } = usePlayerStateActions();
+  const profile = useCultivatorIdentity();
+  const cultivator = profile.data?.cultivator;
+  const cultivatorLoading = profile.loading;
+  const { mutate } = useResourceMutation();
   const { pushToast, openDialog } = useInkUI();
 
   const [loading, setLoading] = useState(false);

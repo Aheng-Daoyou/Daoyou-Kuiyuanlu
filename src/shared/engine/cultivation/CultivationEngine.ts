@@ -23,6 +23,7 @@ import type {
   Cultivator,
   RetreatRecord,
 } from '@shared/types/cultivator';
+import type { CultivatorDisplayInput } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import {
   calculateBreakthroughChance,
   getNextStage,
@@ -78,8 +79,20 @@ function getMajorDeviationGain(
   }
 }
 
+export type RetreatCultivatorFacts = CultivatorDisplayInput &
+  Pick<
+    Cultivator,
+    | 'age'
+    | 'lifespan'
+    | 'closed_door_years_total'
+    | 'unallocated_attribute_points'
+    | 'spiritual_roots'
+    | 'pre_heaven_fates'
+    | 'cultivation_progress'
+  >;
+
 function getActiveStatus(
-  cultivator: Cultivator,
+  cultivator: RetreatCultivatorFacts,
   statusKey: ConditionStatusKey,
 ): ConditionStatusInstance | null {
   return (
@@ -106,7 +119,7 @@ function getInnerDemonTriggerChance(
  * 闭关修炼结果
  */
 export interface CultivationResult {
-  cultivator: Cultivator;
+  cultivator: RetreatCultivatorFacts;
   summary: {
     exp_gained: number;
     exp_before: number;
@@ -124,7 +137,7 @@ export interface CultivationResult {
  * 突破尝试结果
  */
 export interface BreakthroughResult {
-  cultivator: Cultivator;
+  cultivator: RetreatCultivatorFacts;
   summary: {
     success: boolean;
     chance: number;
@@ -152,15 +165,16 @@ export interface BreakthroughResult {
  * 执行闭关修炼（不含突破）
  */
 export function performCultivation(
-  rawCultivator: Cultivator,
+  rawCultivator: RetreatCultivatorFacts,
   years: number,
   rng: () => number = Math.random,
+  modifiers: { retreatExpMultiplier?: number } = {},
 ): CultivationResult {
   if (years <= 0) {
     throw new Error('闭关年限必须大于0');
   }
 
-  const cultivator = JSON.parse(JSON.stringify(rawCultivator)) as Cultivator;
+  const cultivator = structuredClone(rawCultivator);
 
   // 确保有修为进度数据
   const progress = getCultivationProgress(cultivator);
@@ -179,6 +193,7 @@ export function performCultivation(
     Math.floor(
       expResult.exp_gained *
         fateContext.retreatExpMultiplier *
+        Math.max(1, modifiers.retreatExpMultiplier ?? 1) *
         getCultivationBoostRetreatMultiplier(cultivator.condition),
     ),
   );
@@ -256,10 +271,10 @@ export function performCultivation(
  * 尝试突破境界
  */
 export function attemptBreakthrough(
-  rawCultivator: Cultivator,
+  rawCultivator: RetreatCultivatorFacts,
   rng: () => number = Math.random,
 ): BreakthroughResult {
-  const cultivator = JSON.parse(JSON.stringify(rawCultivator)) as Cultivator;
+  const cultivator = structuredClone(rawCultivator);
 
   // 确保有修为进度数据
   const progress = getCultivationProgress(cultivator);
@@ -305,7 +320,7 @@ export function attemptBreakthrough(
   let naturalAttributeGrowth = 0;
   let attributePointReward = 0;
   let historyEntry: BreakthroughHistoryEntry | undefined;
-  let insight_change = 0;
+  let insight_change: number;
   let exp_lost = 0;
   const isMajorBreakthrough = nextStage.realm !== fromRealm;
   const protectMeridiansStatus = getActiveStatus(

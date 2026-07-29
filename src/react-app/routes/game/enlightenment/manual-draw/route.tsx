@@ -12,8 +12,11 @@ import {
   InkNotice,
   InkTag,
 } from '@app/components/ui';
-import { usePlayerStateView } from '@app/lib/player-state/selectors';
-import { usePlayerStateActions } from '@app/lib/player-state/store';
+import {
+  useCultivatorIdentity,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import { QUALITY_ORDER, type Quality } from '@shared/types/constants';
 import type { Material } from '@shared/types/cultivator';
 import { getElementInfo, getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
@@ -226,8 +229,12 @@ function ResultMiniCard({ material }: { material: Material }) {
 export default function ManualDrawPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { cultivator, note, isLoading } = usePlayerStateView();
-  const { mutate } = usePlayerStateActions();
+  const profile = useCultivatorIdentity();
+  const session = usePlayerSession();
+  const cultivator = profile.data?.cultivator;
+  const note = session.data?.note;
+  const isLoading = profile.loading || session.loading;
+  const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
   const [activeTab, setActiveTab] = useState<ManualDrawKind>(
     normalizeManualDrawKind(searchParams.get('tab')),
