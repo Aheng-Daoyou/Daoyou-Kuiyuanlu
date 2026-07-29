@@ -1,6 +1,6 @@
 import { betterAuthSchema } from '@server/lib/auth/schema';
-import { SQL } from 'bun';
-import { drizzle } from 'drizzle-orm/bun-sql';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
 import * as schema from './schema';
 
 const connectionString = process.env.DATABASE_URL;
@@ -10,56 +10,40 @@ if (!connectionString) {
   throw new Error('Missing DATABASE_URL');
 }
 
-const client = new SQL({
+const postgresOptions = [
+  '-c search_path=better_auth,public',
+  '-c application_name=daoyou-api',
+  '-c lock_timeout=3s',
+  '-c statement_timeout=30s',
+  '-c idle_in_transaction_session_timeout=60s',
+].join(' ');
+
+const pool = new Pool({
   // PostgreSQL 连接地址；数据库相关环境变量仅保留 DATABASE_URL。
-  url: connectionString,
+  connectionString,
   // 单个应用实例允许同时建立的最大物理连接数。
   max: maxConnections,
   // 空闲连接保留 5 分钟后回收，减少低频流量下的连接反复创建。
-  idleTimeout: 300,
+  idleTimeoutMillis: 300_000,
   // 建立新连接最多等待 30 秒，超时后让当前查询快速失败。
-  connectionTimeout: 30,
+  connectionTimeoutMillis: 30_000,
   // 当前部署环境强制使用非 TLS 连接。
-  tls: false,
+  ssl: false,
   // 以下 PostgreSQL 启动参数会应用到连接池中的每条物理连接。
-  connection: {
-    // 默认先查找 Better Auth 表，再查找 public 中的业务表。
-    search_path: 'better_auth,public',
-    // 在 PostgreSQL 活动连接和慢查询日志中标识当前服务。
-    application_name: 'daoyou-api',
-    // 获取数据库锁最多等待 3 秒，避免请求长时间阻塞。
-    lock_timeout: '3s',
-    // 单条 SQL 最多执行 30 秒。
-    statement_timeout: '30s',
-    // 事务开启后若持续空闲 60 秒，由 PostgreSQL 主动终止。
-    idle_in_transaction_session_timeout: '60s',
-  },
-  // 每条物理连接建立完成后记录结果。
-  onconnect(error) {
-    if (error) {
-      console.error('[postgres] connection failed', error);
-      return;
-    }
-    console.info('[postgres] connected');
-  },
-  // 每条物理连接关闭时区分正常回收与非预期故障。
-  onclose(error) {
-    if (
-      (error as (Error & { code?: string }) | null)?.code ===
-      'ERR_POSTGRES_IDLE_TIMEOUT'
-    ) {
-      console.info('[postgres] idle connection recycled');
-      return;
-    }
-    if (error) {
-      console.error('[postgres] connection closed with error', error);
-      return;
-    }
-    console.info('[postgres] connection closed');
-  },
+  options: postgresOptions,
 });
 
-export const db = drizzle(client, {
+pool.on('error', (error) => {
+  console.error('[postgres-pool] idle client error', {
+    postgresCode: (error as Error & { code?: string }).code ?? null,
+    poolTotal: pool.totalCount,
+    poolIdle: pool.idleCount,
+    poolWaiting: pool.waitingCount,
+    error,
+  });
+});
+
+export const db = drizzle(pool, {
   schema: {
     ...schema,
     ...betterAuthSchema,
