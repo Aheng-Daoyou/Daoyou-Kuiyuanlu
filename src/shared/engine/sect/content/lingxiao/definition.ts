@@ -12,6 +12,7 @@ export const LINGXIAO_BASE_DEFINITION: SectDefinitionWithoutPaths = {
     '从红尘中学剑，向红尘中还剑。门人以平生所见养成剑意，于照影游尘、守拙藏锋二道中自定剑途。',
   raceIds: ['human'],
   configVersion: 4,
+  foundationPassiveId: 'lingxiao-runtime',
   combatResource: {
     id: 'sect.lingxiao.sword-momentum',
     name: '剑意',
@@ -180,6 +181,15 @@ export const LINGXIAO_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       role: 'defensive',
       mpCost: 50,
       cooldown: 5,
+    },
+    {
+      id: 'lingxiao-runtime',
+      kind: 'passive',
+      baseName: '剑骨淬锋',
+      description: '以剑意淬炼筋骨，常驻提高暴击率与物理穿透。',
+      role: 'combo',
+      unlock: { type: 'always' },
+      visibility: 'internal',
     },
     {
       id: 'heavy-shield-momentum',

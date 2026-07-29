@@ -157,6 +157,39 @@ export class SectDefinitionRule implements ValidationRule<SectModule> {
     if (duplicateIds(abilityIds).length)
       throw new Error(`宗门 ${definition.id} 存在重复法术ID`);
     const methodSet = new Set(methodIds);
+    if (
+      typeof definition.foundationPassiveId !== 'string' ||
+      !definition.foundationPassiveId.trim()
+    ) {
+      throw new Error(
+        `宗门 ${definition.id} 必须且只能指定${StandardSectRules.foundationPassiveCount}个宗门根基被动`,
+      );
+    }
+    const foundationPassive = definition.abilities.find(
+      (ability) => ability.id === definition.foundationPassiveId,
+    );
+    if (!foundationPassive) {
+      throw new Error(
+        `宗门 ${definition.id} 的根基被动不存在: ${definition.foundationPassiveId}`,
+      );
+    }
+    if (foundationPassive.kind !== 'passive') {
+      throw new Error(
+        `宗门 ${definition.id} 的根基能力必须是被动: ${foundationPassive.id}`,
+      );
+    }
+    if (foundationPassive.unlock.type !== 'always') {
+      throw new Error(
+        `宗门 ${definition.id} 的根基被动必须入宗即解锁: ${foundationPassive.id}`,
+      );
+    }
+    for (const ability of definition.abilities) {
+      if (ability.sourceMethodId && !methodSet.has(ability.sourceMethodId)) {
+        throw new Error(
+          `法术 ${ability.id} 引用了未知来源心法 ${ability.sourceMethodId}`,
+        );
+      }
+    }
     if (definition.methods.filter((method) => method.isPrimary).length !== 1) {
       throw new Error(`宗门 ${definition.id} 必须且只能声明一本主心法`);
     }

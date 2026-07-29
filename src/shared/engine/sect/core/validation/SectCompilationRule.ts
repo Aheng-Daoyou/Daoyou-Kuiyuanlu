@@ -28,7 +28,11 @@ export class SectCompilationRule implements ValidationRule<SectModule> {
         (_, index) => equipped[index] ?? null,
       ) as CultivatorSectState['abilityLoadout'],
     };
-    compiler.compile(module, { sect: baseState, realm: '渡劫' });
+    const compileState = (state: CultivatorSectState) => {
+      compiler.compile(module, { sect: state, realm: '渡劫' });
+      compiler.projectCombat(module, { sect: state, realm: '渡劫' });
+    };
+    compileState(baseState);
 
     for (const path of definition.paths) {
       const pathBase: CultivatorSectState = {
@@ -48,7 +52,7 @@ export class SectCompilationRule implements ValidationRule<SectModule> {
           },
         ],
       };
-      compiler.compile(module, { sect: pathBase, realm: '渡劫' });
+      compileState(pathBase);
       for (const node of path.nodes) {
         const nodeState = structuredClone(pathBase);
         const nodePath = nodeState.paths.find(
@@ -57,10 +61,7 @@ export class SectCompilationRule implements ValidationRule<SectModule> {
         nodePath.meridianLoadouts.find(
           (loadout) => loadout.slot === 1,
         )!.nodeIds = [node.id];
-        compiler.compile(module, {
-          sect: nodeState,
-          realm: '渡劫',
-        });
+        compileState(nodeState);
       }
 
       const firstByLayer = path.layers
@@ -69,10 +70,14 @@ export class SectCompilationRule implements ValidationRule<SectModule> {
         .filter((node): node is NonNullable<typeof node> => Boolean(node));
       const compileNodes = (nodeIds: string[]) => {
         const state = structuredClone(pathBase);
-        const statePath = state.paths.find((entry) => entry.pathId === path.id)!;
-        const loadout = statePath.meridianLoadouts.find((entry) => entry.slot === 1)!;
+        const statePath = state.paths.find(
+          (entry) => entry.pathId === path.id,
+        )!;
+        const loadout = statePath.meridianLoadouts.find(
+          (entry) => entry.slot === 1,
+        )!;
         loadout.nodeIds = nodeIds;
-        compiler.compile(module, { sect: state, realm: '渡劫' });
+        compileState(state);
       };
       compileNodes(firstByLayer.map((node) => node.id));
       for (const layer of path.layers) {

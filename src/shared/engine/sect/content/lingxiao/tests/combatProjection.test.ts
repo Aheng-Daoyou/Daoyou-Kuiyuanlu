@@ -1,3 +1,8 @@
+import {
+  AttributeType,
+  ModifierType,
+} from '@shared/engine/battle-v5/core/types';
+import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import { describe, expect, it, vi } from 'vitest';
 import { LINGXIAO_MODULE } from '..';
 import {
@@ -186,7 +191,7 @@ describe('宗门注册投影', () => {
     );
     expect(
       listUnlockedAbilityIds(LINGXIAO_MODULE.definition, early),
-    ).toHaveLength(8);
+    ).toHaveLength(9);
     expect(
       listUnlockedAbilityIds(LINGXIAO_MODULE.definition, early),
     ).not.toContain('sect-ultimate');
@@ -194,6 +199,44 @@ describe('宗门注册投影', () => {
     expect(listUnlockedAbilityIds(LINGXIAO_MODULE.definition, early)).toContain(
       'sect-ultimate',
     );
+  });
+
+  it('剑骨淬锋在基础态与两条流派中固定提供10%暴击率和10%物理穿透', () => {
+    for (const pathId of [undefined, 'swift-sword', 'heavy-sword'] as const) {
+      const sect = state(pathId);
+      setMethodLevel(sect, pathId ? 180 : 1);
+      sect.abilityLoadout = ['guiding-sword', null, null, null];
+      const detail = resolveSectAbility({
+        sect,
+        realm: '化神',
+        abilityId: 'lingxiao-runtime',
+      });
+      expect(detail.config.modifiers).toEqual([
+        {
+          attrType: AttributeType.CRIT_RATE,
+          type: ModifierType.FIXED,
+          value: 0.1,
+        },
+        {
+          attrType: AttributeType.ARMOR_PENETRATION,
+          type: ModifierType.FIXED,
+          value: 0.1,
+        },
+      ]);
+      expect(detail.detailRows).toEqual([
+        '常驻：暴击率+10%',
+        '常驻：物理穿透+10%',
+      ]);
+      expect(detail.config.tags).not.toContain(
+        pathId ? GameplayTags.ABILITY.SECT.path('lingxiao', pathId) : undefined,
+      );
+      const projection = projectSectCombat({ sect, realm: '化神' })!;
+      expect(
+        projection.abilities.filter(
+          (ability) => ability.slug === 'sect.lingxiao.lingxiao-runtime',
+        ),
+      ).toHaveLength(1);
+    }
   });
 
   it('红尘剑宗两条流派各自保持六层且每层三个节点', () => {

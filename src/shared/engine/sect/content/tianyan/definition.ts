@@ -17,6 +17,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
     '以五行法印推演前后术式的圣地。门人兼修金木水火土，却只能携四门主动神通入阵；胜负不在单法强弱，而在每一次留印之后如何落下下一子。',
   raceIds: ['human'],
   configVersion: 1,
+  foundationPassiveId: 'tianyan-runtime',
   combatResource: {
     id: TIANYAN_DERIVATION,
     name: '衍数',
@@ -89,8 +90,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       id: 'water-flowing',
       slot: 6,
       name: '《玄冥行川法》',
-      description:
-        '水无常形，不与一岸相争。去路既改，仍能在曲折中守住归处。',
+      description: '水无常形，不与一岸相争。去路既改，仍能在曲折中守住归处。',
       perLevelDescription: '每级提高0.05%最大法力。',
       modifierPerLevel: {
         attrType: AttributeType.MAX_MP,
@@ -115,8 +115,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       id: 'verdant-pulse',
       kind: 'active',
       baseName: '青萝生脉',
-      description:
-        '青萝循气而生，一端缠住敌势，一端牵回施术者尚未断绝的生机。',
+      description: '青萝循气而生，一端缠住敌势，一端牵回施术者尚未断绝的生机。',
       role: 'generator',
       unlock: { type: 'method', methodId: 'wood-vitality', level: 1 },
       mpCost: 22,
@@ -148,8 +147,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       id: 'lotus-in-fire',
       kind: 'active',
       baseName: '火里种莲',
-      description:
-        '借一线心火焚去附骨之秽，又在余烬中留下一点不肯熄灭的明光。',
+      description: '借一线心火焚去附骨之秽，又在余烬中留下一点不肯熄灭的明光。',
       role: 'utility',
       unlock: { type: 'method', methodId: 'fire-illumination', level: 5 },
       costs: [
@@ -189,8 +187,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       id: 'metal-cloud-cutter',
       kind: 'active',
       baseName: '庚金裁云',
-      description:
-        '庚金凝成一线，所裁并非云气，而是藏在云后的护持与虚势。',
+      description: '庚金凝成一线，所裁并非云气，而是藏在云后的护持与虚势。',
       role: 'finisher',
       unlock: { type: 'method', methodId: 'metal-severing', level: 1 },
       mpCost: 30,

@@ -491,15 +491,16 @@ describe('无相禅宗三相循环', () => {
       const before = owner.getCurrentHp();
       cast(defaultAttack, owner, enemy);
       const cost = Math.ceil(before * 0.06);
-      return owner.getCurrentHp() - (before - cost);
+      return {
+        healed: owner.getCurrentHp() - (before - cost),
+        expected: Math.round(owner.getMaxHp() * 0.025),
+      };
     };
 
-    expect(execute('demon')).toBe(
-      Math.round(unit('sample').getMaxHp() * 0.025),
-    );
-    expect(execute('formless')).toBe(
-      Math.round(unit('sample').getMaxHp() * 0.025),
-    );
+    const demon = execute('demon');
+    const formless = execute('formless');
+    expect(demon.healed).toBe(demon.expected);
+    expect(formless.healed).toBe(formless.expected);
   });
 
   it('三叩低血强化读取支付气血成本后的施法快照', () => {

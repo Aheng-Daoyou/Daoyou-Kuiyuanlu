@@ -22,8 +22,11 @@ const ATTRIBUTE_LABELS: Partial<Record<AttributeType, string>> = {
   [AttributeType.MAGIC_ATK]: '法攻',
   [AttributeType.MAGIC_DEF]: '法防',
   [AttributeType.SPEED]: '身法',
+  [AttributeType.CRIT_RATE]: '暴击率',
   [AttributeType.EVASION_RATE]: '闪避',
   [AttributeType.CONTROL_RESISTANCE]: '控制抗性',
+  [AttributeType.MAX_HP]: '最大气血',
+  [AttributeType.ARMOR_PENETRATION]: '物理穿透',
   [AttributeType.HEAL_RECEIVED_REDUCTION]: '受治疗削弱',
 };
 
@@ -137,9 +140,12 @@ function modifierText(modifier: AttributeModifierConfig): string {
   const label = ATTRIBUTE_LABELS[modifier.attrType] ?? modifier.attrType;
   if (
     modifier.type === ModifierType.FIXED &&
-    [AttributeType.EVASION_RATE, AttributeType.CONTROL_RESISTANCE].includes(
-      modifier.attrType,
-    )
+    [
+      AttributeType.CRIT_RATE,
+      AttributeType.EVASION_RATE,
+      AttributeType.CONTROL_RESISTANCE,
+      AttributeType.ARMOR_PENETRATION,
+    ].includes(modifier.attrType)
   ) {
     return `${label}+${number(modifier.value * 100)}%`;
   }
@@ -374,9 +380,13 @@ function listenerRows(
     listener.effects[0].type === 'percent_damage_modifier'
   ) {
     const child = listener.effects[0];
+    const conditions = listener.conditions
+      ?.map((condition) => conditionText(condition, resources))
+      .filter(Boolean)
+      .join('且');
     return [
       child.params.mode === 'reduce'
-        ? `承伤：受到的直接伤害降低${percent(child.params.value)}`
+        ? `承伤：${conditions ? `${conditions}时，` : ''}受到的直接伤害降低${percent(child.params.value)}`
         : `伤害：造成的伤害提高${percent(child.params.value)}`,
     ];
   }
@@ -800,5 +810,13 @@ export function describeSectAbilityConfig(
     );
   }
   rows.push(...describeEffectList(config.castEffects ?? [], resources, 'cast'));
+  rows.push(
+    ...(config.modifiers ?? []).map(
+      (modifier) => `常驻：${modifierText(modifier)}`,
+    ),
+  );
+  for (const listener of config.listeners ?? []) {
+    rows.push(...listenerRows(listener, resources));
+  }
   return Array.from(new Set(rows.filter(Boolean)));
 }

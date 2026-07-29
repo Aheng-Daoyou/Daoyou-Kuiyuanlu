@@ -175,6 +175,9 @@ function SectAbilitiesBody() {
       definition?.abilities.find((ability) => ability.id === detail.id)
         ?.kind === 'default',
   );
+  const foundationDetail = details.find(
+    (detail) => detail.id === definition?.foundationPassiveId,
+  );
   const selected = draftSlots.filter((id): id is string => id !== null);
   const serverSlots = sect?.abilityLoadout ?? EMPTY_SLOTS;
   const changed = draftSlots.some((id, index) => id !== serverSlots[index]);
@@ -252,7 +255,7 @@ function SectAbilitiesBody() {
     <SectScene
       sceneKey="arena"
       error={error}
-      mood="arena"
+      mood="plain"
       aside={
         definition ? (
           <div className="space-y-2 text-sm leading-7">
@@ -267,24 +270,24 @@ function SectAbilitiesBody() {
         ) : undefined
       }
     >
-      <div className="flex justify-end">
-        <InkButton
-          onClick={() =>
-            navigate(createSectRoomNpcHref('/game/sect/arena', 'instructor'), {
-              replace: true,
-            })
-          }
-        >
-          退出演武阵
-        </InkButton>
-      </div>
-      <div className="rounded-full border border-red-950/10 bg-white/20 p-2 sm:p-4">
+      <div>
         {!sect || !definition ? (
           <InkNotice>尚未拜入宗门。</InkNotice>
         ) : (
           <>
-            {defaultDetail ? (
+            {foundationDetail ? (
               <InkCard>
+                <strong>《{foundationDetail.name}》</strong>
+                <span className="text-ink-secondary ml-2 text-sm">
+                  宗门根基 · 入宗即得 · 不占主动栏
+                </span>
+                <p className="mt-2 text-sm leading-6">
+                  {foundationDetail.summary}
+                </p>
+              </InkCard>
+            ) : null}
+            {defaultDetail ? (
+              <InkCard className={foundationDetail ? 'mt-3' : undefined}>
                 <strong>《{defaultDetail.name}》</strong>
                 <span className="text-ink-secondary ml-2 text-sm">
                   默认神通 · 不占主动栏

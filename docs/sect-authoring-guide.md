@@ -23,7 +23,7 @@ src/shared/engine/sect/content/<sect-id>/
 - 战斗资源 ID 使用 `sect.<sect-id>.<resource>` 命名空间，并且全宗门唯一。
 - ID 一旦持久化就不可随意修改。修改持久 ID 或提高 `configVersion` 前必须单独设计数据迁移；本轮没有实现自动或离线迁移。
 - 运行时标签必须由 `GameplayTags` 构造，不手写 `Ability.*`、`Buff.*` 或 `Status.*`。
-- 标准宗门恰好定义六本心法、一本主心法、一个默认能力和一个战斗资源。四个主动槽与三套参悟方案由 `StandardSectRules` 管理。
+- 标准宗门恰好定义六本心法、一本主心法、一个默认能力、一个宗门根基被动和一个战斗资源。四个主动槽与三套参悟方案由 `StandardSectRules` 管理。
 
 ## 心法与能力定义
 
@@ -55,15 +55,38 @@ const abilities: SectAbilityDefinition[] = [
     id: 'ember-body',
     kind: 'passive',
     baseName: '余烬护体',
-    description: '激活流派后获得常驻守护。',
+    description: '入宗后即获得常驻守护。',
     role: 'defensive',
-    unlock: { type: 'active_path', pathId: 'ember-path' },
+    unlock: { type: 'always' },
     visibility: 'internal',
   },
 ];
+
+const definition: SectDefinitionWithoutPaths = {
+  // 其余宗门字段省略
+  foundationPassiveId: 'ember-body',
+  abilities,
+};
 ```
 
 解锁对象只有 `method`、`active_path` 和 `always` 三种。`visibility: 'internal'` 的能力参与战斗投影，但不显示在神通列表。
+
+`SectDefinition.foundationPassiveId` 是必填协议字段，必须引用一个 `kind: 'passive'`、`unlock: { type: 'always' }` 的能力。该能力必须在基础编译器中通过 `SectAbilityFactory.passive()` 生成，至少包含一个 modifier 或 listener，不得携带流派标签；注册器会在基础态、所有流派态和代表节点组合中验证它始终存在且只投影一次。流派可以增强其效果，但不能改变入宗解锁和宗门级身份。
+
+能力的 `unlock` 只描述可用条件。若一个始终解锁的能力仍归属于某本心法并沿用其成长投影，使用 `sourceMethodId` 显式声明；不声明时，心法归属继续从 `unlock.type === 'method'` 推导。根基被动默认不设置 `sourceMethodId`，以保持固定数值。
+
+```ts
+{
+  id: 'ancestral-heart',
+  kind: 'passive',
+  baseName: '祖脉心印',
+  description: '入宗即得，并随祖脉心法精进。',
+  role: 'defensive',
+  unlock: { type: 'always' },
+  sourceMethodId: 'ancestral-canon',
+  visibility: 'internal',
+}
+```
 
 ## 编译神通
 
@@ -97,6 +120,8 @@ builder.setAbility(
 生产宗门在 `SectPresentationTheme.onboarding` 中提供玩家摘要、三个特色词和 `NarrativePerformanceScript`。脚本按幕声明场景、正文、可选人物台词与背景焦点；通用演出舞台负责显字、前后切幕和终幕拜师。
 
 入门文案只使用世界内语言，不展示等级、倍率、冷却、消耗、配置、构筑或其他实现术语。主视觉必须是无文字的本地资源，并提供替代文本；加入宗门仍由服务端准入策略和幂等事务兜底，不以浏览器演出状态作为安全边界。
+
+入宗选择卡与宗门能力页会根据 `foundationPassiveId` 自动展示“宗门根基”。名称和描述直接来自能力定义，能力页的精确效果来自当前编译产物；不要在前端主题中复制根基被动数据。
 
 ## 流派与节点
 

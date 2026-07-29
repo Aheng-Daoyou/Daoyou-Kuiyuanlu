@@ -14,6 +14,7 @@ import {
   BuffType,
   DamageSource,
   DamageType,
+  ModifierType,
 } from '@shared/engine/battle-v5/core/types';
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import {
@@ -35,17 +36,17 @@ import {
   type WuxiangTechniqueId,
 } from '../ids';
 import {
-  createWuxiangBuildSettings,
-  type WuxiangBuildSettings,
-} from './buildFacades';
+  compileDemonAbilities,
+  compileDemonPassive,
+} from '../paths/demon/compiler';
 import {
   compileMirrorAbilities,
   compileMirrorPassive,
 } from '../paths/mirror/compiler';
 import {
-  compileDemonAbilities,
-  compileDemonPassive,
-} from '../paths/demon/compiler';
+  createWuxiangBuildSettings,
+  type WuxiangBuildSettings,
+} from './buildFacades';
 
 const techniqueTag = GameplayTags.ABILITY.SECT.mechanic(
   WUXIANG_SECT_ID,
@@ -405,6 +406,54 @@ function definition(id: WuxiangTechniqueId | 'turn-form') {
   if (!found || found.kind === 'passive')
     throw new Error(`无相神通未定义: ${id}`);
   return found;
+}
+
+function foundationDefinition() {
+  const found = WUXIANG_BASE_DEFINITION.abilities.find(
+    (ability) => ability.id === WUXIANG_BASE_DEFINITION.foundationPassiveId,
+  );
+  if (!found || found.kind !== 'passive')
+    throw new Error('无相禅宗根基被动未定义');
+  return found;
+}
+
+function compileFoundationPassive(): SectCompiledAbility {
+  return new SectAbilityFactory(WUXIANG_SECT_ID).passive({
+    definition: foundationDefinition(),
+    modifiers: [
+      {
+        attrType: AttributeType.MAX_HP,
+        type: ModifierType.ADD,
+        value: 0.1,
+      },
+    ],
+    listeners: [
+      {
+        id: 'sect.wuxiang.foundation.low-hp-reduction',
+        eventType: GameplayTags.EVENT.DAMAGE_REQUEST,
+        scope: GameplayTags.SCOPE.OWNER_AS_TARGET,
+        priority: EventPriorityLevel.DAMAGE_REQUEST + 1,
+        mapping: { caster: 'owner', target: 'owner' },
+        guard: { skipSecondaryDamageSource: true },
+        conditions: [
+          {
+            type: 'hp_below',
+            params: { scope: 'caster', value: 0.5 },
+          },
+          {
+            type: 'damage_source_is',
+            params: { damageSource: DamageSource.DIRECT },
+          },
+        ],
+        effects: [
+          {
+            type: 'percent_damage_modifier',
+            params: { mode: 'reduce', value: 0.1 },
+          },
+        ],
+      },
+    ],
+  });
 }
 
 interface LayeredAbilitySpec {
@@ -1145,6 +1194,7 @@ export function compileWuxiangBase(
 ): void {
   const empty = createWuxiangBuildSettings();
   const abilities = compileMirrorAbilities(empty, compilerApi);
+  builder.setAbility('wuxiang-runtime', compileFoundationPassive());
   for (const id of WUXIANG_TECHNIQUE_IDS) builder.setAbility(id, abilities[id]);
   builder.setAbility('turn-form', turnForm(WUXIANG_MIRROR_PATH_ID, empty));
   builder.setResource({

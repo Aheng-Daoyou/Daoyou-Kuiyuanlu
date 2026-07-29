@@ -15,6 +15,7 @@ export const YOUDU_BASE_DEFINITION: SectDefinitionWithoutPaths = {
     '幽都门人通晓三魂七魄，以术伤侵形、魂伤越防，并用蚀魂逐层削弱敌人的攻防、速度与治疗。其术起势缓慢，却最擅长让强敌在不知不觉间失去还手之力。',
   raceIds: ['human'],
   configVersion: 1,
+  foundationPassiveId: 'youdu-runtime',
   combatResource: {
     id: YOUDU_SOUL_FIRE,
     name: '魂火',
@@ -137,7 +138,8 @@ export const YOUDU_BASE_DEFINITION: SectDefinitionWithoutPaths = {
     {
       id: 'youdu-runtime', kind: 'passive', baseName: '心死神活',
       description: '常驻控制韧性，并在每场第一次受控后自行解脱。', role: 'defensive',
-      unlock: { type: 'method', methodId: 'dead-heart-living-spirit', level: 1 }, visibility: 'internal',
+      unlock: { type: 'always' }, sourceMethodId: 'dead-heart-living-spirit',
+      visibility: 'internal',
     },
   ],
   onboarding: {

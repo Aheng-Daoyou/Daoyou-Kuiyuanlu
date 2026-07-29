@@ -1,11 +1,11 @@
 import { NarrativePerformanceLoading } from '@app/components/feature/narrative/NarrativePerformanceLoading';
 import { NarrativePerformanceStage } from '@app/components/feature/narrative/NarrativePerformanceStage';
 import { InkButton } from '@app/components/ui';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   useCultivatorIdentity,
   usePlayerSession,
 } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
 import { getSectPresentation } from '@app/lib/sect/sectPresentation';
 import type { SectCatalogEntry } from '@shared/contracts/sect';
 import { productionSectRuntime } from '@shared/engine/sect/content';
@@ -18,6 +18,13 @@ import {
   finishSectJoinAttempt,
 } from './sectJoinAttempt';
 import { resolveSectOnboardingFinish } from './sectOnboardingFlow';
+
+interface OnboardingSectEntry extends SectCatalogEntry {
+  foundationPassive: {
+    name: string;
+    description: string;
+  };
+}
 
 export default function SectOnboardingPage() {
   const navigate = useNavigate();
@@ -34,21 +41,29 @@ export default function SectOnboardingPage() {
       .listDefinitions()
       .filter(
         (definition) =>
-          productionSectRuntime.registry
-            .require(definition.id)
-            .checkAdmission({
-              playerRace: cultivator.playerRace ?? 'human',
-              realm: cultivator.realm,
-              stage: cultivator.realm_stage,
-            }).allowed,
+          productionSectRuntime.registry.require(definition.id).checkAdmission({
+            playerRace: cultivator.playerRace ?? 'human',
+            realm: cultivator.realm,
+            stage: cultivator.realm_stage,
+          }).allowed,
       )
-      .map(
-        ({ id, name, description }): SectCatalogEntry => ({
-          id,
-          name,
-          description,
-        }),
-      );
+      .map((definition): OnboardingSectEntry => {
+        const foundationPassive = definition.abilities.find(
+          (ability) => ability.id === definition.foundationPassiveId,
+        );
+        if (!foundationPassive) {
+          throw new Error(`宗门 ${definition.id} 缺少根基被动定义`);
+        }
+        return {
+          id: definition.id,
+          name: definition.name,
+          description: definition.description,
+          foundationPassive: {
+            name: foundationPassive.baseName,
+            description: foundationPassive.description,
+          },
+        };
+      });
   }, [profile.data?.cultivator]);
   const [busy, setBusy] = useState(false);
   const [joinError, setJoinError] = useState<{
@@ -125,6 +140,17 @@ export default function SectOnboardingPage() {
                         <li key={trait}>· {trait}</li>
                       ))}
                     </ul>
+                    <div className="mt-4 border-l border-[#d4c19b]/50 pl-4">
+                      <p className="text-xs tracking-[0.2em] text-[#d4c19b]">
+                        宗门根基
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[#f2d69c]">
+                        {sect.foundationPassive.name}
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-[#ded2ba]">
+                        {sect.foundationPassive.description}
+                      </p>
+                    </div>
                     <InkButton
                       onClick={() =>
                         navigate(

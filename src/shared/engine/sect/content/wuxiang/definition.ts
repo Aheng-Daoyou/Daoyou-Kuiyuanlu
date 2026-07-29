@@ -17,6 +17,7 @@ export const WUXIANG_BASE_DEFINITION: SectDefinitionWithoutPaths = {
     '此宗不避魔心，不弃色身。门人以皮囊为道场，以气血燃业火；佛法用来照见诸苦，魔功用来横渡诸苦。',
   raceIds: ['human'],
   configVersion: 2,
+  foundationPassiveId: 'wuxiang-runtime',
   combatResource: {
     id: WUXIANG_WAR_INTENT,
     name: '心念',
@@ -161,6 +162,16 @@ export const WUXIANG_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       role: 'finisher',
       unlock: { type: 'method', methodId: 'wuxiang-canon', level: 5 },
       cooldown: 0,
+    },
+    {
+      id: 'wuxiang-runtime',
+      kind: 'passive',
+      baseName: '不坏色身',
+      description:
+        '色身即是道场：最大气血提高，身陷危境时更能承受迎面而来的伤害。',
+      role: 'defensive',
+      unlock: { type: 'always' },
+      visibility: 'internal',
     },
     {
       id: 'mirror-core',
