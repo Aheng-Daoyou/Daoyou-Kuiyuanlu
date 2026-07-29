@@ -13,6 +13,7 @@ import {
 } from '@app/components/game-shell';
 import { InkButton, InkDialog, InkNotice } from '@app/components/ui';
 import { useSectMembership } from '@app/lib/resources/player';
+import { SELF_CREATED_SKILL_FREEZE_MESSAGE } from '@shared/config/selfCreatedSkillFreeze';
 
 import { useSkillsViewModel } from '../hooks/useSkillsViewModel';
 
@@ -89,11 +90,7 @@ export function SkillsView() {
           pendingTypes={pendingCreations.pendingTypes}
           loading={pendingCreations.isLoading}
         />
-        {sectSkillLocked && (
-          <InkNotice>
-            已拜入宗门：造物神通仍可收藏、推演与交易，但战斗神通栏仅可装配宗门神通。
-          </InkNotice>
-        )}
+        <InkNotice tone="info">{SELF_CREATED_SKILL_FREEZE_MESSAGE}</InkNotice>
         {!cultivator ? (
           <InkNotice>还未觉醒道身，何谈神通？先去首页觉醒吧。</InkNotice>
         ) : skills.length === 0 ? (

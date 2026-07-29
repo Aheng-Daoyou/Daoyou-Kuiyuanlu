@@ -27,6 +27,7 @@ import {
   useQiActionConfirm,
 } from '@app/components/feature/cultivator/useQiActionConfirm';
 import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
+import { SELF_CREATED_SKILL_FREEZE_MESSAGE } from '@shared/config/selfCreatedSkillFreeze';
 import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
 import { getAllowedMaterialTypesForCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
 import {
@@ -371,6 +372,8 @@ export default function SkillCreationPage() {
         </>
       }
     >
+      <InkNotice tone="info">{SELF_CREATED_SKILL_FREEZE_MESSAGE}</InkNotice>
+
       <GameSceneSection title="目标策略">
         <p className="text-ink-secondary mb-3 text-xs">
           指定神通的施法目标倾向。

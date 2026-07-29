@@ -1,7 +1,7 @@
 import type { DbTransaction } from '@server/lib/drizzle/db';
 import * as creationProductRepository from '@server/lib/repositories/creationProductRepository';
-import { loadCultivatorSectState } from '@server/lib/repositories/sectRepository';
 import { MAX_EQUIPPED_GONGFA } from '@shared/config/creationProductLimits';
+import { SELF_CREATED_SKILL_EQUIP_FROZEN_ERROR } from '@shared/config/selfCreatedSkillFreeze';
 import { DEFAULT_MAX_ACTIVE_SKILLS } from '@shared/config/skillLimits';
 import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
 import type { CreationProductType } from '@shared/engine/creation-v2/types';
@@ -182,14 +182,11 @@ export async function toggleCreationProduct(args: {
         });
       }
       if (!product.isEquipped && productType === 'skill') {
-        const sect = await loadCultivatorSectState(args.cultivatorId, tx);
-        if (sect?.status === 'active') {
-          throw new CreationProductCommandError(
-            '宗门弟子只能上阵宗门神通',
-            409,
-            'SECT_SKILL_ONLY_LOADOUT',
-          );
-        }
+        throw new CreationProductCommandError(
+          SELF_CREATED_SKILL_EQUIP_FROZEN_ERROR,
+          409,
+          'SELF_CREATED_SKILL_EQUIP_FROZEN',
+        );
       }
       if (!product.isEquipped) {
         const maxEquipped =

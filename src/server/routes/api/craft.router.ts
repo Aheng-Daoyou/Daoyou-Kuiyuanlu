@@ -35,6 +35,7 @@ import {
   CREATION_CRAFT_TYPES,
   isCreationCraftType,
 } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
+import { SELF_CREATED_SKILL_CREATION_FROZEN_ERROR } from '@shared/config/selfCreatedSkillFreeze';
 import {
   EQUIPMENT_SLOT_VALUES,
   type Quality,
@@ -277,6 +278,15 @@ router.post('/', requireActiveCultivatorRef(), async (c) => {
         400,
       );
     }
+    if (parsed.data.craftType === 'create_skill') {
+      return c.json(
+        {
+          error: SELF_CREATED_SKILL_CREATION_FROZEN_ERROR,
+          code: 'SELF_CREATED_SKILL_CREATION_FROZEN',
+        },
+        409,
+      );
+    }
 
     const committed = await executeCraftCommand({
       userId: user.id,
@@ -343,6 +353,15 @@ confirmRouter.post('/', requireActiveCultivatorRef(), async (c) => {
     const { craftType, replaceId, abandon } = ConfirmSchema.parse(
       await c.req.json(),
     );
+    if (craftType === 'create_skill' && !abandon) {
+      return c.json(
+        {
+          error: SELF_CREATED_SKILL_CREATION_FROZEN_ERROR,
+          code: 'SELF_CREATED_SKILL_CREATION_FROZEN',
+        },
+        409,
+      );
+    }
     const result = await executeCreationConfirmationCommand({
       userId: user.id,
       cultivatorId: cultivator.cultivatorId,
