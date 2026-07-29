@@ -25,6 +25,8 @@ const hotspot = (
 
 export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
   sectId: WUXIANG_SECT_ID,
+  announcement:
+    '晨钟后将开一场无相问心会，愿照见本念者可赴旧铜镜前静坐，不拘佛魔二途。',
   onboarding: {
     summary: '把色身视作道场，在佛相、魔相与无相之间照见苦、承受苦、横渡苦。',
     traits: ['佛魔同修', '以身渡厄', '临危转念'],

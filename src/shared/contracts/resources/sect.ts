@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type {
   SectConstructionBoardData,
   SectConstructionMemberData,
+  SectContributionRankingData,
   SectContextData,
   SectInfrastructureData,
   SectMembersData,
@@ -15,6 +16,7 @@ import type {
 export const SECT_RESOURCE_TOPICS = [
   'sect.membership',
   'sect.members',
+  'sect.contribution-ranking',
   'sect.infrastructure',
   'sect.progression',
   'sect.tasks',
@@ -28,6 +30,7 @@ export type SectResourceTopic = (typeof SECT_RESOURCE_TOPICS)[number];
 export interface SectResourceDataMap {
   'sect.membership': SectContextData;
   'sect.members': SectMembersData;
+  'sect.contribution-ranking': SectContributionRankingData;
   'sect.infrastructure': SectInfrastructureData;
   'sect.progression': SectProgressionData;
   'sect.tasks': SectTasksData;
@@ -160,12 +163,48 @@ export const SECT_RESOURCE_DATA_SCHEMAS = {
             discipleRank: z.enum(['registered', 'outer', 'inner', 'true']),
             office: z.enum(['none', 'steward', 'protector', 'elder']),
             joinedAt: z.string().optional(),
+            activityState: z.enum([
+              'online',
+              'active_today',
+              'active_7d',
+              'inactive',
+            ]),
           })
           .strict(),
       ),
       page: z.number().int().positive(),
       pageSize: z.number().int().positive(),
       total: z.number().int().nonnegative(),
+    })
+    .strict(),
+  'sect.contribution-ranking': z
+    .object({
+      metric: z.literal('current_balance'),
+      generatedAt: z.string(),
+      entries: z
+        .array(
+          z
+            .object({
+              rank: z.number().int().positive(),
+              cultivatorId: z.string().uuid(),
+              name: z.string(),
+              discipleRank: z.enum(['registered', 'outer', 'inner', 'true']),
+              office: z.enum(['none', 'steward', 'protector', 'elder']),
+              contribution: z.number().int().nonnegative(),
+            })
+            .strict(),
+        )
+        .max(20),
+      currentMember: z
+        .object({
+          rank: z.number().int().positive(),
+          cultivatorId: z.string().uuid(),
+          name: z.string(),
+          discipleRank: z.enum(['registered', 'outer', 'inner', 'true']),
+          office: z.enum(['none', 'steward', 'protector', 'elder']),
+          contribution: z.number().int().nonnegative(),
+        })
+        .strict(),
     })
     .strict(),
   'sect.infrastructure': z

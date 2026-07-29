@@ -3,6 +3,8 @@ import { LINGXIAO_SECT_ID } from './ids';
 
 export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
   sectId: LINGXIAO_SECT_ID,
+  announcement:
+    '近日山下商路多有邪修出没，外出历练者须结伴而行；归宗后记得向执事堂补录见闻。',
   onboarding: {
     summary:
       '从红尘中学剑，以平生所见养成剑意，在照影游尘与守拙藏锋之间走出自己的剑路。',

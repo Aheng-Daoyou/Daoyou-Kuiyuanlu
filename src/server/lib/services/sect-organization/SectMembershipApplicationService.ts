@@ -27,6 +27,38 @@ import type {
   SectMembershipQueryContext,
   SectMembershipRecord,
 } from './ports';
+import { getOnlineCultivatorIds } from '@server/lib/services/onlinePresenceService';
+
+const SHANGHAI_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function shanghaiDayNumber(date: Date): number {
+  const parts = Object.fromEntries(
+    SHANGHAI_DATE_FORMATTER.formatToParts(date)
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, Number(part.value)]),
+  );
+  return Math.floor(
+    Date.UTC(parts.year, parts.month - 1, parts.day) / (24 * 60 * 60 * 1000),
+  );
+}
+
+function resolveActivityState(
+  lastActiveAt: Date | null | undefined,
+  online: boolean,
+  now: Date,
+): SectMemberData['activityState'] {
+  if (online) return 'online';
+  if (!lastActiveAt) return 'inactive';
+  const elapsedDays = shanghaiDayNumber(now) - shanghaiDayNumber(lastActiveAt);
+  if (elapsedDays <= 0) return 'active_today';
+  if (elapsedDays <= 6) return 'active_7d';
+  return 'inactive';
+}
 
 export class SectMembershipApplicationService {
   constructor(
@@ -233,10 +265,24 @@ export class SectMembershipApplicationService {
       page,
       pageSize,
     );
+    const onlineIds = await getOnlineCultivatorIds(
+      result.rows.map((row) => row.cultivatorId),
+    );
+    const now = new Date();
     return {
       items: result.rows.map((row): SectMemberData => ({
-        ...row,
+        cultivatorId: row.cultivatorId,
+        name: row.name,
+        realm: row.realm,
+        realmStage: row.realmStage,
+        discipleRank: row.discipleRank,
+        office: row.office,
         joinedAt: row.joinedAt?.toISOString(),
+        activityState: resolveActivityState(
+          row.lastActiveAt,
+          onlineIds.has(row.cultivatorId),
+          now,
+        ),
       })),
       page,
       pageSize,

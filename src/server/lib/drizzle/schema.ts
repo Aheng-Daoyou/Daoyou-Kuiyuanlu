@@ -76,6 +76,7 @@ export const cultivators = pgTable(
     qi: integer('qi').notNull().default(200), // 天地灵气
     qiLastRefreshedAt: timestamp('qi_last_refreshed_at').notNull().defaultNow(),
     last_yield_at: timestamp('last_yield_at').defaultNow(),
+    lastActiveAt: timestamp('last_active_at'),
     balance_notes: text('balance_notes'),
 
     // 角色当前状态（用于存储战斗/副本中产生的持久状态）

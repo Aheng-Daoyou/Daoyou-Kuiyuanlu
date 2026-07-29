@@ -48,6 +48,10 @@ export const sectConstructionMemberResource = endpointResource(
   'sect.construction-member',
   '/api/sects/current/construction-member',
 );
+export const sectContributionRankingResource = endpointResource(
+  'sect.contribution-ranking',
+  '/api/sects/current/contribution-ranking',
+);
 
 export interface SectMembersParams {
   page: number;

@@ -1,6 +1,9 @@
 import { redis } from '@server/lib/redis';
+import { db } from '@server/lib/drizzle/db';
+import { cultivators } from '@server/lib/drizzle/schema';
 import { getPubSubInstanceId } from '@server/lib/services/pubSubEnvelope';
 import type { AdminOnlineUsersSnapshot } from '@shared/contracts/adminOnlineUsers';
+import { eq } from 'drizzle-orm';
 
 const ONLINE_CULTIVATORS_KEY = 'admin:online:cultivators:v1';
 const ONLINE_CONNECTIONS_KEY = 'admin:online:connections:v1';
@@ -8,6 +11,7 @@ const ALL_TIME_PEAK_KEY = 'admin:online:peak:all:v1';
 const DAY_PEAK_KEY_PREFIX = 'admin:online:peak:day:';
 const DAY_PEAK_TTL_SECONDS = 60 * 60 * 24 * 8;
 const ONLINE_CONNECTION_TTL_MS = 90_000;
+const LAST_ACTIVE_PERSIST_INTERVAL_MS = 5 * 60_000;
 
 const UPDATE_ONLINE_PRESENCE_SCRIPT = `
 local connectionsKey = KEYS[1]
@@ -56,6 +60,7 @@ return currentOnline
 
 const localConnectionCounts = new Map<string, number>();
 const memoryOnlineCultivators = new Set<string>();
+const lastActivePersistedAt = new Map<string, number>();
 let memoryToday = formatLocalDate(new Date());
 let memoryTodayPeakOnline = 0;
 let memoryAllTimePeakOnline = 0;
@@ -154,6 +159,26 @@ async function syncOnlineChangeToRedis(cultivatorId: string, online: boolean) {
   );
 }
 
+function persistLastActive(cultivatorId: string, force: boolean): void {
+  const now = Date.now();
+  const lastPersisted = lastActivePersistedAt.get(cultivatorId) ?? 0;
+  if (!force && now - lastPersisted < LAST_ACTIVE_PERSIST_INTERVAL_MS) {
+    return;
+  }
+  lastActivePersistedAt.set(cultivatorId, now);
+  void db
+    .update(cultivators)
+    .set({ lastActiveAt: new Date(now) })
+    .where(eq(cultivators.id, cultivatorId))
+    .catch((error) => {
+      lastActivePersistedAt.delete(cultivatorId);
+      console.warn('[online-presence] failed to persist last activity', {
+        cultivatorId,
+        error,
+      });
+    });
+}
+
 function setMemoryOnline(cultivatorId: string, online: boolean) {
   if (online) {
     memoryOnlineCultivators.add(cultivatorId);
@@ -164,6 +189,7 @@ function setMemoryOnline(cultivatorId: string, online: boolean) {
 }
 
 export function recordRealtimeConnectionOpen(cultivatorId: string): void {
+  persistLastActive(cultivatorId, true);
   const next = (localConnectionCounts.get(cultivatorId) ?? 0) + 1;
   localConnectionCounts.set(cultivatorId, next);
   if (next !== 1) {
@@ -184,6 +210,7 @@ export function recordRealtimeConnectionHeartbeat(cultivatorId: string): void {
     return;
   }
 
+  persistLastActive(cultivatorId, false);
   void syncOnlineChangeToRedis(cultivatorId, true).catch((error) => {
     console.warn('[online-presence] failed to refresh online cultivator', {
       cultivatorId,
@@ -193,6 +220,7 @@ export function recordRealtimeConnectionHeartbeat(cultivatorId: string): void {
 }
 
 export function recordRealtimeConnectionClose(cultivatorId: string): void {
+  persistLastActive(cultivatorId, true);
   const current = localConnectionCounts.get(cultivatorId) ?? 0;
   if (current <= 1) {
     localConnectionCounts.delete(cultivatorId);
@@ -246,9 +274,37 @@ export async function getOnlineUsersSnapshot(): Promise<AdminOnlineUsersSnapshot
   }
 }
 
+export async function getOnlineCultivatorIds(
+  cultivatorIds: readonly string[],
+): Promise<Set<string>> {
+  if (cultivatorIds.length === 0) {
+    return new Set();
+  }
+  const requested = new Set(cultivatorIds);
+  try {
+    await redis.zremrangebyscore(ONLINE_CONNECTIONS_KEY, '-inf', Date.now());
+    const connections = await redis.zrange(ONLINE_CONNECTIONS_KEY, 0, -1);
+    return new Set(
+      connections
+        .map(parseCultivatorIdFromConnectionMember)
+        .filter((cultivatorId) => requested.has(cultivatorId)),
+    );
+  } catch (error) {
+    console.warn('[online-presence] falling back to memory online ids', {
+      error,
+    });
+    return new Set(
+      cultivatorIds.filter((cultivatorId) =>
+        memoryOnlineCultivators.has(cultivatorId),
+      ),
+    );
+  }
+}
+
 export function __resetOnlinePresenceForTests(): void {
   localConnectionCounts.clear();
   memoryOnlineCultivators.clear();
+  lastActivePersistedAt.clear();
   memoryToday = formatLocalDate(new Date());
   memoryTodayPeakOnline = 0;
   memoryAllTimePeakOnline = 0;

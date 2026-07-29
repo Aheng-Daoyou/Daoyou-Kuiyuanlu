@@ -975,6 +975,7 @@ export async function listSectMembers(
         discipleRank: sectMemberships.discipleRank,
         office: sectMemberships.office,
         joinedAt: sectMemberships.joinedAt,
+        lastActiveAt: cultivators.lastActiveAt,
       })
       .from(sectMemberships)
       .innerJoin(cultivators, eq(cultivators.id, sectMemberships.cultivatorId))
@@ -991,6 +992,34 @@ export async function listSectMembers(
     })),
     total: Number(totalRow[0]?.value ?? 0),
   };
+}
+
+export async function listSectContributionRanking(
+  sectId: string,
+  q: DbExecutor | DbTransaction,
+) {
+  return q
+    .select({
+      cultivatorId: cultivators.id,
+      name: cultivators.name,
+      discipleRank: sectMemberships.discipleRank,
+      office: sectMemberships.office,
+      contribution: sectMemberships.contribution,
+      joinedAt: sectMemberships.joinedAt,
+    })
+    .from(sectMemberships)
+    .innerJoin(cultivators, eq(cultivators.id, sectMemberships.cultivatorId))
+    .where(
+      and(
+        eq(sectMemberships.sectId, sectId),
+        eq(sectMemberships.status, 'active'),
+      ),
+    )
+    .orderBy(
+      desc(sectMemberships.contribution),
+      asc(sectMemberships.joinedAt),
+      asc(cultivators.id),
+    );
 }
 
 export async function findSectMirrorCultivatorId(

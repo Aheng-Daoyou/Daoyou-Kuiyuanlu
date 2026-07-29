@@ -25,6 +25,8 @@ const hotspot = (
 
 export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
   sectId: TIANYAN_SECT_ID,
+  announcement:
+    '五峰水脉本旬将依新阵图调度，诸弟子行经中宫时请勿挪动地刻与测算标记。',
   onboarding: {
     summary: '以无色太初灵气推演五行，让前一法留下的余势决定后一法的变化。',
     traits: ['五行推演', '法印衔术', '四法择局'],

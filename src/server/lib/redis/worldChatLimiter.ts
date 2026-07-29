@@ -8,6 +8,10 @@ function getCooldownKey(cultivatorId: string): string {
   return `world_chat:cooldown:${cultivatorId}`;
 }
 
+function getSectCooldownKey(cultivatorId: string): string {
+  return `sect_chat:limiter:${cultivatorId}`;
+}
+
 export function getWorldChatCooldownSeconds(realm: RealmType | string): number {
   const highestRealmOrder = Math.max(...Object.values(REALM_ORDER));
   const currentRealmOrder =
@@ -21,15 +25,14 @@ export function getWorldChatCooldownSeconds(realm: RealmType | string): number {
   );
 }
 
-export async function checkAndAcquireCooldown(
-  cultivatorId: string,
+async function checkAndAcquireCooldownForKey(
+  key: string,
   realm: RealmType | string,
 ): Promise<{
   allowed: boolean;
   remainingSeconds: number;
 }> {
   const cooldownSeconds = getWorldChatCooldownSeconds(realm);
-  const key = getCooldownKey(cultivatorId);
   const result = await redis.set(key, '1', 'EX', cooldownSeconds, 'NX');
 
   if (result === 'OK') {
@@ -47,4 +50,21 @@ export async function checkAndAcquireCooldown(
     allowed: false,
     remainingSeconds,
   };
+}
+
+export function checkAndAcquireCooldown(
+  cultivatorId: string,
+  realm: RealmType | string,
+): Promise<{ allowed: boolean; remainingSeconds: number }> {
+  return checkAndAcquireCooldownForKey(getCooldownKey(cultivatorId), realm);
+}
+
+export function checkAndAcquireSectChatCooldown(
+  cultivatorId: string,
+  realm: RealmType | string,
+): Promise<{ allowed: boolean; remainingSeconds: number }> {
+  return checkAndAcquireCooldownForKey(
+    getSectCooldownKey(cultivatorId),
+    realm,
+  );
 }

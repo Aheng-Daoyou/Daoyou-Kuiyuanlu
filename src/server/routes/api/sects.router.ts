@@ -70,6 +70,7 @@ import type { RealmStage, RealmType } from '@shared/types/constants';
 import { eq } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { createHash } from 'node:crypto';
+import sectSocialRouter from './sect-social.router';
 
 function canonicalize(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
@@ -744,6 +745,8 @@ export function createSectsRouter(
       );
     },
   );
+
+  router.route('/current', sectSocialRouter);
 
   return router;
 }

@@ -14,7 +14,7 @@ const WORLD_CHAT_MAX_MESSAGES = 100;
 
 type StoredWorldChatMessage = {
   id: string;
-  channel?: WorldChatMessageChannel;
+  channel?: Exclude<WorldChatMessageChannel, 'sect'>;
   senderUserId: string;
   senderCultivatorId: string | null;
   senderName: string;
@@ -55,6 +55,7 @@ function parseStoredMessage(raw: unknown): WorldChatMessageDTO | null {
       return {
         ...parsed,
         channel: resolveStoredChannel(parsed),
+        sectId: null,
       } as WorldChatMessageDTO;
     }
     return null;
@@ -67,6 +68,7 @@ function parseStoredMessage(raw: unknown): WorldChatMessageDTO | null {
       return {
         ...parsed,
         channel: resolveStoredChannel(parsed),
+        sectId: null,
       };
     } catch {
       return null;
@@ -86,7 +88,7 @@ export async function createMessage(data: {
   senderName: string;
   senderRealm: string;
   senderRealmStage: string;
-  channel?: WorldChatMessageChannel;
+  channel?: Exclude<WorldChatMessageChannel, 'sect'>;
   messageType: WorldChatMessageType;
   textContent?: string;
   payload: WorldChatPayload;
@@ -94,6 +96,7 @@ export async function createMessage(data: {
   const message: WorldChatMessageDTO = {
     id: randomUUID(),
     channel: data.channel ?? 'world',
+    sectId: null,
     senderUserId: data.senderUserId,
     senderCultivatorId: data.senderCultivatorId,
     senderName: data.senderName,
@@ -114,7 +117,7 @@ export async function createMessage(data: {
 }
 
 export async function listMessages(options: {
-  channel: WorldChatChannel;
+  channel: Exclude<WorldChatChannel, 'sect'>;
   page: number;
   pageSize: number;
 }): Promise<{
@@ -132,7 +135,7 @@ export async function listMessages(options: {
     .map((raw) => parseStoredMessage(raw))
     .filter((item): item is WorldChatMessageDTO => Boolean(item))
     .filter(
-      (item) => options.channel === 'all' || item.channel === options.channel,
+      (item) => item.channel === options.channel,
     );
   const pageRows = parsedRows.slice(start, end);
   const hasMore = pageRows.length > options.pageSize;
@@ -146,7 +149,7 @@ export async function listMessages(options: {
 
 export async function listLatestMessages(
   limit: number,
-  channel: WorldChatChannel = 'all',
+  channel: Exclude<WorldChatChannel, 'sect'> = 'world',
 ): Promise<WorldChatMessageDTO[]> {
   const rows = await redis.lrange(
     WORLD_CHAT_LIST_KEY,
@@ -156,6 +159,6 @@ export async function listLatestMessages(
   return (rows || [])
     .map((raw) => parseStoredMessage(raw))
     .filter((item): item is WorldChatMessageDTO => Boolean(item))
-    .filter((item) => channel === 'all' || item.channel === channel)
+    .filter((item) => item.channel === channel)
     .slice(0, limit);
 }

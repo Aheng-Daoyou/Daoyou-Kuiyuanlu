@@ -58,6 +58,7 @@ export const RESOURCE_TOPIC_SCOPE_KIND = {
   'player.tasks': 'cultivator',
   'sect.membership': 'cultivator',
   'sect.members': 'sect',
+  'sect.contribution-ranking': 'sect',
   'sect.infrastructure': 'sect',
   'sect.progression': 'cultivator',
   'sect.tasks': 'cultivator',

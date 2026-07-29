@@ -82,6 +82,44 @@ export const SectMembersQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });
 
+export const SectMemberActivityStateSchema = z.enum([
+  'online',
+  'active_today',
+  'active_7d',
+  'inactive',
+]);
+
+export type SectMemberActivityState = z.infer<
+  typeof SectMemberActivityStateSchema
+>;
+
+export const SectContributionRankingEntrySchema = z
+  .object({
+    rank: z.number().int().positive(),
+    cultivatorId: z.string().uuid(),
+    name: z.string(),
+    discipleRank: z.enum(['registered', 'outer', 'inner', 'true']),
+    office: z.enum(['none', 'steward', 'protector', 'elder']),
+    contribution: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const SectContributionRankingDataSchema = z
+  .object({
+    metric: z.literal('current_balance'),
+    generatedAt: z.string(),
+    entries: z.array(SectContributionRankingEntrySchema).max(20),
+    currentMember: SectContributionRankingEntrySchema,
+  })
+  .strict();
+
+export type SectContributionRankingEntry = z.infer<
+  typeof SectContributionRankingEntrySchema
+>;
+export type SectContributionRankingData = z.infer<
+  typeof SectContributionRankingDataSchema
+>;
+
 /** Opaque identifier supplied by the active sect's task catalog. */
 export type SectTaskId = string;
 
@@ -336,6 +374,7 @@ export interface SectMemberData {
   discipleRank: SectDiscipleRank;
   office: CultivatorSectState['office'];
   joinedAt?: string;
+  activityState: SectMemberActivityState;
 }
 
 export interface SectMembersData {

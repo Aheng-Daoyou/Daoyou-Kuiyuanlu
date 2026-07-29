@@ -1,6 +1,7 @@
 import {
   sectConstructionBoardResource,
   sectConstructionMemberResource,
+  sectContributionRankingResource,
   sectContextResource,
   sectInfrastructureResource,
   sectMembersResource,
@@ -96,6 +97,10 @@ export function useSectConstructionBoardQuery() {
 
 export function useSectConstructionMemberQuery() {
   return useSingletonResource(sectConstructionMemberResource);
+}
+
+export function useSectContributionRankingQuery(enabled = true) {
+  return useSingletonResource(sectContributionRankingResource, enabled);
 }
 
 export function useSectMembersQuery(params: SectMembersParams, enabled = true) {

@@ -263,6 +263,7 @@ describe('sect presentation affairs room', () => {
 
     const duplicateIds: SectPresentationTheme = {
       sectId: 'sample-sect',
+      announcement: '测试公告',
       rooms: {
         affairs: {
           actors: {

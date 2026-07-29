@@ -1,5 +1,6 @@
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { realtimeClient } from '@app/lib/realtime/realtimeClient';
+import { usePlayerSession } from '@app/lib/resources/player';
 import type {
   WorldChatChannel,
   WorldChatMessageDTO,
@@ -7,6 +8,7 @@ import type {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -24,229 +26,333 @@ import {
   PAGE_SIZE,
 } from './worldChatFeedHelpers';
 
+type ChannelFeed = {
+  messages: WorldChatMessageDTO[];
+  page: number;
+  hasMore: boolean;
+  loading: boolean;
+  loadingMore: boolean;
+};
+
+const CHANNELS: WorldChatChannel[] = ['world', 'sect', 'system'];
+
+function createEmptyFeed(): ChannelFeed {
+  return {
+    messages: [],
+    page: 1,
+    hasMore: false,
+    loading: true,
+    loadingMore: false,
+  };
+}
+
+function createFeeds(): Record<WorldChatChannel, ChannelFeed> {
+  return {
+    world: createEmptyFeed(),
+    sect: { ...createEmptyFeed(), loading: false },
+    system: createEmptyFeed(),
+  };
+}
+
 export function WorldChatFeedProvider({ children }: { children: ReactNode }) {
   const { pushToast } = useInkUI();
   const location = useLocation();
+  const session = usePlayerSession();
+  const sectId = session.data?.activeCultivator?.sectId ?? null;
+  const hasSect = Boolean(sectId);
   const isWorldChatRoute = location.pathname === '/game/world-chat';
-  const [activeChannel, setActiveChannel] = useState<WorldChatChannel>('all');
-  const [allMessages, setAllMessages] = useState<WorldChatMessageDTO[]>([]);
-  const [messages, setMessages] = useState<WorldChatMessageDTO[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [page, setPage] = useState(1);
+  const [activeChannel, setActiveChannel] =
+    useState<WorldChatChannel>('world');
+  const [feeds, setFeeds] = useState(createFeeds);
   const [posting, setPosting] = useState(false);
-  const [lastSeenMessageId, setLastSeenMessageId] = useState<string | null>(
-    null,
-  );
+  const [lastSeenIds, setLastSeenIds] = useState<
+    Record<WorldChatChannel, string | null>
+  >({ world: null, sect: null, system: null });
+  const initializedRef = useRef<Record<WorldChatChannel, boolean>>({
+    world: false,
+    sect: false,
+    system: false,
+  });
+  const previousSectIdRef = useRef<string | null | undefined>(undefined);
+  const currentSectIdRef = useRef(sectId);
   const reconnectRefreshPendingRef = useRef(false);
 
-  const latestMessage = allMessages[0] ?? null;
-  const newMessageCount = isWorldChatRoute
-    ? 0
-    : countNewWorldChatMessages(allMessages, lastSeenMessageId);
+  useLayoutEffect(() => {
+    currentSectIdRef.current = sectId;
+  }, [sectId]);
 
   const fetchPage = useCallback(
     async (channel: WorldChatChannel, targetPage: number, append: boolean) => {
+      const requestedSectId = sectId;
+      if (channel === 'sect' && !sectId) {
+        setFeeds((current) => ({
+          ...current,
+          sect: { ...createEmptyFeed(), loading: false },
+        }));
+        return;
+      }
+      setFeeds((current) => ({
+        ...current,
+        [channel]: {
+          ...current[channel],
+          loading: append ? current[channel].loading : true,
+          loadingMore: append,
+        },
+      }));
       try {
-        if (append) {
-          setLoadingMore(true);
-        } else {
-          setLoading(true);
+        const endpoint =
+          channel === 'sect'
+            ? `/api/sects/current/chat/messages?page=${targetPage}&pageSize=${PAGE_SIZE}`
+            : `/api/world-chat/messages?channel=${channel}&page=${targetPage}&pageSize=${PAGE_SIZE}`;
+        const response = await fetch(endpoint, { cache: 'no-store' });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || '获取传音失败');
         }
-
-        const res = await fetch(
-          `/api/world-chat/messages?channel=${channel}&page=${targetPage}&pageSize=${PAGE_SIZE}`,
-          { cache: 'no-store' },
-        );
-        const data = await res.json();
-
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || '获取世界传音失败');
+        if (
+          channel === 'sect' &&
+          currentSectIdRef.current !== requestedSectId
+        ) {
+          return;
         }
-
-        const nextMessages = (data.data || []) as WorldChatMessageDTO[];
-        setMessages((prev) =>
-          append ? [...prev, ...nextMessages] : nextMessages,
-        );
-        if (channel === 'all') {
-          setAllMessages((prev) =>
-            append ? mergeWorldChatMessages(prev, nextMessages) : nextMessages,
-          );
+        const nextMessages = (payload.data || []) as WorldChatMessageDTO[];
+        const wasInitialized = initializedRef.current[channel];
+        initializedRef.current[channel] = true;
+        setFeeds((current) => ({
+          ...current,
+          [channel]: {
+            messages: append
+              ? mergeWorldChatMessages(
+                  current[channel].messages,
+                  nextMessages,
+                )
+              : nextMessages,
+            page: targetPage,
+            hasMore: Boolean(payload.pagination?.hasMore),
+            loading: false,
+            loadingMore: false,
+          },
+        }));
+        if (!wasInitialized && nextMessages[0]) {
+          setLastSeenIds((current) => ({
+            ...current,
+            [channel]: nextMessages[0].id,
+          }));
         }
-        setHasMore(Boolean(data.pagination?.hasMore));
-        setPage(targetPage);
       } catch (error) {
+        if (
+          channel === 'sect' &&
+          currentSectIdRef.current !== requestedSectId
+        ) {
+          return;
+        }
+        setFeeds((current) => ({
+          ...current,
+          [channel]: {
+            ...current[channel],
+            loading: false,
+            loadingMore: false,
+          },
+        }));
         pushToast({
-          message: error instanceof Error ? error.message : '获取世界传音失败',
+          message: error instanceof Error ? error.message : '获取传音失败',
           tone: 'danger',
         });
-      } finally {
-        if (append) {
-          setLoadingMore(false);
-        } else {
-          setLoading(false);
-        }
       }
     },
-    [pushToast],
+    [pushToast, sectId],
   );
 
   useEffect(() => {
-    let cancelled = false;
-
-    const loadInitialPage = async () => {
-      try {
-        setLoading(true);
-        const res = await fetch(
-          `/api/world-chat/messages?channel=${activeChannel}&page=1&pageSize=${PAGE_SIZE}`,
-          { cache: 'no-store' },
-        );
-        const data = await res.json();
-
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || '获取世界传音失败');
-        }
-
-        if (cancelled) return;
-
-        const nextMessages = (data.data || []) as WorldChatMessageDTO[];
-        setMessages(nextMessages);
-        if (activeChannel === 'all') {
-          setAllMessages(nextMessages);
-        }
-        setHasMore(Boolean(data.pagination?.hasMore));
-        setPage(1);
-      } catch (error) {
-        if (cancelled) return;
-        pushToast({
-          message: error instanceof Error ? error.message : '获取世界传音失败',
-          tone: 'danger',
-        });
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void loadInitialPage();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeChannel, pushToast]);
+    if (!initializedRef.current.world) {
+      void fetchPage('world', 1, false);
+    }
+    if (!initializedRef.current.system) {
+      void fetchPage('system', 1, false);
+    }
+    if (sectId && !initializedRef.current.sect) {
+      void fetchPage('sect', 1, false);
+    }
+  }, [fetchPage, sectId]);
 
   useEffect(() => {
-    if (lastSeenMessageId || !latestMessage) {
+    const previousSectId = previousSectIdRef.current;
+    previousSectIdRef.current = sectId;
+    if (previousSectId === undefined || previousSectId === sectId) {
       return;
     }
-
+    initializedRef.current.sect = false;
     let cancelled = false;
     queueMicrotask(() => {
-      if (!cancelled) {
-        setLastSeenMessageId(latestMessage.id);
+      if (cancelled) return;
+      setFeeds((current) => ({ ...current, sect: createEmptyFeed() }));
+      setLastSeenIds((current) => ({ ...current, sect: null }));
+      if (!sectId && activeChannel === 'sect') {
+        setActiveChannel('world');
+      }
+      if (sectId && previousSectId !== null) {
+        void fetchPage('sect', 1, false);
       }
     });
-
     return () => {
       cancelled = true;
     };
-  }, [lastSeenMessageId, latestMessage]);
-
-  useEffect(() => {
-    if (
-      !isWorldChatRoute ||
-      !latestMessage ||
-      lastSeenMessageId === latestMessage.id
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) {
-        setLastSeenMessageId(latestMessage.id);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isWorldChatRoute, lastSeenMessageId, latestMessage]);
+  }, [activeChannel, fetchPage, sectId]);
 
   useEffect(() => {
     realtimeClient.enableChannel('world-chat');
-    return () => {
-      realtimeClient.disableChannel('world-chat');
-    };
+    return () => realtimeClient.disableChannel('world-chat');
   }, []);
 
+  useEffect(
+    () =>
+      realtimeClient.subscribe('world-chat.message', (event) => {
+        const message = event.payload;
+        if (message.channel === 'sect' && message.sectId !== sectId) {
+          return;
+        }
+        setFeeds((current) => ({
+          ...current,
+          [message.channel]: {
+            ...current[message.channel],
+            messages: mergeWorldChatMessages(
+              current[message.channel].messages,
+              [message],
+            ),
+          },
+        }));
+        if (isWorldChatRoute && activeChannel === message.channel) {
+          setLastSeenIds((current) => ({
+            ...current,
+            [message.channel]: message.id,
+          }));
+        }
+      }),
+    [activeChannel, isWorldChatRoute, sectId],
+  );
+
   useEffect(() => {
-    return realtimeClient.subscribe('world-chat.message', (event) => {
-      const message = event.payload;
-      setAllMessages((prev) => mergeWorldChatMessages(prev, [message]));
-      if (activeChannel === 'all' || message.channel === activeChannel) {
-        setMessages((prev) => mergeWorldChatMessages(prev, [message]));
-      }
+    const latest = feeds[activeChannel].messages[0];
+    if (!isWorldChatRoute || !latest) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setLastSeenIds((current) =>
+        current[activeChannel] === latest.id
+          ? current
+          : { ...current, [activeChannel]: latest.id },
+      );
     });
-  }, [activeChannel]);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChannel, feeds, isWorldChatRoute]);
 
   useEffect(() => {
     let wasOnline = false;
-    const unsubscribe = realtimeClient.subscribeStatus((status) => {
+    return realtimeClient.subscribeStatus((status) => {
       const chat = status.channels['world-chat'];
-      if (!chat.enabled) {
-        return;
+      if (!chat.enabled || chat.state !== 'online') return;
+      if (wasOnline && !reconnectRefreshPendingRef.current) {
+        reconnectRefreshPendingRef.current = true;
+        const channels = CHANNELS.filter(
+          (channel) => channel !== 'sect' || sectId,
+        );
+        void Promise.all(
+          channels.map((channel) => fetchPage(channel, 1, false)),
+        ).finally(() => {
+          reconnectRefreshPendingRef.current = false;
+        });
       }
-      if (chat.state === 'online') {
-        if (wasOnline && !reconnectRefreshPendingRef.current) {
-          reconnectRefreshPendingRef.current = true;
-          void fetchPage(activeChannel, 1, false).finally(() => {
-            reconnectRefreshPendingRef.current = false;
-          });
-        }
-        wasOnline = true;
-      }
+      wasOnline = true;
     });
-    return () => {
-      unsubscribe();
-    };
-  }, [activeChannel, fetchPage]);
+  }, [fetchPage, sectId]);
+
+  const activeFeed = feeds[activeChannel];
+  const unreadCounts = useMemo(
+    () => ({
+      world: countNewWorldChatMessages(
+        feeds.world.messages,
+        lastSeenIds.world,
+      ),
+      sect: countNewWorldChatMessages(feeds.sect.messages, lastSeenIds.sect),
+      system: countNewWorldChatMessages(
+        feeds.system.messages,
+        lastSeenIds.system,
+      ),
+    }),
+    [feeds, lastSeenIds],
+  );
+  const latestMessage = useMemo(
+    () =>
+      CHANNELS.flatMap((channel) => feeds[channel].messages.slice(0, 1)).sort(
+        (left, right) =>
+          +new Date(right.createdAt) - +new Date(left.createdAt),
+      )[0] ?? null,
+    [feeds],
+  );
+  const newMessageCount = isWorldChatRoute
+    ? 0
+    : unreadCounts.world + unreadCounts.sect + unreadCounts.system;
 
   const loadMore = useCallback(async () => {
-    if (!hasMore || loadingMore) {
-      return;
-    }
+    if (!activeFeed.hasMore || activeFeed.loadingMore) return;
+    await fetchPage(activeChannel, activeFeed.page + 1, true);
+  }, [activeChannel, activeFeed, fetchPage]);
 
-    await fetchPage(activeChannel, page + 1, true);
-  }, [activeChannel, fetchPage, hasMore, loadingMore, page]);
-
-  const sendTextMessage = useCallback(
-    async (text: string) => {
+  const send = useCallback(
+    async (
+      body:
+        | {
+            messageType: 'text';
+            textContent: string;
+            payload: { text: string };
+          }
+        | {
+            messageType: 'item_showcase';
+            itemType: SendWorldChatShowcaseInput['itemType'];
+            itemId: string;
+            textContent?: string;
+          },
+    ) => {
+      if (activeChannel === 'system' || (activeChannel === 'sect' && !sectId)) {
+        return false;
+      }
+      setPosting(true);
       try {
-        setPosting(true);
-        const res = await fetch('/api/world-chat/messages', {
+        const endpoint =
+          activeChannel === 'sect'
+            ? '/api/sects/current/chat/messages'
+            : '/api/world-chat/messages';
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messageType: 'text',
-            textContent: text,
-            payload: { text },
-          }),
+          body: JSON.stringify(body),
         });
-        const data = await res.json();
-
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || '发送失败');
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || '发送失败');
         }
-
-        const created = data.data as WorldChatMessageDTO;
-        setAllMessages((prev) => mergeWorldChatMessages(prev, [created]));
-        if (activeChannel !== 'system') {
-          setMessages((prev) => mergeWorldChatMessages(prev, [created]));
-        }
-        pushToast({ message: '已发出传音', tone: 'success' });
+        const created = payload.data as WorldChatMessageDTO;
+        setFeeds((current) => ({
+          ...current,
+          [created.channel]: {
+            ...current[created.channel],
+            messages: mergeWorldChatMessages(
+              current[created.channel].messages,
+              [created],
+            ),
+          },
+        }));
+        setLastSeenIds((current) => ({
+          ...current,
+          [created.channel]: created.id,
+        }));
+        pushToast({
+          message:
+            body.messageType === 'item_showcase' ? '已展示道具' : '已发出传音',
+          tone: 'success',
+        });
         return true;
       } catch (error) {
         pushToast({
@@ -258,78 +364,49 @@ export function WorldChatFeedProvider({ children }: { children: ReactNode }) {
         setPosting(false);
       }
     },
-    [activeChannel, pushToast],
-  );
-
-  const sendShowcaseMessage = useCallback(
-    async (input: SendWorldChatShowcaseInput) => {
-      try {
-        setPosting(true);
-        const res = await fetch('/api/world-chat/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messageType: 'item_showcase',
-            itemType: input.itemType,
-            itemId: input.itemId,
-            textContent: input.textContent || undefined,
-          }),
-        });
-        const data = await res.json();
-
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || '发送失败');
-        }
-
-        const created = data.data as WorldChatMessageDTO;
-        setAllMessages((prev) => mergeWorldChatMessages(prev, [created]));
-        if (activeChannel !== 'system') {
-          setMessages((prev) => mergeWorldChatMessages(prev, [created]));
-        }
-        pushToast({ message: '已展示道具', tone: 'success' });
-        return true;
-      } catch (error) {
-        pushToast({
-          message: error instanceof Error ? error.message : '发送失败',
-          tone: 'danger',
-        });
-        return false;
-      } finally {
-        setPosting(false);
-      }
-    },
-    [activeChannel, pushToast],
+    [activeChannel, pushToast, sectId],
   );
 
   const value = useMemo<WorldChatFeedModel>(
     () => ({
-      messages,
+      messages: activeFeed.messages,
       latestMessage,
       newMessageCount,
-      loading,
-      loadingMore,
-      hasMore,
+      unreadCounts,
+      loading: activeFeed.loading,
+      loadingMore: activeFeed.loadingMore,
+      hasMore: activeFeed.hasMore,
       posting,
+      hasSect,
       isWorldChatRoute,
       activeChannel,
       setActiveChannel,
       loadMore,
-      sendTextMessage,
-      sendShowcaseMessage,
+      sendTextMessage: (text) =>
+        send({
+          messageType: 'text',
+          textContent: text,
+          payload: { text },
+        }),
+      sendShowcaseMessage: (input) =>
+        send({
+          messageType: 'item_showcase',
+          itemType: input.itemType,
+          itemId: input.itemId,
+          textContent: input.textContent || undefined,
+        }),
     }),
     [
       activeChannel,
-      hasMore,
+      activeFeed,
+      hasSect,
       isWorldChatRoute,
       latestMessage,
       loadMore,
-      loading,
-      loadingMore,
-      messages,
       newMessageCount,
       posting,
-      sendShowcaseMessage,
-      sendTextMessage,
+      send,
+      unreadCounts,
     ],
   );
 

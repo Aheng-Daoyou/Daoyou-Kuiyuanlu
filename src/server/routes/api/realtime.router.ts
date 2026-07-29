@@ -9,6 +9,7 @@ import {
   recordRealtimeConnectionOpen,
 } from '@server/lib/services/onlinePresenceService';
 import { subscribeResourceEvents } from '@server/lib/services/playerStateBroadcaster';
+import { subscribeSectChatMessages } from '@server/lib/services/sectChatBroadcaster';
 import { subscribeWorldChatMessages } from '@server/lib/services/worldChatBroadcaster';
 import {
   REALTIME_CHANNELS,
@@ -290,6 +291,16 @@ router.get(
               });
             }),
           );
+          if (reservation.sectId) {
+            unsubscribers.push(
+              subscribeSectChatMessages(reservation.sectId, (message) => {
+                sendEnvelope(ws, {
+                  type: 'world-chat.message',
+                  payload: message,
+                });
+              }),
+            );
+          }
         }
 
         heartbeat = setInterval(() => {

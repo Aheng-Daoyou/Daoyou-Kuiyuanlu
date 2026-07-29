@@ -15,10 +15,12 @@ export interface WorldChatFeedModel {
   messages: WorldChatMessageDTO[];
   latestMessage: WorldChatMessageDTO | null;
   newMessageCount: number;
+  unreadCounts: Record<WorldChatChannel, number>;
   loading: boolean;
   loadingMore: boolean;
   hasMore: boolean;
   posting: boolean;
+  hasSect: boolean;
   isWorldChatRoute: boolean;
   activeChannel: WorldChatChannel;
   setActiveChannel: (channel: WorldChatChannel) => void;

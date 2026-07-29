@@ -25,12 +25,6 @@ import { useWorldChatFeedModel } from './useWorldChatFeedModel';
 
 const MAX_LENGTH = 100;
 const SHOWCASE_PAGE_SIZE = 20;
-const CHANNEL_TABS: { label: string; value: WorldChatViewChannel }[] = [
-  { label: '全部', value: 'all' },
-  { label: '系统', value: 'system' },
-  { label: '世界', value: 'world' },
-];
-
 type ShowcaseTab = 'artifacts' | 'materials' | 'consumables';
 
 function countChars(input: string): number {
@@ -53,6 +47,8 @@ export function WorldChatChannel() {
     loadingMore,
     hasMore,
     posting,
+    hasSect,
+    unreadCounts,
     loadMore,
     sendTextMessage,
     sendShowcaseMessage,
@@ -82,6 +78,23 @@ export function WorldChatChannel() {
   const charCount = useMemo(() => countChars(input), [input]);
   const displayMessages = useMemo(() => [...messages].reverse(), [messages]);
   const canSendMessage = activeChannel !== 'system';
+  const channelTabs = useMemo(
+    () =>
+      [
+        { label: '世界', value: 'world' },
+        { label: '宗门', value: 'sect' },
+        { label: '系统', value: 'system' },
+      ].map((item) => ({
+        ...item,
+        label:
+          unreadCounts[item.value as WorldChatViewChannel] > 0
+            ? `${item.label} (${unreadCounts[item.value as WorldChatViewChannel]})`
+            : item.label,
+      })),
+    [unreadCounts],
+  );
+  const canSendToActiveChannel =
+    canSendMessage && (activeChannel !== 'sect' || hasSect);
   const activeShowcaseInventory =
     showcaseTab === 'artifacts'
       ? artifactInventory
@@ -205,7 +218,7 @@ export function WorldChatChannel() {
         <InkTabs
           activeValue={activeChannel}
           onChange={(value) => setActiveChannel(value as WorldChatViewChannel)}
-          items={CHANNEL_TABS}
+          items={channelTabs}
         />
 
         <div
@@ -224,6 +237,10 @@ export function WorldChatChannel() {
             <InkNotice>
               {activeChannel === 'system'
                 ? '暂无系统传音。'
+                : activeChannel === 'sect' && !hasSect
+                  ? '尚未拜入宗门，暂无宗门频道。'
+                  : activeChannel === 'sect'
+                    ? '暂无宗门传音。'
                 : activeChannel === 'world'
                   ? '暂无世界传音。'
                   : '暂无传音。'}
@@ -244,7 +261,7 @@ export function WorldChatChannel() {
           )}
         </div>
 
-        {canSendMessage ? (
+        {canSendToActiveChannel ? (
           <div className="pt-3">
             <InkInput
               value={input}

@@ -1,9 +1,9 @@
 import type { ElementType, Quality } from './constants';
 import type { Artifact, Consumable, Material } from './cultivator';
 
-export type WorldChatMessageChannel = 'system' | 'world';
+export type WorldChatMessageChannel = 'system' | 'world' | 'sect';
 
-export type WorldChatChannel = 'all' | WorldChatMessageChannel;
+export type WorldChatChannel = WorldChatMessageChannel;
 
 export type WorldChatMessageType = 'text' | 'duel_invite' | 'item_showcase';
 
@@ -91,6 +91,7 @@ export type WorldChatPayload = WorldChatPayloadMap[WorldChatMessageType];
 export interface WorldChatMessageDTO {
   id: string;
   channel: WorldChatMessageChannel;
+  sectId: string | null;
   senderUserId: string;
   senderCultivatorId: string | null;
   senderName: string;

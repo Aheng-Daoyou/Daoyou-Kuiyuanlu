@@ -20,6 +20,7 @@ export {
 export {
   sectConstructionBoardResource,
   sectConstructionMemberResource,
+  sectContributionRankingResource,
   sectContextResource,
   sectInfrastructureResource,
   sectMembersResource,
@@ -48,6 +49,7 @@ import {
 import {
   sectConstructionBoardResource,
   sectConstructionMemberResource,
+  sectContributionRankingResource,
   sectContextResource,
   sectInfrastructureResource,
   sectMembersResource,
@@ -75,6 +77,7 @@ export const resourceRegistry = {
   sectShop: sectShopResource,
   sectConstructionBoard: sectConstructionBoardResource,
   sectConstructionMember: sectConstructionMemberResource,
+  sectContributionRanking: sectContributionRankingResource,
   inventoryArtifacts: inventoryArtifactsResource,
   inventoryMaterials: inventoryMaterialsResource,
   inventoryConsumables: inventoryConsumablesResource,

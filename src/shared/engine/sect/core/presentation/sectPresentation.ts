@@ -92,6 +92,7 @@ export interface SectPresentationTerms {
 
 export interface SectPresentationTheme {
   sectId: string;
+  announcement: string;
   onboarding?: {
     summary: string;
     traits: readonly [string, string, string];
@@ -113,6 +114,7 @@ export interface SectPresentationTheme {
 
 export interface ResolvedSectPresentation {
   sectId: string;
+  announcement: string;
   onboarding?: SectPresentationTheme['onboarding'];
   map: {
     image?: string;
@@ -709,6 +711,7 @@ export const STANDARD_SECT_PRESENTATION: Omit<
   ResolvedSectPresentation,
   'sectId'
 > = Object.freeze({
+  announcement: '宗门诸务照常运转，请诸位弟子各安其位、勤勉修行。',
   map: Object.freeze({
     alt: '宗门设施导航图',
     hotspots: STANDARD_HOTSPOTS,
@@ -741,7 +744,9 @@ function assertNonBlank(label: string, value: string): void {
 
 export function resolveSectPresentation(
   sectId: string,
-  theme?: SectPresentationTheme,
+  theme?: Omit<SectPresentationTheme, 'announcement'> & {
+    announcement?: string;
+  },
 ): ResolvedSectPresentation {
   if (theme && theme.sectId !== sectId) {
     throw new Error(`宗门展示主题标识不一致：${theme.sectId} !== ${sectId}`);
@@ -785,6 +790,8 @@ export function resolveSectPresentation(
   ) as Record<string, SectRoomDefinition>;
   const resolved: ResolvedSectPresentation = {
     sectId,
+    announcement:
+      theme?.announcement ?? STANDARD_SECT_PRESENTATION.announcement,
     onboarding: theme?.onboarding,
     map,
     facilityLabels: {
@@ -803,6 +810,7 @@ export function resolveSectPresentation(
     },
   };
 
+  assertNonBlank(`宗门 ${sectId} 公告`, resolved.announcement);
   for (const [key, value] of Object.entries(resolved.facilityLabels)) {
     assertNonBlank(`宗门 ${sectId} 设施 ${key} 名称`, value);
   }

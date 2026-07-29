@@ -25,6 +25,8 @@ const hotspot = (
 
 export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
   sectId: YOUDU_SECT_ID,
+  announcement:
+    '黑水沿岸近来魂灯摇曳，夜巡弟子须两人同行；若见失名游魂，先引至招魂司登记。',
   onboarding: {
     summary:
       '黑水照影，幽灯唤魂。你将在敌人仍然站立时，一层层取走支撑其形神的力量。',

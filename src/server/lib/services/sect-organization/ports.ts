@@ -181,6 +181,7 @@ export interface SectMemberRecord {
   discipleRank: SectDiscipleRank;
   office: SectOffice;
   joinedAt: Date | null;
+  lastActiveAt?: Date | null;
 }
 
 export interface SectTaskReadRepository {

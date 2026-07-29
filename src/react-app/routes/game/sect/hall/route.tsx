@@ -11,17 +11,22 @@ import {
 } from '@app/components/feature/sect/room';
 import {
   useSectContextQuery,
+  useSectContributionRankingQuery,
   useSectMembersQuery,
   useSectStipendQuery,
+  getSectPresentationForContext,
 } from '@app/components/feature/sect/sectResources';
-import { InkButton } from '@app/components/ui';
+import { InkBadge, InkButton, InkNotice } from '@app/components/ui';
 import { useResourceMutation } from '@app/lib/resources/mutations';
-import type { SectMembersData } from '@shared/contracts/sect';
+import type {
+  SectContributionRankingData,
+  SectMembersData,
+} from '@shared/contracts/sect';
 import {
   SECT_RANK_LABELS,
   STANDARD_SECT_PRESENTATION,
 } from '@shared/engine/sect';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   postJson,
   SectPermissionBoundary,
@@ -52,23 +57,57 @@ function HallRegistryConversation({
   onExit,
 }: SectNpcConversationRendererProps) {
   const current = useSectContextQuery();
-  const [topic, setTopic] = useState<'identity' | 'members'>();
+  const [topic, setTopic] = useState<
+    'identity' | 'members' | 'announcement' | 'ranking'
+  >();
+  const [memberPage, setMemberPage] = useState(1);
   const members = useSectMembersQuery(
-    { page: 1, pageSize: 20 },
+    { page: memberPage, pageSize: 20 },
     topic === 'members',
   );
+  const ranking = useSectContributionRankingQuery(topic === 'ranking');
   const session = useConversationSession({
     sessionKey: actor.id,
-    snapshot: { current: current.data, members: members.data },
+    snapshot: {
+      current: current.data,
+      members: members.data,
+      ranking: ranking.data,
+    },
     perform: async () => undefined,
-    onReset: () => setTopic(undefined),
+    onReset: () => {
+      setTopic(undefined);
+      setMemberPage(1);
+    },
   });
   const sect = current.data;
+  const presentation = getSectPresentationForContext(sect);
+  const reloadMembers = members.reload;
+
+  useEffect(() => {
+    if (topic !== 'members') return;
+    const timer = setInterval(() => void reloadMembers(), 30_000);
+    return () => clearInterval(timer);
+  }, [reloadMembers, topic]);
 
   if (topic === 'members' && members.data)
     return (
       <MemberRegistryWorkspace
         members={members.data}
+        refreshing={members.isRefreshing}
+        onPageChange={setMemberPage}
+        onBack={() => {
+          setTopic(undefined);
+          setMemberPage(1);
+          void session.reload();
+        }}
+      />
+    );
+  if (topic === 'ranking' && ranking.data)
+    return (
+      <ContributionRankingWorkspace
+        ranking={ranking.data}
+        refreshing={ranking.isRefreshing}
+        onRefresh={() => void ranking.reload()}
         onBack={() => {
           setTopic(undefined);
           void session.reload();
@@ -99,9 +138,19 @@ function HallRegistryConversation({
       ),
     });
   }
+  if (topic === 'announcement') {
+    messages.push({
+      id: 'announcement',
+      speaker: actor.name,
+      body: presentation.announcement,
+      tone: 'attention',
+    });
+  }
   const options: NpcConversationOption[] = [
     { id: 'identity', label: '请执事替我查验身份玉牒' },
     { id: 'members', label: '我想翻看同门名录' },
+    { id: 'announcement', label: '请问宗门近来有何公告' },
+    { id: 'ranking', label: '我想查看宗门贡献榜' },
     { id: 'leave', label: '弟子告退', tone: 'muted' },
   ];
   return (
@@ -110,10 +159,17 @@ function HallRegistryConversation({
       messages={messages}
       options={options}
       busy={session.phase === 'loading'}
-      error={session.error ?? current.error ?? members.error}
+      error={
+        session.error ?? current.error ?? members.error ?? ranking.error
+      }
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
-        else if (optionId === 'identity' || optionId === 'members')
+        else if (
+          optionId === 'identity' ||
+          optionId === 'members' ||
+          optionId === 'announcement' ||
+          optionId === 'ranking'
+        )
           setTopic(optionId);
       }}
     />
@@ -122,16 +178,22 @@ function HallRegistryConversation({
 
 function MemberRegistryWorkspace({
   members,
+  refreshing,
+  onPageChange,
   onBack,
 }: {
   members: SectMembersData;
+  refreshing: boolean;
+  onPageChange(page: number): void;
   onBack(): void;
 }) {
+  const totalPages = Math.max(1, Math.ceil(members.total / members.pageSize));
   return (
     <div className="min-h-[34rem] px-5 py-7 sm:px-8 md:px-10">
       <div className="flex items-center justify-between gap-3 border-b border-current/10 pb-4">
         <p className="text-ink-secondary text-sm">
-          同门名录 · 共 {members.total} 人
+          同门名录 · 共 {members.total} 人 · 第 {members.page}/{totalPages} 页
+          {refreshing ? ' · 正在更新' : ''}
         </p>
         <InkButton onClick={onBack}>合上名录</InkButton>
       </div>
@@ -143,6 +205,7 @@ function MemberRegistryWorkspace({
               <th className="p-2">境界</th>
               <th className="p-2">身份</th>
               <th className="p-2">职务</th>
+              <th className="p-2">近况</th>
             </tr>
           </thead>
           <tbody>
@@ -157,11 +220,122 @@ function MemberRegistryWorkspace({
                 <td className="p-2">
                   {member.office === 'none' ? '无' : member.office}
                 </td>
+                <td className="p-2">
+                  <ActivityBadge state={member.activityState} />
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <div className="mt-5 flex items-center justify-end gap-2">
+        <InkButton
+          variant="secondary"
+          disabled={members.page <= 1}
+          onClick={() => onPageChange(members.page - 1)}
+        >
+          上一页
+        </InkButton>
+        <InkButton
+          variant="secondary"
+          disabled={members.page >= totalPages}
+          onClick={() => onPageChange(members.page + 1)}
+        >
+          下一页
+        </InkButton>
+      </div>
+    </div>
+  );
+}
+
+const ACTIVITY_LABELS = {
+  online: '在线',
+  active_today: '今日活跃',
+  active_7d: '近7日活跃',
+  inactive: '较久未现身',
+} as const;
+
+function ActivityBadge({
+  state,
+}: {
+  state: keyof typeof ACTIVITY_LABELS;
+}) {
+  return (
+    <InkBadge tone={state === 'online' ? 'accent' : 'default'}>
+      {ACTIVITY_LABELS[state]}
+    </InkBadge>
+  );
+}
+
+function ContributionRankingWorkspace({
+  ranking,
+  refreshing,
+  onRefresh,
+  onBack,
+}: {
+  ranking: SectContributionRankingData;
+  refreshing: boolean;
+  onRefresh(): void;
+  onBack(): void;
+}) {
+  return (
+    <div className="min-h-[34rem] px-5 py-7 sm:px-8 md:px-10">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-current/10 pb-4">
+        <div>
+          <p className="text-ink-secondary text-sm">宗门贡献榜 · 当前余额</p>
+          <p className="mt-1 text-sm">
+            我的排名：第 {ranking.currentMember.rank} 名 ·{' '}
+            {ranking.currentMember.contribution.toLocaleString('zh-CN')} 点
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <InkButton
+            variant="secondary"
+            onClick={onRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? '更新中…' : '刷新'}
+          </InkButton>
+          <InkButton onClick={onBack}>收起榜单</InkButton>
+        </div>
+      </div>
+      {ranking.entries.length === 0 ? (
+        <InkNotice className="mt-5">暂无贡献记录。</InkNotice>
+      ) : (
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full min-w-[36rem] text-left text-sm">
+            <thead className="border-ink/20 border-b">
+              <tr>
+                <th className="p-2">名次</th>
+                <th className="p-2">名号</th>
+                <th className="p-2">身份</th>
+                <th className="p-2">职务</th>
+                <th className="p-2 text-right">贡献</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ranking.entries.map((entry) => (
+                <tr
+                  key={entry.cultivatorId}
+                  className="border-ink/10 border-b"
+                >
+                  <td className="p-2">第 {entry.rank} 名</td>
+                  <td className="p-2 font-semibold">{entry.name}</td>
+                  <td className="p-2">
+                    {SECT_RANK_LABELS[entry.discipleRank]}
+                  </td>
+                  <td className="p-2">
+                    {entry.office === 'none' ? '无' : entry.office}
+                  </td>
+                  <td className="p-2 text-right">
+                    {entry.contribution.toLocaleString('zh-CN')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
