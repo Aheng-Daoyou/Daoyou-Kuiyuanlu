@@ -353,16 +353,17 @@ export class RewardFactory {
         ? dangerScore
         : 50;
     const tierRarityBias: Record<string, number> = {
-      S: 0.06,
-      A: 0.03,
+      S: 0.12,
+      A: 0.06,
       B: 0,
-      C: -0.03,
-      D: -0.06,
+      C: -0.06,
+      D: -0.12,
     };
+    // 材料自身评分是品质曲线偏移的主因，评级和危险度仅作次级修正。
     const rarityBias =
-      ((safeRewardScore - 50) / 50) * 0.22 +
+      ((safeRewardScore - 50) / 50) * 0.9 +
       (tierRarityBias[tier] ?? 0) +
-      ((safeDangerScore - 50) / 50) * 0.03;
+      ((safeDangerScore - 50) / 50) * 0.06;
     const baseChanceMap =
       YieldCalculator.getMaterialQualityChanceMap(mapRealm);
     const weightedQualities = QUALITY_VALUES.map((quality, index) => ({
