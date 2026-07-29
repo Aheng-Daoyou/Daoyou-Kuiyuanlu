@@ -44,7 +44,7 @@ describe('天衍所需通用 battle-v5 扩展', () => {
     expect(calculateSpiritualRootDamageMultiplier({ caster, ability })).toBe(1.16);
   });
 
-  it('异灵根元素带通用标签时按1.0结算且不向普通技能泄漏', () => {
+  it('元素失配统一按1.0结算且兼容旧豁免标签', () => {
     const caster = unit('caster');
     caster.setSpiritualRoots([{ element: '水', strength: 80 }]);
     const exempt = new Ability('fire-exempt', '火法', AbilityType.ACTIVE_SKILL);
@@ -56,7 +56,19 @@ describe('天衍所需通用 battle-v5 扩展', () => {
     ordinary.tags.addTags([GameplayTags.ABILITY.ELEMENT.FIRE]);
 
     expect(calculateSpiritualRootDamageMultiplier({ caster, ability: exempt })).toBe(1);
-    expect(calculateSpiritualRootDamageMultiplier({ caster, ability: ordinary })).toBe(0.85);
+    expect(calculateSpiritualRootDamageMultiplier({ caster, ability: ordinary })).toBe(1);
+  });
+
+  it('无属性伤害取最高灵根正常共鸣加成的30%', () => {
+    const caster = unit('caster');
+    caster.setSpiritualRoots([
+      { element: '水', strength: 80 },
+      { element: '雷', strength: 95 },
+    ]);
+    const ability = new Ability('neutral', '无属性法', AbilityType.ACTIVE_SKILL);
+
+    expect(calculateSpiritualRootDamageMultiplier({ caster, ability })).toBe(1.057);
+    expect(calculateSpiritualRootDamageMultiplier({ ability })).toBe(1);
   });
 
   it('countsAsStatus=false 的机制状态不进入普通状态计数但仍可显式查找', () => {

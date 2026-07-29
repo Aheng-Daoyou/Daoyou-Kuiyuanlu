@@ -102,13 +102,13 @@ export class TargetSelectionSystem {
         )];
       case 'fastest':
         return [units.reduce((max, u) =>
-          u.attributes.getValue(AttributeType.SPEED) >
-          max.attributes.getValue(AttributeType.SPEED) ? u : max
+          u.attributes.getValue(AttributeType.ACTION_SPEED) >
+          max.attributes.getValue(AttributeType.ACTION_SPEED) ? u : max
         )];
       case 'slowest':
         return [units.reduce((min, u) =>
-          u.attributes.getValue(AttributeType.SPEED) <
-          min.attributes.getValue(AttributeType.SPEED) ? u : min
+          u.attributes.getValue(AttributeType.ACTION_SPEED) <
+          min.attributes.getValue(AttributeType.ACTION_SPEED) ? u : min
         )];
       default:
         return units;

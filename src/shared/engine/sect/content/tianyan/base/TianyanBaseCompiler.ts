@@ -308,7 +308,11 @@ function slowBuff(id: string, value: number, duration: number): BuffConfig {
   return buff(id, '迟滞', BuffType.DEBUFF, duration, {
     stackPriority: value,
     modifiers: [
-      { attrType: AttributeType.SPEED, type: ModifierType.ADD, value: -value },
+      {
+        attrType: AttributeType.ACTION_SPEED,
+        type: ModifierType.ADD,
+        value: -value,
+      },
     ],
   });
 }

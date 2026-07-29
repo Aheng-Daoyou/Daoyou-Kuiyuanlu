@@ -1,9 +1,9 @@
 export const SECT_CONSTRUCTION_DONATION_OPTIONS = [
-  { spiritStones: 10_000, constructionPoints: 1, contribution: 10 },
-  { spiritStones: 50_000, constructionPoints: 5, contribution: 50 },
-  { spiritStones: 100_000, constructionPoints: 10, contribution: 100 },
-  { spiritStones: 200_000, constructionPoints: 20, contribution: 200 },
-  { spiritStones: 400_000, constructionPoints: 40, contribution: 400 },
+  { spiritStones: 10_000, constructionPoints: 1, contribution: 1 },
+  { spiritStones: 50_000, constructionPoints: 5, contribution: 3 },
+  { spiritStones: 100_000, constructionPoints: 10, contribution: 5 },
+  { spiritStones: 200_000, constructionPoints: 20, contribution: 10 },
+  { spiritStones: 400_000, constructionPoints: 40, contribution: 20 },
 ] as const;
 
 export type SectConstructionDonationAmount =

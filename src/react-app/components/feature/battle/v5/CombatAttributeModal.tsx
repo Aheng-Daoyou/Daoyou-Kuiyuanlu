@@ -32,6 +32,7 @@ const ATTR_LABELS: Partial<Record<keyof AttrsStateView, string>> = {
   def: getGameConceptLabel('attribute_def'),
   magicAtk: getGameConceptLabel('attribute_magic_atk'),
   magicDef: getGameConceptLabel('attribute_magic_def'),
+  actionSpeed: getGameConceptLabel('attribute_action_speed'),
   critRate: getGameConceptLabel('attribute_crit_rate'),
   critDamageMult: getGameConceptLabel('attribute_crit_damage'),
   evasionRate: getGameConceptLabel('attribute_evasion_rate'),
@@ -130,6 +131,7 @@ export function CombatAttributeModal({ unit, isOpen, onClose }: Props) {
               {renderAttr('magicAtk')}
               {renderAttr('def')}
               {renderAttr('magicDef')}
+              {renderAttr('actionSpeed')}
             </div>
           </section>
         </div>

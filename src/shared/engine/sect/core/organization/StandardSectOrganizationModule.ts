@@ -59,6 +59,18 @@ export const STANDARD_SECT_ARCHIVE_METHOD_CAP = [
   0, 40, 75, 110, 145, 180,
 ] as const;
 
+export const STANDARD_SECT_TASK_BASE_CONTRIBUTION = {
+  gate_sweep: 4,
+  mine_patrol: 4,
+  spirit_mining: 4,
+  pill_delivery: 4,
+  artifact_delivery: 5,
+  weekly_diligence: 30,
+  weekly_tournament: 15,
+  weekly_bounty_battle: 20,
+  weekly_bounty_material: 20,
+} as const;
+
 function taskPresentation(
   title: string,
   description: string,
@@ -96,7 +108,9 @@ const tasks: readonly SectTaskDefinition[] = [
     minimumDifficulty: 'easy',
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 25 },
+      input: {
+        baseContribution: STANDARD_SECT_TASK_BASE_CONTRIBUTION.gate_sweep,
+      },
     },
     fulfillment: taskFulfillment('daily'),
     presentation: taskPresentation(
@@ -128,7 +142,9 @@ const tasks: readonly SectTaskDefinition[] = [
     },
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 30 },
+      input: {
+        baseContribution: STANDARD_SECT_TASK_BASE_CONTRIBUTION.mine_patrol,
+      },
     },
     fulfillment: taskFulfillment('daily'),
     presentation: taskPresentation(
@@ -156,7 +172,9 @@ const tasks: readonly SectTaskDefinition[] = [
     minimumDifficulty: 'normal',
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 30 },
+      input: {
+        baseContribution: STANDARD_SECT_TASK_BASE_CONTRIBUTION.spirit_mining,
+      },
     },
     fulfillment: taskFulfillment('daily'),
     presentation: taskPresentation(
@@ -188,7 +206,9 @@ const tasks: readonly SectTaskDefinition[] = [
     },
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 35 },
+      input: {
+        baseContribution: STANDARD_SECT_TASK_BASE_CONTRIBUTION.pill_delivery,
+      },
     },
     fulfillment: taskFulfillment('daily'),
     presentation: taskPresentation(
@@ -222,7 +242,10 @@ const tasks: readonly SectTaskDefinition[] = [
     },
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 45 },
+      input: {
+        baseContribution:
+          STANDARD_SECT_TASK_BASE_CONTRIBUTION.artifact_delivery,
+      },
     },
     fulfillment: taskFulfillment('daily'),
     presentation: taskPresentation(
@@ -252,7 +275,9 @@ const tasks: readonly SectTaskDefinition[] = [
     minimumDifficulty: 'easy',
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 60 },
+      input: {
+        baseContribution: STANDARD_SECT_TASK_BASE_CONTRIBUTION.weekly_diligence,
+      },
     },
     fulfillment: [],
     presentation: taskPresentation(
@@ -289,7 +314,10 @@ const tasks: readonly SectTaskDefinition[] = [
     },
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 40 },
+      input: {
+        baseContribution:
+          STANDARD_SECT_TASK_BASE_CONTRIBUTION.weekly_tournament,
+      },
     },
     fulfillment: [],
     presentation: taskPresentation(
@@ -322,7 +350,10 @@ const tasks: readonly SectTaskDefinition[] = [
     },
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 60 },
+      input: {
+        baseContribution:
+          STANDARD_SECT_TASK_BASE_CONTRIBUTION.weekly_bounty_battle,
+      },
     },
     fulfillment: [],
     presentation: taskPresentation(
@@ -355,7 +386,10 @@ const tasks: readonly SectTaskDefinition[] = [
     },
     reward: {
       policy: 'sect.reward.realm-task',
-      input: { baseContribution: 60 },
+      input: {
+        baseContribution:
+          STANDARD_SECT_TASK_BASE_CONTRIBUTION.weekly_bounty_material,
+      },
     },
     fulfillment: [],
     presentation: taskPresentation(

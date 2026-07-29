@@ -527,7 +527,7 @@ const STANDARD_ROOMS: Readonly<Record<string, SectRoomDefinition>> =
         ),
         roomActor(
           'ring',
-          '擂',
+          '⚔️',
           '宗门擂台',
           '宗门设施',
           '开启宗门小比战局。',

@@ -535,7 +535,7 @@ export const ARTIFACT_AFFIXES: AffixDefinition[] = [
   {
     id: 'artifact-panel-speed',
     displayName: '乘风',
-    displayDescription: '提升速度属性',
+    displayDescription: '提升身法属性',
     slot: 'identity',
     rarity: 'common',
     match: {

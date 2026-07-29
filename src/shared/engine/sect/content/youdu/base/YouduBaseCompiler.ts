@@ -128,7 +128,7 @@ function layerCurveDetail(label: string, values: readonly number[]): string {
 function erosionDetailRows(settings: YouduBuildSettings): string[] {
   return [
     layerCurveDetail(
-      '物攻、法攻、物防、法防、身法',
+      '气血上限、物攻、法攻、物防、法防',
       settings.erosionAttributeCurve,
     ),
     layerCurveDetail('受治疗削弱', settings.erosionHealCurve),
@@ -278,7 +278,11 @@ function temporaryPenalty(
       { attrType: AttributeType.ATK, type: ModifierType.ADD, value: attack },
       { attrType: AttributeType.MAGIC_ATK, type: ModifierType.ADD, value: attack },
       ...(speed
-        ? [{ attrType: AttributeType.SPEED, type: ModifierType.ADD, value: speed }]
+        ? [{
+            attrType: AttributeType.ACTION_SPEED,
+            type: ModifierType.ADD,
+            value: speed,
+          }]
         : []),
     ],
   };
@@ -394,7 +398,7 @@ function forgetfulRiverBuff(settings: YouduBuildSettings): BuffConfig {
       },
       ...(settings.forgetSpeedReduction
         ? [{
-            attrType: AttributeType.SPEED,
+            attrType: AttributeType.ACTION_SPEED,
             type: ModifierType.ADD,
             value: settings.forgetSpeedReduction,
           }]
@@ -705,7 +709,7 @@ function soulErosionBuff(settings: YouduBuildSettings): BuffConfig {
   return {
     id: YOUDU_SOUL_EROSION,
     name: '蚀魂',
-    description: '攻防、速度与受治疗能力随层数逐步衰败。',
+    description: '气血上限、攻防与受治疗能力随层数逐步衰败。',
     type: BuffType.DEBUFF,
     duration: 3,
     stackRule: StackRule.STACK_LAYER,
@@ -719,7 +723,7 @@ function soulErosionBuff(settings: YouduBuildSettings): BuffConfig {
         AttributeType.MAGIC_ATK,
         AttributeType.DEF,
         AttributeType.MAGIC_DEF,
-        AttributeType.SPEED,
+        AttributeType.MAX_HP,
       ].map((attrType) => ({
         attrType,
         type: ModifierType.ADD,
@@ -784,7 +788,7 @@ function noReturnBuff(settings: YouduBuildSettings): BuffConfig {
         value: 0.80,
       },
       {
-        attrType: AttributeType.SPEED,
+        attrType: AttributeType.ACTION_SPEED,
         type: ModifierType.ADD,
         value: settings.noReturnSpeedReduction,
       },
@@ -1259,7 +1263,7 @@ function compileAbilities(
             stackRule: StackRule.REFRESH_DURATION,
             tags: debuffTags(),
             modifiers: [{
-              attrType: AttributeType.SPEED,
+              attrType: AttributeType.ACTION_SPEED,
               type: ModifierType.ADD,
               value: -0.20,
             }],

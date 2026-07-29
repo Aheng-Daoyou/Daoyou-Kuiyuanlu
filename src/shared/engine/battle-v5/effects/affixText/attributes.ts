@@ -26,6 +26,7 @@ export const ATTR_LABELS: Record<AttributeType, string> = {
     'attribute_magic_def',
     'short',
   ),
+  [AttributeType.ACTION_SPEED]: getGameConceptLabel('attribute_action_speed'),
   [AttributeType.CRIT_RATE]: getGameConceptLabel('attribute_crit_rate'),
   [AttributeType.CRIT_DAMAGE_MULT]: getGameConceptLabel(
     'attribute_crit_damage',

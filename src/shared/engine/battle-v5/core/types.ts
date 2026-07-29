@@ -27,19 +27,20 @@ export enum AttributeType {
   // ── 主属性（5维）──
   SPIRIT = 'spirit',       // 灵力：法系输出、法力、护盾
   VITALITY = 'vitality',   // 体魄：气血上限、物攻/物防
-  SPEED = 'speed',         // 身法：出手顺序、暴击率基础、闪避率
+  SPEED = 'speed',         // 身法：行动速度、闪避率、命中
   WILLPOWER = 'willpower', // 神识：控制命中、控制抗性、法防
   WISDOM = 'wisdom',       // 悟性：暴击率加成、暴击伤害上限、法力上限
 
   // ── 派生型二级属性（base 由主属性公式推算，modifier 可叠加）──
-  ATK = 'atk',                                 // 物理攻击：24 + VITALITY×3.45 + SPEED×1.2
-  DEF = 'def',                                 // 物理防御：VITALITY×1.68 + SPEED×0.72
-  MAGIC_ATK = 'magicAtk',                      // 法术攻击：24 + SPIRIT×3.45 + WILLPOWER×1.2
-  MAGIC_DEF = 'magicDef',                      // 法术防御：SPIRIT×1.68 + WILLPOWER×0.72
-  CRIT_RATE = 'critRate',                       // 暴击率：0.03 + curve(SPEED×0.65 + WISDOM×0.35, 205, 0.32)
+  ATK = 'atk',                                 // 物理攻击：33 + VITALITY×3.75
+  DEF = 'def',                                 // 物理防御：6 + VITALITY×1.85
+  MAGIC_ATK = 'magicAtk',                      // 法术攻击：33 + SPIRIT×3.75
+  MAGIC_DEF = 'magicDef',                      // 法术防御：6 + WILLPOWER×1.85
+  ACTION_SPEED = 'actionSpeed',                // 行动速度：SPEED×0.8 + WILLPOWER×0.2
+  CRIT_RATE = 'critRate',                       // 暴击率：0.03 + curve(WISDOM, 205, 0.32)
   CRIT_DAMAGE_MULT = 'critDamageMult',          // 暴击伤害倍率：1.25 + curve(WISDOM, 240, 0.75)
   EVASION_RATE = 'evasionRate',                 // 闪避率：0.02 + curve(SPEED, 240, 0.26)
-  ACCURACY = 'accuracy',                         // 命中：0.04 + curve(WISDOM×0.65 + WILLPOWER×0.35, 220, 0.28)
+  ACCURACY = 'accuracy',                         // 命中：0.04 + curve(WISDOM×0.45 + WILLPOWER×0.35 + SPEED×0.2, 220, 0.28)
   CONTROL_HIT = 'controlHit',                   // 控制命中：0.05 + curve(WISDOM×0.35 + WILLPOWER×0.65, 240, 0.35)
   CONTROL_RESISTANCE = 'controlResistance',     // 控制抗性：0.03 + curve(WILLPOWER, 240, 0.37)
   MAX_HP = 'maxHp',                             // 最大气血：340 + VITALITY×16.2

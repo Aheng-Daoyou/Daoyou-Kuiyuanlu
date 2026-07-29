@@ -139,7 +139,7 @@ export const GONGFA_AFFIXES: AffixDefinition[] = [
   {
     id: 'gongfa-foundation-speed',
     displayName: '御风',
-    displayDescription: '步踏罡斗，提升速度属性，使身法运转更为迅捷',
+    displayDescription: '步踏罡斗，提升身法属性，使腾挪运转更为迅捷',
     slot: 'core',
     rarity: 'common',
     match: {

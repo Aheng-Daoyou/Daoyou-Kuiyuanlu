@@ -127,7 +127,7 @@ describe('幽都核心机制实际结算', () => {
     const target = unit('target');
     installRuntime(caster);
     const baseMagicAttack = target.attributes.getValue(AttributeType.MAGIC_ATK);
-    const baseSpeed = target.attributes.getValue(AttributeType.SPEED);
+    const baseMaxHp = target.getMaxHp();
     const sigh = ability('one-sigh');
     const sever = ability('soul-severing-call');
 
@@ -136,7 +136,7 @@ describe('幽都核心机制实际结算', () => {
 
     expect(erosion(target)?.getLayer()).toBe(3);
     expect(target.attributes.getValue(AttributeType.MAGIC_ATK)).toBeCloseTo(baseMagicAttack * 0.92);
-    expect(target.attributes.getValue(AttributeType.SPEED)).toBeCloseTo(baseSpeed * 0.92);
+    expect(target.getMaxHp()).toBe(Math.floor(baseMaxHp * 0.92));
     expect(caster.combatResources.getCurrent(YOUDU_SOUL_FIRE)).toBe(1);
 
     target.setHp(target.getMaxHp() - 100);
@@ -149,9 +149,11 @@ describe('幽都核心机制实际结算', () => {
     const caster = unit('caster');
     const target = unit('target');
     installRuntime(caster);
-    const baseAttack = target.attributes.getValue(AttributeType.MAGIC_ATK);
-    const baseDefense = target.attributes.getValue(AttributeType.MAGIC_DEF);
-    const baseSpeed = target.attributes.getValue(AttributeType.SPEED);
+    const basePhysicalAttack = target.attributes.getValue(AttributeType.ATK);
+    const baseMagicAttack = target.attributes.getValue(AttributeType.MAGIC_ATK);
+    const basePhysicalDefense = target.attributes.getValue(AttributeType.DEF);
+    const baseMagicDefense = target.attributes.getValue(AttributeType.MAGIC_DEF);
+    const baseMaxHp = target.getMaxHp();
     const expected = [0.97, 0.95, 0.92, 0.88, 0.88];
     const expectedHealing = [100, 85, 70, 50, 0];
     const sigh = ability('one-sigh');
@@ -162,9 +164,11 @@ describe('幽都核心机制实际结算', () => {
       sigh.execute({ caster, target });
       const ratio = expected[index];
       expect(erosion(target)?.getLayer()).toBe(index + 1);
-      expect(target.attributes.getValue(AttributeType.MAGIC_ATK)).toBeCloseTo(baseAttack * ratio);
-      expect(target.attributes.getValue(AttributeType.MAGIC_DEF)).toBeCloseTo(baseDefense * ratio);
-      expect(target.attributes.getValue(AttributeType.SPEED)).toBeCloseTo(baseSpeed * ratio);
+      expect(target.attributes.getValue(AttributeType.ATK)).toBeCloseTo(basePhysicalAttack * ratio);
+      expect(target.attributes.getValue(AttributeType.MAGIC_ATK)).toBeCloseTo(baseMagicAttack * ratio);
+      expect(target.attributes.getValue(AttributeType.DEF)).toBeCloseTo(basePhysicalDefense * ratio);
+      expect(target.attributes.getValue(AttributeType.MAGIC_DEF)).toBeCloseTo(baseMagicDefense * ratio);
+      expect(target.getMaxHp()).toBe(Math.floor(baseMaxHp * ratio));
       target.setHp(target.getMaxHp() - 100);
       expect(target.heal(100)).toBe(expectedHealing[index]);
     }
@@ -199,7 +203,33 @@ describe('幽都核心机制实际结算', () => {
         operation: 'clear',
       },
     })!.execute({ caster, target });
+    const clampedHp = target.getCurrentHp();
     expect(erosion(target)).toBeUndefined();
+    expect(target.getMaxHp()).toBe(baseMaxHp);
+    expect(target.getCurrentHp()).toBe(clampedHp);
+  });
+
+  it('蚀魂降低气血上限时截断当前气血，移除后不返还', () => {
+    const caster = unit('caster');
+    const target = unit('target');
+    installRuntime(caster);
+    const baseMaxHp = target.getMaxHp();
+
+    ability('one-sigh').execute({ caster, target });
+    const reducedMaxHp = Math.floor(baseMaxHp * 0.97);
+    expect(target.getMaxHp()).toBe(reducedMaxHp);
+    expect(target.getCurrentHp()).toBe(reducedMaxHp);
+
+    AbilityFactory.createEffect({
+      type: 'buff_layer_modify',
+      params: {
+        match: { id: YOUDU_SOUL_EROSION },
+        operation: 'clear',
+      },
+    })!.execute({ caster, target });
+
+    expect(target.getMaxHp()).toBe(baseMaxHp);
+    expect(target.getCurrentHp()).toBe(reducedMaxHp);
   });
 
   it('五层失魂成功后跳过行动，统一回落三层并进入完整归窍窗口', () => {

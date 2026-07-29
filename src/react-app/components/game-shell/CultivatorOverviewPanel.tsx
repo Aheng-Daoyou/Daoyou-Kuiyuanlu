@@ -47,7 +47,7 @@ import { GameSceneSection } from './GameSceneSection';
 const PRIMARY_ATTRIBUTE_HELP = [
   {
     label: attrLabel(AttributeType.SPIRIT),
-    description: '滋养术法根基，主要增加法术攻击、法术防御，并补益一些法力。',
+    description: '滋养术法根基，主要增加法术攻击与法力。',
   },
   {
     label: attrLabel(AttributeType.VITALITY),
@@ -56,16 +56,16 @@ const PRIMARY_ATTRIBUTE_HELP = [
   {
     label: attrLabel(AttributeType.SPEED),
     description:
-      '决定出手快慢，增加一些闪避，并少量补益物理攻击、物理防御与暴击。',
+      '提升身形腾挪，主要增加闪避与行动速度，并少量增加命中。',
   },
   {
     label: attrLabel(AttributeType.WILLPOWER),
     description:
-      '凝练感知与抗衡之力，增加一些控制命中、控制抗性、法术攻防与法力，并少量增加命中。',
+      '凝练感知与抗衡之力，增加法术防御、控制命中、控制抗性与法力，并影响行动速度和命中。',
   },
   {
     label: attrLabel(AttributeType.WISDOM),
-    description: '提升临战洞察，增加一些暴击伤害，并少量增加暴击与命中。',
+    description: '提升临战洞察，增加暴击率、暴击伤害与命中。',
   },
 ];
 

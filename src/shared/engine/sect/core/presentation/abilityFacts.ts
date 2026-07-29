@@ -22,6 +22,7 @@ const ATTRIBUTE_LABELS: Partial<Record<AttributeType, string>> = {
   [AttributeType.MAGIC_ATK]: '法攻',
   [AttributeType.MAGIC_DEF]: '法防',
   [AttributeType.SPEED]: '身法',
+  [AttributeType.ACTION_SPEED]: '速度',
   [AttributeType.CRIT_RATE]: '暴击率',
   [AttributeType.EVASION_RATE]: '闪避',
   [AttributeType.CONTROL_RESISTANCE]: '控制抗性',

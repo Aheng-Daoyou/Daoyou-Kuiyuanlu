@@ -229,6 +229,7 @@ describe('production sect affairs presentations', () => {
           (actor) => actor.roleKey === 'ring',
         ),
       ).toMatchObject({
+        sigil: '⚔️',
         name: '宗门擂台',
         identity: '宗门设施',
         appearance: 'facility',

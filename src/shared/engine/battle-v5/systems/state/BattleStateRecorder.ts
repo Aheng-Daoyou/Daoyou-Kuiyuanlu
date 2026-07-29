@@ -161,6 +161,7 @@ export class BattleStateRecorder {
       def: getVal(AttributeType.DEF),
       magicAtk: getVal(AttributeType.MAGIC_ATK),
       magicDef: getVal(AttributeType.MAGIC_DEF),
+      actionSpeed: getVal(AttributeType.ACTION_SPEED),
       critRate: getVal(AttributeType.CRIT_RATE),
       critDamageMult: getVal(AttributeType.CRIT_DAMAGE_MULT),
       evasionRate: getVal(AttributeType.EVASION_RATE),

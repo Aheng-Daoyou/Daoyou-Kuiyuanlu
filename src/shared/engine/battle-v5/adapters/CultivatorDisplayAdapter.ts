@@ -210,6 +210,7 @@ function buildAttrsView(unit: Unit): AttrsStateView {
     def: unit.attributes.getValue(AttributeType.DEF),
     magicAtk: unit.attributes.getValue(AttributeType.MAGIC_ATK),
     magicDef: unit.attributes.getValue(AttributeType.MAGIC_DEF),
+    actionSpeed: unit.attributes.getValue(AttributeType.ACTION_SPEED),
     critRate: unit.attributes.getValue(AttributeType.CRIT_RATE),
     critDamageMult: unit.attributes.getValue(AttributeType.CRIT_DAMAGE_MULT),
     evasionRate: unit.attributes.getValue(AttributeType.EVASION_RATE),

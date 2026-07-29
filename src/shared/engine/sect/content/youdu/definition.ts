@@ -12,7 +12,7 @@ export const YOUDU_BASE_DEFINITION: SectDefinitionWithoutPaths = {
   id: YOUDU_SECT_ID,
   name: '幽都',
   description:
-    '幽都门人通晓三魂七魄，以术伤侵形、魂伤越防，并用蚀魂逐层削弱敌人的攻防、速度与治疗。其术起势缓慢，却最擅长让强敌在不知不觉间失去还手之力。',
+    '幽都门人通晓三魂七魄，以术伤侵形、魂伤越防，并用蚀魂逐层削弱敌人的气血上限、攻防与治疗。其术起势缓慢，却最擅长让强敌在不知不觉间失去还手之力。',
   raceIds: ['human'],
   configVersion: 1,
   foundationPassiveId: 'youdu-runtime',

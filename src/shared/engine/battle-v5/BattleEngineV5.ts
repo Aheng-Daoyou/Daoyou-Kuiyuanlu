@@ -395,14 +395,14 @@ export class BattleEngineV5 {
   }
 
   /**
-   * 获取按速度排序的单位
+   * 获取按行动速度排序的单位
    */
   private getSortedUnits(): Unit[] {
     return [this._player, this._opponent]
       .filter((u) => u.isAlive())
       .sort((a, b) => {
-        const speedA = a.attributes.getValue(AttributeType.SPEED);
-        const speedB = b.attributes.getValue(AttributeType.SPEED);
+        const speedA = a.attributes.getValue(AttributeType.ACTION_SPEED);
+        const speedB = b.attributes.getValue(AttributeType.ACTION_SPEED);
         if (speedA === speedB) {
           return battleRandom() - 0.5;
         }

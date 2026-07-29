@@ -601,7 +601,7 @@ describe('DamageSystem direct mitigation', () => {
     damageSystem.destroy();
   });
 
-  it('elemental damage should be reduced when caster has no matching spiritual root', () => {
+  it('elemental damage should use neutral multiplier when caster has no matching spiritual root', () => {
     const damageSystem = new DamageSystem();
     const attacker = new Unit('attacker', '攻击者', {});
     const defender = new Unit('defender', '防御者', {});
@@ -623,12 +623,12 @@ describe('DamageSystem direct mitigation', () => {
 
     EventBus.instance.publish(event);
 
-    expect(event.finalDamage).toBe(85);
+    expect(event.finalDamage).toBe(100);
 
     damageSystem.destroy();
   });
 
-  it('damage without elemental tags should ignore spiritual root modifiers', () => {
+  it('damage without elemental tags should receive 30% neutral resonance', () => {
     const damageSystem = new DamageSystem();
     const attacker = new Unit('attacker', '攻击者', {});
     const defender = new Unit('defender', '防御者', {});
@@ -661,7 +661,7 @@ describe('DamageSystem direct mitigation', () => {
 
     EventBus.instance.publish(event);
 
-    expect(event.finalDamage).toBe(100);
+    expect(event.finalDamage).toBe(106);
 
     damageSystem.destroy();
   });

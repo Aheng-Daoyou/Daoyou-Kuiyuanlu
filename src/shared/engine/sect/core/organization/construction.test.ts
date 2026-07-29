@@ -8,11 +8,11 @@ import {
 describe('sect facility construction', () => {
   it('quotes the five fixed spirit stone tiers', () => {
     expect(SECT_CONSTRUCTION_DONATION_OPTIONS).toEqual([
-      { spiritStones: 10_000, constructionPoints: 1, contribution: 10 },
-      { spiritStones: 50_000, constructionPoints: 5, contribution: 50 },
-      { spiritStones: 100_000, constructionPoints: 10, contribution: 100 },
-      { spiritStones: 200_000, constructionPoints: 20, contribution: 200 },
-      { spiritStones: 400_000, constructionPoints: 40, contribution: 400 },
+      { spiritStones: 10_000, constructionPoints: 1, contribution: 1 },
+      { spiritStones: 50_000, constructionPoints: 5, contribution: 3 },
+      { spiritStones: 100_000, constructionPoints: 10, contribution: 5 },
+      { spiritStones: 200_000, constructionPoints: 20, contribution: 10 },
+      { spiritStones: 400_000, constructionPoints: 40, contribution: 20 },
     ]);
     expect(() => quoteSectConstructionDonation(30_000)).toThrow(
       '建设灵石档位无效',

@@ -1,6 +1,10 @@
 import { REALM_VALUES } from '@shared/types/constants';
 import { describe, expect, it } from 'vitest';
-import { StandardSectOrganizationModule } from './StandardSectOrganizationModule';
+import { scaleMiningTaskReward } from '../mining/MiningRewards';
+import {
+  STANDARD_SECT_TASK_BASE_CONTRIBUTION,
+  StandardSectOrganizationModule,
+} from './StandardSectOrganizationModule';
 import {
   SECT_TASK_DIFFICULTY_MULTIPLIER_BPS,
   STANDARD_SECT_TASK_REWARD_CURVE,
@@ -112,6 +116,74 @@ describe('sect task rewards', () => {
     expect(resolveSectTaskDifficulty('easy', 'elite')).toBe('elite');
     expect(resolveSectTaskDifficulty('hard', 'normal')).toBe('hard');
     expect(resolveSectTaskDifficulty(undefined, 'normal')).toBe('normal');
+  });
+
+  it('keeps a fully unlocked week near 300 contribution', () => {
+    const taskContribution = (
+      taskId: keyof typeof STANDARD_SECT_TASK_BASE_CONTRIBUTION,
+      difficulty: 'easy' | 'normal' | 'hard' | 'elite',
+      cadence: 'daily' | 'weekly',
+    ) =>
+      calculateRealmSectTaskReward({
+        realm: '金丹',
+        realmStage: '初期',
+        difficulty,
+        cadence,
+        reward: {
+          baseContribution: STANDARD_SECT_TASK_BASE_CONTRIBUTION[taskId],
+        },
+      }).contribution;
+    const miningBase = taskContribution('spirit_mining', 'normal', 'daily');
+    const minimumDaily =
+      taskContribution('gate_sweep', 'easy', 'daily') +
+      taskContribution('mine_patrol', 'normal', 'daily') +
+      scaleMiningTaskReward(
+        calculateRealmSectTaskReward({
+          realm: '金丹',
+          realmStage: '初期',
+          difficulty: 'normal',
+          cadence: 'daily',
+          reward: {
+            baseContribution:
+              STANDARD_SECT_TASK_BASE_CONTRIBUTION.spirit_mining,
+          },
+        }),
+        'D',
+      ).contribution +
+      taskContribution('pill_delivery', 'easy', 'daily') +
+      taskContribution('artifact_delivery', 'easy', 'daily');
+    const maximumDaily =
+      taskContribution('gate_sweep', 'easy', 'daily') +
+      taskContribution('mine_patrol', 'normal', 'daily') +
+      scaleMiningTaskReward(
+        calculateRealmSectTaskReward({
+          realm: '金丹',
+          realmStage: '初期',
+          difficulty: 'normal',
+          cadence: 'daily',
+          reward: {
+            baseContribution:
+              STANDARD_SECT_TASK_BASE_CONTRIBUTION.spirit_mining,
+          },
+        }),
+        'S',
+      ).contribution +
+      taskContribution('pill_delivery', 'elite', 'daily') +
+      taskContribution('artifact_delivery', 'elite', 'daily');
+    const minimumWeekly =
+      taskContribution('weekly_diligence', 'easy', 'weekly') +
+      taskContribution('weekly_tournament', 'hard', 'weekly') +
+      taskContribution('weekly_bounty_battle', 'hard', 'weekly') +
+      taskContribution('weekly_bounty_material', 'hard', 'weekly');
+    const maximumWeekly =
+      taskContribution('weekly_diligence', 'easy', 'weekly') +
+      taskContribution('weekly_tournament', 'hard', 'weekly') +
+      taskContribution('weekly_bounty_battle', 'hard', 'weekly') +
+      taskContribution('weekly_bounty_material', 'elite', 'weekly');
+
+    expect(miningBase).toBe(5);
+    expect(minimumDaily * 7 + minimumWeekly).toBe(258);
+    expect(maximumDaily * 7 + maximumWeekly).toBe(326);
   });
 
   it('declares the standard task difficulty floors', () => {

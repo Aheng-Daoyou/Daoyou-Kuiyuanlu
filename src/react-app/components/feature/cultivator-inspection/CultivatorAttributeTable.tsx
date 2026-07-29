@@ -19,6 +19,7 @@ const SECONDARY_ATTR_ORDER: AttributeType[] = [
   AttributeType.DEF,
   AttributeType.MAGIC_ATK,
   AttributeType.MAGIC_DEF,
+  AttributeType.ACTION_SPEED,
   AttributeType.CRIT_RATE,
   AttributeType.CRIT_DAMAGE_MULT,
   AttributeType.EVASION_RATE,

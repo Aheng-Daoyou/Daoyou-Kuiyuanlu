@@ -136,7 +136,7 @@ describe('LingxiaoOrganizationModule', () => {
       minimumDifficulty: 'hard',
       reward: {
         policy: 'sect.reward.realm-task',
-        input: { baseContribution: 60 },
+        input: { baseContribution: 20 },
       },
       completionTags: ['promotion.bounty'],
     });
@@ -151,7 +151,7 @@ describe('LingxiaoOrganizationModule', () => {
       },
       reward: {
         policy: 'sect.reward.realm-task',
-        input: { baseContribution: 60 },
+        input: { baseContribution: 20 },
       },
       completionTags: ['promotion.bounty'],
     });

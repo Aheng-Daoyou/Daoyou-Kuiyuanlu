@@ -49,6 +49,8 @@ export interface AttrsStateView {
   def: number;
   magicAtk: number;
   magicDef: number;
+  /** 行动速度，决定出手顺序 */
+  actionSpeed: number;
   /** 暴击率，递减收益小数值，如 0.35 表示 35% */
   critRate: number;
   /** 暴击伤害倍率，递减收益 */

@@ -32,7 +32,7 @@ export interface Attributes {
   vitality: number; // 体魄：伤害减免、气血上限
   spirit: number; // 灵力：法术伤害、蓝量上限
   wisdom: number; // 悟性：暴击率、命中率、效果命中
-  speed: number; // 速度：出手顺序、闪避率
+  speed: number; // 身法：行动速度、闪避率、命中
   willpower: number; // 神识：暴击抗性、暴击伤害、状态抗性
 }
 
