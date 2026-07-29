@@ -13,7 +13,11 @@ import {
   projectSectCombat,
   resolveSectAbility,
 } from '../..';
-import { isListedSectAbility, SectStateValidator } from '../../../core';
+import {
+  isListedSectAbility,
+  sectAbilityMethodId,
+  SectStateValidator,
+} from '../../../core';
 import { YOUDU_ORGANIZATION_THEME } from '../organization';
 import { youduState } from './testState';
 
@@ -107,6 +111,35 @@ describe('幽都战斗与展示投影', () => {
       );
     },
   );
+
+  it('心死神活入宗即解锁、保留来源心法且不携带流派标签', () => {
+    const definition = YOUDU_MODULE.definition.abilities.find(
+      (ability) => ability.id === YOUDU_MODULE.definition.foundationPassiveId,
+    )!;
+    expect(YOUDU_MODULE.definition.foundationPassiveId).toBe('youdu-runtime');
+    expect(definition.unlock).toEqual({ type: 'always' });
+    expect(sectAbilityMethodId(definition)).toBe('dead-heart-living-spirit');
+
+    for (const pathId of [YOUDU_TIDE_PATH_ID, YOUDU_DECREE_PATH_ID]) {
+      const sect = youduState(pathId);
+      sect.methods['dead-heart-living-spirit'] = 0;
+      const detail = resolveSectAbility({
+        sect,
+        realm: '化神',
+        abilityId: 'youdu-runtime',
+      });
+      expect(detail.unlocked).toBe(true);
+      expect(detail.config.tags).not.toContain(
+        GameplayTags.ABILITY.SECT.path('youdu', pathId),
+      );
+      const projection = projectSectCombat({ sect, realm: '化神' })!;
+      expect(
+        projection.abilities.filter(
+          (ability) => ability.slug === 'sect.youdu.youdu-runtime',
+        ),
+      ).toHaveLength(1);
+    }
+  });
 
   it('七门神通的消耗、冷却、终结条件与照影命中策略符合设计', () => {
     const state = youduState();

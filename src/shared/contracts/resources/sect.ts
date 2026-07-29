@@ -2,7 +2,6 @@ import { SectDeliveryRequirementSchema } from '@shared/engine/sect/core/organiza
 import { SectTaskRewardSnapshotSchema } from '@shared/engine/sect/core/organization/taskRewards';
 import { z } from 'zod';
 import type {
-  SectConstructionBoardData,
   SectConstructionMemberData,
   SectContributionRankingData,
   SectContextData,
@@ -21,7 +20,6 @@ export const SECT_RESOURCE_TOPICS = [
   'sect.progression',
   'sect.tasks',
   'sect.shop',
-  'sect.construction-board',
   'sect.construction-member',
 ] as const;
 
@@ -35,7 +33,6 @@ export interface SectResourceDataMap {
   'sect.progression': SectProgressionData;
   'sect.tasks': SectTasksData;
   'sect.shop': SectShopData;
-  'sect.construction-board': SectConstructionBoardData;
   'sect.construction-member': SectConstructionMemberData;
 }
 
@@ -214,24 +211,14 @@ export const SECT_RESOURCE_DATA_SCHEMAS = {
           .object({
             key: z.string(),
             level: z.number(),
+            progress: z.number(),
+            target: z.number().nullable(),
+            maxLevel: z.number(),
+            upgradeable: z.boolean(),
             updatedAt: z.string().optional(),
           })
           .strict(),
       ),
-      project: z
-        .object({
-          id: z.string(),
-          sectId: z.string(),
-          facilityKey: z.string(),
-          targetLevel: z.number(),
-          progress: z.number(),
-          target: z.number(),
-          status: z.enum(['active', 'completed']),
-          startedWeekKey: z.string(),
-          completedAt: z.string().optional(),
-        })
-        .strict()
-        .nullable(),
     })
     .strict(),
   'sect.progression': z
@@ -261,40 +248,15 @@ export const SECT_RESOURCE_DATA_SCHEMAS = {
       items: z.array(sectShopItemSchema),
     })
     .strict(),
-  'sect.construction-board': z
-    .object({
-      demands: z.array(
-        z
-          .object({
-            id: z.string(),
-            name: z.string(),
-            description: z.string(),
-            kind: z.string(),
-            quantity: z.number(),
-            contribution: z.number(),
-            constructionPoints: z.number(),
-            minQuality: z.string().optional(),
-            pillFamily: z.string().optional(),
-          })
-          .strict(),
-      ),
-      dailyContributionCap: z.number(),
-      recentActivity: z.array(
-        z
-          .object({
-            id: z.string(),
-            memberName: z.string(),
-            demandId: z.string(),
-            contribution: z.number(),
-            constructionPoints: z.number(),
-            createdAt: z.string(),
-          })
-          .strict(),
-      ),
-    })
-    .strict(),
   'sect.construction-member': z
-    .object({ donatedContributionToday: z.number() })
+    .object({
+      dateKey: z.string(),
+      constructedToday: z.boolean(),
+      facilityKey: z.string().optional(),
+      spiritStones: z.number().optional(),
+      constructionPoints: z.number().optional(),
+      contribution: z.number().optional(),
+    })
     .strict(),
 } satisfies {
   [TTopic in SectResourceTopic]: z.ZodType<SectResourceDataMap[TTopic]>;

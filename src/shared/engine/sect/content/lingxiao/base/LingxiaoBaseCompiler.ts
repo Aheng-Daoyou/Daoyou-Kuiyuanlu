@@ -33,6 +33,15 @@ const abilityDefinition = (abilityId: string) => {
   return definition;
 };
 
+const passiveDefinition = (abilityId: string) => {
+  const definition = LINGXIAO_BASE_DEFINITION.abilities.find(
+    (ability) => ability.id === abilityId,
+  );
+  if (!definition || definition.kind !== 'passive')
+    throw new Error(`红尘剑宗基础被动未定义: ${abilityId}`);
+  return definition;
+};
+
 const selfBuff = (
   id: string,
   name: string,
@@ -90,6 +99,25 @@ export function compileLingxiaoBase(
       abilityId,
       factory.active({ ...spec, definition: abilityDefinition(abilityId) }),
     );
+
+  builder.setAbility(
+    'lingxiao-runtime',
+    factory.passive({
+      definition: passiveDefinition('lingxiao-runtime'),
+      modifiers: [
+        {
+          attrType: AttributeType.CRIT_RATE,
+          type: ModifierType.FIXED,
+          value: 0.1,
+        },
+        {
+          attrType: AttributeType.ARMOR_PENETRATION,
+          type: ModifierType.FIXED,
+          value: 0.1,
+        },
+      ],
+    }),
+  );
 
   active('plain-sword', {
     targetPolicy: { team: 'enemy', scope: 'single' },

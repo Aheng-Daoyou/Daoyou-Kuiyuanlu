@@ -1,6 +1,5 @@
 import type {
   CultivatorSectState,
-  SectConstructionProjectState,
   SectDefinition,
   SectDeliveryRequirement,
   SectDeliveryViolation,
@@ -71,11 +70,18 @@ export const SectShopPurchaseRequestSchema = z.object({
   itemId: z.string().min(1).max(64),
   quantity: z.number().int().positive().max(10).default(1),
 });
-export const SectDonationRequestSchema = z.object({
-  demandId: z.string().min(1).max(64),
-  itemId: z.string().uuid().optional(),
-  quantity: z.number().int().positive().max(9999).default(1),
-});
+export const SectDonationRequestSchema = z
+  .object({
+    facilityKey: z.string().min(1).max(32),
+    spiritStones: z.union([
+      z.literal(10_000),
+      z.literal(50_000),
+      z.literal(100_000),
+      z.literal(200_000),
+      z.literal(400_000),
+    ]),
+  })
+  .strict();
 export const SectIdempotencyKeySchema = z.string().uuid();
 export const SectMembersQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -272,21 +278,8 @@ export interface SectRewardGrantData {
   summary: string;
 }
 
-export interface SectDonationDemandData {
-  id: string;
-  name: string;
-  description: string;
-  kind: string;
-  quantity: number;
-  contribution: number;
-  constructionPoints: number;
-  minQuality?: string;
-  pillFamily?: string;
-}
-
 export interface SectInfrastructureData {
   facilities: SectFacilityState[];
-  project: SectConstructionProjectState | null;
 }
 
 export interface SectContextData {
@@ -349,21 +342,13 @@ export const SectPromotionEvaluationDataSchema: z.ZodType<SectPromotionEvaluatio
     })
     .strict();
 
-export interface SectConstructionBoardData {
-  demands: SectDonationDemandData[];
-  dailyContributionCap: number;
-  recentActivity: Array<{
-    id: string;
-    memberName: string;
-    demandId: string;
-    contribution: number;
-    constructionPoints: number;
-    createdAt: string;
-  }>;
-}
-
 export interface SectConstructionMemberData {
-  donatedContributionToday: number;
+  dateKey: string;
+  constructedToday: boolean;
+  facilityKey?: string;
+  spiritStones?: number;
+  constructionPoints?: number;
+  contribution?: number;
 }
 
 export interface SectMemberData {

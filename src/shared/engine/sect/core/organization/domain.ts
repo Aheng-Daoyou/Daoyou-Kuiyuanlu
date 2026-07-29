@@ -4,7 +4,6 @@ import {
   type SectDiscipleRank,
 } from '../domain/organization';
 import type {
-  SectDonationDemandDefinition,
   SectRewardGrantDefinition,
 } from './contracts';
 import type { SectTaskRewardSnapshot } from './taskRewards';
@@ -57,30 +56,6 @@ export type SectDomainEvent =
       type: 'SectMembershipPromoted';
       membershipId: string;
       rank: SectDiscipleRank;
-    }
-  | {
-      type: 'SectDonationAccepted';
-      donationId: string;
-      membershipId: string;
-      projectId: string;
-      dateKey: string;
-      demand: SectDonationDemandDefinition;
-      itemSnapshot: Record<string, unknown>;
-      contribution: number;
-      constructionPoints: number;
-      projectProgress: number;
-    }
-  | {
-      type: 'SectProjectCompleted';
-      projectId: string;
-      facilityKey: string;
-      targetLevel: number;
-    }
-  | {
-      type: 'SectFacilityUpgraded';
-      sectId: string;
-      facilityKey: string;
-      level: number;
     }
   | {
       type: 'SectStipendClaimed';
@@ -405,110 +380,6 @@ export class SectTask {
   }
 }
 
-export class SectConstructionProject {
-  private events: SectDomainEvent[] = [];
-  private progressValue: number;
-  private completed: boolean;
-
-  private constructor(
-    readonly id: string,
-    readonly sectId: string,
-    readonly facilityKey: string,
-    readonly targetLevel: number,
-    readonly target: number,
-    progress: number,
-    completed: boolean,
-  ) {
-    if (!Number.isSafeInteger(target) || target <= 0)
-      throw new SectDomainError('工程目标必须是正整数');
-    if (!Number.isSafeInteger(progress) || progress < 0 || progress > target)
-      throw new SectDomainError('工程进度无效');
-    FacilityLevel.of(targetLevel);
-    this.progressValue = progress;
-    this.completed = completed;
-  }
-
-  static rehydrate(input: {
-    id: string;
-    sectId: string;
-    facilityKey: string;
-    targetLevel: number;
-    target: number;
-    progress: number;
-    completed: boolean;
-  }): SectConstructionProject {
-    return new SectConstructionProject(
-      input.id,
-      input.sectId,
-      input.facilityKey,
-      input.targetLevel,
-      input.target,
-      input.progress,
-      input.completed,
-    );
-  }
-
-  progress(): number {
-    return this.progressValue;
-  }
-
-  isCompleted(): boolean {
-    return this.completed;
-  }
-
-  applyDonation(
-    membershipId: string,
-    contribution: number,
-    points: number,
-    settlement: {
-      donationId: string;
-      dateKey: string;
-      demand: SectDonationDemandDefinition;
-      itemSnapshot: Record<string, unknown>;
-    },
-  ): void {
-    if (this.completed) throw new SectDomainError('工程已经完成');
-    if (!Number.isSafeInteger(points) || points <= 0)
-      throw new SectDomainError('建设点数必须是正整数');
-    if (!Number.isSafeInteger(contribution) || contribution <= 0)
-      throw new SectDomainError('捐献贡献必须是正整数');
-    this.progressValue = Math.min(this.target, this.progressValue + points);
-    this.events.push({
-      type: 'SectDonationAccepted',
-      donationId: settlement.donationId,
-      membershipId,
-      projectId: this.id,
-      dateKey: settlement.dateKey,
-      demand: settlement.demand,
-      itemSnapshot: settlement.itemSnapshot,
-      contribution,
-      constructionPoints: points,
-      projectProgress: this.progressValue,
-    });
-    if (this.progressValue >= this.target) {
-      this.completed = true;
-      this.events.push({
-        type: 'SectProjectCompleted',
-        projectId: this.id,
-        facilityKey: this.facilityKey,
-        targetLevel: this.targetLevel,
-      });
-      this.events.push({
-        type: 'SectFacilityUpgraded',
-        sectId: this.sectId,
-        facilityKey: this.facilityKey,
-        level: this.targetLevel,
-      });
-    }
-  }
-
-  pullEvents(): SectDomainEvent[] {
-    const events = this.events;
-    this.events = [];
-    return events;
-  }
-}
-
 export class SectStipendClaim {
   private events: SectDomainEvent[] = [];
 
@@ -586,40 +457,6 @@ export class SectShopOrder {
       input.itemId,
       input.quantity,
       input.unitPrice * input.quantity,
-    );
-  }
-}
-
-export class SectDonationOffer {
-  private constructor(
-    readonly demandId: string,
-    readonly units: number,
-    readonly itemQuantity: number,
-    readonly contribution: number,
-    readonly constructionPoints: number,
-  ) {}
-
-  static quote(input: {
-    demandId: string;
-    units: number;
-    quantityPerUnit: number;
-    contributionPerUnit: number;
-    constructionPointsPerUnit: number;
-  }): SectDonationOffer {
-    for (const value of [
-      input.units,
-      input.quantityPerUnit,
-      input.contributionPerUnit,
-      input.constructionPointsPerUnit,
-    ])
-      if (!Number.isSafeInteger(value) || value <= 0)
-        throw new SectDomainError('宗门需求数量与奖励必须是正整数');
-    return new SectDonationOffer(
-      input.demandId,
-      input.units,
-      input.quantityPerUnit * input.units,
-      input.contributionPerUnit * input.units,
-      input.constructionPointsPerUnit * input.units,
     );
   }
 }

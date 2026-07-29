@@ -6,7 +6,6 @@ import {
   runMaterialLibraryDailyGenerationJob,
   runResourceReplayCleanupJob,
   runRankRewardsJob,
-  runSectConstructionWeeklyJob,
   runTowerEnemySetRefreshJob,
 } from './internalCron';
 
@@ -14,8 +13,6 @@ const AUCTION_EXPIRE_SCHEDULE = '*/2 * * * *';
 const BET_BATTLE_EXPIRE_SCHEDULE = '*/2 * * * *';
 // Bun.cron uses UTC for cron expressions. 16:00 UTC equals 00:00 Asia/Shanghai.
 const RANK_REWARDS_SCHEDULE = '0 16 * * *';
-// Sunday 16:00 UTC equals Monday 00:00 Asia/Shanghai.
-const SECT_CONSTRUCTION_WEEKLY_SCHEDULE = '0 16 * * 0';
 // Market refresh: every 5 minutes to pre-generate listings before 15-min cycle ends
 const MARKET_REFRESH_SCHEDULE = '*/5 * * * *';
 const TOWER_ENEMY_SETS_SCHEDULE = '0 * * * *';
@@ -59,9 +56,6 @@ export function registerInternalCronJobs(
     Bun.cron(RANK_REWARDS_SCHEDULE, () =>
       runScheduledJob('rank-rewards', runRankRewardsJob),
     ),
-    Bun.cron(SECT_CONSTRUCTION_WEEKLY_SCHEDULE, () =>
-      runScheduledJob('sect-construction-weekly', runSectConstructionWeeklyJob),
-    ),
     Bun.cron(MARKET_REFRESH_SCHEDULE, () =>
       runScheduledJob('market-refresh', runMarketRefreshCronJob),
     ),
@@ -91,8 +85,6 @@ export function registerInternalCronJobs(
     betBattleExpire: BET_BATTLE_EXPIRE_SCHEDULE,
     rankRewardsUtc: RANK_REWARDS_SCHEDULE,
     rankRewardsLocal: '00:00 Asia/Shanghai',
-    sectConstructionWeeklyUtc: SECT_CONSTRUCTION_WEEKLY_SCHEDULE,
-    sectConstructionWeeklyLocal: 'Monday 00:00 Asia/Shanghai',
     marketRefresh: MARKET_REFRESH_SCHEDULE,
     towerEnemySets: TOWER_ENEMY_SETS_SCHEDULE,
     resourceReplayCleanupUtc: RESOURCE_REPLAY_CLEANUP_SCHEDULE,

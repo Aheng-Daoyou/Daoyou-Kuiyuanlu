@@ -1,6 +1,33 @@
+import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import { describe, expect, it } from 'vitest';
-import { SectRegistry, type SectModule, type SectPathModule } from '..';
-import { FIXTURE_SECT_MODULE } from '../../testing/fixtures/FixtureSectModule';
+import {
+  SectCompiler,
+  SectRegistry,
+  type SectBuildBuilder,
+  type SectModule,
+  type SectPathModule,
+} from '..';
+import {
+  FIXTURE_SECT_MODULE,
+  fixtureSectState,
+} from '../../testing/fixtures/FixtureSectModule';
+
+function replaceBaseBuilder(
+  transform: (builder: SectBuildBuilder) => SectBuildBuilder,
+): SectModule {
+  return {
+    definition: FIXTURE_SECT_MODULE.definition,
+    paths: FIXTURE_SECT_MODULE.paths,
+    progression: FIXTURE_SECT_MODULE.progression,
+    methodGrowth: FIXTURE_SECT_MODULE.methodGrowth,
+    organization: FIXTURE_SECT_MODULE.organization,
+    createBaseSelectionStrategy: () =>
+      FIXTURE_SECT_MODULE.createBaseSelectionStrategy(),
+    createBaseBuilder: (context) =>
+      transform(FIXTURE_SECT_MODULE.createBaseBuilder(context)),
+    checkAdmission: (context) => FIXTURE_SECT_MODULE.checkAdmission(context),
+  };
+}
 
 function replacePath(pathId: string, replacement: SectPathModule): SectModule {
   const paths = new Map(FIXTURE_SECT_MODULE.paths);
@@ -26,6 +53,107 @@ function replacePath(pathId: string, replacement: SectPathModule): SectModule {
 }
 
 describe('宗门模块扩展契约', () => {
+  it('强制每个宗门指定一个入宗即解锁的被动作为宗门根基', () => {
+    const missing = structuredClone(FIXTURE_SECT_MODULE.definition);
+    delete (missing as Partial<typeof missing>).foundationPassiveId;
+    expect(
+      () => new SectRegistry([{ ...FIXTURE_SECT_MODULE, definition: missing }]),
+    ).toThrow('必须且只能指定1个宗门根基被动');
+
+    const unknown = structuredClone(FIXTURE_SECT_MODULE.definition);
+    unknown.foundationPassiveId = 'missing-foundation';
+    expect(
+      () => new SectRegistry([{ ...FIXTURE_SECT_MODULE, definition: unknown }]),
+    ).toThrow('根基被动不存在');
+
+    const active = structuredClone(FIXTURE_SECT_MODULE.definition);
+    active.foundationPassiveId = 'fixture-ability-2';
+    expect(
+      () => new SectRegistry([{ ...FIXTURE_SECT_MODULE, definition: active }]),
+    ).toThrow('根基能力必须是被动');
+
+    const gated = structuredClone(FIXTURE_SECT_MODULE.definition);
+    const gatedFoundation = gated.abilities.find(
+      (ability) => ability.id === gated.foundationPassiveId,
+    )!;
+    gatedFoundation.unlock = {
+      type: 'method',
+      methodId: 'fixture-method-6',
+      level: 1,
+    };
+    expect(
+      () => new SectRegistry([{ ...FIXTURE_SECT_MODULE, definition: gated }]),
+    ).toThrow('根基被动必须入宗即解锁');
+  });
+
+  it('拒绝未知来源心法、空根基实现及携带流派标签的根基被动', () => {
+    const unknownSource = structuredClone(FIXTURE_SECT_MODULE.definition);
+    unknownSource.abilities.find(
+      (ability) => ability.id === unknownSource.foundationPassiveId,
+    )!.sourceMethodId = 'missing-method';
+    expect(
+      () =>
+        new SectRegistry([
+          { ...FIXTURE_SECT_MODULE, definition: unknownSource },
+        ]),
+    ).toThrow('未知来源心法');
+
+    const emptyFoundation = replaceBaseBuilder((builder) =>
+      builder.updateAbility(
+        FIXTURE_SECT_MODULE.definition.foundationPassiveId,
+        (ability) => ({
+          ...ability,
+          config: {
+            ...ability.config,
+            modifiers: undefined,
+            listeners: undefined,
+          },
+        }),
+      ),
+    );
+    expect(() => new SectRegistry([emptyFoundation])).toThrow(
+      '根基被动不得为空',
+    );
+
+    const pathTaggedFoundation = replaceBaseBuilder((builder) =>
+      builder.updateAbility(
+        FIXTURE_SECT_MODULE.definition.foundationPassiveId,
+        (ability) => ({
+          ...ability,
+          config: {
+            ...ability.config,
+            tags: [
+              ...(ability.config.tags ?? []),
+              GameplayTags.ABILITY.SECT.path(
+                FIXTURE_SECT_MODULE.definition.id,
+                FIXTURE_SECT_MODULE.definition.paths[0].id,
+              ),
+            ],
+          },
+        }),
+      ),
+    );
+    expect(() => new SectRegistry([pathTaggedFoundation])).toThrow(
+      '根基被动不得携带流派标签',
+    );
+  });
+
+  it('根基被动不能通过主动栏重复进入战斗投影', () => {
+    const state = fixtureSectState();
+    state.abilityLoadout = [
+      FIXTURE_SECT_MODULE.definition.foundationPassiveId,
+      null,
+      null,
+      null,
+    ];
+    expect(() =>
+      new SectCompiler().projectCombat(FIXTURE_SECT_MODULE, {
+        sect: state,
+        realm: '炼气',
+      }),
+    ).toThrow('根基被动战斗投影必须且只能出现1次');
+  });
+
   it('第二宗门只通过模块注册即可完成定义、流派与战斗投影', () => {
     const registry = new SectRegistry([FIXTURE_SECT_MODULE]);
     const module = registry.require('fixture-sect');

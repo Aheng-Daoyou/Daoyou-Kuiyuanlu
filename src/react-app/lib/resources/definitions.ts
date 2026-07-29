@@ -18,7 +18,6 @@ export {
   type PlayerTasksParams,
 } from './playerDefinitions';
 export {
-  sectConstructionBoardResource,
   sectConstructionMemberResource,
   sectContributionRankingResource,
   sectContextResource,
@@ -47,7 +46,6 @@ import {
   playerTasksResource,
 } from './playerDefinitions';
 import {
-  sectConstructionBoardResource,
   sectConstructionMemberResource,
   sectContributionRankingResource,
   sectContextResource,
@@ -75,7 +73,6 @@ export const resourceRegistry = {
   sectProgression: sectProgressionResource,
   sectTasks: sectTasksResource,
   sectShop: sectShopResource,
-  sectConstructionBoard: sectConstructionBoardResource,
   sectConstructionMember: sectConstructionMemberResource,
   sectContributionRanking: sectContributionRankingResource,
   inventoryArtifacts: inventoryArtifactsResource,

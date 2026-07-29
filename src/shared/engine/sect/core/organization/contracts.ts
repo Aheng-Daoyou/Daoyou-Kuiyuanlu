@@ -193,29 +193,10 @@ export interface SectShopDefinition {
   grant: SectShopGrant;
 }
 
-export interface SectDonationDemandDefinition {
-  id: string;
-  name: string;
-  description: string;
-  kind: string;
-  quantity: number;
-  contribution: number;
-  constructionPoints: number;
-  minQuality?: string;
-  pillFamily?: string;
-}
-
 export interface SectEconomyPolicy {
-  readonly donationDailyCap: number;
   /** Exhaustive reward strategy kinds this policy may emit. */
   readonly rewardGrantKinds: readonly string[];
-  /** Exhaustive donation specification kinds this policy may emit. */
-  readonly donationKinds: readonly string[];
   shopItems(weekKey: string): readonly SectShopDefinition[];
-  donationDemands(
-    sectId: string,
-    dateKey: string,
-  ): readonly SectDonationDemandDefinition[];
   stipendBase(rank: SectDiscipleRank): number;
   stipendRewards(
     rank: SectDiscipleRank,
@@ -230,11 +211,7 @@ export interface SectConstructionPolicy {
     maxLevel: number;
     upgradeable: boolean;
   }[];
-  readonly facilityPriority: readonly string[];
-  projectBaseTarget(targetLevel: number): number;
-  nextProject(
-    levels: ReadonlyMap<string, number>,
-  ): { facilityKey: string; targetLevel: number } | null;
+  upgradeTarget(currentLevel: number): number | null;
 }
 
 export interface SectOpponentFactoryContext {

@@ -1,7 +1,4 @@
-import type {
-  SectConstructionProjectState,
-  SectFacilityState,
-} from '../domain';
+import type { SectFacilityState } from '../domain';
 import type {
   SectBenefitMetric,
   SectFacilityEffectSnapshot,
@@ -77,31 +74,4 @@ export function describeSectFacilityStatus(args: {
     segments.push({ text: '。' });
   }
   return segments;
-}
-
-export function describeSectConstructionProject(args: {
-  project: SectConstructionProjectState | null;
-  facilityLabel?: string;
-}): SectFacilityDialogueSegment[] {
-  if (!args.project)
-    return [{ text: '本周工程尚在议定，眼下没有正在推进的设施。' }];
-  const progress = Math.max(0, args.project.progress);
-  const target = Math.max(0, args.project.target);
-  const percentage =
-    target > 0
-      ? Math.min(100, Math.max(0, Math.floor((progress / target) * 100)))
-      : 0;
-  const facilityLabel =
-    args.facilityLabel && isPlayerFacingText(args.facilityLabel)
-      ? args.facilityLabel.trim()
-      : '当前设施';
-  return [
-    { text: `本周正在将${facilityLabel}提升至` },
-    { text: `${args.project.targetLevel}级`, emphasis: 'level' },
-    { text: '，已经完成' },
-    { text: `${percentage}%`, emphasis: 'progress' },
-    {
-      text: `，现有${progress.toLocaleString('zh-CN')}点，共需${target.toLocaleString('zh-CN')}点。`,
-    },
-  ];
 }

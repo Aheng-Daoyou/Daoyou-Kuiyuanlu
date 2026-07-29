@@ -63,7 +63,6 @@ export const RESOURCE_TOPIC_SCOPE_KIND = {
   'sect.progression': 'cultivator',
   'sect.tasks': 'cultivator',
   'sect.shop': 'cultivator',
-  'sect.construction-board': 'sect',
   'sect.construction-member': 'cultivator',
   'inventory.artifacts': 'cultivator',
   'inventory.materials': 'cultivator',

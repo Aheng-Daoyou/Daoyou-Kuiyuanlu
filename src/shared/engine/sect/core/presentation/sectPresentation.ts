@@ -205,7 +205,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.construction.view',
     left: '0',
     top: '0',
-    note: '设施建设 · 物资捐献',
+    note: '设施建设 · 灵石捐献',
   },
   {
     id: 'cultivation',
@@ -315,8 +315,8 @@ const STANDARD_SCENES: Record<SectSceneKey, SectScenePresentation> = {
   ),
   industries: scene(
     '建设院',
-    '提交公共工程所需物资，推进宗门设施建设。',
-    '建设账册正在汇总……',
+    '选择宗门设施并捐献灵石，推进常态建设。',
+    '设施建设进度正在汇总……',
   ),
   cultivation: scene(
     '修炼室',
@@ -450,24 +450,24 @@ const STANDARD_ROOMS: Readonly<Record<string, SectRoomDefinition>> =
     },
     industries: {
       key: 'industries',
-      description: '工程长卷与物料清单分列两案，宗门建设由两席执事共同经办。',
+      description: '各处设施的等级与进度列于案前，宗门建设由两席执事共同经办。',
       actors: [
         roomActor(
           'construction',
           '造',
           '营造执事',
           '营造执事',
-          '负责公共工程与设施进度。',
-          '本周工程与各处设施都有记录，你想先问哪一项？',
+          '负责各处设施等级与建设进度。',
+          '各处设施的建设进度都有记录，可以随时查验。',
           'sect.industries.construction',
         ),
         roomActor(
           'donation',
-          '料',
-          '物料执事',
-          '物料执事',
-          '负责建设物资核验与入册。',
-          '今日所需物料已经列好，你若有意捐献便来核对。',
+          '石',
+          '建设执事',
+          '建设执事',
+          '负责灵石捐献与建设登记。',
+          '每日可择一处设施捐献灵石，你想建设哪一处？',
           'sect.industries.donation',
         ),
       ],

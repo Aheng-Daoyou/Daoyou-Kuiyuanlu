@@ -1,5 +1,7 @@
-import type { AttributeModifierConfig } from '@shared/engine/battle-v5/core/configs';
-import type { AbilityCostConfig } from '@shared/engine/battle-v5/core/configs';
+import type {
+  AbilityCostConfig,
+  AttributeModifierConfig,
+} from '@shared/engine/battle-v5/core/configs';
 import type { RealmStage, RealmType } from '@shared/types/constants';
 
 export type PlayerRaceId = 'human';
@@ -48,11 +50,12 @@ interface SectAbilityDefinitionBase {
   description: string;
   role: SectAbilityRole;
   unlock: SectAbilityUnlock;
+  /** 心法归属与成长来源；未声明时沿用 method 解锁来源。 */
+  sourceMethodId?: SectMethodId;
   visibility?: SectAbilityVisibility;
 }
 
-export interface SectDefaultAbilityDefinition
-  extends SectAbilityDefinitionBase {
+export interface SectDefaultAbilityDefinition extends SectAbilityDefinitionBase {
   kind: 'default';
   mpCost?: number;
   costs?: AbilityCostConfig[];
@@ -66,8 +69,7 @@ export interface SectActiveAbilityDefinition extends SectAbilityDefinitionBase {
   cooldown: number;
 }
 
-export interface SectPassiveAbilityDefinition
-  extends SectAbilityDefinitionBase {
+export interface SectPassiveAbilityDefinition extends SectAbilityDefinitionBase {
   kind: 'passive';
 }
 
@@ -79,18 +81,17 @@ export type SectAbilityDefinition =
 export function sectAbilityMethodId(
   ability: SectAbilityDefinition,
 ): SectMethodId | undefined {
-  return ability.unlock.type === 'method' ? ability.unlock.methodId : undefined;
+  return (
+    ability.sourceMethodId ??
+    (ability.unlock.type === 'method' ? ability.unlock.methodId : undefined)
+  );
 }
 
-export function sectAbilityUnlockLevel(
-  ability: SectAbilityDefinition,
-): number {
+export function sectAbilityUnlockLevel(ability: SectAbilityDefinition): number {
   return ability.unlock.type === 'method' ? ability.unlock.level : 0;
 }
 
-export function isListedSectAbility(
-  ability: SectAbilityDefinition,
-): boolean {
+export function isListedSectAbility(ability: SectAbilityDefinition): boolean {
   return ability.visibility !== 'internal';
 }
 
@@ -150,6 +151,7 @@ export interface SectDefinition {
   description: string;
   raceIds: PlayerRaceId[];
   configVersion: number;
+  foundationPassiveId: SectAbilityId;
   combatResource: { id: string; name: string; icon?: string; max: number };
   methods: SectHeartMethodDefinition[];
   abilities: SectAbilityDefinition[];

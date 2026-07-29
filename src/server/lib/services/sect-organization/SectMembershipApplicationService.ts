@@ -15,7 +15,6 @@ import type { SectBenefitService } from './SectBenefitService';
 import type { SectDomainEventDispatcherFactory } from './SectDomainEventDispatcher';
 import {
   mapFacilities,
-  mapProject,
   organizationError,
   organizationFor,
   quoteSectStipend,
@@ -110,14 +109,12 @@ export class SectMembershipApplicationService {
       cultivatorId,
       context.memberships,
     );
-    const [facilityRows, projectRow] = await Promise.all([
-      context.facilities.list(membership.sectId),
-      context.construction.findActiveProject(membership.sectId),
-    ]);
-    const facilities = mapFacilities(facilityRows);
+    const organization = organizationFor(context.modules, membership.sectId);
     return {
-      facilities,
-      project: mapProject(projectRow),
+      facilities: mapFacilities(
+        await context.facilities.list(membership.sectId),
+        organization,
+      ),
     };
   }
 
@@ -129,13 +126,14 @@ export class SectMembershipApplicationService {
       cultivatorId,
       context.memberships,
     );
+    const organization = organizationFor(context.modules, membership.sectId);
     const facilities = mapFacilities(
       await context.facilities.list(membership.sectId),
+      organization,
     );
     const facilityLevels = new Map(
       facilities.map((item) => [item.key as string, item.level]),
     );
-    const organization = organizationFor(context.modules, membership.sectId);
     const stipend = quoteSectStipend(
       organization,
       membership.discipleRank,

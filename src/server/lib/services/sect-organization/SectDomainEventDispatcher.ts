@@ -10,7 +10,6 @@ import {
 import type { SectRewardGrantStrategyRegistry } from './EconomyStrategies';
 import type {
   SectCommandContext,
-  SectConstructionCommandContext,
   SectEconomyCommandContext,
   SectMembershipCommandContext,
   SectMembershipRecord,
@@ -136,9 +135,6 @@ export interface SectDomainEventDispatcherFactory {
     cultivatorId: string;
     command: SectEconomyCommandContext;
   }): SectDomainEventDispatcher;
-  forConstruction(
-    command: SectConstructionCommandContext,
-  ): SectDomainEventDispatcher;
 }
 
 function taskDefinitions(
@@ -492,84 +488,6 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
     );
   }
 
-  forConstruction(
-    command: SectConstructionCommandContext,
-  ): SectDomainEventDispatcher {
-    return new SectDomainEventDispatcher(
-      [
-        defineSectDomainEventHandler('SectDonationAccepted', async (event) => {
-          const donation = await command.construction.recordDonation({
-            id: event.donationId,
-            membershipId: event.membershipId,
-            projectId: event.projectId,
-            dateKey: event.dateKey,
-            demandId: event.demand.id,
-            contribution: event.contribution,
-            constructionPoints: event.constructionPoints,
-            itemSnapshot: event.itemSnapshot,
-          });
-          if (!donation) organizationError('该笔捐献已经处理');
-          if (
-            !(await command.construction.saveProjectProgress(
-              event.projectId,
-              event.projectProgress,
-            ))
-          )
-            organizationError('工程状态已变化，请重试');
-          return [
-            {
-              type: 'SectContributionGranted',
-              membershipId: event.membershipId,
-              amount: event.contribution,
-              reason: 'construction_donation',
-              referenceId: donation.id,
-            },
-          ];
-        }),
-        defineSectDomainEventHandler(
-          'SectContributionGranted',
-          async (event) => {
-            ContributionBalance.of(0).credit(event.amount);
-            const balance = await command.construction.grantContribution(
-              event.membershipId,
-              event.amount,
-              event.reason,
-              event.referenceId,
-            );
-            const effects = emptySectCommandEffects();
-            effects.settlement.contribution = balance;
-            effects.resourceChanges.push({
-              resourceTopic: 'sect.membership',
-              eventType: 'sect.construction_contribution_granted',
-              operation: 'merge',
-              payload: { contribution: balance },
-            });
-            return { effects };
-          },
-        ),
-        defineSectDomainEventHandler('SectProjectCompleted', async (event) => {
-          if (
-            !(await command.construction.completeProject(
-              event.projectId,
-              command.clock.now(),
-            ))
-          )
-            organizationError('工程完成状态已经变化，请重试');
-        }),
-        defineSectDomainEventHandler('SectFacilityUpgraded', async (event) => {
-          if (
-            !(await command.construction.upgradeFacility(
-              event.sectId,
-              event.facilityKey,
-              event.level,
-            ))
-          )
-            organizationError('设施等级已经变化，请重试');
-        }),
-      ],
-      this.limit,
-    );
-  }
 }
 
 export function createStandardSectDomainEventDispatcher(args: {

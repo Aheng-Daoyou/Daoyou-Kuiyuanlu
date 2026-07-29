@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   ContributionBalance,
-  SectConstructionProject,
-  SectDonationOffer,
   SectMembership,
   SectShopOrder,
   SectStipendClaim,
@@ -10,20 +8,6 @@ import {
 } from './domain';
 
 describe('sect organization domain', () => {
-  const donationSettlement = {
-    donationId: 'donation-1',
-    dateKey: '2026-07-19',
-    demand: {
-      id: 'herb',
-      name: '灵草',
-      description: '测试需求',
-      kind: 'fixture.donation',
-      quantity: 1,
-      contribution: 10,
-      constructionPoints: 20,
-    },
-    itemSnapshot: { itemId: 'herb-1' },
-  };
   const stipendSnapshot = { spiritStones: 500, rewards: [] };
   it('protects contribution balance and promotes without consuming it', () => {
     const membership = SectMembership.rehydrate({
@@ -79,29 +63,6 @@ describe('sect organization domain', () => {
     ).toThrow('已经领取');
   });
 
-  it('completes a construction project once at its target', () => {
-    const project = SectConstructionProject.rehydrate({
-      id: 'project-1',
-      sectId: 'fixture',
-      facilityKey: 'archive',
-      targetLevel: 2,
-      target: 100,
-      progress: 90,
-      completed: false,
-    });
-    project.applyDonation('member-1', 10, 20, donationSettlement);
-    expect(project.progress()).toBe(100);
-    expect(project.isCompleted()).toBe(true);
-    expect(project.pullEvents().map((event) => event.type)).toEqual([
-      'SectDonationAccepted',
-      'SectProjectCompleted',
-      'SectFacilityUpgraded',
-    ]);
-    expect(() =>
-      project.applyDonation('member-1', 10, 10, donationSettlement),
-    ).toThrow('工程已经完成');
-  });
-
   it('rejects invalid balances', () => {
     expect(() => ContributionBalance.of(-1)).toThrow('非负整数');
   });
@@ -129,7 +90,7 @@ describe('sect organization domain', () => {
     );
   });
 
-  it('quotes shop and donation commands inside the domain', () => {
+  it('quotes shop commands inside the domain', () => {
     expect(
       SectShopOrder.quote({
         itemId: 'item-1',
@@ -148,18 +109,5 @@ describe('sect organization domain', () => {
         unitPrice: 20,
       }),
     ).toThrow('库存不足');
-    expect(
-      SectDonationOffer.quote({
-        demandId: 'demand-1',
-        units: 2,
-        quantityPerUnit: 3,
-        contributionPerUnit: 10,
-        constructionPointsPerUnit: 12,
-      }),
-    ).toMatchObject({
-      itemQuantity: 6,
-      contribution: 20,
-      constructionPoints: 24,
-    });
   });
 });

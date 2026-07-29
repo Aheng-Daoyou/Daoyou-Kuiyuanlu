@@ -92,8 +92,10 @@ const abilities: SectAbilityDefinition[] = methods.map((method, index) =>
         kind: 'passive',
         baseName: '星辉护体',
         description: '常驻提升少量法术防御。',
-        unlock: { type: 'method', methodId: method.id, level: 1 },
+        unlock: { type: 'always' },
+        sourceMethodId: method.id,
         role: 'defensive',
+        visibility: 'internal',
       }
     : {
         id: `fixture-ability-${index + 1}`,
@@ -113,6 +115,7 @@ const baseDefinition: SectDefinitionWithoutPaths = {
   description: '仅用于验证宗门横向扩展。',
   raceIds: ['human'],
   configVersion: 1,
+  foundationPassiveId: 'fixture-ability-6',
   combatResource: { id: 'fixture.resource', name: '专注', max: 18 },
   methods,
   abilities,

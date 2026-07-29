@@ -1,15 +1,9 @@
 import type { SectOrganizationModule } from '@shared/engine/sect';
 import {
-  ArtifactDonationSpecification,
-  MaterialDonationSpecification,
   MaterialRewardGrantStrategy,
-  PillDonationSpecification,
   PillRewardGrantStrategy,
-  SectDonationSpecificationRegistry,
   SectRewardGrantStrategyRegistry,
-  SpiritStoneDonationSpecification,
   SpiritStoneRewardGrantStrategy,
-  type SectDonationSpecification,
   type SectRewardGrantStrategy,
 } from './EconomyStrategies';
 import { createStandardSectDomainEventDispatcher } from './SectDomainEventDispatcher';
@@ -48,7 +42,6 @@ export interface SectOrganizationPluginManifest {
   readonly fulfillments?: readonly (() => SectTaskFulfillmentStrategy)[];
   readonly progress?: readonly (() => SectTaskProgressStrategy)[];
   readonly rewardGrants?: readonly (() => SectRewardGrantStrategy)[];
-  readonly donations?: readonly (() => SectDonationSpecification)[];
 }
 
 export const CORE_SECT_ORGANIZATION_PLUGIN: SectOrganizationPluginManifest = {
@@ -71,12 +64,6 @@ export const CORE_SECT_ORGANIZATION_PLUGIN: SectOrganizationPluginManifest = {
     () => new MaterialRewardGrantStrategy(),
     () => new PillRewardGrantStrategy(),
   ],
-  donations: [
-    () => new SpiritStoneDonationSpecification(),
-    () => new MaterialDonationSpecification(),
-    () => new PillDonationSpecification(),
-    () => new ArtifactDonationSpecification(),
-  ],
 };
 
 export interface SectOrganizationPluginComposition {
@@ -86,7 +73,6 @@ export interface SectOrganizationPluginComposition {
   fulfillments: SectTaskFulfillmentRegistry;
   progress: SectTaskProgressRegistry;
   rewardGrants: SectRewardGrantStrategyRegistry;
-  donations: SectDonationSpecificationRegistry;
   events: ReturnType<typeof createStandardSectDomainEventDispatcher>;
 }
 
@@ -154,9 +140,6 @@ export function composeSectOrganizationPlugins(args: {
       value: create(),
     })),
   );
-  const donationContributions = args.manifests.flatMap((manifest) =>
-    (manifest.donations ?? []).map((create) => ({ manifest, value: create() })),
-  );
   for (const { manifest, value } of [
     ...contributions,
     ...offerContributions,
@@ -164,7 +147,6 @@ export function composeSectOrganizationPlugins(args: {
     ...fulfillmentContributions,
     ...progressContributions,
     ...rewardContributions,
-    ...donationContributions,
   ])
     assertContributionNamespace(manifest.sectId, value.key, '宗门插件 key');
   const executors = new SectTaskExecutorRegistry(
@@ -185,10 +167,6 @@ export function composeSectOrganizationPlugins(args: {
   const rewardGrants = new SectRewardGrantStrategyRegistry(
     rewardContributions.map(({ value }) => value),
   );
-  const donations = new SectDonationSpecificationRegistry(
-    donationContributions.map(({ value }) => value),
-  );
-
   for (const { sectId, organization } of args.organizations) {
     for (const task of allTasks(organization)) {
       const variants = task.availability?.variants ?? [];
@@ -239,9 +217,6 @@ export function composeSectOrganizationPlugins(args: {
     for (const kind of new Set(organization.economy.rewardGrantKinds))
       if (!rewardGrants.has(kind))
         throw new Error(`宗门 ${sectId} 缺少奖励策略：${kind}`);
-    for (const kind of new Set(organization.economy.donationKinds))
-      if (!donations.has(kind))
-        throw new Error(`宗门 ${sectId} 缺少捐献策略：${kind}`);
   }
 
   return {
@@ -251,7 +226,6 @@ export function composeSectOrganizationPlugins(args: {
     fulfillments,
     progress,
     rewardGrants,
-    donations,
     events: createStandardSectDomainEventDispatcher({
       fulfillments,
       progress,

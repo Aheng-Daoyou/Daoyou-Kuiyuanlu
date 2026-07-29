@@ -24,6 +24,7 @@ import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 export type SectSceneMood =
+  | 'plain'
   | 'hall'
   | 'affairs'
   | 'archive'
@@ -40,6 +41,10 @@ export type SectSceneMood =
   | 'gate';
 
 const moodStyles: Record<SectSceneMood, { surface: string; emblem: string }> = {
+  plain: {
+    surface: 'border-transparent bg-transparent',
+    emblem: '',
+  },
   hall: {
     surface:
       'border-amber-900/20 bg-[radial-gradient(circle_at_50%_0%,rgba(146,83,37,0.18),transparent_44%),linear-gradient(180deg,rgba(250,244,224,0.92),rgba(242,229,199,0.5))]',
@@ -224,12 +229,14 @@ export function SectScene({
       <div
         className={`relative isolate overflow-hidden border px-4 py-5 sm:px-6 ${atmosphere.surface}`}
       >
-        <span
-          aria-hidden="true"
-          className="text-ink/5 pointer-events-none absolute -top-8 right-4 -z-10 text-[9rem] leading-none select-none sm:text-[13rem]"
-        >
-          {atmosphere.emblem}
-        </span>
+        {atmosphere.emblem ? (
+          <span
+            aria-hidden="true"
+            className="text-ink/5 pointer-events-none absolute -top-8 right-4 -z-10 text-[9rem] leading-none select-none sm:text-[13rem]"
+          >
+            {atmosphere.emblem}
+          </span>
+        ) : null}
         <div className="relative mb-5 flex items-center justify-between border-b border-current/10 pb-3">
           <InkButton onClick={() => navigate('/game/sect')} variant="secondary">
             返回宗门总视图

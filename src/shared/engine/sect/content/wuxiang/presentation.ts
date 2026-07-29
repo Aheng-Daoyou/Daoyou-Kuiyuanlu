@@ -152,7 +152,7 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
         '78%',
         '/game/sect/industries',
         'sect.construction.view',
-        '设施建设 · 物资捐献',
+        '设施建设 · 灵石捐献',
       ),
       hotspot(
         'cultivation',
@@ -365,12 +365,12 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
         construction: {
           id: 'wuxiang-mingzhu',
           name: '行深',
-          greeting: '一砖一木皆有来处，本周工程可逐项说与你听。',
+          greeting: '一砖一木皆有来处，各处建设可逐项说与你听。',
         },
         donation: {
           id: 'wuxiang-xingcang',
           name: '明简',
-          greeting: '所施之物先验清楚，再记入册中。',
+          greeting: '今日可择一处设施布施灵石，再记入册中。',
         },
       },
     },

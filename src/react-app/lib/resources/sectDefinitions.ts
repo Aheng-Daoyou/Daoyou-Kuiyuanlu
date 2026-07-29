@@ -40,10 +40,6 @@ export const sectShopResource = endpointResource(
   'sect.shop',
   '/api/sects/current/shop',
 );
-export const sectConstructionBoardResource = endpointResource(
-  'sect.construction-board',
-  '/api/sects/current/construction-board',
-);
 export const sectConstructionMemberResource = endpointResource(
   'sect.construction-member',
   '/api/sects/current/construction-member',

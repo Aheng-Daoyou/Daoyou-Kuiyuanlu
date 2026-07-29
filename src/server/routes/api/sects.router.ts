@@ -366,47 +366,12 @@ export function createSectsRouter(
   });
 
   router.get(
-    '/current/construction-board',
-    requireActiveCultivatorRef(),
-    async (c) => {
-      const ref = c.get('activeCultivatorRef');
-      if (!ref)
-        return c.json({ success: false, error: '当前没有活跃角色' }, 404);
-      try {
-        return c.json(
-          await readResourceWithResolvedScope(
-            'sect.construction-board',
-            async (q) => {
-              const membership = await findMembership(ref.cultivatorId, q);
-              if (!membership)
-                throw new SectError(
-                  'SECT_MEMBERSHIP_REQUIRED',
-                  '尚未拜入宗门',
-                  404,
-                );
-              return {
-                scope: { kind: 'sect', id: membership.sectId },
-                data:
-                  await sectOrganizationFacade.construction.getConstructionBoard(
-                    ref.cultivatorId,
-                    createPostgresSectConstructionQueryContext({ q, runtime }),
-                  ),
-              };
-            },
-          ),
-        );
-      } catch (error) {
-        return failure(c, error);
-      }
-    },
-  );
-
-  router.get(
     '/current/construction-member',
     requireActiveCultivatorRef(),
     async (c) => {
       const ref = c.get('activeCultivatorRef');
-      if (!ref)
+      const user = c.get('user');
+      if (!user || !ref)
         return c.json({ success: false, error: '当前没有活跃角色' }, 404);
       try {
         return c.json(
@@ -415,6 +380,7 @@ export function createSectsRouter(
             'sect.construction-member',
             (q) =>
               sectOrganizationFacade.construction.getConstructionMember(
+                user.id,
                 ref.cultivatorId,
                 createPostgresSectConstructionQueryContext({ q, runtime }),
               ),
@@ -564,9 +530,8 @@ export function createSectsRouter(
     validateJson(SectDonationRequestSchema),
     async (c) => {
       const body = getValidatedJson<{
-        demandId: string;
-        itemId?: string;
-        quantity: number;
+        facilityKey: string;
+        spiritStones: number;
       }>(c);
       return organizationCommandMutation(
         c,

@@ -75,10 +75,8 @@ describe('LingxiaoOrganizationModule', () => {
     expect(LINGXIAO_ORGANIZATION.tasks.get('gate_sweep')?.executorKey).toBe(
       'sect.sweep',
     );
-    expect(LINGXIAO_ORGANIZATION.economy.donationDailyCap).toBe(60);
-    expect(LINGXIAO_ORGANIZATION.construction.facilityPriority[0]).toBe(
-      'archive',
-    );
+    expect(LINGXIAO_ORGANIZATION.construction.facilities[0]?.key).toBe('archive');
+    expect(LINGXIAO_ORGANIZATION.construction.upgradeTarget(1)).toBe(250);
     expect(
       [1, 2, 3, 4, 5].map((archiveLevel) =>
         LINGXIAO_ORGANIZATION.benefits.methodLevelCap(

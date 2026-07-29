@@ -240,7 +240,7 @@ describe('第二宗门扩展闭环', () => {
       FIXTURE_SECT_MODULE.organization.economy.shopItems('any'),
     ).not.toHaveLength(0);
     expect(
-      FIXTURE_SECT_MODULE.organization.construction.facilityPriority,
+      FIXTURE_SECT_MODULE.organization.construction.facilities,
     ).not.toHaveLength(0);
 
     const state = fixtureSectState();

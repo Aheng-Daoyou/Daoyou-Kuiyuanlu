@@ -38,19 +38,11 @@ export const SECT_RANK_METHOD_CAP = {
 export interface SectFacilityState {
   key: SectFacilityKey;
   level: number;
-  updatedAt?: string;
-}
-
-export interface SectConstructionProjectState {
-  id: string;
-  sectId: string;
-  facilityKey: string;
-  targetLevel: number;
   progress: number;
-  target: number;
-  status: 'active' | 'completed';
-  startedWeekKey: string;
-  completedAt?: string;
+  target: number | null;
+  maxLevel: number;
+  upgradeable: boolean;
+  updatedAt?: string;
 }
 
 export interface SectRankRequirement {

@@ -1,5 +1,6 @@
 import { AbilityType } from '@shared/engine/battle-v5/core/types';
 import { AbilityFactory } from '@shared/engine/battle-v5/factories/AbilityFactory';
+import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import type {
   CultivatorSectPathState,
   ResolvedSectAbility,
@@ -92,6 +93,19 @@ export class SectCompiler {
         })
         .map(([, ability]) => ability.config),
     );
+    const foundationConfig =
+      build.abilities[module.definition.foundationPassiveId]?.config;
+    const foundationProjectionCount = foundationConfig
+      ? abilities.filter((ability) => ability.slug === foundationConfig.slug)
+          .length
+      : 0;
+    if (
+      foundationProjectionCount !== StandardSectRules.foundationPassiveCount
+    ) {
+      throw new Error(
+        `宗门 ${module.definition.id} 的根基被动战斗投影必须且只能出现${StandardSectRules.foundationPassiveCount}次`,
+      );
+    }
     const defaultDefinition = module.definition.abilities.find(
       (ability) => ability.kind === 'default',
     );
@@ -310,6 +324,34 @@ export class SectCompiler {
       if ((ability.kind === 'passive') !== passive) {
         throw new Error(`宗门能力 ${ability.id} 的定义类型与编译产物不一致`);
       }
+    }
+
+    const foundation = build.abilities[definition.foundationPassiveId];
+    if (!foundation) {
+      throw new Error(
+        `宗门 ${definition.id} 的根基被动缺少编译产物: ${definition.foundationPassiveId}`,
+      );
+    }
+    if (foundation.config.type !== AbilityType.PASSIVE_SKILL) {
+      throw new Error(
+        `宗门 ${definition.id} 的根基被动编译类型错误: ${definition.foundationPassiveId}`,
+      );
+    }
+    if (
+      (foundation.config.modifiers?.length ?? 0) === 0 &&
+      (foundation.config.listeners?.length ?? 0) === 0
+    ) {
+      throw new Error(
+        `宗门 ${definition.id} 的根基被动不得为空: ${definition.foundationPassiveId}`,
+      );
+    }
+    const pathTagPrefix = GameplayTags.ABILITY.SECT.path(definition.id, '');
+    if (
+      foundation.config.tags?.some((tag) => tag.startsWith(pathTagPrefix))
+    ) {
+      throw new Error(
+        `宗门 ${definition.id} 的根基被动不得携带流派标签: ${definition.foundationPassiveId}`,
+      );
     }
   }
 

@@ -16,7 +16,7 @@ const REDIS_RESET_ERROR_MESSAGES = [
 
 let redisClient: Redis | null = null;
 
-function isRedisConfigured(): boolean {
+export function isRedisConfigured(): boolean {
   return Boolean(process.env.REDIS_URL);
 }
 
@@ -46,14 +46,18 @@ function shouldResetRedisClient(error: unknown): boolean {
   );
 }
 
-function createRedisClient(redisUrl: string): Redis {
+function createRedisClient(
+  redisUrl: string,
+  options: { bullMqWorker?: boolean; label?: string } = {},
+): Redis {
+  const label = options.label ?? 'redis';
   const client = new Redis(redisUrl, {
     lazyConnect: true,
     connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
-    commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
-    socketTimeout: REDIS_SOCKET_TIMEOUT_MS,
+    commandTimeout: options.bullMqWorker ? undefined : REDIS_COMMAND_TIMEOUT_MS,
+    socketTimeout: options.bullMqWorker ? undefined : REDIS_SOCKET_TIMEOUT_MS,
     keepAlive: REDIS_KEEP_ALIVE_MS,
-    maxRetriesPerRequest: 1,
+    maxRetriesPerRequest: options.bullMqWorker ? null : 1,
     retryStrategy(times) {
       return Math.min(times * 200, REDIS_MAX_RETRY_DELAY_MS);
     },
@@ -63,23 +67,23 @@ function createRedisClient(redisUrl: string): Redis {
   });
 
   client.on('connect', () => {
-    console.info('[redis] connected');
+    console.info(`[${label}] connected`);
   });
   client.on('ready', () => {
-    console.info('[redis] ready');
+    console.info(`[${label}] ready`);
   });
   client.on('close', () => {
-    console.warn('[redis] connection closed');
+    console.warn(`[${label}] connection closed`);
   });
   client.on('reconnecting', (delay: number) => {
-    console.warn('[redis] reconnecting', { delay });
+    console.warn(`[${label}] reconnecting`, { delay });
   });
   client.on('end', () => {
-    console.error('[redis] reconnect attempts stopped');
-    clearRedisClientIfCurrent(client);
+    console.error(`[${label}] reconnect attempts stopped`);
+    if (!options.bullMqWorker) clearRedisClientIfCurrent(client);
   });
   client.on('error', (error) => {
-    console.error('[redis] error', error);
+    console.error(`[${label}] error`, error);
   });
 
   return client;
@@ -96,6 +100,27 @@ function getRedisClient(): Redis {
   }
 
   return redisClient;
+}
+
+export function createBullMqWorkerRedisConnection(): Redis {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) {
+    throw new Error('REDIS_URL is required before starting BullMQ workers');
+  }
+  return createRedisClient(redisUrl, {
+    bullMqWorker: true,
+    label: 'redis:bullmq-worker',
+  });
+}
+
+export function createBullMqProducerRedisConnection(): Redis {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) {
+    throw new Error('REDIS_URL is required before using BullMQ');
+  }
+  return createRedisClient(redisUrl, {
+    label: 'redis:bullmq-producer',
+  });
 }
 
 export async function getRedisHealthStatus(): Promise<

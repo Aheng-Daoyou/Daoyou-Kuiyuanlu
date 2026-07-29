@@ -983,7 +983,6 @@ function compileRuntime(
   }
   builder.setAbility('youdu-runtime', factory.passive({
     definition: runtime,
-    pathId: settings.pathId,
     modifiers: [{
       attrType: AttributeType.CONTROL_RESISTANCE,
       type: ModifierType.FIXED,

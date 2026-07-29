@@ -1,5 +1,4 @@
 import {
-  sectConstructionBoardResource,
   sectConstructionMemberResource,
   sectContributionRankingResource,
   sectContextResource,
@@ -91,12 +90,19 @@ export function useSectShopQuery() {
   return useSingletonResource(sectShopResource);
 }
 
-export function useSectConstructionBoardQuery() {
-  return useSingletonResource(sectConstructionBoardResource);
-}
-
 export function useSectConstructionMemberQuery() {
-  return useSingletonResource(sectConstructionMemberResource);
+  const query = useSingletonResource(sectConstructionMemberResource);
+  const { data, invalidate, reload } = query;
+  const dateKey = getShanghaiDateKey();
+  useEffect(() => {
+    if (data && data.dateKey !== dateKey) void reload();
+    const timer = window.setTimeout(() => {
+      invalidate();
+      void reload();
+    }, millisecondsUntilShanghaiMidnight());
+    return () => window.clearTimeout(timer);
+  }, [data, dateKey, invalidate, reload]);
+  return query;
 }
 
 export function useSectContributionRankingQuery(enabled = true) {
@@ -111,6 +117,27 @@ export function getSectDefinition(
   context: NonNullable<ReturnType<typeof useSectContextQuery>['data']>,
 ) {
   return productionSectRuntime.registry.require(context.sectId).definition;
+}
+
+function getShanghaiDateKey(now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+function millisecondsUntilShanghaiMidnight(now = new Date()): number {
+  const shifted = new Date(now.getTime() + 8 * 60 * 60 * 1_000);
+  const nextMidnight =
+    Date.UTC(
+      shifted.getUTCFullYear(),
+      shifted.getUTCMonth(),
+      shifted.getUTCDate() + 1,
+    ) -
+    8 * 60 * 60 * 1_000;
+  return Math.max(1_000, nextMidnight - now.getTime());
 }
 
 export function resolveSectBenefits(

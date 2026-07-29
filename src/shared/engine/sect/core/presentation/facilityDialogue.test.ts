@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import {
-  describeSectConstructionProject,
-  describeSectFacilityStatus,
-} from './facilityDialogue';
+import { describeSectFacilityStatus } from './facilityDialogue';
+
+const facility = (key: string, level: number) => ({
+  key,
+  level,
+  progress: 0,
+  target: level < 5 ? 250 : null,
+  maxLevel: 5,
+  upgradeable: true,
+});
 
 describe('sect facility dialogue projection', () => {
   it('formats facility level and semantic metrics as player-facing Chinese', () => {
     const segments = describeSectFacilityStatus({
       facilityLabel: '灵脉',
-      facility: { key: 'spirit_vein', level: 3 },
+      facility: facility('spirit_vein', 3),
       effect: {
         renderer: 'sect.benefit.stipend',
         summary: '周俸灵石提高 15%',
@@ -35,31 +41,10 @@ describe('sect facility dialogue projection', () => {
     expect(text).not.toMatch(/spirit_vein|stipend_bonus|renderer|_/u);
   });
 
-  it('describes current construction progress without exposing facility keys', () => {
-    const segments = describeSectConstructionProject({
-      facilityLabel: '传承阁',
-      project: {
-        id: 'project',
-        sectId: 'sect',
-        facilityKey: 'archive',
-        targetLevel: 4,
-        progress: 450,
-        target: 900,
-        status: 'active',
-        startedWeekKey: '2026-W30',
-      },
-    });
-    const text = segments.map((segment) => segment.text).join('');
-
-    expect(text).toContain('传承阁提升至4级');
-    expect(text).toContain('已经完成50%');
-    expect(text).not.toContain('archive');
-  });
-
   it('preserves zero benefits and falls back when the effect is absent', () => {
     const zeroText = describeSectFacilityStatus({
       facilityLabel: '修炼室',
-      facility: { key: 'cultivation_room', level: 1 },
+      facility: facility('cultivation_room', 1),
       effect: {
         renderer: 'sect.benefit.retreat',
         summary: '闭关修为提高 0%',
@@ -77,7 +62,7 @@ describe('sect facility dialogue projection', () => {
       .join('');
     const fallbackText = describeSectFacilityStatus({
       facilityLabel: '药田',
-      facility: { key: 'herb_garden', level: 2 },
+      facility: facility('herb_garden', 2),
     })
       .map((segment) => segment.text)
       .join('');
@@ -89,7 +74,7 @@ describe('sect facility dialogue projection', () => {
   it('drops internal identifiers and invalid metric values', () => {
     const text = describeSectFacilityStatus({
       facilityLabel: 'spirit_vein',
-      facility: { key: 'spirit_vein', level: 3 },
+      facility: facility('spirit_vein', 3),
       effect: {
         renderer: 'sect.benefit.unknown',
         summary: 'internal_metric',
@@ -116,28 +101,5 @@ describe('sect facility dialogue projection', () => {
     expect(text).not.toMatch(
       /spirit_vein|internal_metric|unknown_renderer|renderer|NaN/u,
     );
-  });
-
-  it('handles an invalid construction target without leaking its key', () => {
-    const text = describeSectConstructionProject({
-      facilityLabel: 'archive',
-      project: {
-        id: 'project',
-        sectId: 'sect',
-        facilityKey: 'archive',
-        targetLevel: 2,
-        progress: -50,
-        target: 0,
-        status: 'active',
-        startedWeekKey: '2026-W30',
-      },
-    })
-      .map((segment) => segment.text)
-      .join('');
-
-    expect(text).toContain('当前设施提升至2级');
-    expect(text).toContain('已经完成0%');
-    expect(text).toContain('现有0点，共需0点');
-    expect(text).not.toContain('archive');
   });
 });

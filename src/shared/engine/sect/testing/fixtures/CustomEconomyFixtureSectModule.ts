@@ -27,8 +27,8 @@ const fixtureOrganization: SectOrganizationModule = {
     'sect.enlightenment.use': 'registered',
     'sect.arena.use': 'registered',
     'sect.shop.use': 'registered',
-    'sect.construction.view': 'outer',
-    'sect.construction.donate': 'outer',
+    'sect.construction.view': 'registered',
+    'sect.construction.donate': 'registered',
     'sect.facility.cultivation.use': 'outer',
     'sect.facility.alchemy.use': 'inner',
     'sect.facility.refinery.use': 'inner',
@@ -104,12 +104,10 @@ const fixtureOrganization: SectOrganizationModule = {
     findByCompletionTag: () => undefined,
   },
   economy: {
-    donationDailyCap: 1,
     rewardGrantKinds: [
       'sect.reward.spirit-stones',
       'fixture-sect.material',
     ] as const,
-    donationKinds: ['fixture-sect.spirit-stones'] as const,
     shopItems: () => [
       {
         id: 'fixture_herb',
@@ -124,17 +122,6 @@ const fixtureOrganization: SectOrganizationModule = {
           quality: '凡品',
           description: '夹具商品',
         },
-      },
-    ],
-    donationDemands: () => [
-      {
-        id: 'fixture_stones',
-        name: '夹具星砂资粮',
-        description: '提交一份灵石以校验可扩展捐献。',
-        kind: 'fixture-sect.spirit-stones',
-        quantity: 1,
-        contribution: 1,
-        constructionPoints: 1,
       },
     ],
     stipendBase: () => 1,
@@ -160,15 +147,7 @@ const fixtureOrganization: SectOrganizationModule = {
         upgradeable: true,
       },
     ],
-    facilityPriority: ['fixture_observatory'] as const,
-    projectBaseTarget: () => 1,
-    nextProject: (levels) =>
-      (levels.get('fixture_observatory') ?? 1) < 3
-        ? {
-            facilityKey: 'fixture_observatory',
-            targetLevel: (levels.get('fixture_observatory') ?? 1) + 1,
-          }
-        : null,
+    upgradeTarget: (level) => (level < 3 ? 1 : null),
   },
   battles: { get: () => undefined },
   benefits: {

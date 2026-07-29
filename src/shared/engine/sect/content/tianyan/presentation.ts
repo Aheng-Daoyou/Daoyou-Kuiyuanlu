@@ -157,7 +157,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '60%',
         '/game/sect/industries',
         'sect.construction.view',
-        '设施建设 · 物资捐献',
+        '设施建设 · 灵石捐献',
       ),
       hotspot(
         'cultivation',
@@ -374,12 +374,12 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         construction: {
           id: 'tianyan-banji',
           name: '鸣谦道人',
-          greeting: '各处工程都有实数可查，你想先听哪一项进展？',
+          greeting: '各处设施都有实数可查，你想先听哪一项进展？',
         },
         donation: {
           id: 'tianyan-ducai',
           name: '履霜',
-          greeting: '物性与数量须逐项相合，带来的东西可以依次核验。',
+          greeting: '灵石数目须与建设档位相合，你想投向哪处设施？',
         },
       },
     },

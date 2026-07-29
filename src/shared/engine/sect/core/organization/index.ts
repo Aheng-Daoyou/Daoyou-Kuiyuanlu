@@ -1,4 +1,5 @@
 export * from './contracts';
+export * from './construction';
 export * from './domain';
 export * from './promotionDialogue';
 export * from './SectTradition';
