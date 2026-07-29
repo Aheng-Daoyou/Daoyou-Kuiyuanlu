@@ -1,5 +1,5 @@
-import { i18n, type TranslationDictionary } from '@better-auth/i18n';
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
+import { i18n, type TranslationDictionary } from '@better-auth/i18n';
 import { betterAuth } from 'better-auth';
 import { emailOTP } from 'better-auth/plugins/email-otp';
 import { sendViaSmtp } from '../admin/smtp';
@@ -100,8 +100,28 @@ export const auth = betterAuth({
       generateId: 'uuid',
     },
   },
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendViaSmtp(
+        user.email,
+        '【万界道友】验证邮箱',
+        [
+          `${user.name || '玩家'}，欢迎来到万界道友。`,
+          '',
+          '请点击下方链接验证邮箱，验证完成后即可进入游戏：',
+          url,
+          '',
+          '若这不是你的操作，可忽略本邮件。',
+        ].join('\n'),
+      );
+    },
+    sendOnSignUp: true,
+    sendOnSignIn: true,
+    autoSignInAfterVerification: true,
+  },
   emailAndPassword: {
     enabled: true,
+    requireEmailVerification: true,
     revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url }) => {
       await sendViaSmtp(

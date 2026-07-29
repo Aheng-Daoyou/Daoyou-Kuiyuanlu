@@ -3,6 +3,10 @@ import { InkButton } from '@app/components/ui/InkButton';
 import { InkInput } from '@app/components/ui/InkInput';
 import { InkNotice } from '@app/components/ui/InkNotice';
 import { InkSelect } from '@app/components/ui/InkSelect';
+import {
+  TALISMAN_SCENARIO_OPTIONS,
+  isTalismanScenario,
+} from '@shared/config/talismanScenarios';
 import { DEFAULT_AFFIX_REGISTRY } from '@shared/engine/creation-v2/affixes';
 import {
   DEFAULT_ITEM_LIBRARY_DAILY_MATERIAL_GENERATION_SETTINGS,
@@ -1338,14 +1342,26 @@ export default function ItemLibraryAdminPage() {
                 </div>
               ) : (
                 <div className="grid gap-3 md:grid-cols-2">
-                  <InkInput
-                    label="使用场景"
+                  <InkSelect
+                    label="符箓关键词"
                     value={draft.talismanScenario}
                     onChange={(value) =>
                       setDraftField('talismanScenario', value)
                     }
-                    placeholder="例如：fate_reshape"
-                  />
+                    hint="关键词决定符箓对应的玩法入口和结算行为"
+                  >
+                    {!isTalismanScenario(draft.talismanScenario) &&
+                    draft.talismanScenario ? (
+                      <option value={draft.talismanScenario} disabled>
+                        历史关键词（{draft.talismanScenario}），请选择新关键词
+                      </option>
+                    ) : null}
+                    {TALISMAN_SCENARIO_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}（{option.value}）
+                      </option>
+                    ))}
+                  </InkSelect>
                   <InkSelect
                     label="消耗模式"
                     value={draft.talismanSessionMode}
