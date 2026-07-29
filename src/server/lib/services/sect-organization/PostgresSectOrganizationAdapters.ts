@@ -11,7 +11,6 @@ import { mapConsumableRow } from '@server/lib/services/consumablePersistence';
 import { toArtifactFromProduct } from '@server/lib/services/creationProductArtifactSupport';
 import { loadCultivatorCombatInput } from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
 import {
-  addConsumableToInventory,
   addMaterialToInventoryInTransaction,
   mapArtifactRow,
   mapMaterialRow,
@@ -669,7 +668,11 @@ function rewardAdapter(q: DbExecutor | DbTransaction, userId: string) {
       });
       return { value: balance, effects };
     },
-    async grantSpiritStones(cultivatorId: string, amount: number) {
+    async grantSpiritStones(
+      cultivatorId: string,
+      amount: number,
+      source = 'sect_task',
+    ) {
       if (!('rollback' in q)) throw new Error('宗门奖励必须在事务中执行');
       const balance = await organization.addCultivatorSpiritStones(
         cultivatorId,
@@ -680,7 +683,10 @@ function rewardAdapter(q: DbExecutor | DbTransaction, userId: string) {
       effects.settlement.spiritStones = balance;
       effects.resourceChanges.push({
         resourceTopic: 'player.currency',
-        eventType: 'sect.task_currency_settled',
+        eventType:
+          source === 'sect_stipend'
+            ? 'sect.stipend_currency_settled'
+            : 'sect.task_currency_settled',
         operation: 'merge',
         payload: { spiritStones: balance },
       });
@@ -728,27 +734,6 @@ function rewardAdapter(q: DbExecutor | DbTransaction, userId: string) {
       });
       return effects;
     },
-    async grantPill(
-      _userId: string,
-      cultivatorId: string,
-      input: Omit<Parameters<typeof addConsumableToInventory>[2], 'type'>,
-    ) {
-      if (!('rollback' in q)) throw new Error('宗门奖励必须在事务中执行');
-      const consumable = await addConsumableToInventory(
-        userId,
-        cultivatorId,
-        { ...input, type: '丹药' },
-        q,
-      );
-      const effects = emptySectCommandEffects();
-      effects.resourceChanges.push({
-        resourceTopic: 'inventory.consumables',
-        eventType: 'sect.reward_consumable_granted',
-        operation: 'upsert-items',
-        payload: { idKey: 'id', items: [consumable] },
-      });
-      return effects;
-    },
   };
 }
 
@@ -756,17 +741,6 @@ function economyReadAdapter(
   q: DbExecutor | DbTransaction,
 ): SectEconomyReadRepository {
   return {
-    purchasedQuantity: (
-      membershipId: string,
-      weekKey: string,
-      itemId: string,
-    ) =>
-      organization.getPurchasedSectShopQuantity(
-        membershipId,
-        weekKey,
-        itemId,
-        q,
-      ),
     hasClaimedStipend: (membershipId: string, weekKey: string) =>
       organization.hasClaimedSectStipend(membershipId, weekKey, q),
   };
@@ -789,28 +763,10 @@ function economyCommandAdapter(tx: DbTransaction): SectEconomyRepository {
         tx,
       );
     },
-    async recordPurchase(
-      membershipId: string,
-      weekKey: string,
-      itemId: string,
-      quantity: number,
-    ) {
-      return Boolean(
-        await organization.addSectShopPurchase(
-          membershipId,
-          weekKey,
-          itemId,
-          quantity,
-          undefined,
-          tx,
-        ),
-      );
-    },
     async recordStipendClaim(input: {
       membershipId: string;
       weekKey: string;
       spiritStones: number;
-      rewards: unknown[];
     }) {
       return Boolean(await organization.createSectStipendClaim(input, tx));
     },
@@ -874,23 +830,21 @@ export function createPostgresSectEconomyContext(args: {
   runtime: SectRuntime;
   userId: string;
   clock?: Clock;
-  ids?: IdGenerator;
 }): SectEconomyCommandContext;
 export function createPostgresSectEconomyContext(args: {
   q: DbExecutor | DbTransaction;
   runtime: SectRuntime;
   userId?: undefined;
   clock?: Clock;
-  ids?: IdGenerator;
 }): SectEconomyQueryContext;
 export function createPostgresSectEconomyContext(args: {
   q: DbExecutor | DbTransaction;
   runtime: SectRuntime;
   userId?: string;
   clock?: Clock;
-  ids?: IdGenerator;
 }): SectEconomyQueryContext | SectEconomyCommandContext {
   const base: SectEconomyQueryContext = {
+    q: args.q,
     memberships: membershipQueryAdapter(args.q),
     facilities: facilityReadAdapter(args.q),
     economy: economyReadAdapter(args.q),
@@ -904,7 +858,6 @@ export function createPostgresSectEconomyContext(args: {
     facilities: facilityCommandAdapter(tx, args.runtime),
     economy: economyCommandAdapter(tx),
     rewards: rewardAdapter(tx, args.userId),
-    ids: args.ids ?? cryptoSectIdGenerator,
   };
 }
 

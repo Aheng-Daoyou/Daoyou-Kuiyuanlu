@@ -351,9 +351,6 @@ describe('幽都战斗与展示投影', () => {
   it('组织主题只覆盖非任务展示内容', () => {
     expect(YOUDU_ORGANIZATION_THEME).not.toHaveProperty('taskPresentation');
     expect(YOUDU_ORGANIZATION_THEME).not.toHaveProperty('opponents');
-    expect(Object.keys(YOUDU_ORGANIZATION_THEME.shopGrants ?? {})).toHaveLength(
-      6,
-    );
     expect(YOUDU_ORGANIZATION_THEME.facilityNames).toMatchObject({
       archive: '三魂阁',
       cultivation_room: '返照室',

@@ -104,39 +104,7 @@ const fixtureOrganization: SectOrganizationModule = {
     findByCompletionTag: () => undefined,
   },
   economy: {
-    rewardGrantKinds: [
-      'sect.reward.spirit-stones',
-      'fixture-sect.material',
-    ] as const,
-    shopItems: () => [
-      {
-        id: 'fixture_herb',
-        requiredRank: 'registered',
-        price: 1,
-        stock: 1,
-        rotating: false,
-        grant: {
-          kind: 'fixture-sect.material',
-          name: '夹具灵草',
-          type: 'herb',
-          quality: '凡品',
-          description: '夹具商品',
-        },
-      },
-    ],
     stipendBase: () => 1,
-    stipendRewards: () => [
-      {
-        quantity: 1,
-        grant: {
-          kind: 'fixture-sect.material',
-          name: '样例灵草',
-          type: 'herb',
-          quality: '凡品',
-          description: '夹具周俸灵草',
-        },
-      },
-    ],
   },
   construction: {
     facilities: [
@@ -161,7 +129,6 @@ const fixtureOrganization: SectOrganizationModule = {
     }),
     archiveLevel: (levels) => levels.get('fixture_observatory') ?? 1,
     methodLevelCap: () => 7,
-    gardenLevel: (levels) => levels.get('herb_garden') ?? 1,
     retreatMultiplier: () => 1,
     craftDiscount: () => ({
       capability: 'sect.facility.alchemy.use',

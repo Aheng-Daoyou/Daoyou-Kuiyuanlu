@@ -127,6 +127,13 @@
       "when": 1785314066413,
       "tag": "0017_quiet_kylun",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785317825510,
+      "tag": "0018_odd_warbound",
+      "breakpoints": true
     }
   ]
 }

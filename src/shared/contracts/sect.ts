@@ -66,10 +66,6 @@ export const SectSubmissionCandidatesQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(50).default(30),
   eligible: z.enum(['all', 'yes', 'no']).default('all'),
 });
-export const SectShopPurchaseRequestSchema = z.object({
-  itemId: z.string().min(1).max(64),
-  quantity: z.number().int().positive().max(10).default(1),
-});
 export const SectDonationRequestSchema = z
   .object({
     facilityKey: z.string().min(1).max(32),
@@ -253,30 +249,10 @@ export interface SectSubmissionCandidatesData {
 export type SectTaskActionResponse =
   PlayerStateMutationResponse<SectTaskActionData>;
 
-export interface SectShopItemData {
-  id: string;
-  name: string;
-  description: string;
-  requiredRank: SectDiscipleRank;
-  price: number;
-  stock: number;
-  purchased: number;
-  kind: string;
-  rotating: boolean;
-}
-
-export interface SectShopData {
-  weekKey: string;
-  contribution: number;
-  items: SectShopItemData[];
-}
-
-export interface SectRewardGrantData {
-  kind: string;
-  name: string;
-  quantity: number;
-  summary: string;
-}
+export type {
+  SectShopData,
+  SectShopItemData,
+} from './sectShop';
 
 export interface SectInfrastructureData {
   facilities: SectFacilityState[];
@@ -306,7 +282,6 @@ export interface SectStipendData {
   weekKey: string;
   claimed: boolean;
   spiritStones: number;
-  rewards: SectRewardGrantData[];
 }
 
 export const SectStipendDataSchema: z.ZodType<SectStipendData> = z
@@ -314,16 +289,6 @@ export const SectStipendDataSchema: z.ZodType<SectStipendData> = z
     weekKey: z.string(),
     claimed: z.boolean(),
     spiritStones: z.number(),
-    rewards: z.array(
-      z
-        .object({
-          kind: z.string(),
-          name: z.string(),
-          quantity: z.number(),
-          summary: z.string(),
-        })
-        .strict(),
-    ),
   })
   .strict();
 

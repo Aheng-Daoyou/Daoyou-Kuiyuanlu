@@ -202,7 +202,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '37%',
         '/game/sect/herb-garden',
         'sect.herb_garden.view',
-        '草木长势 · 灵草产出',
+        '草木长势 · 产出待开放',
         'herb_garden',
       ),
       hotspot(
@@ -300,7 +300,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
     },
     herbGarden: {
       title: '彼岸圃',
-      description: '深色花叶沿黑水两岸生长，供药庐按时采撷。',
+      description: '深色花叶沿黑水两岸生长；药田产出玩法后续开放。',
     },
     gate: {
       title: '无日关',

@@ -7,7 +7,6 @@ import {
   sectContributionLedger,
   sectFacilities,
   sectMemberships,
-  sectShopPurchases,
   sectStipendClaims,
   sectTaskRecords,
 } from '@server/lib/drizzle/schema';
@@ -370,62 +369,6 @@ export async function hasCompletedSectTask(
   return Boolean(row);
 }
 
-export async function getPurchasedSectShopQuantity(
-  membershipId: string,
-  weekKey: string,
-  itemId: string,
-  q: DbExecutor | DbTransaction,
-) {
-  const [row] = await q
-    .select({
-      quantity: sql<number>`COALESCE(SUM(${sectShopPurchases.quantity}), 0)`,
-    })
-    .from(sectShopPurchases)
-    .where(
-      and(
-        eq(sectShopPurchases.membershipId, membershipId),
-        eq(sectShopPurchases.weekKey, weekKey),
-        eq(sectShopPurchases.itemId, itemId),
-      ),
-    )
-    .limit(1);
-  return Number(row?.quantity ?? 0);
-}
-
-export async function addSectShopPurchase(
-  membershipId: string,
-  weekKey: string,
-  itemId: string,
-  quantity: number,
-  requestId: string | undefined,
-  tx: DbTransaction,
-) {
-  const [row] = await tx
-    .insert(sectShopPurchases)
-    .values({ membershipId, weekKey, itemId, quantity, requestId })
-    .onConflictDoNothing()
-    .returning();
-  return row ?? null;
-}
-
-export async function findSectShopPurchaseByRequestId(
-  membershipId: string,
-  requestId: string,
-  q: DbExecutor | DbTransaction,
-) {
-  const [row] = await q
-    .select()
-    .from(sectShopPurchases)
-    .where(
-      and(
-        eq(sectShopPurchases.membershipId, membershipId),
-        eq(sectShopPurchases.requestId, requestId),
-      ),
-    )
-    .limit(1);
-  return row ?? null;
-}
-
 export async function hasClaimedSectStipend(
   membershipId: string,
   weekKey: string,
@@ -449,7 +392,6 @@ export async function createSectStipendClaim(
     membershipId: string;
     weekKey: string;
     spiritStones: number;
-    rewards: unknown[];
   },
   tx: DbTransaction,
 ) {

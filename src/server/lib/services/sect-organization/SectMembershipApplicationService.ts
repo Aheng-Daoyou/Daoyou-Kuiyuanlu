@@ -19,7 +19,6 @@ import {
   organizationFor,
   quoteSectStipend,
   requireMembership,
-  stipendRewardView,
 } from './applicationSupport';
 import type {
   SectMembershipCommandContext,
@@ -144,7 +143,6 @@ export class SectMembershipApplicationService {
       weekKey,
       claimed: await context.economy.hasClaimedStipend(membership.id, weekKey),
       spiritStones: stipend.spiritStones,
-      rewards: stipend.rewards.map(stipendRewardView),
     };
   }
 

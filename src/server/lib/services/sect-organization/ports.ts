@@ -1,5 +1,9 @@
 import type { LocalTransactionMessageWriter } from '@server/lib/mq/localTransactionMessages';
 import type {
+  DbExecutor,
+  DbTransaction,
+} from '@server/lib/drizzle/db';
+import type {
   ResourceChangeDescriptor,
   ResourceDataMap,
 } from '@shared/contracts/resources';
@@ -19,7 +23,6 @@ import type {
 } from '@shared/engine/sect';
 import type { BattleRecord } from '@shared/types/battle';
 import type { Quality, RealmStage, RealmType } from '@shared/types/constants';
-import type { PillSpec } from '@shared/types/consumable';
 import type { Material } from '@shared/types/cultivator';
 import type { SectCommandEffects } from './SectCommandEffects';
 
@@ -305,6 +308,7 @@ export interface SectRewardGateway {
   grantSpiritStones(
     cultivatorId: string,
     amount: number,
+    source?: 'sect_task' | 'sect_stipend',
   ): Promise<{ value: number; effects: SectCommandEffects }>;
   grantCultivationExp(
     userId: string,
@@ -327,19 +331,6 @@ export interface SectRewardGateway {
       | 'quantity'
     >,
   ): Promise<SectCommandEffects>;
-  grantPill(
-    userId: string,
-    cultivatorId: string,
-    input: {
-      id: string;
-      name: string;
-      quality: Quality;
-      description: string;
-      prompt: string;
-      spec: PillSpec;
-      quantity: number;
-    },
-  ): Promise<SectCommandEffects>;
 }
 
 export interface SectFacilityRecord {
@@ -359,11 +350,6 @@ export interface SectFacilityRepository extends SectFacilityReadRepository {
 }
 
 export interface SectEconomyReadRepository {
-  purchasedQuantity(
-    membershipId: string,
-    weekKey: string,
-    itemId: string,
-  ): Promise<number>;
   hasClaimedStipend(membershipId: string, weekKey: string): Promise<boolean>;
 }
 
@@ -374,17 +360,10 @@ export interface SectEconomyRepository extends SectEconomyReadRepository {
     reason: string,
     referenceId: string,
   ): Promise<number | null>;
-  recordPurchase(
-    membershipId: string,
-    weekKey: string,
-    itemId: string,
-    quantity: number,
-  ): Promise<boolean>;
   recordStipendClaim(input: {
     membershipId: string;
     weekKey: string;
     spiritStones: number;
-    rewards: unknown[];
   }): Promise<boolean>;
   spendSpiritStones(
     cultivatorId: string,
@@ -439,6 +418,7 @@ export interface SectMembershipCommandContext extends SectMembershipQueryContext
 }
 
 export interface SectEconomyQueryContext {
+  q: DbExecutor | DbTransaction;
   memberships: SectMembershipReadRepository;
   economy: SectEconomyReadRepository;
   facilities: SectFacilityReadRepository;
@@ -447,10 +427,10 @@ export interface SectEconomyQueryContext {
 }
 
 export interface SectEconomyCommandContext extends SectEconomyQueryContext {
+  q: DbTransaction;
   economy: SectEconomyRepository;
   facilities: SectFacilityRepository;
   rewards: SectRewardGateway;
-  ids: IdGenerator;
 }
 
 export interface SectConstructionQueryContext {

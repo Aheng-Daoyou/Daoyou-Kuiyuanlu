@@ -30,6 +30,7 @@ import {
   createPostgresSectQueryContext,
 } from '@server/lib/services/sect-organization/PostgresSectOrganizationAdapters';
 import { SectError } from '@server/lib/services/SectError';
+import { SectShopError } from '@server/lib/services/SectShopService';
 import {
   executeSectConstructionDonationCommand,
 } from '@server/lib/services/sect-organization/SectConstructionCommand';
@@ -58,12 +59,12 @@ import {
   SectMembersQuerySchema,
   SectMeridianLoadoutRequestSchema,
   SectMethodTrainRequestSchema,
-  SectShopPurchaseRequestSchema,
   SectSubmissionCandidatesQuerySchema,
   SectTacticRequestSchema,
   SectTaskActionRequestSchema,
   type SectContextData,
 } from '@shared/contracts/sect';
+import { SectShopBuyParamsSchema } from '@shared/contracts/sectShop';
 import type { SectDiscipleRank, SectRuntime } from '@shared/engine/sect';
 import { productionSectRuntime } from '@shared/engine/sect/content';
 import type { RealmStage, RealmType } from '@shared/types/constants';
@@ -118,6 +119,11 @@ function failure(c: Context<AppEnv>, error: unknown) {
     return c.json(
       { success: false as const, error: error.message, code: error.code },
       error.status as 400 | 403 | 409,
+    );
+  if (error instanceof SectShopError)
+    return c.json(
+      { success: false as const, error: error.message },
+      error.status as 400 | 404 | 500,
     );
   console.error('[sects]', error);
   return c.json({ success: false as const, error: '宗门事务处理失败' }, 500);
@@ -507,19 +513,23 @@ export function createSectsRouter(
   );
 
   router.post(
-    '/current/shop/purchase',
+    '/current/shop/:id/buy',
     requireActiveCultivatorRef(),
-    validateJson(SectShopPurchaseRequestSchema),
     async (c) => {
-      const body = getValidatedJson<{
-        itemId: string;
-        quantity: number;
-      }>(c);
+      const parsed = SectShopBuyParamsSchema.safeParse({
+        id: c.req.param('id'),
+      });
+      if (!parsed.success)
+        return c.json({ success: false, error: '商品编号无效' }, 400);
       return organizationCommandMutation(
         c,
         'sect_shop_purchase',
-        body,
-        (args) => executeSectShopPurchaseCommand({ ...args, ...body }),
+        parsed.data,
+        (args) =>
+          executeSectShopPurchaseCommand({
+            ...args,
+            itemId: parsed.data.id,
+          }),
       );
     },
   );

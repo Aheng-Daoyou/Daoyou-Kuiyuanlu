@@ -255,7 +255,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.herb_garden.view',
     left: '0',
     top: '0',
-    note: '草木长势 · 灵草产出',
+    note: '草木长势 · 产出待开放',
   },
   {
     id: 'gate',
@@ -635,7 +635,7 @@ const STANDARD_ROOMS: Readonly<Record<string, SectRoomDefinition>> =
           'sect.herb-garden.caretaker',
           {
             facilityKey: 'herb_garden',
-            detail: '成熟灵草会随周俸一并发放，无需弟子另行采收。',
+            detail: '药田产出玩法后续开放。',
             stages: [
               '新畦初醒',
               '灵苗成行',
@@ -650,13 +650,13 @@ const STANDARD_ROOMS: Readonly<Record<string, SectRoomDefinition>> =
           '🌿',
           '宗门药田',
           '宗门设施',
-          '查看设施等级与灵草产出。',
+          '查看设施等级与药田近况。',
           '灵泉润过畦垄，草木依照时序生长。',
           'sect.herb-garden.status',
           {
             facilityKey: 'herb_garden',
             effectKey: 'herb_garden',
-            detail: '成熟灵草会随周俸一并发放，无需弟子另行采收。',
+            detail: '药田产出玩法后续开放。',
           },
           'herb-garden-facility',
           'facility',

@@ -1112,6 +1112,11 @@ export const router = createBrowserRouter(
           handle={title('声望商店管理')}
         />
         <Route
+          path="sect-shop"
+          lazy={lazyRoute(() => import('@app/routes/admin/sect-shop/route'))}
+          handle={title('宗门宝库管理')}
+        />
+        <Route
           path="templates"
           lazy={lazyRoute(() => import('@app/routes/admin/templates/route'))}
           handle={title('模板中心')}

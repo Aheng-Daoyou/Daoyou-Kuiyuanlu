@@ -2,13 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   ContributionBalance,
   SectMembership,
-  SectShopOrder,
   SectStipendClaim,
   SectTask,
 } from './domain';
 
 describe('sect organization domain', () => {
-  const stipendSnapshot = { spiritStones: 500, rewards: [] };
+  const stipendSnapshot = { spiritStones: 500 };
   it('protects contribution balance and promotes without consuming it', () => {
     const membership = SectMembership.rehydrate({
       id: 'member-1',
@@ -88,26 +87,5 @@ describe('sect organization domain', () => {
     expect(() => claim.claim('2026-W29', stipendSnapshot)).toThrow(
       '本周俸禄已经领取',
     );
-  });
-
-  it('quotes shop commands inside the domain', () => {
-    expect(
-      SectShopOrder.quote({
-        itemId: 'item-1',
-        quantity: 2,
-        purchased: 1,
-        stock: 3,
-        unitPrice: 20,
-      }).totalCost,
-    ).toBe(40);
-    expect(() =>
-      SectShopOrder.quote({
-        itemId: 'item-1',
-        quantity: 2,
-        purchased: 2,
-        stock: 3,
-        unitPrice: 20,
-      }),
-    ).toThrow('库存不足');
   });
 });

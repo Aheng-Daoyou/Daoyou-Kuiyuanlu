@@ -1,6 +1,5 @@
 import { getRealmStageAttributeBudget } from '@shared/config/realmProgression';
 import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
-import type { PillSpec } from '@shared/types/consumable';
 import type { Attributes } from '@shared/types/cultivator';
 import {
   SECT_RANK_METHOD_CAP,
@@ -19,8 +18,6 @@ import {
   type SectOrganizationModule,
   type SectOrganizationTaskId,
   type SectRankPolicy,
-  type SectRewardGrantDefinition,
-  type SectShopDefinition,
   type SectTaskCatalog,
   type SectTaskDefinition,
   type SectTaskDialogueDefinition,
@@ -418,189 +415,9 @@ class StandardSectTaskCatalog implements SectTaskCatalog {
   }
 }
 
-function recoveryPillSpec(resource: 'hp' | 'mp', value: number): PillSpec {
-  return {
-    kind: 'pill',
-    family: resource === 'hp' ? 'healing' : 'mana',
-    operations: [
-      { type: 'restore_resource', resource, mode: 'flat', value },
-      { type: 'change_gauge', gauge: 'pillToxicity', delta: 3 },
-    ],
-    consumeRules: { scene: 'out_of_battle_only', quotaCategory: 'none' },
-    alchemyMeta: {
-      source: 'improvised',
-      sourceMaterials: ['宗门宝库制式丹材'],
-      analysisVersion: 2,
-      propertyVector: [
-        { key: resource === 'hp' ? 'restore_hp' : 'restore_mp', weight: 1 },
-      ],
-      sourceMaterialVectors: [],
-      stability: 80,
-      toxicityRating: 3,
-      appearance: 'middle',
-      tags: ['宗门制式'],
-    },
-  };
-}
-
-const shopItems: readonly SectShopDefinition[] = [
-  {
-    id: 'outer_qinglu',
-    requiredRank: 'outer',
-    price: 10,
-    stock: 8,
-    rotating: false,
-    grant: {
-      kind: 'sect.reward.material',
-      name: '青露草',
-      type: 'herb',
-      quality: '凡品',
-      element: '木',
-      description: '叶尖含露，药性温和的入门灵草。',
-    },
-  },
-  {
-    id: 'outer_recovery_pill',
-    requiredRank: 'outer',
-    price: 40,
-    stock: 3,
-    rotating: false,
-    grant: {
-      kind: 'sect.reward.pill',
-      name: '宗门回气丹',
-      quality: '凡品',
-      description: '宗门制式回气丹，可恢复少量法力。',
-      spec: recoveryPillSpec('mp', 40),
-    },
-  },
-  {
-    id: 'inner_ironwood',
-    requiredRank: 'inner',
-    price: 80,
-    stock: 5,
-    rotating: false,
-    grant: {
-      kind: 'sect.reward.material',
-      name: '百炼铁木',
-      type: 'aux',
-      quality: '玄品',
-      element: '木',
-      description: '经百次灵火淬炼的铁木，可稳定丹器结构。',
-    },
-  },
-  {
-    id: 'inner_healing_pill',
-    requiredRank: 'inner',
-    price: 120,
-    stock: 2,
-    rotating: true,
-    grant: {
-      kind: 'sect.reward.pill',
-      name: '玉髓回春丹',
-      quality: '玄品',
-      description: '内门储备的疗伤丹药。',
-      spec: recoveryPillSpec('hp', 180),
-    },
-  },
-  {
-    id: 'true_cloud_ore',
-    requiredRank: 'true',
-    price: 220,
-    stock: 2,
-    rotating: true,
-    grant: {
-      kind: 'sect.reward.material',
-      name: '真传灵铁',
-      type: 'ore',
-      quality: '真品',
-      element: '金',
-      description: '宗门灵脉深处凝成的稀有灵铁。',
-    },
-  },
-  {
-    id: 'true_spirit_pill',
-    requiredRank: 'true',
-    price: 300,
-    stock: 1,
-    rotating: true,
-    grant: {
-      kind: 'sect.reward.pill',
-      name: '真传蕴神丹',
-      quality: '真品',
-      description: '真传弟子方可兑换的高阶回气丹。',
-      spec: recoveryPillSpec('mp', 260),
-    },
-  },
-];
-
 class StandardSectEconomyPolicy implements SectEconomyPolicy {
-  constructor(private readonly theme: SectOrganizationTheme = {}) {}
-  readonly rewardGrantKinds = [
-    'sect.reward.spirit-stones',
-    'sect.reward.material',
-    'sect.reward.pill',
-  ] as const;
-
-  shopItems(weekKey: string): readonly SectShopDefinition[] {
-    const rotating = shopItems.filter((item) => item.rotating);
-    const parity = [...weekKey].reduce(
-      (sum, char) => sum + char.charCodeAt(0),
-      0,
-    );
-    const selected = rotating.filter((_, index) => index % 2 === parity % 2);
-    return [...shopItems.filter((item) => !item.rotating), ...selected].map(
-      (item) => ({
-        ...item,
-        grant: { ...item.grant, ...(this.theme.shopGrants?.[item.id] ?? {}) },
-      }),
-    );
-  }
-
   stipendBase(rank: SectDiscipleRank): number {
     return { registered: 500, outer: 1500, inner: 4000, true: 10000 }[rank];
-  }
-
-  stipendRewards(
-    rank: SectDiscipleRank,
-    gardenLevel: number,
-  ): readonly SectRewardGrantDefinition[] {
-    const outerPill = shopItems.find(
-      (item) => item.id === 'outer_recovery_pill',
-    )?.grant;
-    return [
-      {
-        quantity: gardenLevel,
-        grant: {
-          kind: 'sect.reward.material',
-          name:
-            rank === 'true'
-              ? (this.theme.stipendGrantNames?.trueHerb ?? '真传灵蕴草')
-              : (this.theme.stipendGrantNames?.herb ?? '宗门灵草'),
-          type: 'herb',
-          quality: rank === 'true' ? '真品' : '凡品',
-          element: '木',
-          description: '宗门药田按周分发的修行灵草。',
-        },
-      },
-      ...(rank === 'outer' && outerPill?.kind === 'sect.reward.pill'
-        ? [{ quantity: 1, grant: outerPill }]
-        : []),
-      ...(rank === 'inner'
-        ? [
-            {
-              quantity: 3,
-              grant: {
-                kind: 'sect.reward.material',
-                name: this.theme.stipendGrantNames?.innerMaterial ?? '百炼铁木',
-                type: 'aux' as const,
-                quality: '玄品' as const,
-                element: '木',
-                description: '内门周俸配发的基础丹器材料。',
-              },
-            },
-          ]
-        : []),
-    ];
   }
 }
 
@@ -946,10 +763,6 @@ class StandardSectBenefitPolicy implements SectBenefitPolicy {
     );
   }
 
-  gardenLevel(levels: ReadonlyMap<string, number>): number {
-    return levels.get('herb_garden') ?? 1;
-  }
-
   retreatMultiplier(levels: ReadonlyMap<string, number>): number {
     return 1 + this.level(levels, 'cultivation_room') * 0.02;
   }
@@ -975,13 +788,7 @@ class StandardSectBenefitPolicy implements SectBenefitPolicy {
 }
 
 export interface SectOrganizationTheme {
-  shopGrants?: Partial<Record<string, Partial<SectShopDefinition['grant']>>>;
   facilityNames?: Partial<Record<string, string>>;
-  stipendGrantNames?: {
-    herb?: string;
-    trueHerb?: string;
-    innerMaterial?: string;
-  };
 }
 
 export class StandardSectOrganizationModule implements SectOrganizationModule {
@@ -995,7 +802,7 @@ export class StandardSectOrganizationModule implements SectOrganizationModule {
 
   constructor(readonly theme: SectOrganizationTheme = {}) {
     this.tasks = new StandardSectTaskCatalog();
-    this.economy = new StandardSectEconomyPolicy(theme);
+    this.economy = new StandardSectEconomyPolicy();
     this.battles = new StandardSectBattleScenarioCatalog();
     this.benefits = new StandardSectBenefitPolicy(theme);
   }

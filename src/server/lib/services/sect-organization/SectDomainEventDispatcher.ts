@@ -3,11 +3,8 @@ import {
   SectTask,
   type SectDomainEvent,
 } from '@shared/engine/sect';
-import {
-  assertDeclaredRewardKind,
-  organizationError,
-} from './applicationSupport';
-import type { SectRewardGrantStrategyRegistry } from './EconomyStrategies';
+import { organizationError } from './applicationSupport';
+import type { SectTaskItemRewardGrantStrategyRegistry } from './TaskRewardStrategies';
 import type {
   SectCommandContext,
   SectEconomyCommandContext,
@@ -131,7 +128,6 @@ export interface SectDomainEventDispatcherFactory {
   ): SectDomainEventDispatcher;
   forShop(command: SectEconomyCommandContext): SectDomainEventDispatcher;
   forStipend(args: {
-    userId: string;
     cultivatorId: string;
     command: SectEconomyCommandContext;
   }): SectDomainEventDispatcher;
@@ -162,7 +158,7 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
   constructor(
     private readonly fulfillments: SectTaskFulfillmentRegistry,
     private readonly progress: SectTaskProgressRegistry,
-    private readonly rewards: SectRewardGrantStrategyRegistry,
+    private readonly rewards: SectTaskItemRewardGrantStrategyRegistry,
     private readonly offers: SectTaskOfferService,
     private readonly limit = 64,
   ) {}
@@ -343,18 +339,14 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
               : []),
           ];
           let effects = emptySectCommandEffects();
-          const organization = command.modules.require(membership.sectId);
           for (const item of reward.grants) {
-            assertDeclaredRewardKind(organization, item.grant.kind);
             effects = mergeSectCommandEffects(
               effects,
               await this.rewards.require(item.grant.kind).grant({
-                userId: event.userId,
                 cultivatorId: event.cultivatorId,
                 quantity: item.quantity,
                 grant: item.grant,
                 rewards: command.rewards,
-                ids: command.ids,
                 source: 'sect_task',
               }),
             );
@@ -450,7 +442,6 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
   }
 
   forStipend(args: {
-    userId: string;
     cultivatorId: string;
     command: SectEconomyCommandContext;
   }): SectDomainEventDispatcher {
@@ -462,26 +453,18 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
               membershipId: event.membershipId,
               weekKey: event.weekKey,
               spiritStones: event.rewardSnapshot.spiritStones,
-              rewards: [...event.rewardSnapshot.rewards],
             }))
           )
             organizationError('本周俸禄已经领取');
-          let effects = emptySectCommandEffects();
-          for (const reward of event.rewardSnapshot.rewards) {
-            const granted = await this.rewards
-              .require(reward.grant.kind)
-              .grant({
-                userId: args.userId,
-                cultivatorId: args.cultivatorId,
-                quantity: reward.quantity,
-                grant: reward.grant,
-                rewards: args.command.rewards,
-                ids: args.command.ids,
-                source: 'sect_stipend',
-              });
-            effects = mergeSectCommandEffects(effects, granted);
-          }
-          return { effects };
+          return {
+            effects: (
+              await args.command.rewards.grantSpiritStones(
+                args.cultivatorId,
+                event.rewardSnapshot.spiritStones,
+                'sect_stipend',
+              )
+            ).effects,
+          };
         }),
       ],
       this.limit,
@@ -493,7 +476,7 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
 export function createStandardSectDomainEventDispatcher(args: {
   fulfillments: SectTaskFulfillmentRegistry;
   progress: SectTaskProgressRegistry;
-  rewards: SectRewardGrantStrategyRegistry;
+  rewards: SectTaskItemRewardGrantStrategyRegistry;
   offerPolicies: SectTaskOfferPolicyRegistry;
   rewardPolicies: SectTaskRewardPolicyRegistry;
   limit?: number;

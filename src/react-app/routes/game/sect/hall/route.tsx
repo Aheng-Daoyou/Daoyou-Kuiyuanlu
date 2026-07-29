@@ -370,10 +370,6 @@ function HallStipendConversation({
             <span className="text-crimson font-medium">
               {stipend.spiritStones.toLocaleString('zh-CN')}枚灵石
             </span>
-            {stipend.rewards
-              .filter((reward) => reward.kind !== 'sect.reward.spirit-stones')
-              .map((reward) => `，${reward.summary}`)
-              .join('')}
             。
           </>
         ) : (
@@ -385,10 +381,6 @@ function HallStipendConversation({
           <span className="text-crimson font-medium">
             {stipend.spiritStones.toLocaleString('zh-CN')}枚灵石
           </span>
-          {stipend.rewards
-            .filter((reward) => reward.kind !== 'sect.reward.spirit-stones')
-            .map((reward) => `，${reward.summary}`)
-            .join('')}
           。核对无误便可领取。
         </>
       ),

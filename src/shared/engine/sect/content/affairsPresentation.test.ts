@@ -166,7 +166,7 @@ const canonicalMapNotes: Readonly<Record<string, string>> = {
   alchemy: '炼丹 · 设施灵效',
   refinery: '炼器 · 设施灵效',
   vein: '矿场巡视 · 灵石收益 · 采矿',
-  garden: '草木长势 · 灵草产出',
+  garden: '草木长势 · 产出待开放',
   gate: '山门动态 · 清扫差事',
   cave: '弟子居所',
   formation: '宗门战后续开放',

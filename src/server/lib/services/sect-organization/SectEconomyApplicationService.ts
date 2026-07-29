@@ -1,22 +1,17 @@
 import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
-import type { SectShopItemData } from '@shared/contracts/sect';
+import { SectMembership, SectStipendClaim } from '@shared/engine/sect';
 import {
-  hasSectRank,
-  SectMembership,
-  SectShopOrder,
-  SectStipendClaim,
-} from '@shared/engine/sect';
-import type { SectRewardGrantStrategyRegistry } from './EconomyStrategies';
+  buySectShopItem,
+  listSectShopItems,
+} from '@server/lib/services/SectShopService';
 import type { SectBenefitService } from './SectBenefitService';
 import type { SectDomainEventDispatcherFactory } from './SectDomainEventDispatcher';
 import {
-  assertDeclaredRewardKind,
   mapFacilities,
   organizationError,
   organizationFor,
   quoteSectStipend,
   requireMembership,
-  stipendRewardView,
 } from './applicationSupport';
 import type {
   SectEconomyCommandContext,
@@ -24,14 +19,13 @@ import type {
   SectMembershipRecord,
 } from './ports';
 import {
-  mergeSectCommandEffects,
+  emptySectCommandEffects,
   type SectCommandEffects,
 } from './SectCommandEffects';
 
 export class SectEconomyApplicationService {
   constructor(
     private readonly benefits: SectBenefitService,
-    private readonly rewardStrategies: SectRewardGrantStrategyRegistry,
     private readonly events: SectDomainEventDispatcherFactory,
   ) {}
 
@@ -46,27 +40,12 @@ export class SectEconomyApplicationService {
       context.modules,
     );
     const weekKey = context.clock.weekKey();
-    const items: SectShopItemData[] = [];
-    const organization = organizationFor(context.modules, membership.sectId);
-    for (const item of organization.economy.shopItems(weekKey)) {
-      assertDeclaredRewardKind(organization, item.grant.kind);
-      if (!hasSectRank(membership.discipleRank, item.requiredRank)) continue;
-      items.push({
-        id: item.id,
-        name: item.grant.name,
-        description: item.grant.description,
-        requiredRank: item.requiredRank,
-        price: item.price,
-        stock: item.stock,
-        purchased: await context.economy.purchasedQuantity(
-          membership.id,
-          weekKey,
-          item.id,
-        ),
-        kind: item.grant.kind,
-        rotating: item.rotating,
-      });
-    }
+    const items = await listSectShopItems({
+      cultivatorId,
+      purchaseWeek: weekKey,
+      userVisibleOnly: true,
+      q: context.q,
+    });
     return { weekKey, contribution: membership.contribution, items };
   }
 
@@ -74,7 +53,6 @@ export class SectEconomyApplicationService {
     userId: string,
     cultivatorId: string,
     itemId: string,
-    quantity: number,
     context: SectEconomyCommandContext,
   ) {
     const membership = await requireMembership(
@@ -87,74 +65,56 @@ export class SectEconomyApplicationService {
       context.modules,
     );
     const weekKey = context.clock.weekKey();
-    const organization = organizationFor(context.modules, membership.sectId);
-    const item = organization.economy
-      .shopItems(weekKey)
-      .find((entry) => entry.id === itemId);
-    if (!item) organizationError('本周宝库没有该物品', 400);
-    assertDeclaredRewardKind(organization, item.grant.kind);
-    if (!hasSectRank(membership.discipleRank, item.requiredRank))
-      organizationError('弟子职阶不足', 400);
-    const purchased = await context.economy.purchasedQuantity(
-      membership.id,
-      weekKey,
-      item.id,
-    );
-    let order: SectShopOrder;
-    try {
-      order = SectShopOrder.quote({
-        itemId: item.id,
-        quantity,
-        purchased,
-        stock: item.stock,
-        unitPrice: item.price,
-      });
-    } catch (error) {
-      organizationError(
-        error instanceof Error ? error.message : '兑换请求无效',
-        400,
-      );
-    }
-
-    const spentEffects = await this.spendContribution(
-      membership,
-      order.totalCost,
-      `${weekKey}:${item.id}`,
-      context,
-    );
-    if (
-      !(await context.economy.recordPurchase(
-        membership.id,
-        weekKey,
-        item.id,
-        order.quantity,
-      ))
-    )
-      organizationError('该笔兑换已经处理');
-    const rewardEffects = await this.rewardStrategies
-      .require(item.grant.kind)
-      .grant({
+    let spentEffects = emptySectCommandEffects();
+    const purchase = await buySectShopItem({
+      id: itemId,
       userId,
       cultivatorId,
-      quantity: order.quantity,
-      grant: item.grant,
-      rewards: context.rewards,
-      ids: context.ids,
-      source: 'sect_shop',
-      });
-    const effects = mergeSectCommandEffects(spentEffects, rewardEffects);
+      membershipId: membership.id,
+      purchaseWeek: weekKey,
+      tx: context.q,
+      spendContribution: async (cost) => {
+        spentEffects = await this.spendContribution(
+          membership,
+          cost,
+          `${weekKey}:${itemId}`,
+          context,
+        );
+      },
+    });
     const result = await this.getShop(cultivatorId, context);
+    const resourceChanges: ResourceChangeDescriptor[] = [
+      {
+        resourceTopic: 'sect.shop',
+        eventType: 'sect.shop_purchased',
+        operation: 'replace',
+        payload: result,
+      },
+      ...spentEffects.resourceChanges,
+    ];
+    for (const change of purchase.settlement.inventoryChanges) {
+      resourceChanges.push(
+        change.operation === 'upsert'
+          ? ({
+              resourceTopic: `inventory.${change.kind}`,
+              eventType: 'inventory.sect_shop.rewarded',
+              operation: 'upsert-items',
+              payload: { idKey: 'id', items: [change.item] },
+            } as ResourceChangeDescriptor)
+          : ({
+              resourceTopic: `inventory.${change.kind}`,
+              eventType: 'inventory.sect_shop.rewarded',
+              operation: 'remove-items',
+              payload: { idKey: 'id', ids: [change.id] },
+            } as ResourceChangeDescriptor),
+      );
+    }
     return {
-      result,
-      resourceChanges: [
-        {
-          resourceTopic: 'sect.shop',
-          eventType: 'sect.shop_purchased',
-          operation: 'replace',
-          payload: result,
-        },
-        ...effects.resourceChanges,
-      ] satisfies ResourceChangeDescriptor[],
+      result: {
+        purchasedItem: purchase.item,
+        contribution: result.contribution,
+      },
+      resourceChanges,
     };
   }
 
@@ -179,7 +139,6 @@ export class SectEconomyApplicationService {
   }
 
   async claimStipend(
-    userId: string,
     cultivatorId: string,
     context: SectEconomyCommandContext,
   ) {
@@ -219,14 +178,13 @@ export class SectEconomyApplicationService {
     }
     const effects = await this.events
       .forStipend({
-        userId,
         cultivatorId,
         command: context,
       })
       .dispatch(claim.pullEvents());
     const result = {
       weekKey,
-      rewards: quote.rewards.map(stipendRewardView),
+      spiritStones: quote.spiritStones,
     };
     return {
       result,

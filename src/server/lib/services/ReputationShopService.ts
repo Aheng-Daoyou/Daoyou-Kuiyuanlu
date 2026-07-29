@@ -11,7 +11,6 @@ import type {
 } from '@shared/engine/resource/types';
 import {
   REPUTATION_SHOP_MAX_PRICE,
-  REPUTATION_SHOP_MAX_STACK_QUANTITY,
   type ReputationShopItemMutation,
   type ReputationShopItemStatus,
   type ReputationShopItemView,
@@ -22,11 +21,14 @@ import {
   parseItemLibraryEntry,
   type ItemLibraryEntry,
 } from '@shared/lib/itemLibrary';
+import {
+  getItemExchangePurchaseWeek,
+  getItemExchangeQuantityError,
+} from '@shared/lib/itemExchangeShop';
 import { and, asc, desc, eq, sql, type SQL } from 'drizzle-orm';
 
 type ShopItemRow = typeof reputationShopItems.$inferSelect;
 type ItemLibraryRow = typeof itemLibrary.$inferSelect;
-const PURCHASE_WEEK_TIME_ZONE = 'Asia/Shanghai';
 
 export class ReputationShopError extends Error {
   status: number;
@@ -43,20 +45,7 @@ function toIso(value: Date | string | null | undefined): string {
 }
 
 export function getReputationShopPurchaseWeek(date = new Date()): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: PURCHASE_WEEK_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const year = Number(value.year);
-  const month = Number(value.month);
-  const day = Number(value.day);
-  const localDate = new Date(Date.UTC(year, month - 1, day));
-  const dayOffset = (localDate.getUTCDay() + 6) % 7;
-  localDate.setUTCDate(localDate.getUTCDate() - dayOffset);
-  return localDate.toISOString().slice(0, 10);
+  return getItemExchangePurchaseWeek(date);
 }
 
 function parseItem(row: ItemLibraryRow): ItemLibraryEntry {
@@ -196,21 +185,8 @@ function assertQuantityForItemType(args: {
   itemType: ItemLibraryEntry['type'] | ItemLibraryRow['type'];
   quantity: number;
 }): void {
-  if (!Number.isInteger(args.quantity) || args.quantity < 1) {
-    throw new ReputationShopError(400, '商品发放数量配置异常');
-  }
-  if (args.itemType === 'artifact' && args.quantity !== 1) {
-    throw new ReputationShopError(400, '法宝类商品每次只能发放 1 件');
-  }
-  if (
-    args.itemType !== 'artifact' &&
-    args.quantity > REPUTATION_SHOP_MAX_STACK_QUANTITY
-  ) {
-    throw new ReputationShopError(
-      400,
-      `材料和消耗品每次最多发放 ${REPUTATION_SHOP_MAX_STACK_QUANTITY} 件`,
-    );
-  }
+  const error = getItemExchangeQuantityError(args);
+  if (error) throw new ReputationShopError(400, error);
 }
 
 function assertStoredShopItem(row: ShopItemRow, item: ItemLibraryRow): void {

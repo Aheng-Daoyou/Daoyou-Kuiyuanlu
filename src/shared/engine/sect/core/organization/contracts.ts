@@ -1,6 +1,4 @@
-import type { Quality } from '@shared/types/constants';
 import type { DailyTaskDifficulty } from '@shared/engine/cultivation/exp-gain-strategies/types';
-import type { PillSpec } from '@shared/types/consumable';
 import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import type {
   SectDiscipleRank,
@@ -168,40 +166,8 @@ export interface SectTaskCatalog {
   findByCompletionTag(tag: string): SectTaskDefinition | undefined;
 }
 
-export interface SectShopGrant {
-  kind: string;
-  name: string;
-  quality?: Quality;
-  description: string;
-  type?: 'herb' | 'ore' | 'aux';
-  element?: string;
-  spec?: PillSpec;
-  [key: string]: unknown;
-}
-
-export interface SectRewardGrantDefinition {
-  quantity: number;
-  grant: SectShopGrant;
-}
-
-export interface SectShopDefinition {
-  id: string;
-  requiredRank: SectDiscipleRank;
-  price: number;
-  stock: number;
-  rotating: boolean;
-  grant: SectShopGrant;
-}
-
 export interface SectEconomyPolicy {
-  /** Exhaustive reward strategy kinds this policy may emit. */
-  readonly rewardGrantKinds: readonly string[];
-  shopItems(weekKey: string): readonly SectShopDefinition[];
   stipendBase(rank: SectDiscipleRank): number;
-  stipendRewards(
-    rank: SectDiscipleRank,
-    gardenLevel: number,
-  ): readonly SectRewardGrantDefinition[];
 }
 
 export interface SectConstructionPolicy {
@@ -268,7 +234,6 @@ export interface SectBenefitPolicy {
   ): SectBenefitSnapshot;
   archiveLevel(levels: ReadonlyMap<string, number>): number;
   methodLevelCap(levels: ReadonlyMap<string, number>): number;
-  gardenLevel(levels: ReadonlyMap<string, number>): number;
   retreatMultiplier(
     levels: ReadonlyMap<string, number>,
     rank: SectDiscipleRank,

@@ -186,7 +186,7 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
         permission: 'sect.herb_garden.view',
         left: '83%',
         top: '75%',
-        note: '草木长势 · 灵草产出',
+        note: '草木长势 · 产出待开放',
       },
       {
         id: 'gate',
@@ -309,7 +309,7 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
     herbGarden: {
       title: '宗门药田',
       description:
-        '层层药畦顺山势铺开，灵泉沿石渠润过根须；成熟灵草将在周俸中交到弟子手中。',
+        '层层药畦顺山势铺开，灵泉沿石渠润过根须；药田产出玩法后续开放。',
       loadingText: '药田晨雾正在散去……',
     },
     gate: {

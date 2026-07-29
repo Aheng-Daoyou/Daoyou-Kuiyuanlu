@@ -1,5 +1,6 @@
 import { SectDeliveryRequirementSchema } from '@shared/engine/sect/core/organization/taskRequirements';
 import { SectTaskRewardSnapshotSchema } from '@shared/engine/sect/core/organization/taskRewards';
+import { ItemLibraryEntrySchema } from '@shared/lib/itemLibrary';
 import { z } from 'zod';
 import type {
   SectConstructionMemberData,
@@ -107,15 +108,18 @@ export const sectTaskViewSchema = z
   .strict();
 const sectShopItemSchema = z
   .object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string(),
-    requiredRank: z.enum(['registered', 'outer', 'inner', 'true']),
-    price: z.number(),
-    stock: z.number(),
-    purchased: z.number(),
-    kind: z.string(),
-    rotating: z.boolean(),
+    id: z.string().uuid(),
+    itemLibraryItemId: z.string(),
+    price: z.number().int().positive(),
+    quantity: z.number().int().positive(),
+    perUserLimit: z.number().int().positive().nullable(),
+    status: z.enum(['active', 'archived']),
+    sortOrder: z.number().int(),
+    purchasedCount: z.number().int().nonnegative(),
+    remainingPurchases: z.number().int().nonnegative().nullable(),
+    item: ItemLibraryEntrySchema,
+    createdAt: z.string(),
+    updatedAt: z.string(),
   })
   .strict();
 

@@ -1,11 +1,9 @@
 import type { SectOrganizationModule } from '@shared/engine/sect';
 import {
-  MaterialRewardGrantStrategy,
-  PillRewardGrantStrategy,
-  SectRewardGrantStrategyRegistry,
-  SpiritStoneRewardGrantStrategy,
-  type SectRewardGrantStrategy,
-} from './EconomyStrategies';
+  SectTaskItemRewardGrantStrategyRegistry,
+  SectTaskMaterialRewardGrantStrategy,
+  type SectTaskItemRewardGrantStrategy,
+} from './TaskRewardStrategies';
 import { createStandardSectDomainEventDispatcher } from './SectDomainEventDispatcher';
 import {
   CompletedDailyTaskProgressStrategy,
@@ -41,7 +39,7 @@ export interface SectOrganizationPluginManifest {
   readonly rewardPolicies?: readonly (() => SectTaskRewardPolicy)[];
   readonly fulfillments?: readonly (() => SectTaskFulfillmentStrategy)[];
   readonly progress?: readonly (() => SectTaskProgressStrategy)[];
-  readonly rewardGrants?: readonly (() => SectRewardGrantStrategy)[];
+  readonly rewardGrants?: readonly (() => SectTaskItemRewardGrantStrategy)[];
 }
 
 export const CORE_SECT_ORGANIZATION_PLUGIN: SectOrganizationPluginManifest = {
@@ -59,11 +57,7 @@ export const CORE_SECT_ORGANIZATION_PLUGIN: SectOrganizationPluginManifest = {
   rewardPolicies: [() => new RealmSectTaskRewardPolicy()],
   fulfillments: [() => new ProgressSignalFulfillmentStrategy()],
   progress: [() => new CompletedDailyTaskProgressStrategy()],
-  rewardGrants: [
-    () => new SpiritStoneRewardGrantStrategy(),
-    () => new MaterialRewardGrantStrategy(),
-    () => new PillRewardGrantStrategy(),
-  ],
+  rewardGrants: [() => new SectTaskMaterialRewardGrantStrategy()],
 };
 
 export interface SectOrganizationPluginComposition {
@@ -72,7 +66,7 @@ export interface SectOrganizationPluginComposition {
   rewardPolicies: SectTaskRewardPolicyRegistry;
   fulfillments: SectTaskFulfillmentRegistry;
   progress: SectTaskProgressRegistry;
-  rewardGrants: SectRewardGrantStrategyRegistry;
+  rewardGrants: SectTaskItemRewardGrantStrategyRegistry;
   events: ReturnType<typeof createStandardSectDomainEventDispatcher>;
 }
 
@@ -164,7 +158,7 @@ export function composeSectOrganizationPlugins(args: {
   const progress = new SectTaskProgressRegistry(
     progressContributions.map(({ value }) => value),
   );
-  const rewardGrants = new SectRewardGrantStrategyRegistry(
+  const rewardGrants = new SectTaskItemRewardGrantStrategyRegistry(
     rewardContributions.map(({ value }) => value),
   );
   for (const { sectId, organization } of args.organizations) {
@@ -214,9 +208,6 @@ export function composeSectOrganizationPlugins(args: {
           `宗门 ${sectId} 的任务 ${task.id} 缺少进度策略：${task.progress.strategy}`,
         );
     }
-    for (const kind of new Set(organization.economy.rewardGrantKinds))
-      if (!rewardGrants.has(kind))
-        throw new Error(`宗门 ${sectId} 缺少奖励策略：${kind}`);
   }
 
   return {

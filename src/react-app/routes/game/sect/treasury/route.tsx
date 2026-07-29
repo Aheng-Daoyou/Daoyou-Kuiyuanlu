@@ -1,8 +1,6 @@
+import { ItemExchangeShelf } from '@app/components/feature/item-shop/ItemExchangeShelf';
 import {
   NpcConversation,
-  useConversationSession,
-  type NpcConversationMessage,
-  type NpcConversationOption,
 } from '@app/components/feature/room';
 import {
   SectNpcConversationRegistry,
@@ -10,18 +8,22 @@ import {
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
 import { useSectShopQuery } from '@app/components/feature/sect/sectResources';
+import { useInkUI } from '@app/components/providers/InkUIProvider';
+import { InkButton } from '@app/components/ui';
 import { useResourceMutation } from '@app/lib/resources/mutations';
-import type { SectShopItemData } from '@shared/contracts/sect';
-import {
-  SECT_RANK_LABELS,
-  STANDARD_SECT_PRESENTATION,
-} from '@shared/engine/sect';
+import type {
+  SectShopBuyResponse,
+  SectShopItemData,
+} from '@shared/contracts/sectShop';
+import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
 import { useState } from 'react';
 import {
   postJson,
   SectPermissionBoundary,
   SectScene,
 } from '../components/SectScene';
+
+const HIGH_VALUE_EXCHANGE_CONFIRM_THRESHOLD = 100;
 
 const registry = new SectNpcConversationRegistry([
   { key: 'sect.treasury.shop', renderer: TreasuryConversation },
@@ -41,148 +43,151 @@ export default function SectTreasuryPage() {
   );
 }
 
-type TreasuryIntent = { type: 'purchase'; itemId: string };
-const TREASURY_PAGE_SIZE = 6;
-
 function TreasuryConversation({
   actor,
   onExit,
 }: SectNpcConversationRendererProps) {
   const shop = useSectShopQuery();
   const { mutate } = useResourceMutation();
-  const [selectedId, setSelectedId] = useState<string>();
-  const [page, setPage] = useState(0);
-  const session = useConversationSession({
-    sessionKey: actor.id,
-    snapshot: shop.data,
-    perform: async ({ intent }: { intent: TreasuryIntent }) => {
-      const selected = shop.data?.items.find(
-        (item) => item.id === intent.itemId,
-      );
-      if (!selected) throw new Error('这件物资已经不在当前库单中。');
-      await mutate(
+  const { openDialog, pushToast } = useInkUI();
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [buyingId, setBuyingId] = useState<string | null>(null);
+
+  const executeBuy = async (item: SectShopItemData) => {
+    setBuyingId(item.id);
+    try {
+      const result = await mutate<SectShopBuyResponse>(
         fetch(
-          '/api/sects/current/shop/purchase',
-          postJson({ itemId: selected.id, quantity: 1 }),
+          `/api/sects/current/shop/${item.id}/buy`,
+          postJson(),
         ),
       );
-      return selected;
-    },
-    onReset: () => {
-      setSelectedId(undefined);
-      setPage(0);
-    },
-  });
-  const selected = shop.data?.items.find((item) => item.id === selectedId);
-  const items = shop.data?.items ?? [];
-  const pageCount = Math.max(1, Math.ceil(items.length / TREASURY_PAGE_SIZE));
-  const visibleItems = items.slice(
-    page * TREASURY_PAGE_SIZE,
-    (page + 1) * TREASURY_PAGE_SIZE,
-  );
-  const messages = treasuryMessages(actor.name, actor.greeting, selected, {
-    contribution: shop.data?.contribution,
-    purchased: session.result,
-  });
-  const options: NpcConversationOption[] = selected
-    ? [
-        ...([
-          {
-            id: 'confirm',
-            label: `就兑换一份${selected.name}`,
-            tone: 'primary',
-            disabled:
-              selected.stock - selected.purchased <= 0 ||
-              (shop.data?.contribution ?? 0) < selected.price,
-          },
-          { id: 'back', label: '我再看看别的' },
-          { id: 'leave', label: '弟子告退', tone: 'muted' },
-        ] satisfies NpcConversationOption[]),
-      ]
-    : [
-        ...visibleItems.map((item) => ({
-          id: `item:${item.id}`,
-          label: item.rotating
-            ? `请取本周轮换的${item.name}给我看看`
-            : `请取${item.name}给我看看`,
-          tone:
-            item.stock - item.purchased <= 0
-              ? ('muted' as const)
-              : ('normal' as const),
-          disabled: item.stock - item.purchased <= 0,
-        })),
-        ...(page > 0
-          ? [{ id: 'previous-page', label: '请再翻回前一页库单' }]
-          : []),
-        ...(page + 1 < pageCount
-          ? [{ id: 'next-page', label: '请再翻一页库单' }]
-          : []),
-        { id: 'leave', label: '弟子告退', tone: 'muted' },
-      ];
+      pushToast({
+        message: `已支取 ${result.purchasedItem.item.name}`,
+        tone: 'success',
+      });
+      await shop.reload();
+    } catch (error) {
+      pushToast({
+        message: error instanceof Error ? error.message : '支取失败',
+        tone: 'danger',
+      });
+    } finally {
+      setBuyingId(null);
+    }
+  };
+
+  const handleBuy = async (item: SectShopItemData) => {
+    const contribution = shop.data?.contribution;
+    if (item.remainingPurchases === 0) {
+      pushToast({ message: '此物已达兑换上限', tone: 'warning' });
+      return;
+    }
+    if (contribution === undefined || contribution < item.price) {
+      pushToast({ message: '宗门贡献不足', tone: 'warning' });
+      return;
+    }
+    if (item.price > HIGH_VALUE_EXCHANGE_CONFIRM_THRESHOLD) {
+      openDialog({
+        title: '高额兑换确认',
+        content: (
+          <div className="space-y-2 text-sm leading-7">
+            <p>确定兑换「{item.item.name}」吗？</p>
+            <p className="text-crimson font-bold">
+              将消耗：{item.price} 宗门贡献
+            </p>
+          </div>
+        ),
+        confirmLabel: '确认兑换',
+        cancelLabel: '再看看',
+        onConfirm: async () => {
+          await executeBuy(item);
+        },
+      });
+      return;
+    }
+
+    await executeBuy(item);
+  };
+
+  if (catalogOpen)
+    return (
+      <TreasuryShelfWorkspace
+        items={shop.data?.items ?? []}
+        contribution={shop.data?.contribution}
+        buyingId={buyingId}
+        loading={shop.loading}
+        error={shop.error}
+        onBuy={handleBuy}
+        onBack={() => setCatalogOpen(false)}
+      />
+    );
 
   return (
     <NpcConversation
       actor={actor}
-      messages={messages}
-      options={options}
-      busy={session.phase === 'loading' || session.phase === 'submitting'}
-      error={session.error ?? shop.error}
+      messages={[{ id: 'greeting', speaker: actor.name, body: actor.greeting }]}
+      options={[
+        { id: 'catalog', label: '有劳执事取来本周库单', tone: 'primary' },
+        { id: 'leave', label: '弟子告退', tone: 'muted' },
+      ]}
+      error={shop.error}
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
-        else if (optionId === 'back') {
-          session.clearResult();
-          setSelectedId(undefined);
-        } else if (optionId === 'confirm' && selected)
-          void session.dispatch({ type: 'purchase', itemId: selected.id });
-        else if (optionId === 'previous-page')
-          setPage((currentPage) => Math.max(0, currentPage - 1));
-        else if (optionId === 'next-page')
-          setPage((currentPage) => Math.min(pageCount - 1, currentPage + 1));
-        else if (optionId.startsWith('item:')) {
-          session.clearResult();
-          setSelectedId(optionId.slice(5));
-        }
+        else if (optionId === 'catalog') setCatalogOpen(true);
       }}
     />
   );
 }
 
-function treasuryMessages(
-  actorName: string,
-  greeting: string,
-  selected: SectShopItemData | undefined,
-  state: { contribution?: number; purchased?: SectShopItemData },
-): NpcConversationMessage[] {
-  const messages: NpcConversationMessage[] = [
-    { id: 'greeting', speaker: actorName, body: greeting },
-  ];
-  if (state.purchased)
-    messages.push({
-      id: 'purchased',
-      speaker: actorName,
-      body: `「${state.purchased.name}」已经交到你手中，实际扣除${state.purchased.price}点贡献。`,
-      tone: 'attention',
-    });
-  if (selected) {
-    const remaining = selected.stock - selected.purchased;
-    messages.push({
-      id: 'quote',
-      speaker: actorName,
-      body: (
-        <>
-          {selected.description}。此物需要
-          <span className="text-crimson font-medium">
-            {selected.price}点贡献
-          </span>
-          ，限
-          <span className="text-crimson font-medium">
-            {SECT_RANK_LABELS[selected.requiredRank]}
-          </span>
-          支取，库中还剩{remaining}份。你现有
-          {state.contribution?.toLocaleString('zh-CN') ?? 0}点贡献。
-        </>
-      ),
-    });
-  }
-  return messages;
+function TreasuryShelfWorkspace({
+  items,
+  contribution,
+  buyingId,
+  loading,
+  error,
+  onBuy,
+  onBack,
+}: {
+  items: SectShopItemData[];
+  contribution: number | undefined;
+  buyingId: string | null;
+  loading: boolean;
+  error?: string;
+  onBuy(item: SectShopItemData): Promise<void>;
+  onBack(): void;
+}) {
+  return (
+    <div className="min-h-[34rem] px-5 py-7 sm:px-8 md:px-10">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-current/10 pb-4">
+        <div>
+          <p className="text-ink-secondary text-sm">
+            宗门宝库 · 已陈列 {items.length} 件
+          </p>
+          <p className="text-ink mt-1 text-sm">
+            当前贡献：
+            {contribution === undefined
+              ? '读取中…'
+              : contribution.toLocaleString('zh-CN')}
+          </p>
+        </div>
+        <InkButton onClick={onBack}>合上库单</InkButton>
+      </div>
+      <div className="mt-5">
+        <ItemExchangeShelf
+          items={items}
+          balance={contribution}
+          currencyConcept="contribution"
+          buyingId={buyingId}
+          onBuy={(item) => void onBuy(item)}
+          loading={loading}
+          loadingText="宝库执事正在核验封签..."
+          emptyText="宝库暂未陈列可兑换之物。"
+        />
+        {error ? (
+          <p className="text-crimson mt-4 text-sm leading-7">{error}</p>
+        ) : null}
+      </div>
+    </div>
+  );
 }

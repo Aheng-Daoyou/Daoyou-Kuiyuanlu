@@ -1,7 +1,4 @@
-import type { Material } from '@shared/types/cultivator';
 import { z } from 'zod';
-import { organizationError } from '../applicationSupport';
-import type { SectRewardGrantStrategy } from '../EconomyStrategies';
 import type { SectOrganizationPluginManifest } from '../SectOrganizationPlugins';
 import type { SectTaskExecutor } from '../task-executors/SectTaskExecutor';
 
@@ -26,27 +23,8 @@ const fixtureExecutor: SectTaskExecutor<z.infer<typeof fixtureInput>> = {
   }),
 };
 
-class FixtureMaterialRewardStrategy implements SectRewardGrantStrategy {
-  readonly key = 'fixture-sect.material';
-
-  async grant(context: Parameters<SectRewardGrantStrategy['grant']>[0]) {
-    if (!context.grant.type || !context.grant.quality)
-      organizationError('夹具材料奖励配置无效', 500);
-    return context.rewards.grantMaterial(context.cultivatorId, {
-      name: context.grant.name,
-      type: context.grant.type,
-      rank: context.grant.quality,
-      element: context.grant.element as Material['element'],
-      description: context.grant.description,
-      details: { source: context.source },
-      quantity: context.quantity,
-    });
-  }
-}
-
 export const FIXTURE_SECT_ORGANIZATION_PLUGIN: SectOrganizationPluginManifest =
   {
     sectId: 'fixture-sect',
     executors: [() => fixtureExecutor],
-    rewardGrants: [() => new FixtureMaterialRewardStrategy()],
   };

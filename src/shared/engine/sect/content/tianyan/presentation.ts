@@ -206,7 +206,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '15%',
         '/game/sect/herb-garden',
         'sect.herb_garden.view',
-        '草木长势 · 灵草产出',
+        '草木长势 · 产出待开放',
         'herb_garden',
       ),
       hotspot(

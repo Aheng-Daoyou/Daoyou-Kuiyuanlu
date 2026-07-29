@@ -55,7 +55,6 @@ const application = new SectOrganizationFacade({
   },
   economy: new SectEconomyApplicationService(
     benefits,
-    plugins.rewardGrants,
     plugins.events,
   ),
   construction: new SectConstructionApplicationService(benefits),

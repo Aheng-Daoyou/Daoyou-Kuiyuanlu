@@ -3,9 +3,6 @@ import {
   SECT_RANK_ORDER,
   type SectDiscipleRank,
 } from '../domain/organization';
-import type {
-  SectRewardGrantDefinition,
-} from './contracts';
 import type { SectTaskRewardSnapshot } from './taskRewards';
 
 export type SectDomainEvent =
@@ -63,7 +60,6 @@ export type SectDomainEvent =
       weekKey: string;
       rewardSnapshot: {
         spiritStones: number;
-        rewards: readonly SectRewardGrantDefinition[];
       };
     };
 
@@ -405,7 +401,6 @@ export class SectStipendClaim {
     periodKey: string,
     rewardSnapshot: {
       spiritStones: number;
-      rewards: readonly SectRewardGrantDefinition[];
     },
   ): void {
     if (periodKey !== this.weekKey) throw new SectDomainError('俸禄周期不匹配');
@@ -423,40 +418,5 @@ export class SectStipendClaim {
     const events = this.events;
     this.events = [];
     return events;
-  }
-}
-
-export class SectShopOrder {
-  private constructor(
-    readonly itemId: string,
-    readonly quantity: number,
-    readonly totalCost: number,
-  ) {}
-
-  static quote(input: {
-    itemId: string;
-    quantity: number;
-    purchased: number;
-    stock: number;
-    unitPrice: number;
-  }): SectShopOrder {
-    if (!Number.isSafeInteger(input.quantity) || input.quantity <= 0)
-      throw new SectDomainError('兑换数量必须是正整数');
-    if (
-      !Number.isSafeInteger(input.purchased) ||
-      !Number.isSafeInteger(input.stock) ||
-      input.purchased < 0 ||
-      input.stock < 0
-    )
-      throw new SectDomainError('宝库库存状态无效');
-    if (input.purchased + input.quantity > input.stock)
-      throw new SectDomainError('本周个人库存不足');
-    if (!Number.isSafeInteger(input.unitPrice) || input.unitPrice <= 0)
-      throw new SectDomainError('兑换价格无效');
-    return new SectShopOrder(
-      input.itemId,
-      input.quantity,
-      input.unitPrice * input.quantity,
-    );
   }
 }

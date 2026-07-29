@@ -387,35 +387,6 @@ export const sectContributionLedger = pgTable(
   ],
 );
 
-export const sectShopPurchases = pgTable(
-  'wanjiedaoyou_sect_shop_purchases',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    membershipId: uuid('membership_id')
-      .references(() => sectMemberships.id, { onDelete: 'cascade' })
-      .notNull(),
-    weekKey: varchar('week_key', { length: 10 }).notNull(),
-    itemId: varchar('item_id', { length: 64 }).notNull(),
-    quantity: integer('quantity').notNull().default(1),
-    requestId: varchar('request_id', { length: 128 }),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at')
-      .notNull()
-      .defaultNow()
-      .$onUpdate(() => new Date()),
-  },
-  (table) => [
-    index('sect_shop_member_week_item_idx').on(
-      table.membershipId,
-      table.weekKey,
-      table.itemId,
-    ),
-    uniqueIndex('sect_shop_member_request_unique')
-      .on(table.membershipId, table.requestId)
-      .where(sql`${table.requestId} is not null`),
-  ],
-);
-
 export const sectStipendClaims = pgTable(
   'wanjiedaoyou_sect_stipend_claims',
   {
@@ -425,7 +396,6 @@ export const sectStipendClaims = pgTable(
       .notNull(),
     weekKey: varchar('week_key', { length: 10 }).notNull(),
     spiritStones: integer('spirit_stones').notNull(),
-    rewards: jsonb('rewards').notNull().default([]),
     claimedAt: timestamp('claimed_at').notNull().defaultNow(),
   },
   (table) => [
@@ -1159,6 +1129,73 @@ export const reputationShopItems = pgTable(
       table.sortOrder,
       table.updatedAt,
     ),
+  ],
+);
+
+export const sectShopItems = pgTable(
+  'wanjiedaoyou_sect_shop_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    itemLibraryItemId: varchar('item_library_item_id', { length: 120 })
+      .notNull()
+      .references(() => itemLibrary.itemId),
+    price: integer('price').notNull(),
+    quantity: integer('quantity').notNull().default(1),
+    perUserLimit: integer('per_user_limit'),
+    status: varchar('status', { length: 20 }).notNull().default('active'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdBy: uuid('created_by').notNull(),
+    updatedBy: uuid('updated_by').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('sect_shop_item_library_item_uidx').on(
+      table.itemLibraryItemId,
+    ),
+    index('sect_shop_status_sort_idx').on(
+      table.status,
+      table.sortOrder,
+      table.updatedAt,
+    ),
+  ],
+);
+
+export const sectShopPurchases = pgTable(
+  'wanjiedaoyou_sect_shop_purchases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    shopItemId: uuid('shop_item_id')
+      .notNull()
+      .references(() => sectShopItems.id, { onDelete: 'cascade' }),
+    cultivatorId: uuid('cultivator_id')
+      .notNull()
+      .references(() => cultivators.id, { onDelete: 'cascade' }),
+    membershipId: uuid('membership_id').references(() => sectMemberships.id, {
+      onDelete: 'set null',
+    }),
+    itemLibraryItemId: varchar('item_library_item_id', {
+      length: 120,
+    }).notNull(),
+    quantity: integer('quantity').notNull(),
+    contributionCost: integer('contribution_cost').notNull(),
+    purchaseWeek: varchar('purchase_week', { length: 10 }).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('sect_shop_purchases_cultivator_item_idx').on(
+      table.cultivatorId,
+      table.shopItemId,
+    ),
+    index('sect_shop_purchases_week_idx').on(
+      table.cultivatorId,
+      table.shopItemId,
+      table.purchaseWeek,
+    ),
+    index('sect_shop_purchases_created_idx').on(table.createdAt),
   ],
 );
 

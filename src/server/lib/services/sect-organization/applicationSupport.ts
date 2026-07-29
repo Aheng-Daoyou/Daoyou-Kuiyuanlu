@@ -2,7 +2,6 @@ import {
   type SectDiscipleRank,
   type SectFacilityState,
   type SectOrganizationModule,
-  type SectRewardGrantDefinition,
 } from '@shared/engine/sect';
 import { SectError } from '../SectError';
 import type {
@@ -32,14 +31,6 @@ export function organizationFor(
   return modules.require(sectId);
 }
 
-export function assertDeclaredRewardKind(
-  organization: SectOrganizationModule,
-  kind: string,
-): void {
-  if (!organization.economy.rewardGrantKinds.includes(kind))
-    organizationError(`宗门经济策略返回未声明的奖励类型：${kind}`, 500);
-}
-
 export function mapFacilities(
   rows: readonly SectFacilityRecord[],
   organization: SectOrganizationModule,
@@ -67,10 +58,9 @@ export function mapFacilities(
 
 export interface SectStipendQuote {
   spiritStones: number;
-  rewards: readonly SectRewardGrantDefinition[];
 }
 
-/** Builds the single reward package used by overview, audit and settlement. */
+/** Builds the spirit-stone snapshot used by overview, audit and settlement. */
 export function quoteSectStipend(
   organization: SectOrganizationModule,
   rank: SectDiscipleRank,
@@ -80,33 +70,5 @@ export function quoteSectStipend(
     organization.economy.stipendBase(rank) *
       organization.benefits.stipendMultiplier(facilityLevels),
   );
-  const rewards = [
-    {
-      quantity: spiritStones,
-      grant: {
-        kind: 'sect.reward.spirit-stones',
-        name: '灵石',
-        description: '宗门按弟子职阶与灵脉等级发放的周俸。',
-      },
-    },
-    ...organization.economy.stipendRewards(
-      rank,
-      organization.benefits.gardenLevel(facilityLevels),
-    ),
-  ];
-  for (const reward of rewards)
-    assertDeclaredRewardKind(organization, reward.grant.kind);
-  return {
-    spiritStones,
-    rewards,
-  };
-}
-
-export function stipendRewardView(reward: SectRewardGrantDefinition) {
-  return {
-    kind: reward.grant.kind,
-    name: reward.grant.name,
-    quantity: reward.quantity,
-    summary: `${reward.grant.name} ×${reward.quantity}`,
-  };
+  return { spiritStones };
 }

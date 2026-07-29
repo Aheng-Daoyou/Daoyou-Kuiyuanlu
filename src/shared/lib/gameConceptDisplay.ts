@@ -58,6 +58,11 @@ export const GAME_CONCEPT_DISPLAY_MAP = {
     icon: '🏵️',
     description: '天骄宝阁兑换所需的声望',
   },
+  contribution: {
+    label: '宗门贡献',
+    icon: '📜',
+    description: '宗门任务与建设所得的宗门内部凭证',
+  },
   cultivation_exp: {
     label: '修为',
     icon: '🧘',

@@ -201,7 +201,7 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
         '39%',
         '/game/sect/herb-garden',
         'sect.herb_garden.view',
-        '草木长势 · 灵草产出',
+        '草木长势 · 产出待开放',
         'herb_garden',
       ),
       hotspot(
@@ -303,7 +303,7 @@ export const WUXIANG_SECT_PRESENTATION: SectPresentationTheme = {
     },
     herbGarden: {
       title: '血莲池',
-      description: '暗红池水并无腥气，莲叶托着晨露，供药师每周采撷。',
+      description: '暗红池水并无腥气，莲叶托着晨露；药田产出玩法后续开放。',
     },
     gate: {
       title: '不二门',
