@@ -64,6 +64,8 @@ export default function SectVisitPage() {
             image={presentation.map.image!}
             alt={presentation.map.alt}
             hotspots={presentation.map.hotspots}
+            rooms={presentation.rooms}
+            scenes={presentation.scenes}
           />
         </div>
       </section>

@@ -154,7 +154,36 @@ const productionThemes: readonly SectPresentationTheme[] = [
   YOUDU_SECT_PRESENTATION,
 ];
 
+const canonicalMapNotes: Readonly<Record<string, string>> = {
+  hall: '身份 · 同门 · 周俸',
+  archive: '心法研习',
+  cliff: '流派 · 参悟',
+  arena: '神通 · 战术 · 小比',
+  affairs: '日常 · 周常 · 晋升',
+  treasury: '贡献兑换',
+  industries: '设施建设 · 物资捐献',
+  cultivation: '闭关修炼 · 设施灵效',
+  alchemy: '炼丹 · 设施灵效',
+  refinery: '炼器 · 设施灵效',
+  vein: '矿场巡视 · 灵石收益 · 采矿',
+  garden: '草木长势 · 灵草产出',
+  gate: '山门动态 · 清扫差事',
+  cave: '弟子居所',
+  formation: '宗门战后续开放',
+};
+
 describe('production sect affairs presentations', () => {
+  it('keeps map notes aligned with current facility responsibilities', () => {
+    for (const theme of productionThemes) {
+      expect(
+        Object.fromEntries(
+          theme.map?.hotspots?.map((hotspot) => [hotspot.id, hotspot.note]) ??
+            [],
+        ),
+      ).toEqual(canonicalMapNotes);
+    }
+  });
+
   it('provides twelve named NPCs with canonical roles', () => {
     const expectedNames = [
       ['陆青崖', '裴守拙', '听剑老人'],

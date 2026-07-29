@@ -148,7 +148,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.hall.view',
     left: '0',
     top: '0',
-    note: '身份、晋升与周俸',
+    note: '身份 · 同门 · 周俸',
   },
   {
     id: 'archive',
@@ -167,7 +167,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.enlightenment.use',
     left: '0',
     top: '0',
-    note: '流派与参悟',
+    note: '流派 · 参悟',
   },
   {
     id: 'arena',
@@ -176,7 +176,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.arena.use',
     left: '0',
     top: '0',
-    note: '神通与战术',
+    note: '神通 · 战术 · 小比',
   },
   {
     id: 'affairs',
@@ -185,7 +185,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.tasks.use',
     left: '0',
     top: '0',
-    note: '日常、周常与悬赏',
+    note: '日常 · 周常 · 晋升',
   },
   {
     id: 'treasury',
@@ -203,7 +203,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.construction.view',
     left: '0',
     top: '0',
-    note: '宗门共建',
+    note: '设施建设 · 物资捐献',
   },
   {
     id: 'cultivation',
@@ -213,7 +213,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.facility.cultivation.use',
     left: '0',
     top: '0',
-    note: '聚灵闭关',
+    note: '闭关修炼 · 设施灵效',
   },
   {
     id: 'alchemy',
@@ -223,7 +223,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.facility.alchemy.use',
     left: '0',
     top: '0',
-    note: '炼制丹药',
+    note: '炼丹 · 设施灵效',
   },
   {
     id: 'refinery',
@@ -233,7 +233,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.facility.refinery.use',
     left: '0',
     top: '0',
-    note: '炼制法器',
+    note: '炼器 · 设施灵效',
   },
   {
     id: 'vein',
@@ -243,7 +243,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.spirit_vein.view',
     left: '0',
     top: '0',
-    note: '俸禄加成',
+    note: '矿场巡视 · 灵石收益 · 采矿',
   },
   {
     id: 'garden',
@@ -253,7 +253,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.herb_garden.view',
     left: '0',
     top: '0',
-    note: '每周灵草产出',
+    note: '草木长势 · 灵草产出',
   },
   {
     id: 'gate',
@@ -262,7 +262,7 @@ const STANDARD_HOTSPOTS: readonly SectMapHotspot[] = [
     permission: 'sect.gate.view',
     left: '0',
     top: '0',
-    note: '宗门动态',
+    note: '山门动态 · 清扫差事',
   },
   {
     id: 'cave',

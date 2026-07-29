@@ -100,7 +100,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '41%',
         '/game/sect/hall',
         'sect.hall.view',
-        '身份 · 晋升 · 周俸',
+        '身份 · 同门 · 周俸',
       ),
       hotspot(
         'archive',
@@ -109,7 +109,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '22%',
         '/game/sect/archive',
         'sect.archive.use',
-        '六卷心法',
+        '心法研习',
         'archive',
       ),
       hotspot(
@@ -119,7 +119,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '22%',
         '/game/sect/enlightenment-cliff',
         'sect.enlightenment.use',
-        '道途 · 参悟',
+        '流派 · 参悟',
       ),
       hotspot(
         'arena',
@@ -128,7 +128,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '49%',
         '/game/sect/arena',
         'sect.arena.use',
-        '神通 · 战术',
+        '神通 · 战术 · 小比',
       ),
       hotspot(
         'affairs',
@@ -137,7 +137,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '47%',
         '/game/sect/affairs',
         'sect.tasks.use',
-        '日常 · 周常 · 悬赏',
+        '日常 · 周常 · 晋升',
       ),
       hotspot(
         'treasury',
@@ -155,7 +155,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '60%',
         '/game/sect/industries',
         'sect.construction.view',
-        '宗门共建',
+        '设施建设 · 物资捐献',
       ),
       hotspot(
         'cultivation',
@@ -164,7 +164,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '57%',
         '/game/sect/cultivation-room',
         'sect.facility.cultivation.use',
-        '聚灵闭关',
+        '闭关修炼 · 设施灵效',
         'cultivation_room',
       ),
       hotspot(
@@ -174,7 +174,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '29%',
         '/game/sect/alchemy',
         'sect.facility.alchemy.use',
-        '灵草炼丹',
+        '炼丹 · 设施灵效',
         'workshop',
       ),
       hotspot(
@@ -184,7 +184,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '75%',
         '/game/sect/refinery',
         'sect.facility.refinery.use',
-        '五金炼器',
+        '炼器 · 设施灵效',
         'workshop',
       ),
       hotspot(
@@ -194,7 +194,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '54%',
         '/game/sect/spirit-vein',
         'sect.spirit_vein.view',
-        '灵石俸禄加成',
+        '矿场巡视 · 灵石收益 · 采矿',
         'spirit_vein',
       ),
       hotspot(
@@ -204,7 +204,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '15%',
         '/game/sect/herb-garden',
         'sect.herb_garden.view',
-        '每周灵草产出',
+        '草木长势 · 灵草产出',
         'herb_garden',
       ),
       hotspot(
@@ -214,7 +214,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '88%',
         '/game/sect/gate',
         'sect.gate.view',
-        '宗门动态',
+        '山门动态 · 清扫差事',
         undefined,
         {
           description:
@@ -228,7 +228,7 @@ export const TIANYAN_SECT_PRESENTATION: SectPresentationTheme = {
         '50%',
         '/game/sect/cave',
         'sect.cave.view',
-        '内门弟子居所',
+        '弟子居所',
       ),
       {
         id: 'formation',

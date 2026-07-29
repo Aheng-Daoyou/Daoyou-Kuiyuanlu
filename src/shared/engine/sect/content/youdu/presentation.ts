@@ -96,7 +96,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '20%',
         '/game/sect/hall',
         'sect.hall.view',
-        '身份 · 晋升 · 周俸',
+        '身份 · 同门 · 周俸',
       ),
       hotspot(
         'archive',
@@ -105,7 +105,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '40%',
         '/game/sect/archive',
         'sect.archive.use',
-        '六卷心法',
+        '心法研习',
         'archive',
       ),
       hotspot(
@@ -115,7 +115,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '24%',
         '/game/sect/enlightenment-cliff',
         'sect.enlightenment.use',
-        '道途 · 参悟',
+        '流派 · 参悟',
       ),
       hotspot(
         'arena',
@@ -124,7 +124,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '57%',
         '/game/sect/arena',
         'sect.arena.use',
-        '神通 · 战术',
+        '神通 · 战术 · 小比',
       ),
       hotspot(
         'affairs',
@@ -133,7 +133,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '46%',
         '/game/sect/affairs',
         'sect.tasks.use',
-        '日常 · 周常 · 悬赏',
+        '日常 · 周常 · 晋升',
       ),
       hotspot(
         'treasury',
@@ -151,7 +151,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '78%',
         '/game/sect/industries',
         'sect.construction.view',
-        '宗门共建',
+        '设施建设 · 物资捐献',
       ),
       hotspot(
         'cultivation',
@@ -160,7 +160,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '62%',
         '/game/sect/cultivation-room',
         'sect.facility.cultivation.use',
-        '聚灵闭关',
+        '闭关修炼 · 设施灵效',
         'cultivation_room',
       ),
       hotspot(
@@ -170,7 +170,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '50%',
         '/game/sect/alchemy',
         'sect.facility.alchemy.use',
-        '炼丹',
+        '炼丹 · 设施灵效',
         'workshop',
       ),
       hotspot(
@@ -180,7 +180,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '71%',
         '/game/sect/refinery',
         'sect.facility.refinery.use',
-        '炼器',
+        '炼器 · 设施灵效',
         'workshop',
       ),
       hotspot(
@@ -190,7 +190,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '44%',
         '/game/sect/spirit-vein',
         'sect.spirit_vein.view',
-        '灵石收益',
+        '矿场巡视 · 灵石收益 · 采矿',
         'spirit_vein',
       ),
       hotspot(
@@ -200,7 +200,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '37%',
         '/game/sect/herb-garden',
         'sect.herb_garden.view',
-        '灵草产出',
+        '草木长势 · 灵草产出',
         'herb_garden',
       ),
       hotspot(
@@ -210,7 +210,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '87%',
         '/game/sect/gate',
         'sect.gate.view',
-        '宗门动态',
+        '山门动态 · 清扫差事',
         undefined,
         {
           description:

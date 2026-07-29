@@ -1,9 +1,11 @@
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkDetailDrawer } from '@app/components/ui/InkDetailDrawer';
 import type {
+  ResolvedSectPresentation,
   SectFacilityState,
   SectMapHotspot,
   SectPermissionState,
+  SectSceneKey,
 } from '@shared/engine/sect';
 import { cn } from '@shared/lib/cn';
 import {
@@ -21,7 +23,11 @@ import {
   type ReactZoomPanPinchContentRef,
 } from 'react-zoom-pan-pinch';
 import { resolveClosestSectMapHotspot } from './sectMapHitTest';
-import { resolveSectMapHotspotState, type SectMapMode } from './sectMapState';
+import {
+  resolveSectMapHotspotState,
+  type SectMapHotspotState,
+  type SectMapMode,
+} from './sectMapState';
 
 interface SectMapProps {
   image: string;
@@ -30,6 +36,8 @@ interface SectMapProps {
   mode?: SectMapMode;
   facilities?: ReadonlyMap<string, SectFacilityState>;
   permissions?: Readonly<Record<string, SectPermissionState>>;
+  rooms?: ResolvedSectPresentation['rooms'];
+  scenes?: ResolvedSectPresentation['scenes'];
   onNavigate?(route: string): void;
 }
 
@@ -42,9 +50,43 @@ interface MapControlButtonProps extends Pick<
 }
 
 const MAP_LABEL_STYLE = {
-  textShadow:
-    '-1px -1px 0 rgba(250, 245, 230, 0.95), 1px -1px 0 rgba(250, 245, 230, 0.95), -1px 1px 0 rgba(250, 245, 230, 0.95), 1px 1px 0 rgba(250, 245, 230, 0.95), 0 2px 4px rgba(26, 20, 15, 0.35)',
+  WebkitTextStroke: '1.5px rgba(250, 245, 230, 0.96)',
+  paintOrder: 'stroke fill',
+  textRendering: 'geometricPrecision',
+  textShadow: '0 1px 3px rgba(26, 20, 15, 0.35)',
 } as const;
+
+const HOTSPOT_SCENE_KEYS: Readonly<Record<string, SectSceneKey>> = {
+  hall: 'hall',
+  affairs: 'affairs',
+  archive: 'archive',
+  cliff: 'paths',
+  arena: 'arena',
+  treasury: 'treasury',
+  industries: 'industries',
+  cultivation: 'cultivation',
+  alchemy: 'alchemy',
+  refinery: 'refinery',
+  vein: 'spiritVein',
+  garden: 'herbGarden',
+  gate: 'gate',
+  cave: 'cave',
+};
+
+function resolveHotspotDescription(
+  spot: SectMapHotspot,
+  state: SectMapHotspotState,
+  rooms?: ResolvedSectPresentation['rooms'],
+  scenes?: ResolvedSectPresentation['scenes'],
+) {
+  if (state.reason) return state.reason;
+  const sceneKey = HOTSPOT_SCENE_KEYS[spot.id];
+  return (
+    (sceneKey ? rooms?.[sceneKey]?.description : undefined) ??
+    (sceneKey ? scenes?.[sceneKey].description : undefined) ??
+    spot.note
+  );
+}
 
 const AVAILABLE_MARKER_STYLE = {
   background:
@@ -206,6 +248,8 @@ export function SectMap({
   mode = 'member',
   facilities = new Map(),
   permissions,
+  rooms,
+  scenes,
   onNavigate,
 }: SectMapProps) {
   const transformRef = useRef<ReactZoomPanPinchContentRef | null>(null);
@@ -343,8 +387,9 @@ export function SectMap({
                             className={cn(
                               'sect-map-marker group focus-visible:outline-crimson relative flex size-7 transform-gpu items-center justify-center rounded-full transition-transform duration-150 focus-visible:outline-2 focus-visible:outline-offset-2',
                               selected ? 'z-20 scale-[1.08]' : '',
-                              !state.selectable &&
-                                'cursor-not-allowed opacity-55',
+                              state.selectable
+                                ? 'cursor-pointer'
+                                : 'cursor-not-allowed opacity-55',
                             )}
                           >
                             <FacilityMarkerGlyph
@@ -430,7 +475,12 @@ export function SectMap({
                       ) : null}
                     </div>
                     <p className="text-ink-secondary mt-1 text-xs leading-5">
-                      {selectedState.reason ?? selectedSpot.note}
+                      {resolveHotspotDescription(
+                        selectedSpot,
+                        selectedState,
+                        rooms,
+                        scenes,
+                      )}
                     </p>
                   </div>
                   <button

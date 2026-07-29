@@ -62,6 +62,8 @@ export default function SectPage() {
           hotspots={presentation.map.hotspots}
           facilities={facilities}
           permissions={permissions}
+          rooms={presentation.rooms}
+          scenes={presentation.scenes}
           onNavigate={(route) => navigate(route)}
         />
       ) : (
