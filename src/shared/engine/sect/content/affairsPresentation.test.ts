@@ -21,7 +21,8 @@ const taskIds = [
   'artifact_delivery',
   'weekly_diligence',
   'weekly_tournament',
-  'weekly_bounty',
+  'weekly_bounty_battle',
+  'weekly_bounty_material',
   'elder_trial',
 ] as const;
 
@@ -218,6 +219,29 @@ describe('production sect affairs presentations', () => {
           standard.tasks.get(taskId)?.presentation,
         );
       }
+    }
+  });
+
+  it('keeps the tournament entrance on the arena facility', () => {
+    for (const presentation of Object.values(PRODUCTION_SECT_PRESENTATIONS)) {
+      expect(
+        presentation.rooms.arena.actors.find(
+          (actor) => actor.roleKey === 'ring',
+        ),
+      ).toMatchObject({
+        name: '宗门擂台',
+        identity: '宗门设施',
+        appearance: 'facility',
+        conversation: {
+          renderer: 'sect.arena.tournament',
+          parameters: { locationKey: 'sect.arena' },
+        },
+      });
+      expect(
+        presentation.rooms.arena.actors.find(
+          (actor) => actor.roleKey === 'marshal',
+        )?.conversation.renderer,
+      ).toBe('sect.arena.marshal');
     }
   });
 

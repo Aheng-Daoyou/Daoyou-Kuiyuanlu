@@ -261,10 +261,16 @@ export interface SectSubmissionInventoryGateway extends SectSubmissionInventoryR
 
 export interface SectCultivatorGateway {
   loadRuntime(cultivatorId: string): Promise<CultivatorCombatInput | null>;
-  findMirrorCultivatorId(
-    sectId: string,
-    excludeCultivatorId: string,
-  ): Promise<string | null>;
+  findBattleTargetCandidate(input: {
+    requesterSectId: string;
+    excludeCultivatorId: string;
+    realm: RealmType;
+    relation: 'same-sect' | 'other-sect';
+  }): Promise<{
+    cultivatorId: string;
+    sectId: string;
+    sectName: string;
+  } | null>;
   loadProgress(cultivatorId: string): Promise<{
     realm: RealmType;
     stage: RealmStage;

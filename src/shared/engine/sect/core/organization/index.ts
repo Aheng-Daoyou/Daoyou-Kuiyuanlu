@@ -7,6 +7,7 @@ export * from './specifications';
 export * from './StandardSectCapabilityPolicy';
 export * from './StandardSectOrganizationModule';
 export * from './taskDialogue';
+export * from './taskBattleTarget';
 export * from './taskOffer';
 export * from './taskRequirementMatcher';
 export * from './taskRequirements';

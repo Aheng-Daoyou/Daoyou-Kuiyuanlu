@@ -19,6 +19,7 @@ const fixtureExecutor: SectTaskExecutor<z.infer<typeof fixtureInput>> = {
       label: definition.presentation.actionLabel,
     },
   ],
+  initializePayload: async (context) => context.payload,
   execute: async (_actionKey, _context, input) => ({
     completed: input.pass,
     completionSettlement: 'deferred',

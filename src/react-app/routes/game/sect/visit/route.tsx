@@ -1,4 +1,5 @@
 import { SectMap } from '@app/components/feature/sect/SectMap';
+import { useSectTasksQuery } from '@app/components/feature/sect/sectResources';
 import { InkButton } from '@app/components/ui';
 import { useSpecialSceneBackAction } from '@app/layouts/special-scene';
 import { usePlayerSession } from '@app/lib/resources/player';
@@ -13,6 +14,7 @@ export default function SectVisitPage() {
   const navigate = useNavigate();
   const { sectId = '' } = useParams();
   const session = usePlayerSession();
+  const tasks = useSectTasksQuery();
   const activeSectId = session.data?.activeCultivator?.sectId ?? null;
   const landmark = getSectLandmarkBySectId(sectId);
   const worldMapHref = landmark
@@ -27,6 +29,12 @@ export default function SectVisitPage() {
     onBack: backToWorld,
   });
   const definition = productionSectRuntime.registry.get(sectId)?.definition;
+  const bounty = tasks.data?.items.find(
+    (task) =>
+      task.definitionId === 'weekly_bounty_battle' &&
+      task.state === 'active' &&
+      task.battleTarget?.sectId === sectId,
+  );
 
   if (activeSectId === sectId) {
     return <Navigate to="/game/sect" replace />;
@@ -66,6 +74,16 @@ export default function SectVisitPage() {
             hotspots={presentation.map.hotspots}
             rooms={presentation.rooms}
             scenes={presentation.scenes}
+            visitorEntry={
+              bounty
+                ? {
+                    hotspotId: 'gate',
+                    label: '前往山门查探悬赏目标',
+                    route: `/game/sect/${encodeURIComponent(sectId)}/gate`,
+                  }
+                : undefined
+            }
+            onNavigate={(route) => navigate(route)}
           />
         </div>
       </section>

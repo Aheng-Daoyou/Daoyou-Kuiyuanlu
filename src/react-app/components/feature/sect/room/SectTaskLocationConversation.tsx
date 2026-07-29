@@ -74,6 +74,13 @@ export function SectTaskLocationConversation({
         .map((segment) => segment.text)
         .join(''),
     });
+  if (task?.state === 'active' && task.battleTarget)
+    messages.push({
+      id: 'battle-target',
+      speaker: actor.name,
+      body: `本次对手是${task.battleTarget.name}，${task.battleTarget.realm}${task.battleTarget.realmStage}。${task.battleTarget.description}`,
+      tone: 'attention',
+    });
   const options: NpcConversationOption[] = [
     ...(task?.state === 'active' && battleAction?.enabled
       ? [

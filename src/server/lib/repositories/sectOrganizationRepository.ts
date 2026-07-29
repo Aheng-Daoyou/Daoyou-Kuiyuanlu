@@ -865,22 +865,34 @@ export async function countSectMembersAboveContribution(
   return Number(row?.value ?? 0);
 }
 
-export async function findSectMirrorCultivatorId(
-  sectId: string,
-  excludeCultivatorId: string,
+export async function findSectBattleTargetCandidate(
+  input: {
+    requesterSectId: string;
+    excludeCultivatorId: string;
+    realm: string;
+    relation: 'same-sect' | 'other-sect';
+  },
   q: DbExecutor | DbTransaction,
 ) {
   const [row] = await q
-    .select({ cultivatorId: sectMemberships.cultivatorId })
+    .select({
+      cultivatorId: sectMemberships.cultivatorId,
+      sectId: sectMemberships.sectId,
+    })
     .from(sectMemberships)
+    .innerJoin(cultivators, eq(cultivators.id, sectMemberships.cultivatorId))
     .where(
       and(
-        eq(sectMemberships.sectId, sectId),
         eq(sectMemberships.status, 'active'),
-        sql`${sectMemberships.cultivatorId} <> ${excludeCultivatorId}`,
+        eq(cultivators.status, 'active'),
+        eq(cultivators.realm, input.realm),
+        sql`${sectMemberships.cultivatorId} <> ${input.excludeCultivatorId}`,
+        input.relation === 'same-sect'
+          ? eq(sectMemberships.sectId, input.requesterSectId)
+          : sql`${sectMemberships.sectId} <> ${input.requesterSectId}`,
       ),
     )
-    .orderBy(asc(sectMemberships.cultivatorId))
+    .orderBy(sql`random()`)
     .limit(1);
-  return row?.cultivatorId ?? null;
+  return row ?? null;
 }

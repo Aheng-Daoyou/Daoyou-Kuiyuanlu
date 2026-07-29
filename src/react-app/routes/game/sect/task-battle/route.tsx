@@ -1,6 +1,7 @@
 import {
   getSectPresentationForContext,
   useSectContextQuery,
+  useSectTasksQuery,
 } from '@app/components/feature/sect/sectResources';
 import {
   getSectTaskActivityLocation,
@@ -27,6 +28,7 @@ export default function SectTaskBattlePage() {
 
 function SectTaskBattleBody() {
   const context = useSectContextQuery();
+  const tasks = useSectTasksQuery();
   const presentation = getSectPresentationForContext(context.data);
   const scene = presentation.scenes.taskBattle;
   const navigate = useNavigate();
@@ -34,14 +36,18 @@ function SectTaskBattleBody() {
   const [searchParams] = useSearchParams();
   const attemptId = searchParams.get('attemptId');
   const origin = resolveSectTaskActivityOrigin(searchParams.get('origin'));
+  const [result, setResult] = useState<SectTaskActionData>();
+  const [error, setError] = useState<string>();
+  const listedTask = tasks.data?.items.find(
+    (candidate) => candidate.definitionId === taskId,
+  );
+  const returnTask = result?.primaryTask ?? listedTask;
   const returnTarget = origin
-    ? getSectTaskActivityLocation(origin)
+    ? getSectTaskActivityLocation(origin, returnTask, 'return')
     : {
         route: '/game/sect/affairs',
         returnLabel: presentation.terms.returnToAffairs,
       };
-  const [result, setResult] = useState<SectTaskActionData>();
-  const [error, setError] = useState<string>();
   const parameterError = !taskId || !attemptId ? '缺少宗门战斗标识' : undefined;
 
   useEffect(() => {

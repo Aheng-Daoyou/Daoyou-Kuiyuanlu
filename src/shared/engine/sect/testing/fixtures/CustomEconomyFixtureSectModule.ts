@@ -101,7 +101,7 @@ const fixtureOrganization: SectOrganizationModule = {
             target: 1,
           }
         : undefined,
-    findByCompletionTag: () => undefined,
+    listByCompletionTag: () => [],
   },
   economy: {
     rewardGrantKinds: [

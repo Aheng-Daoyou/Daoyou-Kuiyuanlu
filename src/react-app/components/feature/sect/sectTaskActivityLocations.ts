@@ -1,7 +1,10 @@
 import type { SectTaskViewData } from '@shared/contracts/sect';
 import { createSectRoomNpcHref } from './sectRoomNavigation';
 
-export type SectTaskActivityLocationKey = 'sect.spirit-vein' | 'sect.arena';
+export type SectTaskActivityLocationKey =
+  | 'sect.spirit-vein'
+  | 'sect.arena'
+  | 'sect.foreign-gate';
 
 interface SectTaskActivityLocation {
   route: string;
@@ -20,7 +23,12 @@ const LOCATIONS: Readonly<
   'sect.arena': {
     route: '/game/sect/arena',
     returnLabel: '返回演武场',
-    roleKey: 'marshal',
+    roleKey: 'ring',
+  },
+  'sect.foreign-gate': {
+    route: '/game/sect/affairs',
+    returnLabel: '返回目标山门',
+    roleKey: 'target',
   },
 };
 
@@ -50,8 +58,21 @@ export function readSectTaskActivityLocation(
 
 export function getSectTaskActivityLocation(
   key: SectTaskActivityLocationKey,
+  task?: SectTaskViewData,
+  phase: 'entry' | 'return' = 'entry',
 ): SectTaskActivityLocation {
   const location = LOCATIONS[key];
+  if (key === 'sect.foreign-gate') {
+    const sectId = task?.battleTarget?.sectId;
+    if (!sectId) return location;
+    return {
+      ...location,
+      route:
+        phase === 'entry'
+          ? `/game/sect/${encodeURIComponent(sectId)}/visit`
+          : `/game/sect/${encodeURIComponent(sectId)}/gate`,
+    };
+  }
   return {
     ...location,
     route: createSectRoomNpcHref(location.route, location.roleKey),

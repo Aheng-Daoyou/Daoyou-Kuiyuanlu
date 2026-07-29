@@ -1,5 +1,9 @@
 import { SectDeliveryRequirementSchema } from '@shared/engine/sect/core/organization/taskRequirements';
 import { SectTaskRewardSnapshotSchema } from '@shared/engine/sect/core/organization/taskRewards';
+import {
+  REALM_STAGE_VALUES,
+  REALM_VALUES,
+} from '@shared/types/constants';
 import { z } from 'zod';
 import type {
   SectConstructionMemberData,
@@ -84,6 +88,18 @@ export const sectTaskViewSchema = z
     difficulty: z.enum(['easy', 'normal', 'hard', 'elite']).optional(),
     requirement: SectDeliveryRequirementSchema.optional(),
     reward: SectTaskRewardSnapshotSchema.optional(),
+    battleTarget: z
+      .object({
+        kind: z.enum(['preset', 'cultivator']),
+        name: z.string(),
+        description: z.string(),
+        realm: z.enum(REALM_VALUES),
+        realmStage: z.enum(REALM_STAGE_VALUES),
+        sectId: z.string().optional(),
+        sectName: z.string().optional(),
+      })
+      .strict()
+      .optional(),
     presentation: z
       .object({
         title: z.string(),

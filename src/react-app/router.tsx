@@ -1046,6 +1046,20 @@ export const router = createBrowserRouter(
                 sectVisitTitle,
               )}
             />
+            <Route
+              path="sect/:sectId/gate"
+              lazy={lazyRoute(
+                () => import('@app/routes/game/sect/foreign-gate/route'),
+              )}
+              handle={scene(
+                {
+                  id: 'sect-foreign-gate',
+                  chrome: 'immersive',
+                  dock: 'hidden',
+                },
+                '外宗山门',
+              )}
+            />
           </Route>
 
           <Route element={<GameDungeonLayout />}>

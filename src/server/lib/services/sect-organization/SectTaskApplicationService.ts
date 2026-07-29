@@ -126,13 +126,40 @@ export class ExecuteSectTaskActionHandler {
     if (command.actionKey === 'accept') {
       if (definition.enrollment !== 'manual')
         invalidSectTask('该任务不需要领取', 400);
-      const execution = resolveCurrentSectTaskExecution(definition, context);
-      const executor = this.executors.require(execution.executorKey);
+      const execution = record
+        ? undefined
+        : resolveCurrentSectTaskExecution(definition, context);
+      const executor = this.executors.require(
+        record?.payload.offer.executorKey ?? execution!.executorKey,
+      );
       this.authorizer.assertOrganization(
         organization,
         membership.discipleRank,
         executor.requiredCapability(definition),
       );
+      const parsed = acceptInput.safeParse(command.input);
+      if (!parsed.success) invalidSectTask('领取参数无效', 400);
+      if (record) {
+        const primaryTask = toSectTaskView({
+          definition,
+          record,
+          executor,
+          state: record.claimedAt
+            ? 'claimed'
+            : record.status === 'completed'
+              ? 'claimable'
+              : 'active',
+          enabled: true,
+        });
+        return this.complete({
+          primaryTask,
+          changedTasks: [primaryTask],
+          outcome: {
+            renderer: 'sect.outcome.accepted',
+            data: { accepted: true },
+          },
+        });
+      }
       const progress = await context.cultivators.loadProgress(
         command.cultivatorId,
       );
@@ -143,18 +170,24 @@ export class ExecuteSectTaskActionHandler {
         periodKey,
         realm: progress.realm,
         realmStage: progress.stage,
-        executorKey: execution.executorKey,
-        offer: execution.offer,
+        executorKey: execution!.executorKey,
+        offer: execution!.offer,
       });
-      const parsed = acceptInput.safeParse(command.input);
-      if (!parsed.success) invalidSectTask('领取参数无效', 400);
-      if (record) invalidSectTask('该宗门任务本周期已经领取');
+      const payload = await executor.initializePayload({
+        userId: command.userId,
+        cultivatorId: command.cultivatorId,
+        requestId: command.requestId,
+        membership,
+        definition,
+        payload: this.offers.payload(definition, offer),
+        ports: context,
+      });
       record = await context.tasks.create({
         membershipId: membership.id,
         taskId: definition.id,
         kind: definition.kind,
         periodKey,
-        payload: this.offers.payload(definition, offer),
+        payload,
       });
       const primaryTask = toSectTaskView({
         definition,
@@ -199,12 +232,21 @@ export class ExecuteSectTaskActionHandler {
         executorKey: execution.executorKey,
         offer: execution.offer,
       });
+      const payload = await executor.initializePayload({
+        userId: command.userId,
+        cultivatorId: command.cultivatorId,
+        requestId: command.requestId,
+        membership,
+        definition,
+        payload: this.offers.payload(definition, offer),
+        ports: context,
+      });
       record = await context.tasks.create({
         membershipId: membership.id,
         taskId: definition.id,
         kind: definition.kind,
         periodKey,
-        payload: this.offers.payload(definition, offer),
+        payload,
       });
     } else {
       executor = this.executors.require(record.payload.offer.executorKey);

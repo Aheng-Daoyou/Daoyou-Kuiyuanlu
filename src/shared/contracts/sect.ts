@@ -1,5 +1,6 @@
 import type {
   CultivatorSectState,
+  SectBattleTargetSummary,
   SectDefinition,
   SectDeliveryRequirement,
   SectDeliveryViolation,
@@ -139,6 +140,7 @@ export interface SectTaskViewData {
   difficulty?: 'easy' | 'normal' | 'hard' | 'elite';
   requirement?: SectDeliveryRequirement;
   reward?: SectTaskRewardSnapshot;
+  battleTarget?: SectBattleTargetSummary;
   presentation: {
     title: string;
     description: string;

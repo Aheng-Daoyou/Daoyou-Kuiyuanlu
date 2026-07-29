@@ -59,6 +59,7 @@ export default function SectAbilitiesPage() {
 
 const arenaRegistry = new SectNpcConversationRegistry([
   { key: 'sect.arena.loadout', renderer: ArenaInstructorConversation },
+  { key: 'sect.arena.marshal', renderer: ArenaMarshalConversation },
   { key: 'sect.arena.tournament', renderer: SectTaskLocationConversation },
 ]).assertRoom(STANDARD_SECT_PRESENTATION.rooms.arena);
 
@@ -131,6 +132,27 @@ function ArenaInstructorConversation({
   );
 }
 
+function ArenaMarshalConversation({
+  actor,
+  onExit,
+}: SectNpcConversationRendererProps) {
+  return (
+    <NpcConversation
+      actor={actor}
+      messages={[
+        { id: 'greeting', speaker: actor.name, body: actor.greeting },
+        {
+          id: 'ring',
+          speaker: actor.name,
+          body: '若已接下宗门小比，去场中的宗门擂台核对对手名录即可。',
+        },
+      ]}
+      options={[{ id: 'leave', label: '弟子告退', tone: 'muted' }]}
+      onSelectOption={onExit}
+    />
+  );
+}
+
 function SectAbilitiesBody() {
   const context = useSectContextQuery();
   const progression = useSectProgressionQuery();
@@ -153,7 +175,6 @@ function SectAbilitiesBody() {
   const cultivator = profile.data?.cultivator;
   const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
-  const navigate = useNavigate();
 
   const details = useMemo(
     () =>

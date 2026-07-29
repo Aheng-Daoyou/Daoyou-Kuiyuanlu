@@ -1,9 +1,15 @@
 import { getRealmStageAttributeBudget } from '@shared/config/realmProgression';
 import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
+import {
+  buildPresetArtifact,
+  buildPresetSkill,
+} from '@shared/engine/cultivator/creation/presetProducts';
 import type { PillSpec } from '@shared/types/consumable';
 import type { Attributes } from '@shared/types/cultivator';
+import type { ElementType, EquipmentSlot } from '@shared/types/constants';
 import {
   SECT_RANK_METHOD_CAP,
+  type CultivatorSectState,
   type SectDiscipleRank,
   type SectRankRequirement,
 } from '../domain';
@@ -69,32 +75,6 @@ function taskPresentation(
     dialogue,
   };
 }
-
-const bountyVariants = [
-  {
-    key: 'battle',
-    executorKey: 'sect.battle',
-  },
-  {
-    key: 'material',
-    executorKey: 'sect.delivery.material',
-    offer: {
-      policy: 'sect.offer.delivery',
-      input: { kind: 'material' },
-    },
-  },
-] as const;
-
-const bountyAvailability = {
-  variants: bountyVariants,
-  resolve({ weekKey }: { weekKey: string }) {
-    const seed = [...weekKey].reduce(
-      (sum, char) => sum * 31 + char.charCodeAt(0),
-      0,
-    );
-    return Math.abs(seed) % 2 === 0 ? 'battle' : 'material';
-  },
-};
 
 function taskFulfillment(kind: SectTaskDefinition['kind']) {
   return [
@@ -317,7 +297,7 @@ const tasks: readonly SectTaskDefinition[] = [
     fulfillment: [],
     presentation: taskPresentation(
       '宗门小比',
-      '在演武傀儡前验证本周修行。',
+      '与本周演武名册中同境界的同门切磋。',
       '参加宗门小比',
       {
         offeredReply: '本周小比，我来应战',
@@ -325,7 +305,7 @@ const tasks: readonly SectTaskDefinition[] = [
         claimableReply: '本周小比已经结束，请执事查验',
         claimedReply: '请替我查查本周小比的功簿',
         instruction: {
-          text: '去演武场参加本周小比，与试炼傀儡一战，取胜后再回来复命。',
+          text: '去演武场的宗门擂台核对已锁定的同门对手，取胜后再回来复命。',
         },
       },
     ),
@@ -333,34 +313,70 @@ const tasks: readonly SectTaskDefinition[] = [
     target: 1,
   },
   {
-    id: 'weekly_bounty',
+    id: 'weekly_bounty_battle',
     kind: 'weekly',
     enrollment: 'manual',
     requiredCapability: 'sect.tasks.use',
     executorKey: 'sect.battle',
     minimumDifficulty: 'hard',
+    executionLocation: {
+      key: 'sect.foreign-gate',
+      travelReply: '弟子这就循悬赏前往目标宗门',
+    },
     reward: {
       policy: 'sect.reward.realm-task',
       input: { baseContribution: 60 },
     },
     fulfillment: [],
     presentation: taskPresentation(
-      '悬赏令',
-      '追缉叛徒残影或交付稀有材料。',
-      '执行悬赏',
+      '悬赏令·讨伐',
+      '追缉一名与自身境界相当的外宗修士。',
+      '前往讨伐',
       {
-        offeredReply: '这份悬赏由我来办',
-        activeReply: '那份悬赏，请再交代一遍',
-        claimableReply: '悬赏已经办妥，请执事查验',
-        claimedReply: '请替我查查那份悬赏的功簿',
+        offeredReply: '这份讨伐悬赏由我来办',
+        activeReply: '讨伐目标的线索，请再交代一遍',
+        claimableReply: '讨伐悬赏已经办妥，请执事查验',
+        claimedReply: '请替我查查讨伐悬赏的功簿',
         instruction: {
-          text: '循悬赏令所记线索追上目标，将其残影击溃后回来复命。',
+          text: '循悬赏令前往目标宗门，在山门外找到目标并取胜，再回来复命。',
+        },
+      },
+    ),
+    completionTags: ['promotion.bounty'],
+    target: 1,
+  },
+  {
+    id: 'weekly_bounty_material',
+    kind: 'weekly',
+    enrollment: 'manual',
+    requiredCapability: 'sect.tasks.use',
+    executorKey: 'sect.delivery.material',
+    minimumDifficulty: 'hard',
+    offer: {
+      policy: 'sect.offer.delivery',
+      input: { kind: 'material' },
+    },
+    reward: {
+      policy: 'sect.reward.realm-task',
+      input: { baseContribution: 60 },
+    },
+    fulfillment: [],
+    presentation: taskPresentation(
+      '悬赏令·征集',
+      '依照悬赏令征集一件稀有材料。',
+      '交付悬赏材料',
+      {
+        offeredReply: '这份征集悬赏由我来办',
+        activeReply: '征集所需的材料，请再交代一遍',
+        claimableReply: '征集悬赏已经办妥，请执事查验',
+        claimedReply: '请替我查查征集悬赏的功簿',
+        instruction: {
+          text: '依照悬赏令备齐材料后回来交付。',
           requirementPrefix: '这份悬赏要验一件证物。替我寻来',
           requirementSuffix: '，带回后我会核验其来路。',
         },
       },
     ),
-    availability: bountyAvailability,
     completionTags: ['promotion.bounty'],
     target: 1,
   },
@@ -381,7 +397,7 @@ const tasks: readonly SectTaskDefinition[] = [
         claimableReply: '试炼已经通过，请长老查验',
         claimedReply: '请长老查验弟子的试炼记录',
         instruction: {
-          text: '去试炼场迎战传功长老化身，胜过此关，才算取得真传资格。',
+          text: '就在事务堂迎战传功长老的试炼化身，胜过此关，才算取得真传资格。',
         },
       },
     ),
@@ -413,8 +429,8 @@ class StandardSectTaskCatalog implements SectTaskCatalog {
     return this.byId.get(id);
   }
 
-  findByCompletionTag(tag: string) {
-    return tasks.find((task) => task.completionTags?.includes(tag));
+  listByCompletionTag(tag: string) {
+    return tasks.filter((task) => task.completionTags?.includes(tag));
   }
 }
 
@@ -624,36 +640,6 @@ class StandardSectConstructionPolicy implements SectConstructionPolicy {
   }
 }
 
-function opponentFactory(options: {
-  title: string;
-  name: string;
-  multiplier: number;
-  prefersMemberMirror?: boolean;
-}): SectOpponentFactory {
-  return {
-    prefersMemberMirror: options.prefersMemberMirror ?? false,
-    create({ player, mirror, opponentId }) {
-      const opponent =
-        options.prefersMemberMirror && mirror
-          ? createMirrorOpponent(
-              mirror,
-              opponentId,
-              options.name,
-              options.multiplier,
-            )
-          : createRealmNpcOpponent(
-              player,
-              opponentId,
-              options.prefersMemberMirror
-                ? `无名${options.name}`
-                : options.name,
-              options.multiplier,
-            );
-      return { opponent, title: options.title };
-    },
-  };
-}
-
 const ATTRIBUTE_KEYS = [
   'vitality',
   'spirit',
@@ -685,6 +671,7 @@ function createRealmNpcOpponent(
   opponentId: string,
   name: string,
   multiplier: number,
+  skills: CultivatorCombatInput['skills'] = [],
 ): CultivatorCombatInput {
   return {
     id: opponentId,
@@ -695,56 +682,230 @@ function createRealmNpcOpponent(
     spiritual_roots: [],
     pre_heaven_fates: [],
     cultivations: [],
-    skills: [],
+    skills: structuredClone(skills),
     inventory: { artifacts: [] },
     equipped: { weapon: null, armor: null, accessory: null },
   };
 }
 
-function createMirrorOpponent(
-  source: CultivatorCombatInput,
+function createLockedCultivatorOpponent(
+  target: CultivatorCombatInput,
   opponentId: string,
-  name: string,
-  multiplier: number,
 ): CultivatorCombatInput {
-  const opponent = structuredClone(source);
+  const opponent = structuredClone(target);
   opponent.id = opponentId;
-  opponent.name = name;
-  opponent.attributes = Object.fromEntries(
-    ATTRIBUTE_KEYS.map((key) => [
-      key,
-      Math.max(1, Math.floor(source.attributes[key] * multiplier)),
-    ]),
-  ) as unknown as Attributes;
   return opponent;
 }
 
-const battleScenarioDefinitions = {
-  mine_patrol: { title: '矿场巡视', name: '矿脉侵扰妖兽', multiplier: 0.75 },
-  weekly_tournament: {
-    title: '宗门小比',
-    name: '同门演武傀儡',
-    multiplier: 0.95,
+const MINE_BEAST_NAME = '裂岩獠兽';
+const MINE_BEAST_DESCRIPTION =
+  '盘踞宗门矿脉的厚甲妖兽，惯以獠牙冲阵、震地扰敌，并以妖血强化自身。';
+const MINE_BEAST_SKILLS: CultivatorCombatInput['skills'] = [
+  buildPresetSkill({
+    name: '碎岩扑击',
+    description: '挟碎岩之力扑向敌手，撕开其护体防御。',
+    element: '土',
+    affixIds: ['skill-core-damage-earth', 'skill-variant-def-break'],
+    quality: '玄品',
+  }),
+  buildPresetSkill({
+    name: '撼地怒吼',
+    description: '以沉闷咆哮震动地脉，使敌手一时难以行动。',
+    element: '土',
+    affixIds: ['skill-core-damage-earth', 'skill-variant-control-stun'],
+    quality: '玄品',
+  }),
+  buildPresetSkill({
+    name: '妖血沸腾',
+    description: '催动妖血燃起凶性，强化自身战意。',
+    element: '火',
+    affixIds: ['skill-core-fire-channeling'],
+    quality: '玄品',
+  }),
+];
+
+const ELDER_ARTIFACT_RECIPES: readonly {
+  slot: EquipmentSlot;
+  element: ElementType;
+  affixIds: string[];
+}[] = [
+  {
+    slot: 'weapon',
+    element: '土',
+    affixIds: [
+      'artifact-panel-weapon-dual-atk',
+      'artifact-panel-spirit',
+      'artifact-weapon-blood-drinker',
+    ],
   },
-  weekly_bounty: {
-    title: '悬赏残影战',
-    name: '叛徒残影',
-    multiplier: 1,
-    prefersMemberMirror: true,
+  {
+    slot: 'armor',
+    element: '木',
+    affixIds: [
+      'artifact-panel-armor-dual-def',
+      'artifact-panel-vitality',
+      'artifact-defense-death-prevent',
+    ],
   },
-  elder_trial: { title: '长老试炼', name: '传功长老化身', multiplier: 1.05 },
-} as const;
+  {
+    slot: 'accessory',
+    element: '水',
+    affixIds: [
+      'artifact-panel-accessory-utility',
+      'artifact-panel-willpower',
+      'artifact-accessory-clear-heart-pendant',
+    ],
+  },
+];
+
+function elderSectState(
+  sectId: string,
+  preset: SectElderTrialPreset,
+): CultivatorSectState {
+  return {
+    membershipId: `preset-elder-${sectId}`,
+    sectId,
+    status: 'active',
+    contribution: 0,
+    discipleRank: 'true',
+    office: 'elder',
+    configVersion: preset.configVersion,
+    activePathId: preset.pathId,
+    methods: Object.fromEntries(
+      preset.methodIds.map((methodId) => [methodId, 135]),
+    ),
+    paths: [
+      {
+        pathId: preset.pathId,
+        unlockedLayerIds: ['1', '2', '3', '4', '5', 'ultimate'],
+        tacticId: preset.tacticId,
+        activeMeridianSlot: 1,
+        meridianLoadouts: [
+          { slot: 1, nodeIds: [], version: 1 },
+          { slot: 2, nodeIds: [], version: 1 },
+          { slot: 3, nodeIds: [], version: 1 },
+        ],
+      },
+    ],
+    abilityLoadout: [...preset.abilityLoadout],
+  };
+}
+
+function createElderOpponent(
+  sectId: string,
+  opponentId: string,
+  preset: SectElderTrialPreset,
+): CultivatorCombatInput {
+  const artifacts = ELDER_ARTIFACT_RECIPES.map((recipe, index) =>
+    buildPresetArtifact({
+      id: `${opponentId}-${recipe.slot}`,
+      name: preset.artifactNames[index]!,
+      description: preset.artifactDescriptions[index]!,
+      slot: recipe.slot,
+      element: recipe.element,
+      affixIds: recipe.affixIds,
+      quality: '地品',
+      realm: '元婴',
+      realmStage: '圆满',
+      creatorName: preset.name,
+      creatorCultivatorId: `preset-elder-${sectId}`,
+      isEquipped: true,
+    }),
+  );
+  return {
+    id: opponentId,
+    name: preset.name,
+    realm: '元婴',
+    realm_stage: '圆满',
+    attributes: scaledRealmAttributes(
+      { realm: '元婴', realm_stage: '圆满' },
+      1,
+    ),
+    spiritual_roots: [],
+    pre_heaven_fates: [],
+    cultivations: [],
+    skills: [],
+    sect: elderSectState(sectId, preset),
+    inventory: { artifacts },
+    equipped: {
+      weapon: artifacts[0]?.id ?? null,
+      armor: artifacts[1]?.id ?? null,
+      accessory: artifacts[2]?.id ?? null,
+    },
+  };
+}
 
 class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
   private readonly scenarios: ReadonlyMap<string, SectOpponentFactory>;
 
-  constructor() {
-    this.scenarios = new Map(
-      Object.entries(battleScenarioDefinitions).map(([taskId, definition]) => [
-        taskId,
-        opponentFactory(definition),
-      ]),
-    );
+  constructor(theme: SectOrganizationTheme) {
+    this.scenarios = new Map([
+      [
+        'mine_patrol',
+        {
+          acquisition: 'preset',
+          create({ player, opponentId }) {
+            return {
+              opponent: createRealmNpcOpponent(
+                player,
+                opponentId,
+                MINE_BEAST_NAME,
+                0.75,
+                MINE_BEAST_SKILLS,
+              ),
+              title: '矿场巡视',
+              presetId: 'mine-beast-rockfang-v1',
+              description: MINE_BEAST_DESCRIPTION,
+            };
+          },
+        },
+      ],
+      [
+        'weekly_tournament',
+        {
+          acquisition: 'same-sect',
+          create({ target, opponentId }) {
+            if (!target) throw new Error('宗门小比缺少已锁定对手');
+            return {
+              opponent: createLockedCultivatorOpponent(target, opponentId),
+              title: '宗门小比',
+              description: '本周演武名册中与你境界相当的同门。',
+            };
+          },
+        },
+      ],
+      [
+        'weekly_bounty_battle',
+        {
+          acquisition: 'other-sect',
+          create({ target, opponentId }) {
+            if (!target) throw new Error('战斗悬赏缺少已锁定目标');
+            return {
+              opponent: createLockedCultivatorOpponent(target, opponentId),
+              title: '悬赏令·讨伐',
+              description: '悬赏令上与你境界相当的外宗目标。',
+            };
+          },
+        },
+      ],
+      [
+        'elder_trial',
+        {
+          acquisition: 'preset',
+          create({ sectId, opponentId }) {
+            const preset = theme.elderTrial;
+            if (!preset)
+              throw new Error(`宗门 ${sectId} 未配置长老试炼预设`);
+            return {
+              opponent: createElderOpponent(sectId, opponentId, preset),
+              title: '长老试炼',
+              presetId: `elder-trial-${sectId}-v1`,
+              description: preset.description,
+            };
+          },
+        },
+      ],
+    ]);
   }
 
   get(taskId: SectOrganizationTaskId): SectOpponentFactory | undefined {
@@ -791,7 +952,7 @@ class StandardSectRankPolicy implements SectRankPolicy {
       },
       true: {
         rank: 'true',
-        minRealm: '金丹',
+        minRealm: '元婴',
         contribution: 3000,
         requiredTaskTags: [
           { tag: 'promotion.bounty', label: '完成一次悬赏令' },
@@ -982,6 +1143,19 @@ export interface SectOrganizationTheme {
     trueHerb?: string;
     innerMaterial?: string;
   };
+  elderTrial?: SectElderTrialPreset;
+}
+
+export interface SectElderTrialPreset {
+  name: string;
+  description: string;
+  configVersion: number;
+  methodIds: readonly string[];
+  pathId: string;
+  tacticId: string;
+  abilityLoadout: CultivatorSectState['abilityLoadout'];
+  artifactNames: readonly [string, string, string];
+  artifactDescriptions: readonly [string, string, string];
 }
 
 export class StandardSectOrganizationModule implements SectOrganizationModule {
@@ -996,7 +1170,7 @@ export class StandardSectOrganizationModule implements SectOrganizationModule {
   constructor(readonly theme: SectOrganizationTheme = {}) {
     this.tasks = new StandardSectTaskCatalog();
     this.economy = new StandardSectEconomyPolicy(theme);
-    this.battles = new StandardSectBattleScenarioCatalog();
+    this.battles = new StandardSectBattleScenarioCatalog(theme);
     this.benefits = new StandardSectBenefitPolicy(theme);
   }
 }

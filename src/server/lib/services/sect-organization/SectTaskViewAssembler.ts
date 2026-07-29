@@ -3,6 +3,8 @@ import {
   resolveSectTaskClaimReward,
   resolveSectTaskDialogue,
   resolveSectTaskExecutionLocationParameters,
+  readSectBattleTargetSnapshot,
+  summarizeSectBattleTarget,
   type SectTaskDefinition,
 } from '@shared/engine/sect';
 import type { SectTaskRecord } from './ports';
@@ -76,6 +78,9 @@ export function toSectTaskView(args: {
 }): SectTaskViewData {
   const offer = args.record.payload.offer;
   const reward = resolveSectTaskClaimReward(args.record.payload);
+  const battleTarget = readSectBattleTargetSnapshot(
+    args.record.payload.executorData,
+  );
   const executionLocation = resolveSectTaskExecutionLocationParameters(
     args.definition,
   );
@@ -128,6 +133,9 @@ export function toSectTaskView(args: {
     difficulty: offer.difficulty,
     requirement: offer.requirement,
     ...(reward ? { reward } : {}),
+    ...(battleTarget
+      ? { battleTarget: summarizeSectBattleTarget(battleTarget) }
+      : {}),
     presentation: {
       title: args.definition.presentation.title,
       description: args.definition.presentation.description,
