@@ -5,6 +5,7 @@ export const apiCorsOptions = {
   allowHeaders: [
     'Content-Type',
     'Authorization',
+    'Idempotency-Key',
     'x-turnstile-token',
     'x-llm-provider',
     'x-llm-api-key',
