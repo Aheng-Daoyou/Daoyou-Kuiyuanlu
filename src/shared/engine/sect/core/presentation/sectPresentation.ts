@@ -505,7 +505,7 @@ const STANDARD_ROOMS: Readonly<Record<string, SectRoomDefinition>> =
     arena: {
       key: 'arena',
       description:
-        '演武阵纹铺陈场中，教习与值场执事分守两侧，各自经办修习和小比。',
+        '演武阵纹铺陈场中，教习与值场执事分守两侧，宗门擂台立在中央。',
       actors: [
         roomActor(
           'instructor',
@@ -521,10 +521,21 @@ const STANDARD_ROOMS: Readonly<Record<string, SectRoomDefinition>> =
           '场',
           '值场执事',
           '值场执事',
-          '负责演武场秩序与宗门小比。',
-          '演武场已经清过场，你若有小比在身便可入阵。',
+          '负责演武场秩序与入场引导。',
+          '演武场已经清过场，小比对手会在宗门擂台前候场。',
+          'sect.arena.marshal',
+        ),
+        roomActor(
+          'ring',
+          '擂',
+          '宗门擂台',
+          '宗门设施',
+          '开启宗门小比战局。',
+          '擂台阵纹已归位，有小比在身便可登台。',
           'sect.arena.tournament',
           { locationKey: 'sect.arena' },
+          'sect-arena-ring',
+          'facility',
         ),
       ],
     },

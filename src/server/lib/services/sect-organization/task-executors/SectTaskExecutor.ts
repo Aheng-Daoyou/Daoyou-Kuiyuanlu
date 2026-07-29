@@ -3,6 +3,7 @@ import {
   type SectTaskActionOutcome,
   type SectTaskSubmissionInput,
 } from '@shared/contracts/sect';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import {
   describeSectDeliveryRequirement,
   matchSectDeliveryRequirement,
@@ -16,6 +17,8 @@ import {
   miningRewardQualityPreference,
   resolveSectTaskExecutionLocationParameters,
   scaleMiningTaskReward,
+  SECT_BATTLE_TARGET_SCHEMA_VERSION,
+  SectBattleTargetSnapshotSchema,
   SectTaskRecordPayloadSchema,
   SectTaskRewardSnapshotSchema,
   simulateMiningTranscript,
@@ -59,6 +62,16 @@ export interface SectTaskExecutionContext {
   ports: SectCommandContext;
 }
 
+export interface SectTaskEnrollmentContext {
+  userId: string;
+  cultivatorId: string;
+  requestId: string;
+  membership: SectMembershipRecord;
+  definition: SectTaskDefinition;
+  payload: SectTaskRecordPayload;
+  ports: SectCommandContext;
+}
+
 export type SectTaskCompletionSettlement = 'deferred' | 'claim-reward';
 
 export interface SectTaskExecutionDecision {
@@ -79,6 +92,9 @@ export interface SectTaskExecutor<TInput = unknown> {
   inputSchema(actionKey: string): ZodType<TInput>;
   requiredCapability(definition: SectTaskDefinition): string;
   actions(definition: SectTaskDefinition): readonly SectTaskActionDescriptor[];
+  initializePayload(
+    context: SectTaskEnrollmentContext,
+  ): Promise<SectTaskRecordPayload>;
   execute(
     actionKey: string,
     context: SectTaskExecutionContext,
@@ -162,6 +178,12 @@ abstract class BaseTaskExecutor<
 
   requiredCapability(definition: SectTaskDefinition): string {
     return definition.requiredCapability;
+  }
+
+  async initializePayload(
+    context: SectTaskEnrollmentContext,
+  ): Promise<SectTaskRecordPayload> {
+    return context.payload;
   }
 }
 
@@ -476,6 +498,88 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
       },
     ];
   }
+  async initializePayload(
+    context: SectTaskEnrollmentContext,
+  ): Promise<SectTaskRecordPayload> {
+    const player = await context.ports.cultivators.loadRuntime(
+      context.cultivatorId,
+    );
+    if (!player) invalid('角色不存在');
+    const factory = context.ports.modules
+      .require(context.membership.sectId)
+      .battles.get(context.definition.id);
+    if (!factory) invalid('该宗门任务未配置战斗场景');
+    let target: CultivatorCombatInput | null = null;
+    let source:
+      | { cultivatorId: string; sectId: string; sectName: string }
+      | undefined;
+    if (factory.acquisition !== 'preset') {
+      source =
+        (await context.ports.cultivators.findBattleTargetCandidate({
+          requesterSectId: context.membership.sectId,
+          excludeCultivatorId: context.cultivatorId,
+          realm: player.realm,
+          relation: factory.acquisition,
+        })) ?? undefined;
+      if (!source)
+        invalid(
+          factory.acquisition === 'same-sect'
+            ? '本周演武名册尚未排到与你同境的同门，不妨过些时候再来问问。'
+            : '近日悬赏册上没有与你境界相当的外宗目标，这份令暂时不能揭。',
+          409,
+        );
+      target = await context.ports.cultivators.loadRuntime(source.cultivatorId);
+      if (!target)
+        invalid(
+          factory.acquisition === 'same-sect'
+            ? '本周演武名册尚未排到与你同境的同门，不妨过些时候再来问问。'
+            : '近日悬赏册上没有与你境界相当的外宗目标，这份令暂时不能揭。',
+          409,
+        );
+    }
+    const scenario = factory.create({
+      player,
+      target,
+      sectId: context.membership.sectId,
+      opponentId: `sect-target-${context.requestId}`,
+    });
+    const battleTarget =
+      factory.acquisition === 'preset'
+        ? SectBattleTargetSnapshotSchema.parse({
+            schemaVersion: SECT_BATTLE_TARGET_SCHEMA_VERSION,
+            kind: 'preset',
+            presetId:
+              scenario.presetId ?? `sect-task-${context.definition.id}-v1`,
+            rulesVersion: 1,
+            challengeTitle: scenario.title,
+            name: scenario.opponent.name,
+            description: scenario.description,
+            realm: scenario.opponent.realm,
+            realmStage: scenario.opponent.realm_stage,
+            combatant: scenario.opponent,
+          })
+        : SectBattleTargetSnapshotSchema.parse({
+            schemaVersion: SECT_BATTLE_TARGET_SCHEMA_VERSION,
+            kind: 'cultivator',
+            sourceCultivatorId: source!.cultivatorId,
+            sourceSectId: source!.sectId,
+            sourceSectName: source!.sectName,
+            lockedAt: context.ports.clock.now().toISOString(),
+            challengeTitle: scenario.title,
+            name: scenario.opponent.name,
+            description: scenario.description,
+            realm: scenario.opponent.realm,
+            realmStage: scenario.opponent.realm_stage,
+            combatant: scenario.opponent,
+          });
+    return SectTaskRecordPayloadSchema.parse({
+      ...context.payload,
+      executorData: {
+        ...context.payload.executorData,
+        battleTarget,
+      },
+    });
+  }
   async execute(
     actionKey: string,
     context: SectTaskExecutionContext,
@@ -485,28 +589,15 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
       context.cultivatorId,
     );
     if (!player) invalid('角色不存在');
-    const factory = context.ports.modules
-      .require(context.membership.sectId)
-      .battles.get(context.definition.id);
-    if (!factory) invalid('该宗门任务未配置战斗场景');
-    let mirror = null;
-    if (factory.prefersMemberMirror) {
-      const mirrorId = await context.ports.cultivators.findMirrorCultivatorId(
-        context.membership.sectId,
-        context.cultivatorId,
-      );
-      mirror = mirrorId
-        ? await context.ports.cultivators.loadRuntime(mirrorId)
-        : null;
-    }
-    const scenario = factory.create({
-      player,
-      mirror,
-      opponentId: `sect-task-${context.record.id}-${context.requestId}`,
-    });
+    const target = SectBattleTargetSnapshotSchema.safeParse(
+      context.record.payload.executorData.battleTarget,
+    );
+    if (!target.success) invalid('宗门战斗目标快照缺失', 500);
+    const opponent = structuredClone(target.data.combatant);
+    opponent.id = `sect-task-${context.record.id}-${context.requestId}`;
     const battle = context.ports.battle.simulate(
       player,
-      scenario.opponent,
+      opponent,
       `${context.record.id}:${context.requestId}`,
     );
     const won = battle.winner.id === player.id;
@@ -518,7 +609,7 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
         data: {
           battle,
           won,
-          challengeTitle: scenario.title,
+          challengeTitle: target.data.challengeTitle,
           taskFulfilled: won,
         },
       },

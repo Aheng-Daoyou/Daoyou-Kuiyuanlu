@@ -163,7 +163,7 @@ export interface SectTaskCatalog {
   listWeekly(): readonly SectTaskDefinition[];
   listPromotion(): readonly SectTaskDefinition[];
   get(id: SectOrganizationTaskId): SectTaskDefinition | undefined;
-  findByCompletionTag(tag: string): SectTaskDefinition | undefined;
+  listByCompletionTag(tag: string): readonly SectTaskDefinition[];
 }
 
 export interface SectEconomyPolicy {
@@ -182,17 +182,25 @@ export interface SectConstructionPolicy {
 
 export interface SectOpponentFactoryContext {
   player: CultivatorCombatInput;
-  mirror: CultivatorCombatInput | null;
+  target: CultivatorCombatInput | null;
+  sectId: string;
   opponentId: string;
 }
 
 export interface SectOpponentFactoryResult {
   opponent: CultivatorCombatInput;
   title: string;
+  presetId?: string;
+  description: string;
 }
 
+export type SectBattleTargetAcquisition =
+  | 'preset'
+  | 'same-sect'
+  | 'other-sect';
+
 export interface SectOpponentFactory {
-  readonly prefersMemberMirror: boolean;
+  readonly acquisition: SectBattleTargetAcquisition;
   create(context: SectOpponentFactoryContext): SectOpponentFactoryResult;
 }
 

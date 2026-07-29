@@ -76,10 +76,15 @@ export class SectMembershipApplicationService {
     const requirement = organization.ranks.requirement(target);
     const completedTaskTags = new Set<string>();
     for (const required of requirement.requiredTaskTags ?? []) {
-      const task = organization.tasks.findByCompletionTag(required.tag);
+      const tasks = organization.tasks.listByCompletionTag(required.tag);
       if (
-        task &&
-        (await context.memberships.hasCompletedTask(membership.id, task.id))
+        (
+          await Promise.all(
+            tasks.map((task) =>
+              context.memberships.hasCompletedTask(membership.id, task.id),
+            ),
+          )
+        ).some(Boolean)
       )
         completedTaskTags.add(required.tag);
     }

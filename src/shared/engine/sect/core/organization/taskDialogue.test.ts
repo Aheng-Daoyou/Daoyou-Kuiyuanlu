@@ -101,7 +101,19 @@ describe('sect task dialogue presentation', () => {
       },
     });
     expect(
-      resolveSectTaskExecutionLocationParameters(tasks.get('weekly_bounty')!),
+      resolveSectTaskExecutionLocationParameters(
+        tasks.get('weekly_bounty_battle')!,
+      ),
+    ).toEqual({
+      executionLocation: {
+        key: 'sect.foreign-gate',
+        travelReply: '弟子这就循悬赏前往目标宗门',
+      },
+    });
+    expect(
+      resolveSectTaskExecutionLocationParameters(
+        tasks.get('weekly_bounty_material')!,
+      ),
     ).toBeUndefined();
   });
 });

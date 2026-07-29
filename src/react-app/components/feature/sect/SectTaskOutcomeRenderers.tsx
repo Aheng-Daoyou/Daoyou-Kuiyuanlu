@@ -142,7 +142,7 @@ export function BattleOutcome({
   const attemptId = searchParams.get('attemptId') ?? 'unknown';
   const origin = resolveSectTaskActivityOrigin(searchParams.get('origin'));
   const returnTarget = origin
-    ? getSectTaskActivityLocation(origin)
+    ? getSectTaskActivityLocation(origin, task, 'return')
     : {
         route: '/game/sect/affairs',
         returnLabel: presentation.terms.returnToAffairs,
@@ -156,7 +156,7 @@ export function BattleOutcome({
   return (
     <BattlePageLayout
       title={battle.challengeTitle}
-      subtitle="任务封签已启，胜负与战功皆以此局为准。"
+      subtitle="任务封签已启，此局只用于核验任务结果。"
       variant="immersive-battle"
       battleResult={battle.battle}
     >
@@ -185,7 +185,7 @@ export function BattleOutcome({
                   ? '胜绩回执已成，返回此地后便可回事务堂复命。'
                   : '胜绩回执已成，请回事务堂领取赏赐。'
                 : '胜绩已经记入宗门卷宗。'
-              : '此战未能压过残影，任务仍然保留，可整顿后再次挑战。'}
+              : '此战未能击败对手，任务仍然保留，可整顿后再次挑战。'}
           </p>
         }
       />

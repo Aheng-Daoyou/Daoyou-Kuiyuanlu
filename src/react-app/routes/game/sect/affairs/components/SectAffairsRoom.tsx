@@ -487,6 +487,13 @@ function TaskConversation({
         />
       ),
     });
+    if (currentTask.battleTarget)
+      messages.push({
+        id: 'battle-target',
+        speaker: npc.name,
+        body: `目标：${currentTask.battleTarget.name}，${currentTask.battleTarget.sectName ? `${currentTask.battleTarget.sectName}，` : ''}${currentTask.battleTarget.realm}${currentTask.battleTarget.realmStage}。${currentTask.battleTarget.description}`,
+        tone: 'attention',
+      });
   }
 
   if (decoded?.ok === false) {

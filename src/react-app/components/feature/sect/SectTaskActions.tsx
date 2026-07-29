@@ -87,7 +87,9 @@ export function BattleAction({
       disabled={busy || !action.enabled}
       onClick={() => {
         if (display === 'conversation' && activityLocation) {
-          navigate(getSectTaskActivityLocation(activityLocation.key).route);
+          navigate(
+            getSectTaskActivityLocation(activityLocation.key, task).route,
+          );
           return;
         }
         navigate(

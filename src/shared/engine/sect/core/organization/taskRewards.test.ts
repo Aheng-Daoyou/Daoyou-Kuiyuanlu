@@ -123,7 +123,8 @@ describe('sect task rewards', () => {
     expect(tasks.get('artifact_delivery')?.minimumDifficulty).toBe('easy');
     expect(tasks.get('weekly_diligence')?.minimumDifficulty).toBe('easy');
     expect(tasks.get('weekly_tournament')?.minimumDifficulty).toBe('hard');
-    expect(tasks.get('weekly_bounty')?.minimumDifficulty).toBe('hard');
+    expect(tasks.get('weekly_bounty_battle')?.minimumDifficulty).toBe('hard');
+    expect(tasks.get('weekly_bounty_material')?.minimumDifficulty).toBe('hard');
     expect(tasks.get('elder_trial')?.reward).toBeUndefined();
   });
 });

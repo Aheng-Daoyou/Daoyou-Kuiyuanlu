@@ -105,6 +105,7 @@ export const gameDockGroups: GameNavGroup[] = [
       { id: 'sect-onboarding', sceneLabel: '诸宗山门' },
       { id: 'identity-reshape', sceneLabel: '改天换地' },
       { id: 'sect-visit', sceneLabel: '访宗舆图' },
+      { id: 'sect-foreign-gate', sceneLabel: '外宗山门' },
       { id: 'sect-hall', sceneLabel: '宗门大殿' },
       { id: 'sect-affairs', sceneLabel: '宗门事务' },
       { id: 'sect-archive', sceneLabel: '宗门传承' },

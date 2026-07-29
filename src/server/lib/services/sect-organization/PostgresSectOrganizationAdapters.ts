@@ -997,12 +997,17 @@ export function createPostgresSectCommandContext(args: {
           null
         );
       },
-      findMirrorCultivatorId: (sectId, excludeCultivatorId) =>
-        organization.findSectMirrorCultivatorId(
-          sectId,
-          excludeCultivatorId,
-          tx,
-        ),
+      async findBattleTargetCandidate(input) {
+        const candidate =
+          await organization.findSectBattleTargetCandidate(input, tx);
+        return candidate
+          ? {
+              ...candidate,
+              sectName: args.runtime.registry.require(candidate.sectId)
+                .definition.name,
+            }
+          : null;
+      },
       loadProgress: (cultivatorId) =>
         memberships.loadSectCultivatorProgress(cultivatorId, tx),
     },

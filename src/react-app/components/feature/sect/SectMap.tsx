@@ -38,6 +38,7 @@ interface SectMapProps {
   permissions?: Readonly<Record<string, SectPermissionState>>;
   rooms?: ResolvedSectPresentation['rooms'];
   scenes?: ResolvedSectPresentation['scenes'];
+  visitorEntry?: { hotspotId: string; label: string; route: string };
   onNavigate?(route: string): void;
 }
 
@@ -250,6 +251,7 @@ export function SectMap({
   permissions,
   rooms,
   scenes,
+  visitorEntry,
   onNavigate,
 }: SectMapProps) {
   const transformRef = useRef<ReactZoomPanPinchContentRef | null>(null);
@@ -502,6 +504,18 @@ export function SectMap({
                       onClick={() => onNavigate(selectedSpot.route!)}
                     >
                       进入{selectedSpot.label}
+                    </InkButton>
+                  </div>
+                ) : null}
+                {mode === 'visitor' &&
+                visitorEntry?.hotspotId === selectedSpot.id &&
+                onNavigate ? (
+                  <div className="mt-1.5">
+                    <InkButton
+                      variant="primary"
+                      onClick={() => onNavigate(visitorEntry.route)}
+                    >
+                      {visitorEntry.label}
                     </InkButton>
                   </div>
                 ) : null}
