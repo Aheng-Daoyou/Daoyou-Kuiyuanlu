@@ -111,32 +111,27 @@ describe('multi-scope resource contracts', () => {
     expect(RESOURCE_TOPIC_SCOPE_KIND['sect.membership']).toBe('cultivator');
   });
 
-  test('keeps infrastructure, construction board and member shapes separate', () => {
-    const infrastructure = { facilities: [], project: null };
-    const board = {
-      demands: [],
-      dailyContributionCap: 10,
-      recentActivity: [],
+  test('keeps infrastructure and daily construction status separate', () => {
+    const infrastructure = { facilities: [] };
+    const member = {
+      dateKey: '2026-07-29',
+      constructedToday: true,
+      facilityKey: 'archive',
+      spiritStones: 10_000,
+      constructionPoints: 1,
+      contribution: 10,
     };
-    const member = { donatedContributionToday: 2 };
 
     expect(
       RESOURCE_DATA_SCHEMAS['sect.infrastructure'].safeParse(infrastructure)
         .success,
     ).toBe(true);
     expect(
-      RESOURCE_DATA_SCHEMAS['sect.construction-board'].safeParse(board).success,
-    ).toBe(true);
-    expect(
       RESOURCE_DATA_SCHEMAS['sect.construction-member'].safeParse(member)
         .success,
     ).toBe(true);
     expect(
-      RESOURCE_DATA_SCHEMAS['sect.infrastructure'].safeParse(board).success,
-    ).toBe(false);
-    expect(
-      RESOURCE_DATA_SCHEMAS['sect.construction-board'].safeParse(member)
-        .success,
+      RESOURCE_DATA_SCHEMAS['sect.infrastructure'].safeParse(member).success,
     ).toBe(false);
   });
 

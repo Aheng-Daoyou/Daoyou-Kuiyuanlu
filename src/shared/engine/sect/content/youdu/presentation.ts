@@ -151,7 +151,7 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         '78%',
         '/game/sect/industries',
         'sect.construction.view',
-        '设施建设 · 物资捐献',
+        '设施建设 · 灵石捐献',
       ),
       hotspot(
         'cultivation',
@@ -358,12 +358,12 @@ export const YOUDU_SECT_PRESENTATION: SectPresentationTheme = {
         construction: {
           id: 'youdu-zhuming',
           name: '戚百岁',
-          greeting: '桥、阁与台上的工事都有记录，你想先问哪一处？',
+          greeting: '桥、阁与台上的建设都有记录，你想先问哪一处？',
         },
         donation: {
           id: 'youdu-duwu',
           name: '阿七',
-          greeting: '带来的东西放稳些，我替你一件件核。',
+          greeting: '今日选好一处设施，我替你把灵石记入建设簿。',
         },
       },
     },

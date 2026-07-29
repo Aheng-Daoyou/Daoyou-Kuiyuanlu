@@ -1,3 +1,4 @@
+import type { LocalTransactionMessageWriter } from '@server/lib/mq/localTransactionMessages';
 import type {
   ResourceChangeDescriptor,
   ResourceDataMap,
@@ -226,53 +227,6 @@ export interface SectTaskRepository extends SectTaskReadRepository {
   }): Promise<SectTaskRecord>;
 }
 
-export interface SectOwnedMaterial {
-  id: string;
-  name: string;
-  type: string;
-  rank: string;
-  quantity: number;
-}
-
-export interface SectOwnedConsumable {
-  id: string;
-  name: string;
-  quality: string;
-  quantity: number;
-  spec: unknown;
-}
-
-export interface SectOwnedArtifact {
-  id: string;
-  name: string;
-  quality: string;
-  isEquipped: boolean;
-}
-
-export interface SectInventoryGateway {
-  findMaterial(
-    cultivatorId: string,
-    itemId: string,
-  ): Promise<SectOwnedMaterial | null>;
-  findConsumable(
-    cultivatorId: string,
-    itemId: string,
-  ): Promise<SectOwnedConsumable | null>;
-  findArtifact(
-    cultivatorId: string,
-    itemId: string,
-  ): Promise<SectOwnedArtifact | null>;
-  consumeMaterial(
-    itemId: string,
-    quantity: number,
-  ): Promise<SectInventorySettlementResult>;
-  consumeConsumable(
-    itemId: string,
-    quantity: number,
-  ): Promise<SectInventorySettlementResult>;
-  consumeArtifact(itemId: string): Promise<SectInventorySettlementResult>;
-}
-
 export interface SectInventorySettlementResult {
   consumed: boolean;
   change?: ResourceChangeDescriptor<
@@ -391,6 +345,7 @@ export interface SectFacilityRecord {
   sectId: string;
   facilityKey: string;
   level: number;
+  progress: number;
   updatedAt: Date;
 }
 
@@ -436,79 +391,7 @@ export interface SectEconomyRepository extends SectEconomyReadRepository {
   ): Promise<{ spent: boolean; balance?: number }>;
 }
 
-export interface SectConstructionProjectRecord {
-  id: string;
-  sectId: string;
-  facilityKey: string;
-  targetLevel: number;
-  progress: number;
-  target: number;
-  status: 'active' | 'completed';
-  startedWeekKey: string;
-  completedAt: Date | null;
-}
-
-export interface SectDonationActivityRecord {
-  id: string;
-  memberName: string;
-  demandId: string;
-  contribution: number;
-  constructionPoints: number;
-  createdAt: Date;
-}
-
-export interface SectConstructionReadRepository {
-  findActiveProject(
-    sectId: string,
-  ): Promise<SectConstructionProjectRecord | null>;
-  findLatestCompletedProject(
-    sectId: string,
-  ): Promise<SectConstructionProjectRecord | null>;
-  countRecentlyActiveMembers(sectId: string, since: Date): Promise<number>;
-  donatedContribution(membershipId: string, dateKey: string): Promise<number>;
-  listRecentDonations(
-    sectId: string,
-    limit: number,
-  ): Promise<SectDonationActivityRecord[]>;
-}
-
-export interface SectConstructionRepository extends SectConstructionReadRepository {
-  lockActiveProject(
-    sectId: string,
-  ): Promise<SectConstructionProjectRecord | null>;
-  createProject(input: {
-    sectId: string;
-    facilityKey: string;
-    targetLevel: number;
-    target: number;
-    startedWeekKey: string;
-  }): Promise<{
-    project: SectConstructionProjectRecord | null;
-    created: boolean;
-  }>;
-  saveProjectProgress(
-    projectId: string,
-    progress: number,
-  ): Promise<SectConstructionProjectRecord | null>;
-  completeProject(
-    projectId: string,
-    completedAt: Date,
-  ): Promise<SectConstructionProjectRecord | null>;
-  upgradeFacility(
-    sectId: string,
-    facilityKey: string,
-    level: number,
-  ): Promise<boolean>;
-  recordDonation(input: {
-    id: string;
-    membershipId: string;
-    projectId: string;
-    dateKey: string;
-    demandId: string;
-    contribution: number;
-    constructionPoints: number;
-    itemSnapshot: Record<string, unknown>;
-  }): Promise<{ id: string } | null>;
+export interface SectConstructionRepository {
   grantContribution(
     membershipId: string,
     amount: number,
@@ -546,7 +429,6 @@ export interface SectMembershipQueryContext {
   memberships: SectMembershipQueryRepository;
   facilities: SectFacilityReadRepository;
   economy: Pick<SectEconomyReadRepository, 'hasClaimedStipend'>;
-  construction: Pick<SectConstructionReadRepository, 'findActiveProject'>;
   modules: SectModuleResolver;
   clock: Clock;
 }
@@ -573,17 +455,16 @@ export interface SectEconomyCommandContext extends SectEconomyQueryContext {
 export interface SectConstructionQueryContext {
   memberships: SectMembershipReadRepository;
   facilities: SectFacilityReadRepository;
-  construction: SectConstructionReadRepository;
   modules: SectModuleResolver;
   clock: Clock;
 }
 
 export interface SectConstructionCommandContext extends SectConstructionQueryContext {
-  facilities: SectFacilityRepository;
+  facilities: SectFacilityReadRepository &
+    Pick<SectFacilityRepository, 'ensure'>;
   construction: SectConstructionRepository;
+  messages: LocalTransactionMessageWriter;
   economy: Pick<SectEconomyRepository, 'spendSpiritStones'>;
-  inventory: SectInventoryGateway;
-  ids: IdGenerator;
 }
 
 export interface SectBenefitQueryContext {

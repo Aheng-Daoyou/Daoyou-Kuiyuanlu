@@ -193,13 +193,14 @@ export class SectEconomyApplicationService {
       context.modules,
     );
     await context.facilities.ensure(membership.sectId);
+    const organization = organizationFor(context.modules, membership.sectId);
     const facilities = mapFacilities(
       await context.facilities.list(membership.sectId),
+      organization,
     );
     const facilityLevels = new Map(
       facilities.map((item) => [item.key as string, item.level]),
     );
-    const organization = organizationFor(context.modules, membership.sectId);
     const quote = quoteSectStipend(
       organization,
       membership.discipleRank,

@@ -1,5 +1,4 @@
 import {
-  type SectConstructionProjectState,
   type SectDiscipleRank,
   type SectFacilityState,
   type SectOrganizationModule,
@@ -7,7 +6,6 @@ import {
 } from '@shared/engine/sect';
 import { SectError } from '../SectError';
 import type {
-  SectConstructionProjectRecord,
   SectFacilityRecord,
   SectMembershipReadRepository,
   SectMembershipRecord,
@@ -42,32 +40,29 @@ export function assertDeclaredRewardKind(
     organizationError(`宗门经济策略返回未声明的奖励类型：${kind}`, 500);
 }
 
-export function assertDeclaredDonationKind(
-  organization: SectOrganizationModule,
-  kind: string,
-): void {
-  if (!organization.economy.donationKinds.includes(kind))
-    organizationError(`宗门经济策略返回未声明的捐献类型：${kind}`, 500);
-}
-
 export function mapFacilities(
   rows: readonly SectFacilityRecord[],
+  organization: SectOrganizationModule,
 ): SectFacilityState[] {
-  return rows.map((row) => ({
-    key: row.facilityKey,
-    level: row.level,
-    updatedAt: row.updatedAt?.toISOString(),
-  }));
-}
-
-export function mapProject(
-  row: SectConstructionProjectRecord | null,
-): SectConstructionProjectState | null {
-  if (!row) return null;
-  return {
-    ...row,
-    completedAt: row.completedAt?.toISOString(),
-  };
+  return rows.map((row) => {
+    const definition = organization.construction.facilities.find(
+      (facility) => facility.key === row.facilityKey,
+    );
+    if (!definition)
+      organizationError(`宗门设施配置不存在：${row.facilityKey}`, 500);
+    return {
+      key: row.facilityKey,
+      level: row.level,
+      progress: row.progress,
+      target:
+        definition.upgradeable && row.level < definition.maxLevel
+          ? organization.construction.upgradeTarget(row.level)
+          : null,
+      maxLevel: definition.maxLevel,
+      upgradeable: definition.upgradeable,
+      updatedAt: row.updatedAt?.toISOString(),
+    };
+  });
 }
 
 export interface SectStipendQuote {
