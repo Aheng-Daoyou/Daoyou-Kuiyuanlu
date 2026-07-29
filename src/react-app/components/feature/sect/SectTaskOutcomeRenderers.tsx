@@ -42,6 +42,45 @@ export function SweepSessionOutcome({
   );
 }
 
+export function MiningSessionOutcome({
+  task,
+}: SectOutcomeRendererProps<unknown>) {
+  const interaction = useSectTaskInteraction();
+  return (
+    <InkNotice className="mt-4">
+      「{task.presentation.title}」采掘场已在灵脉开启。
+      <InkButton
+        variant="secondary"
+        onClick={() =>
+          interaction.navigate(
+            createSectRoomNpcHref('/game/sect/spirit-vein', 'facility'),
+          )
+        }
+      >
+        前往灵脉
+      </InkButton>
+    </InkNotice>
+  );
+}
+
+export function MiningResultOutcome({
+  task,
+  data,
+}: SectOutcomeRendererProps<unknown>) {
+  const result = data as {
+    score: number;
+    maxScore: number;
+    tier?: string;
+    qualified: boolean;
+  };
+  return (
+    <InkNotice className="mt-4">
+      「{task.presentation.title}」得分 {result.score}/{result.maxScore}
+      {result.qualified ? `，评定为 ${result.tier} 档。` : '，尚未达到验收线。'}
+    </InkNotice>
+  );
+}
+
 export function CompletedOutcome({ task }: SectOutcomeRendererProps<unknown>) {
   const { clearOutcome } = useSectTaskInteraction();
   return (
@@ -78,9 +117,9 @@ export function RewardClaimedOutcome({
         content: (
           <div className="space-y-2 text-sm leading-7">
             <p className="font-semibold">{task.presentation.title}</p>
-            <p>宗门贡献 +{receipt.rewards.contribution}</p>
-            <p>修为 +{receipt.rewards.cultivationExp}</p>
-            <p>灵石 +{receipt.rewards.spiritStones}</p>
+            {receipt.lines.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
             <p className="pt-2 text-stone-500">以上奖励已经入账</p>
           </div>
         ),

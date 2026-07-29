@@ -1,5 +1,6 @@
 import type { SectTaskViewData } from '@shared/contracts/sect';
 import {
+  resolveSectTaskClaimReward,
   resolveSectTaskDialogue,
   resolveSectTaskExecutionLocationParameters,
   type SectTaskDefinition,
@@ -74,6 +75,7 @@ export function toSectTaskView(args: {
   disabledReason?: string;
 }): SectTaskViewData {
   const offer = args.record.payload.offer;
+  const reward = resolveSectTaskClaimReward(args.record.payload);
   const executionLocation = resolveSectTaskExecutionLocationParameters(
     args.definition,
   );
@@ -106,15 +108,13 @@ export function toSectTaskView(args: {
                   : {}),
               },
             ]
-          : args.executor
-              .actions(args.definition)
-              .map((action) => ({
-                ...action,
-                enabled: args.enabled,
-                ...(args.disabledReason
-                  ? { disabledReason: args.disabledReason }
-                  : {}),
-              }));
+          : args.executor.actions(args.definition).map((action) => ({
+              ...action,
+              enabled: args.enabled,
+              ...(args.disabledReason
+                ? { disabledReason: args.disabledReason }
+                : {}),
+            }));
   return {
     id: args.record.id,
     definitionId: args.definition.id,
@@ -127,7 +127,7 @@ export function toSectTaskView(args: {
     },
     difficulty: offer.difficulty,
     requirement: offer.requirement,
-    ...(offer.reward ? { reward: offer.reward } : {}),
+    ...(reward ? { reward } : {}),
     presentation: {
       title: args.definition.presentation.title,
       description: args.definition.presentation.description,

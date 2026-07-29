@@ -37,12 +37,7 @@ export function AcceptAction({
       className={actionClassName(display)}
       disabled={busy || !action.enabled}
       onClick={() =>
-        void execute(
-          task,
-          action,
-          {},
-          `已接下「${task.presentation.title}」`,
-        )
+        void execute(task, action, {}, `已接下「${task.presentation.title}」`)
       }
     >
       {action.enabled
@@ -126,6 +121,29 @@ export function SweepEntryAction({
       {action.enabled
         ? display === 'conversation'
           ? '我这就去办'
+          : action.label
+        : (action.disabledReason ?? '尚未解锁')}
+    </InkButton>
+  );
+}
+
+export function MiningEntryAction({
+  action,
+  display,
+}: SectTaskActionRendererProps) {
+  const { busy, navigate } = useSectTaskInteraction();
+  return (
+    <InkButton
+      variant="primary"
+      className={actionClassName(display)}
+      disabled={busy || !action.enabled}
+      onClick={() =>
+        navigate(createSectRoomNpcHref('/game/sect/spirit-vein', 'facility'))
+      }
+    >
+      {action.enabled
+        ? display === 'conversation'
+          ? '我这就去灵脉采掘'
           : action.label
         : (action.disabledReason ?? '尚未解锁')}
     </InkButton>

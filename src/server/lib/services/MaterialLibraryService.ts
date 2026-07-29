@@ -1,6 +1,9 @@
-import { getExecutor, type DbExecutor } from '@server/lib/drizzle/db';
+import {
+  getExecutor,
+  type DbExecutor,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
 import { itemLibrary } from '@server/lib/drizzle/schema';
-import { computeItemLibrarySampleKey } from './itemLibrarySampleKey';
 import { MaterialGenerator } from '@shared/engine/material/creation/MaterialGenerator';
 import type { MaterialSkeleton } from '@shared/engine/material/creation/types';
 import {
@@ -16,6 +19,7 @@ import {
 } from '@shared/types/constants';
 import type { Material } from '@shared/types/cultivator';
 import { and, asc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { computeItemLibrarySampleKey } from './itemLibrarySampleKey';
 
 type ItemLibraryRow = typeof itemLibrary.$inferSelect;
 
@@ -54,7 +58,9 @@ function parseRow(row: ItemLibraryRow): ItemLibraryEntry {
   });
 }
 
-function toMaterialEntry(entry: ItemLibraryEntry): Extract<ItemLibraryEntry, { type: 'material' }> {
+function toMaterialEntry(
+  entry: ItemLibraryEntry,
+): Extract<ItemLibraryEntry, { type: 'material' }> {
   if (entry.type !== 'material') {
     throw new Error(`道具库条目不是材料：${entry.itemId}`);
   }
@@ -112,7 +118,8 @@ function allocateWeightedCounts<T extends string>(
 ): Array<{ value: T; count: number }> {
   const totalWeight = weightedItems.reduce((sum, item) => sum + item.weight, 0);
   const raw = weightedItems.map((item) => {
-    const exact = totalWeight > 0 ? (totalCount * item.weight) / totalWeight : 0;
+    const exact =
+      totalWeight > 0 ? (totalCount * item.weight) / totalWeight : 0;
     return {
       value: item.value,
       count: Math.floor(exact),
@@ -197,7 +204,9 @@ function materialEntryToWrite(entry: ItemLibraryEntry): Material {
   };
 }
 
-export function materialLibraryEntryToMaterial(entry: ItemLibraryEntry): Material {
+export function materialLibraryEntryToMaterial(
+  entry: ItemLibraryEntry,
+): Material {
   return materialEntryToWrite(entry);
 }
 
@@ -259,7 +268,10 @@ export async function generateMaterialLibraryEntries(input: {
     };
   });
 
-  const rows = await getExecutor().insert(itemLibrary).values(values).returning();
+  const rows = await getExecutor()
+    .insert(itemLibrary)
+    .values(values)
+    .returning();
   return rows.map(parseRow);
 }
 
@@ -313,7 +325,10 @@ export async function generateRandomMaterialLibraryEntries(input: {
     };
   });
 
-  const rows = await getExecutor().insert(itemLibrary).values(values).returning();
+  const rows = await getExecutor()
+    .insert(itemLibrary)
+    .values(values)
+    .returning();
   return rows.map(parseRow);
 }
 
@@ -345,13 +360,14 @@ export async function generateDailyMarketMaterialLibraryEntries(input: {
 
 async function sampleExactMaterialEntries(
   request: MaterialLibrarySampleRequest,
-  executor?: DbExecutor,
+  executor?: DbExecutor | DbTransaction,
+  fixedAnchor?: number,
 ): Promise<ItemLibraryEntry[]> {
   const count = normalizePositiveCount(request.count);
   if (count <= 0) return [];
 
   const q = executor ?? getExecutor();
-  const anchor = Math.random();
+  const anchor = fixedAnchor ?? Math.random();
   const baseWhere = and(
     eq(itemLibrary.type, 'material'),
     eq(itemLibrary.status, 'published'),
@@ -383,7 +399,7 @@ async function sampleExactMaterialEntries(
 
 export async function sampleMaterialLibraryEntries(
   requests: MaterialLibrarySampleRequest[],
-  executor?: DbExecutor,
+  executor?: DbExecutor | DbTransaction,
 ): Promise<Map<string, ItemLibraryEntry[]>> {
   const result = new Map<string, ItemLibraryEntry[]>();
   for (const request of requests) {
@@ -393,6 +409,18 @@ export async function sampleMaterialLibraryEntries(
     result.set(key, [...current, ...entries]);
   }
   return result;
+}
+
+export async function sampleMaterialLibraryEntryDeterministic(
+  request: Omit<MaterialLibrarySampleRequest, 'count'> & { seed: string },
+  executor?: DbExecutor | DbTransaction,
+): Promise<ItemLibraryEntry | null> {
+  const [entry] = await sampleExactMaterialEntries(
+    { ...request, count: 1 },
+    executor,
+    computeItemLibrarySampleKey(request.seed),
+  );
+  return entry ?? null;
 }
 
 function qualitiesInRange(range: { min: Quality; max: Quality }): Quality[] {
@@ -405,7 +433,7 @@ function qualitiesInRange(range: { min: Quality; max: Quality }): Quality[] {
 
 export async function sampleMaterialForRange(
   request: MaterialLibraryRangeSampleRequest,
-  executor?: DbExecutor,
+  executor?: DbExecutor | DbTransaction,
 ): Promise<ItemLibraryEntry | null> {
   const qualities = qualitiesInRange(request.rankRange);
   if (qualities.length === 0) return null;

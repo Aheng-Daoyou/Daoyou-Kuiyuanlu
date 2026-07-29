@@ -5,16 +5,16 @@ import {
   type NpcConversationOption,
 } from '@app/components/feature/room';
 import {
+  SectNpcConversationRegistry,
+  SectRoutedRoom,
+  type SectNpcConversationRendererProps,
+} from '@app/components/feature/sect/room';
+import {
   useSectPromotionEvaluationQuery,
   useSectTasksQuery,
 } from '@app/components/feature/sect/sectResources';
 import { SectTaskActionRenderer } from '@app/components/feature/sect/SectTaskActionRenderer';
 import { useSectTaskInteraction } from '@app/components/feature/sect/SectTaskInteractionProvider';
-import {
-  SectNpcConversationRegistry,
-  SectRoutedRoom,
-  type SectNpcConversationRendererProps,
-} from '@app/components/feature/sect/room';
 import {
   decodeSectTaskOutcome,
   readRewardReceiptOutcome,
@@ -221,10 +221,8 @@ function SectAffairsNpcConversation({
           missingRequirements: current.data.missing,
         })
       : undefined;
-  const nextRank =
-    kind === 'promotion' ? current.data?.nextRank : null;
-  const canPromote =
-    Boolean(nextRank) && current.data?.missing.length === 0;
+  const nextRank = kind === 'promotion' ? current.data?.nextRank : null;
+  const canPromote = Boolean(nextRank) && current.data?.missing.length === 0;
 
   const promote = async () => {
     if (!nextRank || !canPromote) return;
@@ -453,13 +451,7 @@ function TaskConversation({
     messages.push({
       id: 'reward-receipt',
       speaker: npc.name,
-      body: (
-        <>
-          此事已经结清。宗门贡献 +{receipt.rewards.contribution}，修为 +
-          {receipt.rewards.cultivationExp.toLocaleString()}，灵石 +
-          {receipt.rewards.spiritStones.toLocaleString()}，均已入账。
-        </>
-      ),
+      body: `此事已经结清。${receipt.lines.join('，')}，均已入账。`,
       tone: 'attention',
     });
   } else if (currentTask.state === 'claimed') {

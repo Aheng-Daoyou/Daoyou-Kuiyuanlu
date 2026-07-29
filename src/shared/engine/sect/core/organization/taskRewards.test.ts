@@ -74,12 +74,7 @@ describe('sect task rewards', () => {
 
   it('keeps the realm floor while guaranteeing at least five stones per exp', () => {
     for (const realm of REALM_VALUES) {
-      for (const difficulty of [
-        'easy',
-        'normal',
-        'hard',
-        'elite',
-      ] as const) {
+      for (const difficulty of ['easy', 'normal', 'hard', 'elite'] as const) {
         const reward = calculateRealmSectTaskReward({
           realm,
           realmStage: '中期',
@@ -123,6 +118,7 @@ describe('sect task rewards', () => {
     const tasks = new StandardSectOrganizationModule().tasks;
     expect(tasks.get('gate_sweep')?.minimumDifficulty).toBe('easy');
     expect(tasks.get('mine_patrol')?.minimumDifficulty).toBe('normal');
+    expect(tasks.get('spirit_mining')?.minimumDifficulty).toBe('normal');
     expect(tasks.get('pill_delivery')?.minimumDifficulty).toBe('easy');
     expect(tasks.get('artifact_delivery')?.minimumDifficulty).toBe('easy');
     expect(tasks.get('weekly_diligence')?.minimumDifficulty).toBe('easy');

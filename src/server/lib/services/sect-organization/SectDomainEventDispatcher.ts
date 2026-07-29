@@ -3,7 +3,10 @@ import {
   SectTask,
   type SectDomainEvent,
 } from '@shared/engine/sect';
-import { organizationError } from './applicationSupport';
+import {
+  assertDeclaredRewardKind,
+  organizationError,
+} from './applicationSupport';
 import type { SectRewardGrantStrategyRegistry } from './EconomyStrategies';
 import type {
   SectCommandContext,
@@ -13,6 +16,11 @@ import type {
   SectMembershipRecord,
   SectTaskRecord,
 } from './ports';
+import {
+  emptySectCommandEffects,
+  mergeSectCommandEffects,
+  type SectCommandEffects,
+} from './SectCommandEffects';
 import { resolveCurrentSectTaskExecution } from './SectTaskApplicationSupport';
 import { SectTaskOfferService } from './SectTaskOfferService';
 import type {
@@ -21,11 +29,6 @@ import type {
   SectTaskProgressRegistry,
   SectTaskRewardPolicyRegistry,
 } from './SectTaskSettlement';
-import {
-  emptySectCommandEffects,
-  mergeSectCommandEffects,
-  type SectCommandEffects,
-} from './SectCommandEffects';
 
 type SectDomainEventType = SectDomainEvent['type'];
 type SectDomainEventOf<TType extends SectDomainEventType> = Extract<
@@ -311,7 +314,7 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
         defineSectDomainEventHandler('SectTaskRewardClaimed', async (event) => {
           const reward = event.reward;
           if (!reward) return [];
-          return [
+          const events: SectDomainEvent[] = [
             ...(reward.contribution > 0
               ? [
                   {
@@ -343,6 +346,24 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
                 ]
               : []),
           ];
+          let effects = emptySectCommandEffects();
+          const organization = command.modules.require(membership.sectId);
+          for (const item of reward.grants) {
+            assertDeclaredRewardKind(organization, item.grant.kind);
+            effects = mergeSectCommandEffects(
+              effects,
+              await this.rewards.require(item.grant.kind).grant({
+                userId: event.userId,
+                cultivatorId: event.cultivatorId,
+                quantity: item.quantity,
+                grant: item.grant,
+                rewards: command.rewards,
+                ids: command.ids,
+                source: 'sect_task',
+              }),
+            );
+          }
+          return { events, effects };
         }),
         defineSectDomainEventHandler(
           'SectContributionGranted',
@@ -451,15 +472,17 @@ class StandardSectDomainEventDispatcherFactory implements SectDomainEventDispatc
             organizationError('本周俸禄已经领取');
           let effects = emptySectCommandEffects();
           for (const reward of event.rewardSnapshot.rewards) {
-            const granted = await this.rewards.require(reward.grant.kind).grant({
-              userId: args.userId,
-              cultivatorId: args.cultivatorId,
-              quantity: reward.quantity,
-              grant: reward.grant,
-              rewards: args.command.rewards,
-              ids: args.command.ids,
-              source: 'sect_stipend',
-            });
+            const granted = await this.rewards
+              .require(reward.grant.kind)
+              .grant({
+                userId: args.userId,
+                cultivatorId: args.cultivatorId,
+                quantity: reward.quantity,
+                grant: reward.grant,
+                rewards: args.command.rewards,
+                ids: args.command.ids,
+                source: 'sect_stipend',
+              });
             effects = mergeSectCommandEffects(effects, granted);
           }
           return { effects };

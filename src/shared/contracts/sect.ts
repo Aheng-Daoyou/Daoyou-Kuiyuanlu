@@ -34,9 +34,11 @@ export const SectAbilityLoadoutRequestSchema = z.object({
 export const SectTacticRequestSchema = z.object({
   tacticId: z.string().min(1).max(32),
 });
-export const SectTaskActionRequestSchema = z.object({
-  input: z.record(z.string(), z.json()).default({}),
-}).strict();
+export const SectTaskActionRequestSchema = z
+  .object({
+    input: z.record(z.string(), z.json()).default({}),
+  })
+  .strict();
 export const SectTaskSubmissionInputSchema = z
   .object({
     items: z
@@ -124,6 +126,32 @@ export interface SectSweepSessionData {
   seed: string;
   rulesVersion: number;
   expiresAt: string;
+}
+
+export interface SectMiningSessionData {
+  sessionId: string;
+  seed: string;
+  rulesVersion: number;
+  startedAt: string;
+  expiresAt: string;
+  durationMs: number;
+}
+
+export interface SectMiningResultData {
+  score: number;
+  maxScore: number;
+  ratio: number;
+  tier?: 'D' | 'C' | 'B' | 'A' | 'S';
+  qualified: boolean;
+  collected: number;
+  destroyed: number;
+  clearedAll: boolean;
+  ores: Array<{
+    kind: 'spirit_crystal' | 'copper_ore' | 'dark_iron' | 'earth_essence';
+    count: number;
+    score: number;
+  }>;
+  rewardSummary?: string[];
 }
 
 export interface SectTaskActionData {
@@ -277,9 +305,7 @@ export interface SectPromotionEvaluationData {
 export const SectPromotionEvaluationDataSchema: z.ZodType<SectPromotionEvaluationData> =
   z
     .object({
-      nextRank: z
-        .enum(['registered', 'outer', 'inner', 'true'])
-        .nullable(),
+      nextRank: z.enum(['registered', 'outer', 'inner', 'true']).nullable(),
       missing: z.array(z.string()),
       allowed: z.boolean(),
     })

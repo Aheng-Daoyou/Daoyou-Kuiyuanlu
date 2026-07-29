@@ -6,6 +6,7 @@ import {
   type RealmType,
 } from '@shared/types/constants';
 import { z } from 'zod';
+import { MINING_SCORE_TIERS } from '../mining/MiningGameRules';
 import {
   SectDeliveryRequirementSchema,
   type SectDeliveryRequirement,
@@ -29,9 +30,7 @@ export const SectTaskOfferSnapshotSchema = z
   })
   .strict();
 
-export type SectTaskOfferSnapshot = z.infer<
-  typeof SectTaskOfferSnapshotSchema
->;
+export type SectTaskOfferSnapshot = z.infer<typeof SectTaskOfferSnapshotSchema>;
 
 export const SectSubmittedItemSnapshotSchema = z
   .object({
@@ -53,9 +52,24 @@ const SectTaskCompletionDataSchema = z
     submittedItems: z
       .array(SectSubmittedItemSnapshotSchema)
       .min(1)
-      .max(99),
+      .max(99)
+      .optional(),
+    mining: z
+      .object({
+        score: z.number().int().nonnegative(),
+        maxScore: z.number().int().positive(),
+        tier: z.enum(MINING_SCORE_TIERS),
+        reward: SectTaskRewardSnapshotSchema,
+      })
+      .strict()
+      .optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (data) =>
+      Number(Boolean(data.submittedItems)) + Number(Boolean(data.mining)) === 1,
+    '宗门任务完成数据必须且只能包含一种结果',
+  );
 
 export const SectTaskRecordPayloadSchema = z
   .object({
@@ -67,9 +81,13 @@ export const SectTaskRecordPayloadSchema = z
   })
   .strict();
 
-export type SectTaskRecordPayload = z.infer<
-  typeof SectTaskRecordPayloadSchema
->;
+export type SectTaskRecordPayload = z.infer<typeof SectTaskRecordPayloadSchema>;
+
+export function resolveSectTaskClaimReward(
+  payload: SectTaskRecordPayload,
+): SectTaskRewardSnapshot | undefined {
+  return payload.completionData?.mining?.reward ?? payload.offer.reward;
+}
 
 export function createSectTaskOfferSnapshot(input: {
   rulesVersion: number;

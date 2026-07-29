@@ -1,7 +1,7 @@
 import { getRealmStageAttributeBudget } from '@shared/config/realmProgression';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import type { PillSpec } from '@shared/types/consumable';
 import type { Attributes } from '@shared/types/cultivator';
-import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import {
   SECT_RANK_METHOD_CAP,
   type SectDiscipleRank,
@@ -165,6 +165,34 @@ const tasks: readonly SectTaskDefinition[] = [
         claimedReply: '请替我查查矿场巡视的功簿',
         instruction: {
           text: '去宗门矿脉巡视一趟，将侵扰矿场的妖兽驱逐干净，再回来复命。',
+        },
+      },
+    ),
+    target: 1,
+  },
+  {
+    id: 'spirit_mining',
+    kind: 'daily',
+    enrollment: 'manual',
+    requiredCapability: 'sect.tasks.use',
+    executorKey: 'sect.mining',
+    minimumDifficulty: 'normal',
+    reward: {
+      policy: 'sect.reward.realm-task',
+      input: { baseContribution: 30 },
+    },
+    fulfillment: taskFulfillment('daily'),
+    presentation: taskPresentation(
+      '灵矿采掘',
+      '进入宗门灵脉，以灵索采集一轮矿藏。',
+      '开始采掘',
+      {
+        offeredReply: '今日灵矿采掘便交给我吧',
+        activeReply: '灵矿采掘的封签，请再替我核对一遍',
+        claimableReply: '今日采掘已经结束，请执事验收回执',
+        claimedReply: '请替我查查灵矿采掘的功簿',
+        instruction: {
+          text: '去宗门灵脉开启采掘封签，以灵索带回足够矿藏，再回来复命。',
         },
       },
     ),

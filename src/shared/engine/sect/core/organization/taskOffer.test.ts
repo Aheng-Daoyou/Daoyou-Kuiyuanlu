@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SectTaskRecordPayloadSchema,
   createSectTaskOfferSnapshot,
+  resolveSectTaskClaimReward,
 } from './taskOffer';
 import { calculateRealmSectTaskReward } from './taskRewards';
 
@@ -92,4 +93,67 @@ describe('sect task offer snapshot', () => {
     ).toHaveLength(2);
   });
 
+  it('keeps old reward snapshots compatible and resolves frozen mining rewards', () => {
+    const offer = build(1);
+    const { grants: _grants, ...legacyReward } = offer.reward!;
+    const legacyPayload = SectTaskRecordPayloadSchema.parse({
+      schemaVersion: 2,
+      target: 1,
+      offer: { ...offer, reward: legacyReward },
+      executorData: {},
+    });
+    expect(legacyPayload.offer.reward?.grants).toEqual([]);
+
+    const miningReward = {
+      ...offer.reward!,
+      contribution: offer.reward!.contribution + 12,
+      summary: [...offer.reward!.summary, '玄铁矿团（玄品）×2'],
+      grants: [
+        {
+          quantity: 2,
+          grant: {
+            kind: 'sect.reward.material' as const,
+            name: '玄铁矿团',
+            quality: '玄品' as const,
+            description: '地脉深处凝结的玄铁。',
+            type: 'ore' as const,
+            libraryItemId: 'ore-library-1',
+          },
+        },
+      ],
+    };
+    const miningPayload = SectTaskRecordPayloadSchema.parse({
+      schemaVersion: 2,
+      target: 1,
+      offer,
+      executorData: {},
+      completionData: {
+        mining: {
+          score: 2_100,
+          maxScore: 2_910,
+          tier: 'A',
+          reward: miningReward,
+        },
+      },
+    });
+    expect(resolveSectTaskClaimReward(miningPayload)).toEqual(miningReward);
+    expect(() =>
+      SectTaskRecordPayloadSchema.parse({
+        ...miningPayload,
+        completionData: {
+          ...miningPayload.completionData,
+          submittedItems: [
+            {
+              itemId: 'material-1',
+              kind: 'material',
+              name: '玄铁',
+              quality: '玄品',
+              quantity: 1,
+              matchedFacts: ['玄品矿石'],
+            },
+          ],
+        },
+      }),
+    ).toThrow('必须且只能包含一种结果');
+  });
 });

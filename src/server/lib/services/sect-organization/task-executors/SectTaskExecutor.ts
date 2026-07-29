@@ -7,9 +7,20 @@ import {
   describeSectDeliveryRequirement,
   matchSectDeliveryRequirement,
   matchSectMaterialDeliverySelection,
+  MINING_DURATION_MS,
+  MINING_MAX_CASTS,
+  MINING_RULES_VERSION,
+  MINING_SCORE_TIERS,
+  MINING_SESSION_TTL_MS,
+  MINING_TIER_MATERIAL_QUANTITY,
+  miningRewardQualityPreference,
   resolveSectTaskExecutionLocationParameters,
+  scaleMiningTaskReward,
   SectTaskRecordPayloadSchema,
+  SectTaskRewardSnapshotSchema,
+  simulateMiningTranscript,
   simulateSweepMoves,
+  summarizeMiningCatches,
   SWEEP_DIRECTIONS,
   SWEEP_MAX_MOVES,
   SWEEP_RULES_VERSION,
@@ -85,6 +96,55 @@ const sweepCompleteInput = z.object({
   rulesVersion: z.number().int().positive(),
   moves: z.array(z.enum(SWEEP_DIRECTIONS)).min(1).max(SWEEP_MAX_MOVES),
 });
+const miningCastInput = z
+  .object({
+    atMs: z
+      .number()
+      .int()
+      .min(0)
+      .max(MINING_DURATION_MS - 1),
+    angleMilliDegrees: z.number().int().min(-70_000).max(70_000),
+  })
+  .strict();
+const miningCompleteInput = z
+  .object({
+    sessionId: z.string().uuid(),
+    rulesVersion: z.literal(MINING_RULES_VERSION),
+    casts: z.array(miningCastInput).max(MINING_MAX_CASTS),
+  })
+  .strict();
+const miningMaterialCandidateSchema = z
+  .object({
+    libraryItemId: z.string().min(1).max(120),
+    name: z.string().min(1).max(100),
+    quality: z.enum([
+      '凡品',
+      '灵品',
+      '玄品',
+      '真品',
+      '地品',
+      '天品',
+      '仙品',
+      '神品',
+    ]),
+    type: z.literal('ore'),
+    element: z.string().min(1).max(10).optional(),
+    description: z.string().min(1).max(500),
+  })
+  .strict();
+const miningSessionSchema = z
+  .object({
+    sessionId: z.string().uuid(),
+    seed: z.string().min(1),
+    rulesVersion: z.literal(MINING_RULES_VERSION),
+    startedAt: z.string().datetime(),
+    expiresAt: z.string().datetime(),
+    rewardCandidates: z.record(
+      z.enum(MINING_SCORE_TIERS),
+      miningMaterialCandidateSchema,
+    ),
+  })
+  .strict();
 
 abstract class BaseTaskExecutor<
   TInput = unknown,
@@ -203,6 +263,202 @@ export class SweepGameTaskExecutor extends BaseTaskExecutor<
   }
 }
 
+export class MiningGameTaskExecutor extends BaseTaskExecutor<
+  Record<string, unknown>
+> {
+  readonly key = 'sect.mining';
+
+  inputSchema(actionKey: string): ZodType<Record<string, unknown>> {
+    if (actionKey === 'start') return emptyInput;
+    if (actionKey === 'complete')
+      return miningCompleteInput as ZodType<Record<string, unknown>>;
+    return z.never();
+  }
+
+  actions(definition: SectTaskDefinition): readonly SectTaskActionDescriptor[] {
+    return [
+      {
+        key: 'enter',
+        renderer: 'sect.action.mining-entry',
+        label: definition.presentation.actionLabel,
+      },
+    ];
+  }
+
+  async execute(
+    actionKey: string,
+    context: SectTaskExecutionContext,
+    input: Record<string, unknown>,
+  ): Promise<SectTaskExecutionDecision> {
+    if (actionKey === 'start') return this.start(context);
+    if (actionKey !== 'complete') invalid('灵矿采掘不支持该操作');
+    return this.complete(context, input as z.infer<typeof miningCompleteInput>);
+  }
+
+  private async start(
+    context: SectTaskExecutionContext,
+  ): Promise<SectTaskExecutionDecision> {
+    const baseReward = context.record.payload.offer.reward;
+    if (!baseReward) invalid('灵矿采掘奖励配置缺失', 500);
+    const sessionId = context.ports.ids.next();
+    const seed = `${context.record.id}:${sessionId}`;
+    const startedAt = context.ports.clock.now();
+    const expiresAt = new Date(startedAt.getTime() + MINING_SESSION_TTL_MS);
+    const realm = context.record.payload.offer.anchorRealm;
+    const rewardCandidates = Object.fromEntries(
+      await Promise.all(
+        MINING_SCORE_TIERS.map(async (tier) => {
+          const preferred = miningRewardQualityPreference(realm, tier);
+          const candidate = await context.ports.rewardMaterials.sampleOre(
+            preferred,
+            `${seed}:${tier}`,
+          );
+          if (!candidate)
+            invalid('宗门材料库暂无可供采掘结算的灵矿，请稍后再试', 503);
+          return [tier, candidate] as const;
+        }),
+      ),
+    );
+    const session = miningSessionSchema.parse({
+      sessionId,
+      seed,
+      rulesVersion: MINING_RULES_VERSION,
+      startedAt: startedAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      rewardCandidates,
+    });
+    return {
+      completed: false,
+      completionSettlement: 'deferred',
+      payload: {
+        ...context.record.payload,
+        executorData: {
+          ...context.record.payload.executorData,
+          miningSession: session,
+        },
+      },
+      outcome: {
+        renderer: 'sect.outcome.mining-session',
+        data: {
+          sessionId,
+          seed,
+          rulesVersion: MINING_RULES_VERSION,
+          startedAt: startedAt.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+          durationMs: MINING_DURATION_MS,
+        },
+      },
+    };
+  }
+
+  private async complete(
+    context: SectTaskExecutionContext,
+    input: z.infer<typeof miningCompleteInput>,
+  ): Promise<SectTaskExecutionDecision> {
+    const parsedSession = miningSessionSchema.safeParse(
+      context.record.payload.executorData.miningSession,
+    );
+    if (!parsedSession.success) invalid('灵矿采掘场次数据缺失');
+    const session = parsedSession.data;
+    if (session.sessionId !== input.sessionId)
+      invalid('灵矿采掘场次与当前任务不匹配');
+    const now = context.ports.clock.now();
+    if (new Date(session.expiresAt) < now)
+      invalid('灵矿采掘场次已过期，请重新开始');
+    const simulation = simulateMiningTranscript(session.seed, input.casts);
+    if (!simulation.valid) {
+      const messages = {
+        too_many_casts: '灵索下钩次数超过上限',
+        invalid_time: '灵索采掘时序无效',
+        invalid_angle: '灵索下钩角度无效',
+        hook_busy: '上一道灵索尚未收回',
+      } as const;
+      invalid(
+        simulation.reason
+          ? messages[simulation.reason]
+          : '灵矿采掘记录无法验收',
+      );
+    }
+    const elapsedMs = now.getTime() - new Date(session.startedAt).getTime();
+    if (elapsedMs + 1_500 < simulation.completedAtMs)
+      invalid('本轮灵矿采掘尚未结束');
+
+    const outcomeBase = {
+      score: simulation.score,
+      maxScore: simulation.maxScore,
+      ratio: simulation.ratio,
+      qualified: simulation.qualified,
+      collected: simulation.collectedOreIds.length,
+      destroyed: simulation.destroyedOreIds.length,
+      clearedAll: simulation.clearedAll,
+      ores: summarizeMiningCatches(simulation.catches),
+    };
+    if (!simulation.tier)
+      return {
+        completed: false,
+        completionSettlement: 'deferred',
+        outcome: {
+          renderer: 'sect.outcome.mining-result',
+          data: outcomeBase,
+        },
+      };
+
+    const baseReward = context.record.payload.offer.reward;
+    if (!baseReward) invalid('灵矿采掘奖励配置缺失', 500);
+    const candidate = session.rewardCandidates[simulation.tier];
+    const numeric = scaleMiningTaskReward(baseReward, simulation.tier);
+    const quantity = MINING_TIER_MATERIAL_QUANTITY[simulation.tier];
+    const reward = SectTaskRewardSnapshotSchema.parse({
+      ...baseReward,
+      ...numeric,
+      summary: [
+        `宗门贡献 +${numeric.contribution}`,
+        `修为 +${numeric.cultivationExp}`,
+        `灵石 +${numeric.spiritStones}`,
+        `${candidate.name}（${candidate.quality}）×${quantity}`,
+      ],
+      grants: [
+        {
+          quantity,
+          grant: {
+            kind: 'sect.reward.material',
+            name: candidate.name,
+            quality: candidate.quality,
+            description: candidate.description,
+            type: candidate.type,
+            ...(candidate.element ? { element: candidate.element } : {}),
+            libraryItemId: candidate.libraryItemId,
+          },
+        },
+      ],
+    });
+    const payload: SectTaskRecordPayload = {
+      ...context.record.payload,
+      completionData: {
+        mining: {
+          score: simulation.score,
+          maxScore: simulation.maxScore,
+          tier: simulation.tier,
+          reward,
+        },
+      },
+    };
+    return {
+      completed: true,
+      completionSettlement: 'deferred',
+      payload,
+      outcome: {
+        renderer: 'sect.outcome.mining-result',
+        data: {
+          ...outcomeBase,
+          tier: simulation.tier,
+          rewardSummary: reward.summary,
+        },
+      },
+    };
+  }
+}
+
 export class BattleTaskExecutor extends BaseTaskExecutor<
   Record<string, unknown>
 > {
@@ -270,16 +526,12 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
   }
 }
 
-abstract class DeliveryTaskExecutor extends BaseTaskExecutor<
-  SectTaskSubmissionInput
-> {
+abstract class DeliveryTaskExecutor extends BaseTaskExecutor<SectTaskSubmissionInput> {
   protected abstract readonly itemKind: 'pill' | 'artifact' | 'material';
   inputSchema(): ZodType<SectTaskSubmissionInput> {
     return SectTaskSubmissionInputSchema;
   }
-  actions(
-    definition: SectTaskDefinition,
-  ): readonly SectTaskActionDescriptor[] {
+  actions(definition: SectTaskDefinition): readonly SectTaskActionDescriptor[] {
     return [
       {
         key: 'execute',
@@ -469,7 +721,9 @@ export class MaterialDeliveryTaskExecutor extends DeliveryTaskExecutor {
 
 function inventorySettlementEffects(
   settlement: Awaited<
-    ReturnType<SectCommandContext['submissionInventory']['consumeSubmissionItem']>
+    ReturnType<
+      SectCommandContext['submissionInventory']['consumeSubmissionItem']
+    >
   >,
 ): SectCommandEffects {
   const effects = emptySectCommandEffects();

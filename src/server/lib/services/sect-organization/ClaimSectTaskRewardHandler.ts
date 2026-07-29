@@ -2,7 +2,12 @@ import type {
   SectTaskActionData,
   SectTaskRewardReceipt,
 } from '@shared/contracts/sect';
-import { SectTask, type SectTaskDefinition } from '@shared/engine/sect';
+import {
+  resolveSectTaskClaimReward,
+  SectTask,
+  type SectTaskDefinition,
+} from '@shared/engine/sect';
+import type { SectCommandEffects } from './SectCommandEffects';
 import type { SectDomainEventDispatcherFactory } from './SectDomainEventDispatcher';
 import { invalidSectTask } from './SectTaskApplicationSupport';
 import { toSectTaskView } from './SectTaskViewAssembler';
@@ -12,7 +17,6 @@ import type {
   SectTaskRecord,
 } from './ports';
 import type { SectTaskExecutor } from './task-executors/SectTaskExecutor';
-import type { SectCommandEffects } from './SectCommandEffects';
 
 export class ClaimSectTaskRewardHandler {
   constructor(private readonly events: SectDomainEventDispatcherFactory) {}
@@ -32,7 +36,7 @@ export class ClaimSectTaskRewardHandler {
     if (args.record.status !== 'completed')
       invalidSectTask('该宗门任务尚未达成');
     if (args.record.claimedAt) invalidSectTask('该宗门任务奖励已经领取');
-    const reward = args.record.payload.offer.reward;
+    const reward = resolveSectTaskClaimReward(args.record.payload);
     const aggregate = SectTask.rehydrate({
       id: args.record.id,
       definitionId: args.record.taskId,

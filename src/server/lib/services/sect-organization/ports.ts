@@ -316,6 +316,22 @@ export interface SectCultivatorGateway {
   } | null>;
 }
 
+export interface SectRewardMaterialCandidate {
+  libraryItemId: string;
+  name: string;
+  quality: Quality;
+  type: 'ore';
+  element?: string;
+  description: string;
+}
+
+export interface SectRewardMaterialCatalogGateway {
+  sampleOre(
+    preferredQualities: readonly Quality[],
+    seed: string,
+  ): Promise<SectRewardMaterialCandidate | null>;
+}
+
 export interface SectBattleGateway {
   simulate(
     player: CultivatorCombatInput,
@@ -512,6 +528,7 @@ export interface SectCommandContext {
   cultivators: SectCultivatorGateway;
   battle: SectBattleGateway;
   rewards: SectRewardGateway;
+  rewardMaterials: SectRewardMaterialCatalogGateway;
   modules: SectModuleResolver;
   clock: Clock;
   ids: IdGenerator;

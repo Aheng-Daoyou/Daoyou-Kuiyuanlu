@@ -5,14 +5,15 @@ import {
   type NpcConversationOption,
 } from '@app/components/feature/room';
 import {
-  useSectInfrastructureQuery,
-  useSectTasksQuery,
-} from '@app/components/feature/sect/sectResources';
-import {
   SectNpcConversationRegistry,
   SectRoutedRoom,
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
+import {
+  useSectInfrastructureQuery,
+  useSectTasksQuery,
+} from '@app/components/feature/sect/sectResources';
+import { requestActivityImmersiveMode } from '@app/lib/gameActivityImmersive';
 import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -21,7 +22,6 @@ import {
   resolveSweepActivityMode,
   sweepActivityMessage,
 } from './sweep/sweepActivityState';
-import { requestSweepImmersiveMode } from './sweep/sweepImmersive';
 
 const registry = new SectNpcConversationRegistry([
   { key: 'sect.gate.news', renderer: GateConversation },
@@ -103,10 +103,7 @@ function GateSweepConversation({
   const options: NpcConversationOption[] = [
     {
       id: 'sweep',
-      label:
-        mode.kind === 'reward'
-          ? '开始今日清扫'
-          : '进入山门步道练习清扫',
+      label: mode.kind === 'reward' ? '开始今日清扫' : '进入山门步道练习清扫',
       tone: mode.kind === 'reward' ? 'primary' : 'normal',
       disabled: entering,
     },
@@ -124,7 +121,7 @@ function GateSweepConversation({
         if (optionId === 'leave') onExit();
         else if (optionId === 'sweep') {
           setEntering(true);
-          void requestSweepImmersiveMode().then(() =>
+          void requestActivityImmersiveMode().then(() =>
             navigate('/game/sect/gate/sweep'),
           );
         }

@@ -80,8 +80,8 @@ describe('sect presentation affairs room', () => {
       sigil: '⛏️',
       appearance: 'facility',
       identity: '宗门设施',
-      responsibility: '查看设施等级与灵石收益。',
-      conversation: { renderer: 'sect.spirit-vein.status' },
+      responsibility: '查看设施等级、灵石收益并进行灵矿采掘。',
+      conversation: { renderer: 'sect.spirit-vein.mining' },
     });
   });
 
@@ -125,6 +125,7 @@ describe('sect presentation affairs room', () => {
       name: '坤元地脉',
       sigil: '⛏️',
       appearance: 'facility',
+      conversation: { renderer: 'sect.spirit-vein.mining' },
     });
     expect(
       presentation.rooms.herbGarden.actors.find(

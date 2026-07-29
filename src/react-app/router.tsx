@@ -902,6 +902,20 @@ export const router = createBrowserRouter(
                 '清扫山门',
               )}
             />
+            <Route
+              path="sect/spirit-vein/mining"
+              lazy={lazyRoute(
+                () => import('@app/routes/game/sect/spirit-vein/mining/route'),
+              )}
+              handle={scene(
+                {
+                  id: 'sect-spirit-vein-mining',
+                  chrome: 'immersive',
+                  dock: 'hidden',
+                },
+                '灵矿采掘',
+              )}
+            />
           </Route>
 
           <Route element={<GameCombatLayout />}>

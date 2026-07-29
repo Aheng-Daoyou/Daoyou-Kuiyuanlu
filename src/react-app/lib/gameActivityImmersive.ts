@@ -5,22 +5,22 @@ type LockableOrientation = ScreenOrientation & {
   lock?: (orientation: 'landscape') => Promise<void>;
 };
 
-export function shouldBlockSweepForPortrait(input: {
+export function shouldBlockActivityForPortrait(input: {
   coarsePointer: boolean;
   landscape: boolean;
 }): boolean {
   return input.coarsePointer && !input.landscape;
 }
 
-export function readSweepViewportState() {
+export function readActivityViewportState() {
   return {
     coarsePointer: window.matchMedia('(pointer: coarse)').matches,
     landscape: window.matchMedia('(orientation: landscape)').matches,
   };
 }
 
-export async function requestSweepImmersiveMode(): Promise<void> {
-  if (!readSweepViewportState().coarsePointer) return;
+export async function requestActivityImmersiveMode(): Promise<void> {
+  if (!readActivityViewportState().coarsePointer) return;
   if (
     !document.fullscreenElement &&
     document.documentElement.requestFullscreen
@@ -43,7 +43,7 @@ export async function requestSweepImmersiveMode(): Promise<void> {
   }
 }
 
-export async function releaseSweepImmersiveMode(): Promise<void> {
+export async function releaseActivityImmersiveMode(): Promise<void> {
   const orientation = screen.orientation as LockableOrientation | undefined;
   if (ownsOrientationLock) {
     orientation?.unlock();

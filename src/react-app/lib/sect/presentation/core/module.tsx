@@ -3,16 +3,21 @@ import {
   BattleAction,
   ClaimAction,
   ItemDeliveryAction,
+  MiningEntryAction,
   SweepEntryAction,
 } from '@app/components/feature/sect/SectTaskActions';
 import {
   BattleOutcome,
   CompletedOutcome,
+  MiningResultOutcome,
+  MiningSessionOutcome,
   RewardClaimedOutcome,
   SweepSessionOutcome,
 } from '@app/components/feature/sect/SectTaskOutcomeRenderers';
 import type {
   SectBattleOutcomeData,
+  SectMiningResultData,
+  SectMiningSessionData,
   SectSweepSessionData,
   SectTaskRewardReceipt,
 } from '@shared/contracts/sect';
@@ -28,6 +33,37 @@ const sweepSessionSchema = z.object({
   seed: z.string(),
   rulesVersion: z.number(),
   expiresAt: z.string(),
+});
+const miningSessionSchema = z.object({
+  sessionId: z.string(),
+  seed: z.string(),
+  rulesVersion: z.number(),
+  startedAt: z.string(),
+  expiresAt: z.string(),
+  durationMs: z.number().int().positive(),
+});
+const miningResultSchema = z.object({
+  score: z.number().int().nonnegative(),
+  maxScore: z.number().int().positive(),
+  ratio: z.number().min(0).max(1),
+  tier: z.enum(['D', 'C', 'B', 'A', 'S']).optional(),
+  qualified: z.boolean(),
+  collected: z.number().int().nonnegative(),
+  destroyed: z.number().int().nonnegative(),
+  clearedAll: z.boolean(),
+  ores: z.array(
+    z.object({
+      kind: z.enum([
+        'spirit_crystal',
+        'copper_ore',
+        'dark_iron',
+        'earth_essence',
+      ]),
+      count: z.number().int().positive(),
+      score: z.number().int().positive(),
+    }),
+  ),
+  rewardSummary: z.array(z.string()).optional(),
 });
 
 const battleUnitSchema = z
@@ -95,6 +131,7 @@ export const CORE_SECT_TASK_RENDERER_PLUGIN: SectTaskRendererPluginManifest = {
     { key: 'sect.action.accept', renderer: AcceptAction },
     { key: 'sect.action.battle', renderer: BattleAction },
     { key: 'sect.action.sweep-entry', renderer: SweepEntryAction },
+    { key: 'sect.action.mining-entry', renderer: MiningEntryAction },
     { key: 'sect.action.item-delivery', renderer: ItemDeliveryAction },
     { key: 'sect.action.claim', renderer: ClaimAction },
   ],
@@ -103,6 +140,16 @@ export const CORE_SECT_TASK_RENDERER_PLUGIN: SectTaskRendererPluginManifest = {
       key: 'sect.outcome.sweep-session',
       schema: sweepSessionSchema,
       renderer: SweepSessionOutcome,
+    },
+    {
+      key: 'sect.outcome.mining-session',
+      schema: miningSessionSchema,
+      renderer: MiningSessionOutcome,
+    },
+    {
+      key: 'sect.outcome.mining-result',
+      schema: miningResultSchema,
+      renderer: MiningResultOutcome,
     },
     {
       key: 'sect.outcome.battle',
@@ -132,6 +179,22 @@ export function readSweepSessionOutcome(
 ): SectSweepSessionData | undefined {
   if (outcome.renderer !== 'sect.outcome.sweep-session') return undefined;
   const parsed = sweepSessionSchema.safeParse(outcome.data);
+  return parsed.success ? parsed.data : undefined;
+}
+
+export function readMiningSessionOutcome(
+  outcome: DecodedSectTaskOutcome,
+): SectMiningSessionData | undefined {
+  if (outcome.renderer !== 'sect.outcome.mining-session') return undefined;
+  const parsed = miningSessionSchema.safeParse(outcome.data);
+  return parsed.success ? parsed.data : undefined;
+}
+
+export function readMiningResultOutcome(
+  outcome: DecodedSectTaskOutcome,
+): SectMiningResultData | undefined {
+  if (outcome.renderer !== 'sect.outcome.mining-result') return undefined;
+  const parsed = miningResultSchema.safeParse(outcome.data);
   return parsed.success ? parsed.data : undefined;
 }
 

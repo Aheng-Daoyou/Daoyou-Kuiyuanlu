@@ -31,6 +31,7 @@ import {
   ArtifactDeliveryTaskExecutor,
   BattleTaskExecutor,
   MaterialDeliveryTaskExecutor,
+  MiningGameTaskExecutor,
   PillDeliveryTaskExecutor,
   ProgressTaskExecutor,
   SectTaskExecutorRegistry,
@@ -54,6 +55,7 @@ export const CORE_SECT_ORGANIZATION_PLUGIN: SectOrganizationPluginManifest = {
   sectId: '*',
   executors: [
     () => new SweepGameTaskExecutor(),
+    () => new MiningGameTaskExecutor(),
     () => new BattleTaskExecutor(),
     () => new PillDeliveryTaskExecutor(),
     () => new ArtifactDeliveryTaskExecutor(),

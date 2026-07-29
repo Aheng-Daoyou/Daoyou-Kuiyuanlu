@@ -16,7 +16,10 @@ export function resolveGameShellKind(pathname: string): GameShellKind | null {
     return 'narrative';
   }
 
-  if (pathname === '/game/sect/gate/sweep') {
+  if (
+    pathname === '/game/sect/gate/sweep' ||
+    pathname === '/game/sect/spirit-vein/mining'
+  ) {
     return 'activity';
   }
 

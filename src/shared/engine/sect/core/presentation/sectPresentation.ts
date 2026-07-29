@@ -325,7 +325,7 @@ const STANDARD_SCENES: Record<SectSceneKey, SectScenePresentation> = {
   refinery: scene('器坊', '使用宗门器坊炼制法器。', '炼器设施正在启动……'),
   spiritVein: scene(
     '灵脉',
-    '查看灵脉设施为宗门收益提供的加成。',
+    '查看灵脉设施收益并办理矿场事务。',
     '灵脉记录正在读取……',
   ),
   herbGarden: scene(
@@ -606,9 +606,9 @@ const STANDARD_ROOMS: Readonly<Record<string, SectRoomDefinition>> =
           '⛏️',
           '宗门灵脉',
           '宗门设施',
-          '查看设施等级与灵石收益。',
+          '查看设施等级、灵石收益并进行灵矿采掘。',
           '矿壁中的灵辉依旧沿岩隙缓缓流转。',
-          'sect.spirit-vein.status',
+          'sect.spirit-vein.mining',
           {
             facilityKey: 'spirit_vein',
             effectKey: 'spirit_vein',

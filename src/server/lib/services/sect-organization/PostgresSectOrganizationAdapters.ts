@@ -16,6 +16,10 @@ import {
   mapMaterialRow,
 } from '@server/lib/services/cultivator/CultivatorInventoryRepository';
 import { updateCultivationExp } from '@server/lib/services/cultivator/CultivatorStateRepository';
+import {
+  materialLibraryEntryToMaterial,
+  sampleMaterialLibraryEntryDeterministic,
+} from '@server/lib/services/MaterialLibraryService';
 import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
 import { SeededBattleRandomSource } from '@shared/engine/battle-v5/core/BattleRandom';
 import {
@@ -65,8 +69,8 @@ import type {
   SectTraditionRepository,
   SectTrainingResourceGateway,
 } from './ports';
-import { getSectDateKey, getSectWeekKey } from './SectOrganizationClock';
 import { emptySectCommandEffects } from './SectCommandEffects';
+import { getSectDateKey, getSectWeekKey } from './SectOrganizationClock';
 
 function mapTask(row: {
   id: string;
@@ -314,9 +318,7 @@ function membershipQueryAdapter(
   };
 }
 
-function membershipCommandAdapter(
-  tx: DbTransaction,
-): SectMembershipRepository {
+function membershipCommandAdapter(tx: DbTransaction): SectMembershipRepository {
   return {
     ...membershipQueryAdapter(tx),
     async promote(membershipId, rank) {
@@ -721,10 +723,7 @@ async function buildSubmissionInventoryChange(
       };
 }
 
-function rewardAdapter(
-  q: DbExecutor | DbTransaction,
-  userId: string,
-) {
+function rewardAdapter(q: DbExecutor | DbTransaction, userId: string) {
   return {
     async grantContribution(
       membershipId: string,
@@ -896,11 +895,7 @@ function economyCommandAdapter(tx: DbTransaction): SectEconomyRepository {
       return Boolean(await organization.createSectStipendClaim(input, tx));
     },
     async spendSpiritStones(cultivatorId: string, amount: number) {
-      return organization.spendCultivatorSpiritStones(
-        cultivatorId,
-        amount,
-        tx,
-      );
+      return organization.spendCultivatorSpiritStones(cultivatorId, amount, tx);
     },
   };
 }
@@ -910,9 +905,7 @@ function constructionReadAdapter(
 ): SectConstructionReadRepository {
   return {
     async findActiveProject(sectId: string) {
-      return mapProject(
-        await organization.findActiveSectProject(sectId, q),
-      );
+      return mapProject(await organization.findActiveSectProject(sectId, q));
     },
     async findLatestCompletedProject(sectId: string) {
       return mapProject(
@@ -934,9 +927,7 @@ function constructionCommandAdapter(
   return {
     ...constructionReadAdapter(tx),
     async lockActiveProject(sectId: string) {
-      return mapProject(
-        await organization.lockActiveSectProject(sectId, tx),
-      );
+      return mapProject(await organization.lockActiveSectProject(sectId, tx));
     },
     async createProject(input: {
       sectId: string;
@@ -963,12 +954,7 @@ function constructionCommandAdapter(
     },
     async upgradeFacility(sectId: string, facilityKey: string, level: number) {
       return Boolean(
-        await organization.upgradeSectFacility(
-          sectId,
-          facilityKey,
-          level,
-          tx,
-        ),
+        await organization.upgradeSectFacility(sectId, facilityKey, level, tx),
       );
     },
     async recordDonation(input: {
@@ -1227,6 +1213,31 @@ export function createPostgresSectCommandContext(args: {
         ),
     },
     rewards: rewardAdapter(tx, args.userId),
+    rewardMaterials: {
+      async sampleOre(preferredQualities, seed) {
+        for (const quality of preferredQualities) {
+          const entry = await sampleMaterialLibraryEntryDeterministic(
+            {
+              materialType: 'ore',
+              quality,
+              seed: `${seed}:${quality}`,
+            },
+            tx,
+          );
+          if (!entry) continue;
+          const material = materialLibraryEntryToMaterial(entry);
+          return {
+            libraryItemId: entry.itemId,
+            name: material.name,
+            quality: material.rank,
+            type: 'ore' as const,
+            ...(material.element ? { element: material.element } : {}),
+            description: material.description ?? '宗门灵脉中采得的灵矿材料。',
+          };
+        }
+        return null;
+      },
+    },
     modules: moduleResolver(args.runtime),
     clock: args.clock ?? systemSectClock,
     ids: args.ids ?? cryptoSectIdGenerator,

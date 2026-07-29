@@ -16,6 +16,7 @@ import { YOUDU_SECT_PRESENTATION } from './youdu';
 const taskIds = [
   'gate_sweep',
   'mine_patrol',
+  'spirit_mining',
   'pill_delivery',
   'artifact_delivery',
   'weekly_diligence',
@@ -58,6 +59,9 @@ const facilityActorKeys = [
   ['spiritVein', 'keeper'],
   ['herbGarden', 'keeper'],
   ['gate', 'keeper'],
+  ['spiritVein', 'facility'],
+  ['herbGarden', 'facility'],
+  ['gate', 'facility'],
 ] as const;
 
 const expectedFacilityNames: Readonly<Record<string, readonly string[]>> = {
@@ -77,6 +81,9 @@ const expectedFacilityNames: Readonly<Record<string, readonly string[]>> = {
     '邵沉川',
     '秦晚晴',
     '骆长亭',
+    '灵脉矿场',
+    '宗门药田',
+    '山门',
   ],
   [TIANYAN_SECT_PRESENTATION.sectId]: [
     '含章真人',
@@ -94,6 +101,9 @@ const expectedFacilityNames: Readonly<Record<string, readonly string[]>> = {
     '见素',
     '元吉',
     '望舒',
+    '坤元地脉',
+    '长生圃',
+    '观象门',
   ],
   [WUXIANG_SECT_PRESENTATION.sectId]: [
     '慧澄',
@@ -111,6 +121,9 @@ const expectedFacilityNames: Readonly<Record<string, readonly string[]>> = {
     '慧海',
     '行愿',
     '道安禅师',
+    '骨玉窟',
+    '血莲池',
+    '不二门',
   ],
   [YOUDU_SECT_PRESENTATION.sectId]: [
     '沈故衣',
@@ -128,6 +141,9 @@ const expectedFacilityNames: Readonly<Record<string, readonly string[]>> = {
     '贺寒川',
     '柳十三',
     '顾长夜',
+    '黑水阴脉',
+    '彼岸圃',
+    '无日关',
   ],
 };
 
@@ -207,8 +223,8 @@ describe('production sect affairs presentations', () => {
         (actor) => actor.name,
       );
       const allNames = [...affairsNames, ...expectedNames];
-      expect(new Set(allNames).size).toBe(18);
-      expect(expectedNames.join('')).not.toMatch(
+      expect(new Set(allNames).size).toBe(21);
+      expect(expectedNames.slice(0, 15).join('')).not.toMatch(
         /[籍禄库仓材门脉药炉铸场魂鬼阴灯影]/u,
       );
     }

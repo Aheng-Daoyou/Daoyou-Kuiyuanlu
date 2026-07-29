@@ -4,6 +4,7 @@ import {
 } from '@shared/config/cultivationExpGain';
 import type { DailyTaskDifficulty } from '@shared/engine/cultivation/exp-gain-strategies/types';
 import {
+  QUALITY_VALUES,
   REALM_ORDER,
   type RealmStage,
   type RealmType,
@@ -48,6 +49,27 @@ export const SectTaskRewardSnapshotSchema = z
     cultivationExp: z.number().int().nonnegative(),
     spiritStones: z.number().int().nonnegative(),
     summary: z.array(z.string().min(1).max(128)).max(8),
+    grants: z
+      .array(
+        z
+          .object({
+            quantity: z.number().int().positive().max(99),
+            grant: z
+              .object({
+                kind: z.literal('sect.reward.material'),
+                name: z.string().min(1).max(100),
+                quality: z.enum(QUALITY_VALUES),
+                description: z.string().min(1).max(500),
+                type: z.enum(['herb', 'ore', 'aux']),
+                element: z.string().min(1).max(10).optional(),
+                libraryItemId: z.string().min(1).max(120),
+              })
+              .strict(),
+          })
+          .strict(),
+      )
+      .max(4)
+      .default([]),
   })
   .strict();
 
@@ -143,5 +165,6 @@ export function calculateRealmSectTaskReward(input: {
       `修为 +${cultivationExp}`,
       `灵石 +${spiritStones}`,
     ],
+    grants: [],
   });
 }
