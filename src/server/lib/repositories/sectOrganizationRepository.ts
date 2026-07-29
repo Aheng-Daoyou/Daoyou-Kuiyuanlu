@@ -4,9 +4,7 @@ import {
   creationProducts,
   cultivators,
   materials,
-  sectConstructionProjects,
   sectContributionLedger,
-  sectDonationLedger,
   sectFacilities,
   sectMemberships,
   sectShopPurchases,
@@ -33,14 +31,6 @@ export async function ensureSectFacilities(
     .onConflictDoNothing();
 }
 
-export async function listActiveSectIds(q: DbExecutor | DbTransaction) {
-  const rows = await q
-    .selectDistinct({ sectId: sectMemberships.sectId })
-    .from(sectMemberships)
-    .where(eq(sectMemberships.status, 'active'));
-  return rows.map((row) => row.sectId);
-}
-
 export async function listSectFacilities(
   sectId: string,
   q: DbExecutor | DbTransaction,
@@ -52,150 +42,42 @@ export async function listSectFacilities(
     .orderBy(asc(sectFacilities.facilityKey));
 }
 
-export async function findActiveSectProject(
+export async function lockSectFacility(
   sectId: string,
-  q: DbExecutor | DbTransaction,
+  facilityKey: string,
+  tx: DbTransaction,
 ) {
-  const [row] = await q
-    .select()
-    .from(sectConstructionProjects)
-    .where(
-      and(
-        eq(sectConstructionProjects.sectId, sectId),
-        eq(sectConstructionProjects.status, 'active'),
-      ),
-    )
-    .limit(1);
-  return row ?? null;
-}
-
-export async function lockActiveSectProject(sectId: string, tx: DbTransaction) {
   const [row] = await tx
     .select()
-    .from(sectConstructionProjects)
+    .from(sectFacilities)
     .where(
       and(
-        eq(sectConstructionProjects.sectId, sectId),
-        eq(sectConstructionProjects.status, 'active'),
+        eq(sectFacilities.sectId, sectId),
+        eq(sectFacilities.facilityKey, facilityKey),
       ),
     )
-    .limit(1)
     .for('update');
   return row ?? null;
 }
 
-export async function findLatestCompletedSectProject(
+export async function saveSectFacilityConstruction(
   sectId: string,
-  q: DbExecutor | DbTransaction,
-) {
-  const [row] = await q
-    .select()
-    .from(sectConstructionProjects)
-    .where(
-      and(
-        eq(sectConstructionProjects.sectId, sectId),
-        eq(sectConstructionProjects.status, 'completed'),
-      ),
-    )
-    .orderBy(desc(sectConstructionProjects.completedAt))
-    .limit(1);
-  return row ?? null;
-}
-
-export async function createSectProject(
-  input: {
-    sectId: string;
-    facilityKey: string;
-    targetLevel: number;
-    target: number;
-    startedWeekKey: string;
-  },
-  q: DbTransaction,
-) {
-  const [created] = await q
-    .insert(sectConstructionProjects)
-    .values(input)
-    .onConflictDoNothing()
-    .returning();
-  if (created) return { project: created, created: true };
-  return {
-    project: await findActiveSectProject(input.sectId, q),
-    created: false,
-  };
-}
-
-export async function countRecentlyActiveSectMembers(
-  sectId: string,
-  since: Date,
-  q: DbExecutor | DbTransaction,
-): Promise<number> {
-  const [row] = await q
-    .select({ value: count() })
-    .from(sectMemberships)
-    .innerJoin(cultivators, eq(cultivators.id, sectMemberships.cultivatorId))
-    .where(
-      and(
-        eq(sectMemberships.sectId, sectId),
-        eq(sectMemberships.status, 'active'),
-        gte(cultivators.updatedAt, since),
-      ),
-    );
-  return Number(row?.value ?? 0);
-}
-
-export async function saveSectProjectProgress(
-  projectId: string,
+  facilityKey: string,
+  level: number,
   progress: number,
   tx: DbTransaction,
 ) {
   const [row] = await tx
-    .update(sectConstructionProjects)
+    .update(sectFacilities)
     .set({
+      level,
       progress,
       updatedAt: new Date(),
     })
     .where(
       and(
-        eq(sectConstructionProjects.id, projectId),
-        eq(sectConstructionProjects.status, 'active'),
-      ),
-    )
-    .returning();
-  return row ?? null;
-}
-
-export async function completeSectProject(
-  projectId: string,
-  completedAt: Date,
-  tx: DbTransaction,
-) {
-  const [row] = await tx
-    .update(sectConstructionProjects)
-    .set({ status: 'completed', completedAt, updatedAt: completedAt })
-    .where(
-      and(
-        eq(sectConstructionProjects.id, projectId),
-        eq(sectConstructionProjects.status, 'active'),
-      ),
-    )
-    .returning();
-  return row ?? null;
-}
-
-export async function upgradeSectFacility(
-  sectId: string,
-  facilityKey: string,
-  level: number,
-  tx: DbTransaction,
-) {
-  const [row] = await tx
-    .update(sectFacilities)
-    .set({ level, updatedAt: new Date() })
-    .where(
-      and(
         eq(sectFacilities.sectId, sectId),
         eq(sectFacilities.facilityKey, facilityKey),
-        sql`${sectFacilities.level} < ${level}`,
       ),
     )
     .returning();
@@ -868,90 +750,6 @@ export async function consumeOwnedArtifact(itemId: string, tx: DbTransaction) {
     )
     .returning({ id: creationProducts.id });
   return rows.length === 1;
-}
-
-export async function sumSectDonationContributionForDate(
-  membershipId: string,
-  dateKey: string,
-  q: DbExecutor | DbTransaction,
-) {
-  const [row] = await q
-    .select({
-      value: sql<number>`COALESCE(SUM(${sectDonationLedger.contribution}), 0)`,
-    })
-    .from(sectDonationLedger)
-    .where(
-      and(
-        eq(sectDonationLedger.membershipId, membershipId),
-        eq(sectDonationLedger.dateKey, dateKey),
-      ),
-    );
-  return Number(row?.value ?? 0);
-}
-
-export async function insertSectDonation(
-  input: {
-    id: string;
-    membershipId: string;
-    projectId: string;
-    dateKey: string;
-    demandId: string;
-    contribution: number;
-    constructionPoints: number;
-    itemSnapshot: Record<string, unknown>;
-    requestId?: string;
-  },
-  tx: DbTransaction,
-) {
-  const [row] = await tx
-    .insert(sectDonationLedger)
-    .values(input)
-    .onConflictDoNothing()
-    .returning();
-  return row ?? null;
-}
-
-export async function findSectDonationByRequestId(
-  membershipId: string,
-  requestId: string,
-  q: DbExecutor | DbTransaction,
-) {
-  const [row] = await q
-    .select()
-    .from(sectDonationLedger)
-    .where(
-      and(
-        eq(sectDonationLedger.membershipId, membershipId),
-        eq(sectDonationLedger.requestId, requestId),
-      ),
-    )
-    .limit(1);
-  return row ?? null;
-}
-
-export async function listRecentSectDonations(
-  sectId: string,
-  limit: number,
-  q: DbExecutor | DbTransaction,
-) {
-  return q
-    .select({
-      id: sectDonationLedger.id,
-      memberName: cultivators.name,
-      demandId: sectDonationLedger.demandId,
-      contribution: sectDonationLedger.contribution,
-      constructionPoints: sectDonationLedger.constructionPoints,
-      createdAt: sectDonationLedger.createdAt,
-    })
-    .from(sectDonationLedger)
-    .innerJoin(
-      sectMemberships,
-      eq(sectMemberships.id, sectDonationLedger.membershipId),
-    )
-    .innerJoin(cultivators, eq(cultivators.id, sectMemberships.cultivatorId))
-    .where(eq(sectMemberships.sectId, sectId))
-    .orderBy(desc(sectDonationLedger.createdAt))
-    .limit(limit);
 }
 
 export async function listSectMembers(

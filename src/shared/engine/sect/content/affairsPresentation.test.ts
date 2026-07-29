@@ -161,7 +161,7 @@ const canonicalMapNotes: Readonly<Record<string, string>> = {
   arena: '神通 · 战术 · 小比',
   affairs: '日常 · 周常 · 晋升',
   treasury: '贡献兑换',
-  industries: '设施建设 · 物资捐献',
+  industries: '设施建设 · 灵石捐献',
   cultivation: '闭关修炼 · 设施灵效',
   alchemy: '炼丹 · 设施灵效',
   refinery: '炼器 · 设施灵效',

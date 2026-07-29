@@ -134,7 +134,7 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
         permission: 'sect.construction.view',
         left: '55%',
         top: '53%',
-        note: '设施建设 · 物资捐献',
+        note: '设施建设 · 灵石捐献',
       },
       {
         id: 'cultivation',
@@ -277,8 +277,8 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
     industries: {
       title: '百业院',
       description:
-        '梁木、阵图与工程长卷铺满案台，长老已圈定本周工事；宗门所需物资皆按清单入册。',
-      loadingText: '百业院正在汇总建设账册……',
+        '各处设施的等级与建设进度依次列于案台，弟子可择一处捐献灵石。',
+      loadingText: '百业院正在汇总设施进度……',
     },
     cultivation: {
       title: '养剑室',
@@ -373,12 +373,12 @@ export const LINGXIAO_SECT_PRESENTATION: SectPresentationTheme = {
         construction: {
           id: 'lingxiao-zhu-baigong',
           name: '杜长庚',
-          greeting: '这一周修到哪里、还缺什么，我都能说给你听。',
+          greeting: '各处设施修到哪里、还差多少，我都能说给你听。',
         },
         donation: {
           id: 'lingxiao-shi-sanjin',
           name: '苗小满',
-          greeting: '带来的物料先逐件核过，合用的自然不会漏记。',
+          greeting: '今日可择一处设施捐献灵石，我替你登记。',
         },
       },
     },

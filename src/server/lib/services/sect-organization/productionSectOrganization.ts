@@ -58,11 +58,7 @@ const application = new SectOrganizationFacade({
     plugins.rewardGrants,
     plugins.events,
   ),
-  construction: new SectConstructionApplicationService(
-    benefits,
-    plugins.donations,
-    plugins.events,
-  ),
+  construction: new SectConstructionApplicationService(benefits),
 });
 
 /** Production adapter: binds application ports to an executor at the outer boundary. */

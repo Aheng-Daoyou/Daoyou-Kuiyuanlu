@@ -1,7 +1,4 @@
-import {
-  db,
-  getExecutor,
-} from '@server/lib/drizzle/db';
+import { db, getExecutor } from '@server/lib/drizzle/db';
 import { cultivators } from '@server/lib/drizzle/schema';
 import { redis } from '@server/lib/redis';
 import {
@@ -11,6 +8,7 @@ import {
 } from '@server/lib/redis/lock';
 import { getTopRankingCultivatorIds } from '@server/lib/redis/rankings';
 import { getItemLibraryDailyMaterialGenerationSettings } from '@server/lib/repositories/appSettingsRepository';
+import { pruneCompletedLocalTransactionMessages } from '@server/lib/repositories/localTransactionMessageRepository';
 import {
   prunePlayerMutationRequestsOlderThan,
   pruneResourceEventsOlderThan,
@@ -19,7 +17,6 @@ import {
   pruneExpiredData,
   type ExpiredDataCleanupResult,
 } from '@server/lib/repositories/retentionRepository';
-import { listActiveSectIds } from '@server/lib/repositories/sectOrganizationRepository';
 import { expireListings } from '@server/lib/services/AuctionService';
 import { expireBetBattles } from '@server/lib/services/BetBattleService';
 import type { MailAttachment } from '@server/lib/services/MailService';
@@ -28,12 +25,8 @@ import {
   generateDailyMarketMaterialLibraryEntries,
   ITEM_LIBRARY_SYSTEM_USER_ID,
 } from '@server/lib/services/MaterialLibraryService';
-import { systemCommandExecutor } from '@server/lib/services/CommandExecutors';
 import { sendWeeklyRankingRewardCommand } from '@server/lib/services/RankingApplicationService';
-import { sectOrganizationFacade } from '@server/lib/services/sect-organization';
-import { createPostgresSectConstructionCommandContext } from '@server/lib/services/sect-organization/PostgresSectOrganizationAdapters';
 import { towerEnemySetService } from '@server/lib/tower/enemySets';
-import { productionSectRuntime } from '@shared/engine/sect/content';
 import { RANKING_REWARDS, REALM_VALUES } from '@shared/types/constants';
 import { eq } from 'drizzle-orm';
 
@@ -50,6 +43,7 @@ const DUNGEON_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const BATTLE_RECORD_V2_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const REPUTATION_SHOP_PURCHASE_RETENTION_MS = 21 * 24 * 60 * 60 * 1000;
 const AUCTION_LISTING_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+const LOCAL_TRANSACTION_MESSAGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type CronJobResult = {
   success: true;
@@ -70,7 +64,9 @@ export type TowerEnemySetsJobResult = CronJobResult & {
 };
 
 export type ExpiredDataCleanupJobResult = CronJobResult & {
-  deleted: ExpiredDataCleanupResult;
+  deleted: ExpiredDataCleanupResult & {
+    localTransactionMessages: number;
+  };
 };
 
 function getRewardByRank(rank: number): number {
@@ -298,39 +294,6 @@ export async function runMarketRefreshCronJob(): Promise<CronJobResult> {
   });
 }
 
-export async function runSectConstructionWeeklyJob(): Promise<CronJobResult> {
-  return withJobLock('sect-construction-weekly', async () => {
-    if (!isSettlementMondayCN()) {
-      return {
-        success: true,
-        processed: 0,
-        skipped: true,
-        reason: 'not_monday_cn',
-      };
-    }
-    const sectIds = await listActiveSectIds(getExecutor());
-    for (const sectId of sectIds) {
-      await systemCommandExecutor.execute({
-        source: 'sect_construction_weekly',
-        allowEmpty: true,
-        command: (tx) =>
-          sectOrganizationFacade.construction.ensureWeeklyProjectCommand(
-            sectId,
-            createPostgresSectConstructionCommandContext({
-              q: tx,
-              runtime: productionSectRuntime,
-            }),
-          ),
-      });
-    }
-    return {
-      success: true,
-      processed: sectIds.length,
-      skipped: false,
-    };
-  });
-}
-
 export async function runMaterialLibraryDailyGenerationJob(): Promise<CronJobResult> {
   return withJobLock(
     'material-library-daily-generation',
@@ -419,17 +382,26 @@ export async function runExpiredDataCleanupJob(): Promise<
 > {
   return withJobLock('expired-data-cleanup', async () => {
     const now = Date.now();
-    const deleted = await pruneExpiredData({
-      mails: new Date(now - MAIL_RETENTION_MS),
-      qiLogs: new Date(now - QI_LOG_RETENTION_MS),
-      dungeonHistories: new Date(now - DUNGEON_HISTORY_RETENTION_MS),
-      dungeonRuns: new Date(now - DUNGEON_RUN_RETENTION_MS),
-      battleRecordsV2: new Date(now - BATTLE_RECORD_V2_RETENTION_MS),
-      reputationShopPurchases: new Date(
-        now - REPUTATION_SHOP_PURCHASE_RETENTION_MS,
+    const deleted = await db.transaction(async (tx) => ({
+      ...(await pruneExpiredData(
+        {
+          mails: new Date(now - MAIL_RETENTION_MS),
+          qiLogs: new Date(now - QI_LOG_RETENTION_MS),
+          dungeonHistories: new Date(now - DUNGEON_HISTORY_RETENTION_MS),
+          dungeonRuns: new Date(now - DUNGEON_RUN_RETENTION_MS),
+          battleRecordsV2: new Date(now - BATTLE_RECORD_V2_RETENTION_MS),
+          reputationShopPurchases: new Date(
+            now - REPUTATION_SHOP_PURCHASE_RETENTION_MS,
+          ),
+          auctionListings: new Date(now - AUCTION_LISTING_RETENTION_MS),
+        },
+        tx,
+      )),
+      localTransactionMessages: await pruneCompletedLocalTransactionMessages(
+        new Date(now - LOCAL_TRANSACTION_MESSAGE_RETENTION_MS),
+        tx,
       ),
-      auctionListings: new Date(now - AUCTION_LISTING_RETENTION_MS),
-    });
+    }));
     const processed = Object.values(deleted).reduce(
       (sum, count) => sum + count,
       0,

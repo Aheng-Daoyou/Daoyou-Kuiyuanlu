@@ -4,6 +4,7 @@ import {
   creationProducts,
   materials,
 } from '@server/lib/drizzle/schema';
+import { createPostgresLocalTransactionMessageWriter } from '@server/lib/mq/localTransactionMessages';
 import * as organization from '@server/lib/repositories/sectOrganizationRepository';
 import * as memberships from '@server/lib/repositories/sectRepository';
 import { mapConsumableRow } from '@server/lib/services/consumablePersistence';
@@ -50,9 +51,7 @@ import type {
   SectBenefitQueryContext,
   SectCommandContext,
   SectConstructionCommandContext,
-  SectConstructionProjectRecord,
   SectConstructionQueryContext,
-  SectConstructionReadRepository,
   SectConstructionRepository,
   SectEconomyCommandContext,
   SectEconomyQueryContext,
@@ -250,34 +249,6 @@ export function createPostgresSectTrainingResourceGateway(args: {
   };
 }
 
-function mapProject(
-  row: {
-    id: string;
-    sectId: string;
-    facilityKey: string;
-    targetLevel: number;
-    progress: number;
-    target: number;
-    status: string;
-    startedWeekKey: string;
-    completedAt: Date | null;
-  } | null,
-): SectConstructionProjectRecord | null {
-  return row
-    ? {
-        id: row.id,
-        sectId: row.sectId,
-        facilityKey: row.facilityKey,
-        targetLevel: row.targetLevel,
-        progress: row.progress,
-        target: row.target,
-        status: row.status as SectConstructionProjectRecord['status'],
-        startedWeekKey: row.startedWeekKey,
-        completedAt: row.completedAt,
-      }
-    : null;
-}
-
 function membershipQueryAdapter(
   q: DbExecutor | DbTransaction,
 ): SectMembershipQueryRepository {
@@ -349,57 +320,6 @@ function facilityCommandAdapter(
         runtime.registry.require(sectId).organization.construction.facilities,
         tx,
       ),
-  };
-}
-
-function inventoryAdapter(q: DbExecutor | DbTransaction) {
-  return {
-    findMaterial: (cultivatorId: string, itemId: string) =>
-      organization.findOwnedMaterial(cultivatorId, itemId, q),
-    findConsumable: (cultivatorId: string, itemId: string) =>
-      organization.findOwnedConsumable(cultivatorId, itemId, q),
-    async findArtifact(cultivatorId: string, itemId: string) {
-      const row = await organization.findOwnedArtifact(cultivatorId, itemId, q);
-      return row ? { ...row, quality: row.quality ?? '凡品' } : null;
-    },
-    async consumeMaterial(itemId: string, quantity: number) {
-      if (!('rollback' in q)) throw new Error('宗门物品提交必须在事务中执行');
-      const consumed = await organization.consumeOwnedMaterial(
-        itemId,
-        quantity,
-        q,
-      );
-      if (!consumed) return { consumed: false };
-      return inventorySettlement(
-        true,
-        await buildSubmissionInventoryChange(q, 'material', itemId),
-        itemId,
-      );
-    },
-    async consumeConsumable(itemId: string, quantity: number) {
-      if (!('rollback' in q)) throw new Error('宗门物品提交必须在事务中执行');
-      const consumed = await organization.consumeOwnedConsumable(
-        itemId,
-        quantity,
-        q,
-      );
-      if (!consumed) return { consumed: false };
-      return inventorySettlement(
-        true,
-        await buildSubmissionInventoryChange(q, 'pill', itemId),
-        itemId,
-      );
-    },
-    async consumeArtifact(itemId: string) {
-      if (!('rollback' in q)) throw new Error('宗门物品提交必须在事务中执行');
-      const consumed = await organization.consumeOwnedArtifact(itemId, q);
-      if (!consumed) return { consumed: false };
-      return inventorySettlement(
-        true,
-        await buildSubmissionInventoryChange(q, 'artifact', itemId),
-        itemId,
-      );
-    },
   };
 }
 
@@ -900,75 +820,10 @@ function economyCommandAdapter(tx: DbTransaction): SectEconomyRepository {
   };
 }
 
-function constructionReadAdapter(
-  q: DbExecutor | DbTransaction,
-): SectConstructionReadRepository {
-  return {
-    async findActiveProject(sectId: string) {
-      return mapProject(await organization.findActiveSectProject(sectId, q));
-    },
-    async findLatestCompletedProject(sectId: string) {
-      return mapProject(
-        await organization.findLatestCompletedSectProject(sectId, q),
-      );
-    },
-    countRecentlyActiveMembers: (sectId: string, since: Date) =>
-      organization.countRecentlyActiveSectMembers(sectId, since, q),
-    donatedContribution: (membershipId: string, dateKey: string) =>
-      organization.sumSectDonationContributionForDate(membershipId, dateKey, q),
-    listRecentDonations: (sectId: string, limit: number) =>
-      organization.listRecentSectDonations(sectId, limit, q),
-  };
-}
-
 function constructionCommandAdapter(
   tx: DbTransaction,
 ): SectConstructionRepository {
   return {
-    ...constructionReadAdapter(tx),
-    async lockActiveProject(sectId: string) {
-      return mapProject(await organization.lockActiveSectProject(sectId, tx));
-    },
-    async createProject(input: {
-      sectId: string;
-      facilityKey: string;
-      targetLevel: number;
-      target: number;
-      startedWeekKey: string;
-    }) {
-      const result = await organization.createSectProject(input, tx);
-      return {
-        project: mapProject(result.project),
-        created: result.created,
-      };
-    },
-    async saveProjectProgress(projectId: string, progress: number) {
-      return mapProject(
-        await organization.saveSectProjectProgress(projectId, progress, tx),
-      );
-    },
-    async completeProject(projectId: string, completedAt: Date) {
-      return mapProject(
-        await organization.completeSectProject(projectId, completedAt, tx),
-      );
-    },
-    async upgradeFacility(sectId: string, facilityKey: string, level: number) {
-      return Boolean(
-        await organization.upgradeSectFacility(sectId, facilityKey, level, tx),
-      );
-    },
-    async recordDonation(input: {
-      id: string;
-      membershipId: string;
-      projectId: string;
-      dateKey: string;
-      demandId: string;
-      contribution: number;
-      constructionPoints: number;
-      itemSnapshot: Record<string, unknown>;
-    }) {
-      return organization.insertSectDonation(input, tx);
-    },
     async grantContribution(
       membershipId: string,
       amount: number,
@@ -995,7 +850,6 @@ export function createPostgresSectMembershipQueryContext(args: {
     memberships: membershipQueryAdapter(args.q),
     facilities: facilityReadAdapter(args.q),
     economy: economyReadAdapter(args.q),
-    construction: constructionReadAdapter(args.q),
     modules: moduleResolver(args.runtime),
     clock: args.clock ?? systemSectClock,
   };
@@ -1010,7 +864,6 @@ export function createPostgresSectMembershipCommandContext(args: {
     memberships: membershipCommandAdapter(args.q),
     facilities: facilityReadAdapter(args.q),
     economy: economyReadAdapter(args.q),
-    construction: constructionReadAdapter(args.q),
     modules: moduleResolver(args.runtime),
     clock: args.clock ?? systemSectClock,
   };
@@ -1063,7 +916,6 @@ export function createPostgresSectConstructionQueryContext(args: {
   return {
     memberships: membershipQueryAdapter(args.q),
     facilities: facilityReadAdapter(args.q),
-    construction: constructionReadAdapter(args.q),
     modules: moduleResolver(args.runtime),
     clock: args.clock ?? systemSectClock,
   };
@@ -1073,17 +925,15 @@ export function createPostgresSectConstructionCommandContext(args: {
   q: DbTransaction;
   runtime: SectRuntime;
   clock?: Clock;
-  ids?: IdGenerator;
 }): SectConstructionCommandContext {
   return {
     memberships: membershipQueryAdapter(args.q),
     facilities: facilityCommandAdapter(args.q, args.runtime),
     construction: constructionCommandAdapter(args.q),
+    messages: createPostgresLocalTransactionMessageWriter(args.q),
     economy: economyCommandAdapter(args.q),
-    inventory: inventoryAdapter(args.q),
     modules: moduleResolver(args.runtime),
     clock: args.clock ?? systemSectClock,
-    ids: args.ids ?? cryptoSectIdGenerator,
   };
 }
 

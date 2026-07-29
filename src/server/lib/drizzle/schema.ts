@@ -295,6 +295,7 @@ export const sectFacilities = pgTable(
     sectId: varchar('sect_id', { length: 64 }).notNull(),
     facilityKey: varchar('facility_key', { length: 32 }).notNull(),
     level: integer('level').notNull().default(1),
+    progress: integer('progress').notNull().default(0),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at')
       .notNull()
@@ -309,29 +310,23 @@ export const sectFacilities = pgTable(
   ],
 );
 
-export const sectConstructionProjects = pgTable(
-  'wanjiedaoyou_sect_construction_projects',
+export const localTransactionMessages = pgTable(
+  'wanjiedaoyou_local_transaction_messages',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    sectId: varchar('sect_id', { length: 64 }).notNull(),
-    facilityKey: varchar('facility_key', { length: 32 }).notNull(),
-    targetLevel: integer('target_level').notNull(),
-    progress: integer('progress').notNull().default(0),
-    target: integer('target').notNull(),
-    status: varchar('status', { length: 16 }).notNull().default('active'),
-    startedWeekKey: varchar('started_week_key', { length: 10 }).notNull(),
+    messageKey: varchar('message_key', { length: 96 }).notNull(),
+    payload: jsonb('payload').notNull(),
+    deduplicationKey: varchar('deduplication_key', { length: 256 }),
     completedAt: timestamp('completed_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at')
-      .notNull()
-      .defaultNow()
-      .$onUpdate(() => new Date()),
   },
   (table) => [
-    uniqueIndex('sect_projects_active_sect_unique')
-      .on(table.sectId)
-      .where(sql`${table.status} = 'active'`),
-    index('sect_projects_sect_created_idx').on(table.sectId, table.createdAt),
+    uniqueIndex('local_transaction_messages_dedupe_unique')
+      .on(table.messageKey, table.deduplicationKey)
+      .where(sql`${table.deduplicationKey} is not null`),
+    index('local_transaction_messages_pending_idx')
+      .on(table.createdAt)
+      .where(sql`${table.completedAt} is null`),
   ],
 );
 
@@ -388,35 +383,6 @@ export const sectContributionLedger = pgTable(
       table.membershipId,
       table.createdAt,
     ),
-  ],
-);
-
-export const sectDonationLedger = pgTable(
-  'wanjiedaoyou_sect_donation_ledger',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    membershipId: uuid('membership_id')
-      .references(() => sectMemberships.id, { onDelete: 'cascade' })
-      .notNull(),
-    projectId: uuid('project_id')
-      .references(() => sectConstructionProjects.id, { onDelete: 'restrict' })
-      .notNull(),
-    dateKey: varchar('date_key', { length: 10 }).notNull(),
-    demandId: varchar('demand_id', { length: 64 }).notNull(),
-    contribution: integer('contribution').notNull(),
-    constructionPoints: integer('construction_points').notNull(),
-    itemSnapshot: jsonb('item_snapshot').notNull().default({}),
-    requestId: varchar('request_id', { length: 128 }),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-  },
-  (table) => [
-    index('sect_donation_member_date_idx').on(
-      table.membershipId,
-      table.dateKey,
-    ),
-    uniqueIndex('sect_donation_member_request_unique')
-      .on(table.membershipId, table.requestId)
-      .where(sql`${table.requestId} is not null`),
   ],
 );
 

@@ -51,7 +51,6 @@ function GateConversation({ actor, onExit }: SectNpcConversationRendererProps) {
     perform: async () => undefined,
     onReset: () => setShowNews(false),
   });
-  const project = infrastructure.data?.project;
   const messages: NpcConversationMessage[] = [
     { id: 'greeting', speaker: actor.name, body: actor.greeting },
   ];
@@ -59,9 +58,7 @@ function GateConversation({ actor, onExit }: SectNpcConversationRendererProps) {
     messages.push({
       id: 'news',
       speaker: actor.name,
-      body: project
-        ? `今日山门内外无事，公共工程正在推进${project.targetLevel}级设施，已经积累${project.progress}点建设进度。`
-        : '今日山门内外无事，宗门工程尚在议定。',
+      body: '今日山门内外无事，各处设施仍按常例修缮建设。',
     });
   const options: NpcConversationOption[] = [
     { id: 'news', label: '请执事说说今日山门动静' },

@@ -14,7 +14,6 @@ import {
   type SectBenefitPolicy,
   type SectConstructionPolicy,
   type SectCraftContextKey,
-  type SectDonationDemandDefinition,
   type SectEconomyPolicy,
   type SectOpponentFactory,
   type SectOrganizationModule,
@@ -26,6 +25,7 @@ import {
   type SectTaskDefinition,
   type SectTaskDialogueDefinition,
 } from './contracts';
+import { getSectFacilityUpgradeTarget } from './construction';
 
 const capabilities = new StandardSectCapabilityPolicy(
   {
@@ -35,8 +35,8 @@ const capabilities = new StandardSectCapabilityPolicy(
     'sect.enlightenment.use': 'registered',
     'sect.arena.use': 'registered',
     'sect.shop.use': 'outer',
-    'sect.construction.view': 'outer',
-    'sect.construction.donate': 'outer',
+    'sect.construction.view': 'registered',
+    'sect.construction.donate': 'registered',
     'sect.facility.cultivation.use': 'outer',
     'sect.facility.alchemy.use': 'inner',
     'sect.facility.refinery.use': 'inner',
@@ -535,17 +535,10 @@ const shopItems: readonly SectShopDefinition[] = [
 
 class StandardSectEconomyPolicy implements SectEconomyPolicy {
   constructor(private readonly theme: SectOrganizationTheme = {}) {}
-  readonly donationDailyCap = 60;
   readonly rewardGrantKinds = [
     'sect.reward.spirit-stones',
     'sect.reward.material',
     'sect.reward.pill',
-  ] as const;
-  readonly donationKinds = [
-    'sect.donation.spirit-stones',
-    'sect.donation.material',
-    'sect.donation.pill',
-    'sect.donation.artifact',
   ] as const;
 
   shopItems(weekKey: string): readonly SectShopDefinition[] {
@@ -561,60 +554,6 @@ class StandardSectEconomyPolicy implements SectEconomyPolicy {
         grant: { ...item.grant, ...(this.theme.shopGrants?.[item.id] ?? {}) },
       }),
     );
-  }
-
-  donationDemands(
-    sectId: string,
-    dateKey: string,
-  ): readonly SectDonationDemandDefinition[] {
-    const seed = [...`${sectId}:${dateKey}`].reduce(
-      (sum, char) => sum + char.charCodeAt(0),
-      0,
-    );
-    const artifactDay = seed % 2 === 0;
-    return [
-      {
-        id: 'spirit_stones',
-        name: '修缮灵石',
-        description: '提交 1000 灵石用于阵纹与工料周转。',
-        kind: 'sect.donation.spirit-stones',
-        quantity: 1000,
-        contribution: 10,
-        constructionPoints: 10,
-      },
-      {
-        id: 'herb_bundle',
-        name: '灵草束',
-        description: '提交两份凡品以上灵草。',
-        kind: 'sect.donation.material',
-        quantity: 2,
-        contribution: 15,
-        constructionPoints: 15,
-        minQuality: '凡品',
-      },
-      artifactDay
-        ? {
-            id: 'artifact_supply',
-            name: '备用法宝',
-            description: '提交一件未装备的凡品以上法宝。',
-            kind: 'sect.donation.artifact',
-            quantity: 1,
-            contribution: 40,
-            constructionPoints: 40,
-            minQuality: '凡品',
-          }
-        : {
-            id: 'pill_supply',
-            name: '丹药补给',
-            description: `提交一枚凡品以上${seed % 4 === 1 ? '疗伤类' : '回气类'}有效丹药。`,
-            kind: 'sect.donation.pill',
-            quantity: 1,
-            contribution: 25,
-            constructionPoints: 25,
-            minQuality: '凡品',
-            pillFamily: seed % 4 === 1 ? 'healing' : 'mana',
-          },
-    ];
   }
 
   stipendBase(rank: SectDiscipleRank): number {
@@ -680,38 +619,8 @@ class StandardSectConstructionPolicy implements SectConstructionPolicy {
     { key: 'formation', initialLevel: 0, maxLevel: 0, upgradeable: false },
   ] as const;
 
-  readonly facilityPriority = [
-    'archive',
-    'cultivation_room',
-    'workshop',
-    'spirit_vein',
-    'herb_garden',
-  ] as const;
-
-  projectBaseTarget(targetLevel: number): number {
-    return { 2: 250, 3: 500, 4: 900, 5: 1500 }[targetLevel] ?? 1500;
-  }
-
-  nextProject(levels: ReadonlyMap<string, number>) {
-    const candidate = [...this.facilityPriority]
-      .filter((key) => {
-        const facility = this.facilities.find((item) => item.key === key)!;
-        return (levels.get(key) ?? facility.initialLevel) < facility.maxLevel;
-      })
-      .sort((left, right) => {
-        const levelDiff = (levels.get(left) ?? 1) - (levels.get(right) ?? 1);
-        return (
-          levelDiff ||
-          this.facilityPriority.indexOf(left) -
-            this.facilityPriority.indexOf(right)
-        );
-      })[0];
-    return candidate
-      ? {
-          facilityKey: candidate,
-          targetLevel: (levels.get(candidate) ?? 1) + 1,
-        }
-      : null;
+  upgradeTarget(currentLevel: number): number | null {
+    return getSectFacilityUpgradeTarget(currentLevel);
   }
 }
 
