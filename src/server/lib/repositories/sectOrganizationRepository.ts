@@ -12,7 +12,7 @@ import {
   sectTaskRecords,
 } from '@server/lib/drizzle/schema';
 import type { SectDiscipleRank, SectOffice } from '@shared/engine/sect';
-import { and, asc, count, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, inArray, sql } from 'drizzle-orm';
 
 export async function ensureSectFacilities(
   sectId: string,
@@ -792,7 +792,7 @@ export async function listSectMembers(
   };
 }
 
-export async function listSectContributionRanking(
+export async function listTopSectContributionRanking(
   sectId: string,
   q: DbExecutor | DbTransaction,
 ) {
@@ -817,7 +817,52 @@ export async function listSectContributionRanking(
       desc(sectMemberships.contribution),
       asc(sectMemberships.joinedAt),
       asc(cultivators.id),
+    )
+    .limit(20);
+}
+
+export async function findSectContributionRankingMember(
+  sectId: string,
+  cultivatorId: string,
+  q: DbExecutor | DbTransaction,
+) {
+  const [row] = await q
+    .select({
+      cultivatorId: cultivators.id,
+      name: cultivators.name,
+      discipleRank: sectMemberships.discipleRank,
+      office: sectMemberships.office,
+      contribution: sectMemberships.contribution,
+    })
+    .from(sectMemberships)
+    .innerJoin(cultivators, eq(cultivators.id, sectMemberships.cultivatorId))
+    .where(
+      and(
+        eq(sectMemberships.sectId, sectId),
+        eq(sectMemberships.cultivatorId, cultivatorId),
+        eq(sectMemberships.status, 'active'),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function countSectMembersAboveContribution(
+  sectId: string,
+  contribution: number,
+  q: DbExecutor | DbTransaction,
+): Promise<number> {
+  const [row] = await q
+    .select({ value: count() })
+    .from(sectMemberships)
+    .where(
+      and(
+        eq(sectMemberships.sectId, sectId),
+        eq(sectMemberships.status, 'active'),
+        gt(sectMemberships.contribution, contribution),
+      ),
     );
+  return Number(row?.value ?? 0);
 }
 
 export async function findSectMirrorCultivatorId(

@@ -12,7 +12,11 @@ import {
   createSectChatMessage,
   listSectChatMessages,
 } from '@server/lib/repositories/sectChatRepository';
-import { listSectContributionRanking } from '@server/lib/repositories/sectOrganizationRepository';
+import {
+  countSectMembersAboveContribution,
+  findSectContributionRankingMember,
+  listTopSectContributionRanking,
+} from '@server/lib/repositories/sectOrganizationRepository';
 import { findMembership } from '@server/lib/repositories/sectRepository';
 import {
   ChatMessageApplicationError,
@@ -122,7 +126,7 @@ router.get(
             if (!membership) {
               throw new Error('SECT_MEMBERSHIP_REQUIRED');
             }
-            const rows = await listSectContributionRanking(
+            const rows = await listTopSectContributionRanking(
               membership.sectId,
               q,
             );
@@ -142,11 +146,32 @@ router.get(
                 contribution: row.contribution,
               };
             });
-            const currentMember = entries.find(
+            let currentMember = entries.find(
               (entry) => entry.cultivatorId === ref.cultivatorId,
             );
             if (!currentMember) {
-              throw new Error('SECT_MEMBERSHIP_REQUIRED');
+              const currentRow = await findSectContributionRankingMember(
+                membership.sectId,
+                ref.cultivatorId,
+                q,
+              );
+              if (!currentRow) {
+                throw new Error('SECT_MEMBERSHIP_REQUIRED');
+              }
+              currentMember = {
+                rank:
+                  (await countSectMembersAboveContribution(
+                    membership.sectId,
+                    currentRow.contribution,
+                    q,
+                  )) + 1,
+                cultivatorId: currentRow.cultivatorId,
+                name: currentRow.name,
+                discipleRank:
+                  currentRow.discipleRank as SectDiscipleRank,
+                office: currentRow.office as SectOffice,
+                contribution: currentRow.contribution,
+              };
             }
             return {
               scope: { kind: 'sect', id: membership.sectId },

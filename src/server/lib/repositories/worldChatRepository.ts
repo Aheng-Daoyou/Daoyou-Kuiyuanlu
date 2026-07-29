@@ -12,6 +12,8 @@ import { randomUUID } from 'crypto';
 const WORLD_CHAT_LIST_KEY = 'world_chat:messages';
 const WORLD_CHAT_MAX_MESSAGES = 100;
 
+type WorldChatListChannel = 'all' | Exclude<WorldChatChannel, 'sect'>;
+
 type StoredWorldChatMessage = {
   id: string;
   channel?: Exclude<WorldChatMessageChannel, 'sect'>;
@@ -117,7 +119,7 @@ export async function createMessage(data: {
 }
 
 export async function listMessages(options: {
-  channel: Exclude<WorldChatChannel, 'sect'>;
+  channel: WorldChatListChannel;
   page: number;
   pageSize: number;
 }): Promise<{
@@ -135,7 +137,8 @@ export async function listMessages(options: {
     .map((raw) => parseStoredMessage(raw))
     .filter((item): item is WorldChatMessageDTO => Boolean(item))
     .filter(
-      (item) => item.channel === options.channel,
+      (item) =>
+        options.channel === 'all' || item.channel === options.channel,
     );
   const pageRows = parsedRows.slice(start, end);
   const hasMore = pageRows.length > options.pageSize;
@@ -149,7 +152,7 @@ export async function listMessages(options: {
 
 export async function listLatestMessages(
   limit: number,
-  channel: Exclude<WorldChatChannel, 'sect'> = 'world',
+  channel: WorldChatListChannel = 'world',
 ): Promise<WorldChatMessageDTO[]> {
   const rows = await redis.lrange(
     WORLD_CHAT_LIST_KEY,
@@ -159,6 +162,6 @@ export async function listLatestMessages(
   return (rows || [])
     .map((raw) => parseStoredMessage(raw))
     .filter((item): item is WorldChatMessageDTO => Boolean(item))
-    .filter((item) => item.channel === channel)
+    .filter((item) => channel === 'all' || item.channel === channel)
     .slice(0, limit);
 }

@@ -28,7 +28,7 @@ export const WorldChatCreateMessageSchema = z.discriminatedUnion(
 );
 
 export const WorldChatListQuerySchema = z.object({
-  channel: z.enum(['system', 'world']).optional().default('world'),
+  channel: z.enum(['all', 'system', 'world']).optional().default('world'),
   limit: z.coerce.number().int().min(1).max(50).optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
