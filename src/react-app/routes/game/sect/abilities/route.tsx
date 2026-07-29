@@ -153,7 +153,6 @@ function SectAbilitiesBody() {
   const cultivator = profile.data?.cultivator;
   const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
-  const navigate = useNavigate();
 
   const details = useMemo(
     () =>

@@ -431,9 +431,11 @@ const alchemyBatchProfileSchema = z
   .strict();
 const pillAlchemyMetaBaseShape = {
   sourceMaterials: z.array(z.string()),
-  analysisVersion: z.literal(2),
-  propertyVector: z.array(weightedAlchemyPropertySchema),
-  sourceMaterialVectors: z.array(alchemyMaterialPropertyVectorSchema),
+  analysisVersion: z.number().optional(),
+  propertyVector: z.array(weightedAlchemyPropertySchema).optional(),
+  sourceMaterialVectors: z
+    .array(alchemyMaterialPropertyVectorSchema)
+    .optional(),
   dominantElement: z.enum(ELEMENT_VALUES).optional(),
   stability: z.number(),
   toxicityRating: z.number(),

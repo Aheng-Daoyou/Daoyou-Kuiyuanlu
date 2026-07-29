@@ -1015,6 +1015,7 @@ export async function buildDiscoveryCandidate(
   const { consumable, materials: materialsList } = context;
   const spec = consumable.spec;
   const batch = spec.alchemyMeta.batch;
+  const propertyVector = spec.alchemyMeta.propertyVector;
   const effectiveDiscoveryStability =
     spec.alchemyMeta.stability +
     (batch && materialsList.length > 1 && batch.synergyScore >= 0.65 ? 8 : 0) -
@@ -1022,17 +1023,18 @@ export async function buildDiscoveryCandidate(
 
   if (
     spec.alchemyMeta.analysisVersion !== 2 ||
+    !Array.isArray(propertyVector) ||
     effectiveDiscoveryStability < DISCOVERY_STABILITY_THRESHOLD ||
     (batch?.conflictScore ?? 0) >= 0.65 ||
     spec.operations.length === 0 ||
-    spec.alchemyMeta.propertyVector.length === 0
+    propertyVector.length === 0
   ) {
     return null;
   }
 
   const fallbackName = buildFallbackFormulaName(consumable.name);
   const pattern = {
-    targetPropertyVector: spec.alchemyMeta.propertyVector,
+    targetPropertyVector: propertyVector,
     dominantElement: spec.alchemyMeta.dominantElement,
     minQuality: getLowestQuality(materialsList),
     slotCount: materialsList.length,

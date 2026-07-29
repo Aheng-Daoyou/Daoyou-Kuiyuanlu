@@ -174,9 +174,9 @@ export type PillAlchemyMeta =
       source: 'improvised';
       formulaId?: never;
       sourceMaterials: string[];
-      analysisVersion: 2;
-      propertyVector: WeightedAlchemyProperty[];
-      sourceMaterialVectors: AlchemyMaterialPropertyVector[];
+      analysisVersion?: number;
+      propertyVector?: WeightedAlchemyProperty[];
+      sourceMaterialVectors?: AlchemyMaterialPropertyVector[];
       dominantElement?: ElementType;
       stability: number;
       toxicityRating: number;
@@ -190,9 +190,9 @@ export type PillAlchemyMeta =
       source: 'formula';
       formulaId: string;
       sourceMaterials: string[];
-      analysisVersion: 2;
-      propertyVector: WeightedAlchemyProperty[];
-      sourceMaterialVectors: AlchemyMaterialPropertyVector[];
+      analysisVersion?: number;
+      propertyVector?: WeightedAlchemyProperty[];
+      sourceMaterialVectors?: AlchemyMaterialPropertyVector[];
       fitScore: number;
       fitBand: FormulaFitBand;
       fitMultiplier: number;
