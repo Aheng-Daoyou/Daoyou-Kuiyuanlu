@@ -678,12 +678,6 @@ class StandardSectBenefitPolicy implements SectBenefitPolicy {
               value: workshopLevel,
               format: 'number' as const,
             },
-            {
-              key: 'discount',
-              label: '炼丹灵石减免',
-              value: alchemy,
-              format: 'percent' as const,
-            },
           ],
         },
         refinery: {
@@ -696,12 +690,6 @@ class StandardSectBenefitPolicy implements SectBenefitPolicy {
               value: workshopLevel,
               format: 'number' as const,
             },
-            {
-              key: 'discount',
-              label: '炼器灵石减免',
-              value: refinery,
-              format: 'percent' as const,
-            },
           ],
         },
         spirit_vein: {
@@ -713,12 +701,6 @@ class StandardSectBenefitPolicy implements SectBenefitPolicy {
               label: `${this.facilityName('spirit_vein', '灵脉')}等级`,
               value: spiritVeinLevel,
               format: 'number' as const,
-            },
-            {
-              key: 'stipend_bonus',
-              label: '俸禄灵石加成',
-              value: spiritVeinLevel * 0.05,
-              format: 'percent' as const,
             },
           ],
         },
