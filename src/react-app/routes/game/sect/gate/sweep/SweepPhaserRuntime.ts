@@ -86,6 +86,7 @@ function directionBetween(
 export function attachSweepPhaser(
   args: SweepPhaserArguments,
 ): SweepPhaserController {
+  const renderScale = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
   let state = createSweepGameState(args.seed);
   let queuedState = state;
   let moveScene: ((direction: SweepDirection) => void) | undefined;
@@ -123,6 +124,9 @@ export function attachSweepPhaser(
     create() {
       moveScene = (direction) => this.enqueueDirection(direction);
       resetScene = () => this.resetGame();
+      this.cameras.main
+        .setZoom(renderScale)
+        .centerOn(SWEEP_CANVAS.width / 2, SWEEP_CANVAS.height / 2);
       this.add
         .image(
           SWEEP_CANVAS.width / 2,
@@ -451,15 +455,19 @@ export function attachSweepPhaser(
   const config: Phaser.Types.Core.GameConfig = {
     type: Phaser.AUTO,
     parent: args.root,
-    width: SWEEP_CANVAS.width,
-    height: SWEEP_CANVAS.height,
+    width: Math.round(SWEEP_CANVAS.width * renderScale),
+    height: Math.round(SWEEP_CANVAS.height * renderScale),
     backgroundColor: '#171b1a',
     transparent: false,
+    antialias: true,
+    antialiasGL: true,
+    pixelArt: false,
+    roundPixels: false,
     scale: {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
-      width: SWEEP_CANVAS.width,
-      height: SWEEP_CANVAS.height,
+      width: Math.round(SWEEP_CANVAS.width * renderScale),
+      height: Math.round(SWEEP_CANVAS.height * renderScale),
     },
     scene: SweepScene,
   };
