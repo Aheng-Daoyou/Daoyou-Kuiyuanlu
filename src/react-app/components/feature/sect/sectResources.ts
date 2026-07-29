@@ -14,6 +14,7 @@ import {
   useSingletonResource,
   type ResourceQuery,
 } from '@app/lib/resources/hooks';
+import { usePlayerSession } from '@app/lib/resources/player';
 import { getSectPresentation } from '@app/lib/sect/sectPresentation';
 import {
   SectPromotionEvaluationDataSchema,
@@ -30,8 +31,8 @@ import { productionSectRuntime } from '@shared/engine/sect/content';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { z } from 'zod';
 
-export function useSectContextQuery() {
-  const context = useSingletonResource(sectContextResource);
+export function useSectContextQuery(enabled = true) {
+  const context = useSingletonResource(sectContextResource, enabled);
   const versionError = getSectConfigVersionError(context.data);
   return useMemo(
     () => ({
@@ -40,6 +41,20 @@ export function useSectContextQuery() {
       status: versionError ? ('error' as const) : context.status,
     }),
     [context, versionError],
+  );
+}
+
+export function useActiveSectContextQuery() {
+  const session = usePlayerSession();
+  const hasSect = Boolean(session.data?.activeCultivator?.sectId);
+  const context = useSectContextQuery(hasSect);
+  return useMemo(
+    () => ({
+      ...context,
+      hasSect,
+      sessionLoading: session.loading,
+    }),
+    [context, hasSect, session.loading],
   );
 }
 

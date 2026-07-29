@@ -15,6 +15,9 @@ import {
   toProductDisplayModel,
   type ProductRecordLike,
 } from '@app/components/feature/products';
+import { SectIdentityDetails } from '@app/components/feature/sect/SectIdentity';
+import { useActiveSectContextQuery } from '@app/components/feature/sect/sectResources';
+import { useSectIdentityDialog } from '@app/components/feature/sect/useSectIdentityDialog';
 import { LingGen } from '@app/components/func/LingGen';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import {
@@ -126,6 +129,8 @@ export function CultivatorOverviewPanel() {
   const profile = useCultivatorIdentity();
   const condition = useCultivatorCondition();
   const loadout = usePlayerLoadout();
+  const sectContext = useActiveSectContextQuery();
+  const openSectIdentityDialog = useSectIdentityDialog();
   const identity = profile.data?.cultivator;
   const cultivator =
     identity && condition.data && loadout.data
@@ -302,6 +307,34 @@ export function CultivatorOverviewPanel() {
             />
           ) : null}
         </div>
+      </GameSceneSection>
+
+      <GameSceneSection
+        title="宗门玉牒"
+        actions={
+          sectContext.data ? (
+            <InkButton onClick={openSectIdentityDialog} className="text-sm">
+              查看晋升
+            </InkButton>
+          ) : undefined
+        }
+      >
+        {sectContext.sessionLoading ? (
+          <p className="loading-tip">宗门名册正在核验……</p>
+        ) : !sectContext.hasSect ? (
+          <InkNotice>尚未拜入宗门，当前仍以散修身份行走。</InkNotice>
+        ) : sectContext.error ? (
+          <InkNotice>
+            <p>{sectContext.error}</p>
+            <InkButton onClick={() => void sectContext.retry()}>
+              重新核验
+            </InkButton>
+          </InkNotice>
+        ) : sectContext.data ? (
+          <SectIdentityDetails context={sectContext.data} showJoinedAt />
+        ) : (
+          <p className="loading-tip">身份玉牒正在显化……</p>
+        )}
       </GameSceneSection>
 
       <CultivatorCurrentStatusSection />
