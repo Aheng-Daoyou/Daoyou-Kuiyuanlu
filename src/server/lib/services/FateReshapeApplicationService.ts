@@ -20,7 +20,6 @@ export function startFateReshapeCommand(args: {
       key: redisLockKeys.cultivatorMutation(args.cultivatorId),
       context: 'fate-reshape-start',
       timeoutMs: 60_000,
-      renewEveryMs: 20_000,
       retries: 0,
     },
     async (lease) => {

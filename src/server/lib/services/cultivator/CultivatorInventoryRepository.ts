@@ -8,6 +8,7 @@ rehydrateStoredProductModel,
 serializeProductModel,
 } from '@shared/engine/creation-v2/persistence/ProductPersistenceMapper';
 import {
+ELEMENT_VALUES,
 ElementType,
 EquipmentSlot,
 MaterialType,
@@ -86,7 +87,9 @@ export function mapMaterialRow(
     name: m.name,
     type: m.type as MaterialType,
     rank: m.rank as Quality,
-    element: m.element as ElementType | undefined,
+    element: ELEMENT_VALUES.includes(m.element as ElementType)
+      ? (m.element as ElementType)
+      : undefined,
     description: m.description || '',
     details: sanitizeMaterialDetails(m.details),
     quantity: m.quantity,

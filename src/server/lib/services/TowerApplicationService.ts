@@ -14,7 +14,6 @@ import { readPlayerMailSummary } from './PlayerResourceReaderService';
 import { toPlayerStateMutationResponse } from './ResourceMutationResponse';
 
 const TOWER_COMMAND_TIMEOUT_MS = 240_000;
-const TOWER_COMMAND_RENEW_MS = 60_000;
 
 type TowerBattlePublicResult = {
   battleResult: Awaited<
@@ -145,7 +144,6 @@ function withTowerCommandLock<T>(
       key: redisLockKeys.cultivatorMutation(cultivatorId),
       context,
       timeoutMs: TOWER_COMMAND_TIMEOUT_MS,
-      renewEveryMs: TOWER_COMMAND_RENEW_MS,
       retries: 0,
     },
     command,

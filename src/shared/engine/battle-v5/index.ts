@@ -49,12 +49,31 @@ export {
 export { createBattleUnitsWithInit } from './setup/BattleInitApplier';
 export type {
   BattleInitConfigV5,
+  BattleStateStrategyId,
+  BattleUnitInitFragment,
   BattleUnitInitSpec,
   CombatStatusTemplate,
   PersistentCombatStatusV5,
+  ResolvedBattleInitConfigV5,
+  ResolvedBattleUnitInit,
   ResourcePointState,
   TrainingRoomModifierDraft,
 } from './setup/types';
+export {
+  assertPreparedBattleContext,
+  mergeBattleUnitInitFragments,
+  prepareBattleContext,
+  prepareStandardFullBattle,
+  projectBattleEntryState,
+  projectBattleUnitEntryState,
+  type BattleEntryResourceView,
+  type BattleEntryState,
+  type BattleEntryUnitState,
+  type BattleResourceSource,
+  type BattleUnitStateStrategy,
+  type PreparedBattleContext,
+  type PrepareBattleContextOptions,
+} from './setup/BattleStateStrategy';
 
 // Main Entry
 export { BattleEngineV5, type BattleResult } from './BattleEngineV5';

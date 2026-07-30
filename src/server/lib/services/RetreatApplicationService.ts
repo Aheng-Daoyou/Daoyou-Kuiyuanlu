@@ -95,7 +95,6 @@ export function executeRetreatCommand(args: {
       key: redisLockKeys.cultivatorMutation(args.cultivatorId),
       context: 'retreat',
       timeoutMs: 300_000,
-      renewEveryMs: 60_000,
       retries: 0,
     },
     async (lease) => {

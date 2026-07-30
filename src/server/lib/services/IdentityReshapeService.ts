@@ -144,7 +144,6 @@ export function startIdentityReshape(args: {
       key: redisLockKeys.cultivatorMutation(args.cultivatorId),
       context: 'identity-reshape-start',
       timeoutMs: 30_000,
-      renewEveryMs: 10_000,
       retries: 0,
     },
     async (lease) => {
@@ -298,7 +297,6 @@ export function generateIdentityReshape(args: {
       key: redisLockKeys.cultivatorMutation(args.cultivatorId),
       context: 'identity-reshape-generate',
       timeoutMs: 120_000,
-      renewEveryMs: 30_000,
       retries: 0,
     },
     async () => {
@@ -390,7 +388,6 @@ export function confirmIdentityReshape(args: {
       key: redisLockKeys.cultivatorMutation(args.cultivatorId),
       context: 'identity-reshape-confirm',
       timeoutMs: 30_000,
-      renewEveryMs: 10_000,
       retries: 0,
     },
     async (lease) => {

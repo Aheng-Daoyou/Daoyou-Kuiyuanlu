@@ -16,6 +16,7 @@ import {
 import { simulateBattleV5 } from '@server/lib/services/simulateBattleV5';
 import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import { prepareBattleContext } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import { getResourceTypeLabel } from '@shared/lib/gameConceptDisplay';
 import {
   buildTowerBlessingChoices,
@@ -218,6 +219,7 @@ export class TowerService {
     cultivator: CultivatorCombatInput,
     season: TowerSeasonMeta,
     state: TowerState,
+    now: Date,
   ) {
     const challengeRealm = this.resolveChallengeRealm(state, cultivator);
     const preparedEnemy = await towerEnemySetService.loadTowerEnemyForBattle({
@@ -230,6 +232,7 @@ export class TowerService {
       condition: state.condition,
       blessings: state.blessings,
       encounterKind: preparedEnemy.encounter.kind,
+      now,
     });
 
     const battleId = randomUUID();
@@ -410,7 +413,7 @@ export class TowerService {
       status: 'READY',
       currentFloor: 1,
       highestFloorCleared: 0,
-      condition: ConditionService.normalizeCondition(
+      condition: ConditionService.tickNaturalRecovery(
         cultivatorBundle.cultivator,
         cultivatorBundle.cultivator.condition,
         now,
@@ -495,6 +498,7 @@ export class TowerService {
       cultivatorBundle.cultivator,
       season,
       state,
+      now,
     );
 
     state.condition = session.normalizedCondition;
@@ -574,6 +578,7 @@ export class TowerService {
       blessings: state.blessings,
       encounterKind: 'normal',
       recoverResources: false,
+      now,
     });
     state.condition = normalizedCondition;
 
@@ -612,17 +617,41 @@ export class TowerService {
       throw new Error('当前境界已变化，请重开幻境以进入新的境界榜');
     }
 
-    const { battleInit } = buildTowerBattleInit({
+    const {
+      playerFragment,
+      opponentFragment,
+      normalizedCondition,
+    } = buildTowerBattleInit({
       cultivator: cultivatorBundle.cultivator,
       condition: state.condition,
       blessings: state.blessings,
       encounterKind: payload.session.encounter.kind,
       recoverResources: false,
+      now,
     });
+    const battleCultivator = {
+      ...cultivatorBundle.cultivator,
+      condition: normalizedCondition,
+    };
     const battleResult = simulateBattleV5(
-      cultivatorBundle.cultivator,
-      payload.enemyObject,
-      battleInit,
+      prepareBattleContext({
+        strategyId: 'isolated_run',
+        player: battleCultivator,
+        opponent: payload.enemyObject,
+        playerState: {
+          resources: {
+            kind: 'absolute',
+            hp: normalizedCondition.resources.hp.current,
+            mp: normalizedCondition.resources.mp.current,
+          },
+          fragment: playerFragment,
+        },
+        opponentState: {
+          resources: { kind: 'full' },
+          fragment: opponentFragment,
+        },
+        conditionBaseline: normalizedCondition,
+      }),
     );
 
     const isWin = battleResult.winner.id === cultivatorId;

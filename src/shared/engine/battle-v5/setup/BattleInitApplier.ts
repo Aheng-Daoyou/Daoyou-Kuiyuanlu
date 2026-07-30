@@ -62,6 +62,9 @@ function resolveCurrentResource(
   maxValue: number,
 ): number | undefined {
   if (!resource) return undefined;
+  if (!Number.isFinite(resource.value)) {
+    throw new Error('战斗初始资源必须为有限数值');
+  }
   if (resource.mode === 'absolute') {
     return Math.max(0, Math.floor(resource.value));
   }
@@ -73,6 +76,9 @@ function resolveShieldResource(
   maxHp: number,
 ): number | undefined {
   if (typeof shield === 'number') {
+    if (!Number.isFinite(shield)) {
+      throw new Error('战斗初始护盾必须为有限数值');
+    }
     return Math.max(0, Math.floor(shield));
   }
   return resolveCurrentResource(shield, maxHp);
@@ -139,19 +145,12 @@ function applyResourceState(
 
   const resolvedHp = resolveCurrentResource(resourceState.hp, unit.getMaxHp());
   const resolvedMp = resolveCurrentResource(resourceState.mp, unit.getMaxMp());
-
-  if (typeof resolvedHp === 'number') {
-    unit.setHp(resolvedHp, 'initialization');
-  }
-
-  if (typeof resolvedMp === 'number') {
-    unit.setMp(resolvedMp);
-  }
-
   const resolvedShield = resolveShieldResource(resourceState.shield, unit.getMaxHp());
-  if (typeof resolvedShield === 'number') {
-    unit.setShield(resolvedShield);
-  }
+  unit.initializeResources({
+    hp: resolvedHp,
+    mp: resolvedMp,
+    shield: resolvedShield,
+  });
 }
 
 function mergeBodyCultivationInit(

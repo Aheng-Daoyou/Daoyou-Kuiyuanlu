@@ -13,7 +13,7 @@ import {
 import { createBattleRecordV2 } from '@server/lib/repositories/battleRecordV2Repository';
 import { createMessage } from '@server/lib/repositories/worldChatRepository';
 import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
-import type { BattleInitConfigV5 } from '@shared/types/battle';
+import { prepareStandardFullBattle } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import type { RealmType } from '@shared/types/constants';
 import { playerCommandExecutor } from './CommandExecutors';
 import {
@@ -92,23 +92,6 @@ export class RankingCommandError extends Error {
   ) {
     super(message);
   }
-}
-
-function createFullResourcePvpBattleInit(): BattleInitConfigV5 {
-  return {
-    player: {
-      resourceState: {
-        hp: { mode: 'percent', value: 1 },
-        mp: { mode: 'percent', value: 1 },
-      },
-    },
-    opponent: {
-      resourceState: {
-        hp: { mode: 'percent', value: 1 },
-        mp: { mode: 'percent', value: 1 },
-      },
-    },
-  };
 }
 
 async function broadcastRankingChange(params: {
@@ -214,9 +197,10 @@ export async function runRankingBattleCommand(args: {
       throw new RankingCommandError('角色不存在', 404);
     }
     const battleResult = simulateBattleV5(
-      challengerRecord.cultivator,
-      targetRecord.cultivator,
-      createFullResourcePvpBattleInit(),
+      prepareStandardFullBattle({
+        player: challengerRecord.cultivator,
+        opponent: targetRecord.cultivator,
+      }),
     );
     const isWin = battleResult.winner.id === args.cultivatorId;
     let newChallengerRank: number | null = challengerRank;

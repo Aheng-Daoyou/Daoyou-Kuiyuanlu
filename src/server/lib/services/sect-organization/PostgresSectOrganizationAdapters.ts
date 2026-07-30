@@ -16,6 +16,8 @@ import {
   mapMaterialRow,
 } from '@server/lib/services/cultivator/CultivatorInventoryRepository';
 import { updateCultivationExp } from '@server/lib/services/cultivator/CultivatorStateRepository';
+import { updateCultivator } from '@server/lib/services/cultivator/CultivatorStateRepository';
+import { executePersistentWorldBattle } from '@server/lib/services/BattleStateCoordinator';
 import {
   materialLibraryEntryToMaterial,
   sampleMaterialLibraryEntryDeterministic,
@@ -32,6 +34,7 @@ import {
   type SectSubmissionItemKind,
 } from '@shared/engine/sect';
 import { simulateBattleV5 } from '@shared/lib/battle/simulateBattleV5';
+import { prepareStandardFullBattle } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import { isPillSpec } from '@shared/lib/consumables';
 import {
   ELEMENT_VALUES,
@@ -1010,15 +1013,37 @@ export function createPostgresSectCommandContext(args: {
       },
       loadProgress: (cultivatorId) =>
         memberships.loadSectCultivatorProgress(cultivatorId, tx),
+      async saveCondition(cultivatorId, condition) {
+        const updated = await updateCultivator(
+          cultivatorId,
+          { condition },
+          tx,
+        );
+        if (!updated) throw new Error('角色状态保存失败');
+      },
     },
     battle: {
-      simulate: (player, opponent, seed) =>
-        simulateBattleV5(
-          player,
-          opponent,
-          undefined,
-          new SeededBattleRandomSource(seed),
-        ),
+      execute: (player, opponent, strategy, seed) => {
+        const randomSource = new SeededBattleRandomSource(seed);
+        if (strategy === 'persistent_world') {
+          const execution = executePersistentWorldBattle({
+            strategyId: strategy,
+            player,
+            opponent,
+            randomSource,
+          });
+          return {
+            battleResult: execution.battleResult,
+            nextCondition: execution.nextCondition,
+          };
+        }
+        return {
+          battleResult: simulateBattleV5(
+            prepareStandardFullBattle({ player, opponent }),
+            randomSource,
+          ),
+        };
+      },
     },
     rewards: rewardAdapter(tx, args.userId),
     rewardMaterials: {

@@ -1,5 +1,6 @@
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { CultivatorInspectionModal } from '@app/components/feature/cultivator-inspection';
+import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
 import {
   GameSceneFrame,
   GameSceneLoading,
@@ -7,11 +8,11 @@ import {
   GameSceneSection,
 } from '@app/components/game-shell';
 import {
-  useCultivatorCondition,
-  useCultivatorIdentity,
-  usePlayerLoadout,
-} from '@app/lib/resources/player';
-import { getCultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+  mergeBattleUnitInitFragments,
+  prepareBattleContext,
+  projectBattleUnitEntryState,
+  type BattleEntryUnitState,
+} from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import {
   useTowerActions,
   type TowerProbeResponse,
@@ -21,6 +22,8 @@ import { useTowerState } from '@app/lib/hooks/tower/useTowerState';
 import {
   getTowerBlessingDefinition,
   getTowerBlessingEffectPreview,
+  buildTowerBlessingAttributeModifiers,
+  buildTowerEncounterAttributeModifiers,
   resolveTowerFloorKind,
   resolveTowerMilestoneTier,
   isTowerRealmEligible,
@@ -33,12 +36,13 @@ import {
   type TowerSettlement,
   type TowerState,
 } from '@shared/lib/tower';
+import { buildConditionBattleUnitInitFragment } from '@shared/lib/conditionBattle';
 import { getConditionStatusTemplate } from '@shared/lib/conditionStatusRegistry';
 import type { RealmType } from '@shared/types/constants';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkBadge } from '@app/components/ui/InkBadge';
 import { InkCard } from '@app/components/ui/InkCard';
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { TowerBlessingDetailModal } from './components/TowerBlessingDetailModal';
 import { TowerLeaderboard } from './components/TowerLeaderboard';
@@ -259,14 +263,12 @@ function TowerRunResourceMeter({
 
 function TowerRunStatusCard({
   state,
-  maxHp,
-  maxMp,
+  entryState,
   onOpenBlessing,
   onOpenStatuses,
 }: {
   state: TowerState;
-  maxHp: number;
-  maxMp: number;
+  entryState: BattleEntryUnitState;
   onOpenBlessing: (blessingId: TowerBlessingId, currentStacks: number) => void;
   onOpenStatuses: () => void;
 }) {
@@ -290,14 +292,14 @@ function TowerRunStatusCard({
         <div className="space-y-2.5">
           <TowerRunResourceMeter
             label="境内气血"
-            current={state.condition.resources.hp.current}
-            max={maxHp}
+            current={entryState.hp.current}
+            max={entryState.hp.max}
             tone="hp"
           />
           <TowerRunResourceMeter
             label="境内法力"
-            current={state.condition.resources.mp.current}
-            max={maxMp}
+            current={entryState.mp.current}
+            max={entryState.mp.max}
             tone="mp"
           />
         </div>
@@ -396,12 +398,14 @@ function TowerReadyCard({
 
 function TowerEncounterCard({
   probe,
+  entryState,
   loading,
   onRetryProbe,
   onStartBattle,
   onOpenDetail,
 }: {
   probe: TowerProbeResponse | null;
+  entryState: BattleEntryUnitState | null;
   loading: boolean;
   onRetryProbe: () => void;
   onStartBattle: () => void;
@@ -445,6 +449,23 @@ function TowerEncounterCard({
       </div>
 
       <p className="text-sm leading-6">{atmosphereCopy}</p>
+
+      {entryState ? (
+        <div className="border-ink/15 grid grid-cols-2 gap-3 border-t border-dashed pt-3 text-sm">
+          <div>
+            <span className="text-ink-secondary">入场气血 </span>
+            <span className="tabular-nums">
+              {entryState.hp.current}/{entryState.hp.max}
+            </span>
+          </div>
+          <div>
+            <span className="text-ink-secondary">入场法力 </span>
+            <span className="tabular-nums">
+              {entryState.mp.current}/{entryState.mp.max}
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex justify-end gap-3">
         <InkButton variant="secondary" onClick={onOpenDetail}>
@@ -588,27 +609,10 @@ function TowerSettlementCard({
 }
 
 export default function TowerPage() {
-  const profile = useCultivatorIdentity();
-  const condition = useCultivatorCondition();
-  const loadout = usePlayerLoadout();
-  const identity = profile.data?.cultivator;
-  const cultivator =
-    identity && condition.data && loadout.data
-      ? {
-          ...identity,
-          condition: condition.data,
-          cultivations: loadout.data.cultivations,
-          equipped: loadout.data.equipped,
-          inventory: { artifacts: loadout.data.artifacts },
-        }
-      : null;
-  const display = cultivator
-    ? getCultivatorDisplaySnapshot(cultivator)
-    : null;
-  const cultivatorLoading =
-    profile.loading ||
-    condition.loading ||
-    loadout.loading;
+  const projection = useCultivatorDisplayProjection();
+  const cultivator = projection.data?.cultivator ?? null;
+  const display = projection.data?.display ?? null;
+  const cultivatorLoading = projection.loading;
   const { openDialog } = useInkUI();
   const navigate = useNavigate();
   const { payload, setPayload, loading } = useTowerState(!!cultivator);
@@ -639,14 +643,66 @@ export default function TowerPage() {
     payload?.eligible ??
     (cultivatorRealm ? isTowerRealmEligible(cultivatorRealm) : false);
   const minRealm = payload?.minRealm ?? TOWER_MIN_REALM;
-  const maxHp = towerState?.condition.resources.hp.max ?? display?.resources.hp.max ?? 0;
-  const maxMp = towerState?.condition.resources.mp.max ?? display?.resources.mp.max ?? 0;
-  const scenePulse = buildScenePulse(season);
+  const maxHp =
+    towerState?.condition.resources.hp.max ?? display?.resources.hp.max ?? 0;
+  const maxMp =
+    towerState?.condition.resources.mp.max ?? display?.resources.mp.max ?? 0;
   const encounterProbe =
     towerState?.status === 'WAITING_BATTLE' &&
     probe?.battleId === towerState.activeBattleId
       ? probe
       : null;
+  const towerBattleEntryState = useMemo(() => {
+    if (!towerState || !cultivator) return null;
+    const battleCultivator = {
+      ...cultivator,
+      condition: towerState.condition,
+    };
+    const playerState = {
+      resources: {
+        kind: 'absolute' as const,
+        hp: towerState.condition.resources.hp.current,
+        mp: towerState.condition.resources.mp.current,
+      },
+      fragment: mergeBattleUnitInitFragments(
+        {
+          modifiers: buildTowerBlessingAttributeModifiers(
+            towerState.blessings,
+          ),
+        },
+        buildConditionBattleUnitInitFragment(
+          towerState.condition,
+          new Date(),
+        ),
+      ),
+    };
+    if (!encounterProbe) {
+      return {
+        player: projectBattleUnitEntryState({
+          cultivator: battleCultivator,
+          state: playerState,
+        }),
+        opponent: null,
+      };
+    }
+    const context = prepareBattleContext({
+      strategyId: 'isolated_run',
+      player: battleCultivator,
+      opponent: encounterProbe.enemy,
+      playerState,
+      opponentState: {
+        resources: { kind: 'full' },
+        fragment: {
+          modifiers: buildTowerEncounterAttributeModifiers(
+            encounterProbe.encounter.kind,
+          ),
+        },
+      },
+      conditionBaseline: towerState.condition,
+    });
+    return context.entryState;
+  }, [cultivator, encounterProbe, towerState]);
+  const scenePulse = buildScenePulse(season);
   const requestProbeBattleInEffect = useEffectEvent(() => probeBattle());
   const eliteFloors = collectFloorsByKind('elite');
   const bossFloors = collectFloorsByKind('boss');
@@ -901,6 +957,7 @@ export default function TowerPage() {
           {towerState?.status === 'WAITING_BATTLE' ? (
             <TowerEncounterCard
               probe={encounterProbe}
+              entryState={towerBattleEntryState?.opponent ?? null}
               loading={processing}
               onRetryProbe={() => void handleProbeBattle()}
               onOpenDetail={() => setIsEnemyDetailOpen(true)}
@@ -969,11 +1026,10 @@ export default function TowerPage() {
           ) : null}
         </GameSceneSection>
 
-        {towerState ? (
+        {towerState && towerBattleEntryState ? (
           <TowerRunStatusCard
             state={towerState}
-            maxHp={maxHp}
-            maxMp={maxMp}
+            entryState={towerBattleEntryState.player}
             onOpenBlessing={(blessingId, currentStacks) =>
               setSelectedBlessingDetail({
                 blessingId,

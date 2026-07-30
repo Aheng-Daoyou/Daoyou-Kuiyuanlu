@@ -132,7 +132,6 @@ async function withCultivatorLock<T>(
         key: redisLockKeys.cultivatorMutation(cultivatorId),
         context: 'fate-reshape',
         timeoutMs: 60_000,
-        renewEveryMs: 20_000,
         retries: 0,
       },
       task,

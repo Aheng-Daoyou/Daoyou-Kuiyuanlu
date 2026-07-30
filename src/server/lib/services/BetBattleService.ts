@@ -5,6 +5,7 @@ import {
   temporaryRestrictions,
 } from '@shared/config/temporaryRestrictions';
 import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
+import { prepareStandardFullBattle } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import { Artifact, Consumable, Material } from '@shared/types/cultivator';
 import { and, eq, sql } from 'drizzle-orm';
 import { isRealmInRange, toRealmType } from '../admin/realm';
@@ -738,8 +739,10 @@ export async function challengeBetBattle(
 
   const creatorStake = normalizeStakeSnapshot(betBattle.creatorStakeSnapshot);
   const battleResult = simulateBattleV5(
-    challengerBundle.cultivator,
-    creatorBundle.cultivator,
+    prepareStandardFullBattle({
+      player: challengerBundle.cultivator,
+      opponent: creatorBundle.cultivator,
+    }),
   );
   const winnerId =
     battleResult.winner.id === input.challengerId

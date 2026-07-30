@@ -89,6 +89,29 @@ function getDurationExpiresAt(duration: ConditionStatusDuration): number | null 
   return Number.isFinite(expiresAt) ? expiresAt : null;
 }
 
+export function getNextConditionStatusExpiryMs(
+  conditionInput: CultivatorCondition | undefined,
+  now: Date,
+): number | null {
+  const nowMs = now.getTime();
+  let nextExpiryMs: number | null = null;
+
+  for (const status of conditionInput?.statuses ?? []) {
+    if (
+      typeof status.usesRemaining === 'number' &&
+      status.usesRemaining <= 0
+    ) {
+      continue;
+    }
+    const expiresAt = getDurationExpiresAt(status.duration);
+    if (expiresAt === null || expiresAt <= nowMs) continue;
+    nextExpiryMs =
+      nextExpiryMs === null ? expiresAt : Math.min(nextExpiryMs, expiresAt);
+  }
+
+  return nextExpiryMs;
+}
+
 export function isConditionStatusActive(
   status: ConditionStatusInstance,
   now: Date = new Date(),

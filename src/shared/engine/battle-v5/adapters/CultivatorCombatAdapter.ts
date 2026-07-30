@@ -160,5 +160,6 @@ export function createCombatUnitFromCultivator(
   }
 
   unit.updateDerivedStats();
+  unit.initializeCurrentResourcesToMax();
   return unit;
 }

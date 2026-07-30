@@ -9,6 +9,8 @@ import type {
 } from '@shared/contracts/resources';
 import type { SectTaskSettlementData } from '@shared/contracts/sect';
 import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
+import type { SectBattleStateStrategy } from '@shared/engine/sect';
+import type { CultivatorCondition } from '@shared/types/condition';
 import type {
   CultivatorSectState,
   SectAbilitySlots,
@@ -278,6 +280,10 @@ export interface SectCultivatorGateway {
     realm: RealmType;
     stage: RealmStage;
   } | null>;
+  saveCondition(
+    cultivatorId: string,
+    condition: CultivatorCondition,
+  ): Promise<void>;
 }
 
 export interface SectRewardMaterialCandidate {
@@ -297,11 +303,15 @@ export interface SectRewardMaterialCatalogGateway {
 }
 
 export interface SectBattleGateway {
-  simulate(
+  execute(
     player: CultivatorCombatInput,
     opponent: CultivatorCombatInput,
+    strategy: SectBattleStateStrategy,
     seed: string,
-  ): BattleRecord;
+  ): {
+    battleResult: BattleRecord;
+    nextCondition?: CultivatorCondition;
+  };
 }
 
 export interface SectRewardGateway {

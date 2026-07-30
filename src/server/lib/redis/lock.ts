@@ -60,7 +60,6 @@ export type WithRedisLockOptions = {
   key?: string;
   keys?: string[];
   timeoutMs?: number;
-  renewEveryMs?: number;
   retries?: number;
   delayMs?: number;
   context: string;
@@ -94,11 +93,11 @@ export async function withRedisLock<T>(
 ): Promise<T> {
   const keys = normalizeLockKeys(options);
   const timeoutMs = options.timeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
-  const renewEveryMs = options.renewEveryMs;
-
-  if (renewEveryMs !== undefined && renewEveryMs >= timeoutMs / 2) {
-    throw new Error('renewEveryMs 必须小于 timeoutMs / 2');
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 3) {
+    throw new Error('timeoutMs 必须是至少 3 毫秒的安全整数');
   }
+  // 续租频率是锁实现细节，调用方只负责声明租约超时时间。
+  const renewEveryMs = Math.floor(timeoutMs / 3);
 
   const acquired: Array<{ key: string; lock: Lock }> = [];
   let leaseLostError: RedisLeaseLostError | null = null;
@@ -137,7 +136,7 @@ export async function withRedisLock<T>(
   };
 
   const scheduleRenewal = () => {
-    if (renewEveryMs === undefined || stopped || leaseLostError) return;
+    if (stopped || leaseLostError) return;
     renewalTimer = setTimeout(() => {
       renewalInFlight = renew().finally(() => {
         renewalInFlight = undefined;

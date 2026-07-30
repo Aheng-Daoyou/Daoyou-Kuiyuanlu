@@ -3,7 +3,7 @@ import {
   ModifierType,
 } from '@shared/engine/battle-v5/core/types';
 import type {
-  BattleInitConfigV5,
+  BattleUnitInitFragment,
   TrainingRoomModifierDraft,
 } from '@shared/engine/battle-v5/setup/types';
 
@@ -186,7 +186,10 @@ export function parseTrainingRoomStorage(raw: string | null | undefined): Traini
 
 export function buildTrainingBattleInitConfig(
   draft: TrainingRoomDraft,
-): BattleInitConfigV5 {
+): {
+  playerFragment: BattleUnitInitFragment;
+  opponentFragment: BattleUnitInitFragment;
+} {
   const sanitized = sanitizeDraft(draft);
 
   const opponentModifiers = sanitized.dummy.modifiers.map((modifier) => ({
@@ -212,13 +215,8 @@ export function buildTrainingBattleInitConfig(
   }
 
   return {
-    player: {
-      resourceState: {
-        hp: { mode: 'percent', value: 1 },
-        mp: { mode: 'percent', value: 1 },
-      },
-    },
-    opponent: {
+    playerFragment: {},
+    opponentFragment: {
       baseAttributeOverrides: {
         [AttributeType.SPIRIT]: sanitized.dummy.baseAttributes.spirit,
         [AttributeType.VITALITY]: sanitized.dummy.baseAttributes.vitality,
@@ -227,16 +225,6 @@ export function buildTrainingBattleInitConfig(
         [AttributeType.WISDOM]: sanitized.dummy.baseAttributes.wisdom,
       },
       modifiers: opponentModifiers,
-      resourceState: {
-        hp:
-          sanitized.dummy.maxHp > 0
-            ? { mode: 'absolute', value: sanitized.dummy.maxHp }
-            : { mode: 'percent', value: 1 },
-        mp:
-          sanitized.dummy.maxMp > 0
-            ? { mode: 'absolute', value: sanitized.dummy.maxMp }
-            : { mode: 'percent', value: 1 },
-      },
     },
   };
 }

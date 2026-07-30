@@ -12,6 +12,7 @@ import {
 } from '@shared/engine/creation-v2/persistence/ProductPersistenceMapper';
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import { simulateBattleV5 } from '@shared/lib/battle/simulateBattleV5';
+import { prepareStandardFullBattle } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import {
   getRealmStageAttributeBudget,
   getRealmStageNaturalAttributeValue,
@@ -761,8 +762,12 @@ describe('EnemyGenerator', () => {
     expect(() => createCombatUnitFromCultivator(normalEnemy)).not.toThrow();
     expect(() => createCombatUnitFromCultivator(bossEnemy)).not.toThrow();
 
-    const normalResult = simulateBattleV5(player, normalEnemy);
-    const bossResult = simulateBattleV5(player, bossEnemy);
+    const normalResult = simulateBattleV5(
+      prepareStandardFullBattle({ player, opponent: normalEnemy }),
+    );
+    const bossResult = simulateBattleV5(
+      prepareStandardFullBattle({ player, opponent: bossEnemy }),
+    );
     expect(normalResult.winner).toBeDefined();
     expect(normalResult.logs.length).toBeGreaterThan(0);
     expect(bossResult.winner).toBeDefined();
@@ -802,9 +807,21 @@ describe('EnemyGenerator', () => {
     );
 
     expect(nakedLowPrimaryDefense).toBeLessThan(playerPrimaryOutput);
-    expect(simulateBattleV5(player, lowEnemy).winner.id).toBe(player.id);
-    expect(simulateBattleV5(player, midEnemy).turns).toBeGreaterThan(3);
-    expect(simulateBattleV5(player, eliteEnemy).turns).toBeGreaterThan(1);
+    expect(
+      simulateBattleV5(
+        prepareStandardFullBattle({ player, opponent: lowEnemy }),
+      ).winner.id,
+    ).toBe(player.id);
+    expect(
+      simulateBattleV5(
+        prepareStandardFullBattle({ player, opponent: midEnemy }),
+      ).turns,
+    ).toBeGreaterThan(3);
+    expect(
+      simulateBattleV5(
+        prepareStandardFullBattle({ player, opponent: eliteEnemy }),
+      ).turns,
+    ).toBeGreaterThan(1);
   });
 
   it('returns the same draft when shared uses the noop copy provider', async () => {

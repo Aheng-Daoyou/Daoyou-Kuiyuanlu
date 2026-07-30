@@ -1,4 +1,7 @@
 import {
+  RESOURCE_DATA_SCHEMAS,
+} from '@shared/contracts/resources';
+import {
   SectTaskSubmissionInputSchema,
   type SectTaskActionOutcome,
   type SectTaskSubmissionInput,
@@ -593,15 +596,37 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
     if (!target.success) invalid('宗门战斗目标快照缺失', 500);
     const opponent = structuredClone(target.data.combatant);
     opponent.id = `sect-task-${context.record.id}-${context.requestId}`;
-    const battle = context.ports.battle.simulate(
+    const factory = context.ports.modules
+      .require(context.membership.sectId)
+      .battles.get(context.definition.id);
+    if (!factory) invalid('该宗门任务未配置战斗场景', 500);
+    const resolution = context.ports.battle.execute(
       player,
       opponent,
+      factory.stateStrategy,
       `${context.record.id}:${context.requestId}`,
     );
+    const battle = resolution.battleResult;
+    const effects = emptySectCommandEffects();
+    if (resolution.nextCondition) {
+      await context.ports.cultivators.saveCondition(
+        context.cultivatorId,
+        resolution.nextCondition,
+      );
+      effects.resourceChanges.push({
+        resourceTopic: 'player.condition',
+        eventType: 'condition.sect_battle.settled',
+        operation: 'replace',
+        payload: RESOURCE_DATA_SCHEMAS['player.condition'].parse(
+          resolution.nextCondition,
+        ),
+      });
+    }
     const won = battle.winner.id === player.id;
     return {
       completed: won,
       completionSettlement: 'deferred',
+      effects,
       outcome: {
         renderer: 'sect.outcome.battle',
         data: {

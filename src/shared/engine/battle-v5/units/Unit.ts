@@ -78,6 +78,40 @@ export class Unit {
   }
 
   /**
+   * 仅用于战斗单元组装完成后的初始状态。
+   * 战斗中的派生属性刷新必须继续使用 updateDerivedStats，避免隐式治疗。
+   */
+  initializeCurrentResourcesToMax(): void {
+    this.currentHp = this.maxHp;
+    this.currentMp = this.maxMp;
+  }
+
+  initializeResources(options: {
+    hp?: number;
+    mp?: number;
+    shield?: number;
+  }): void {
+    if (typeof options.hp === 'number') {
+      if (!Number.isFinite(options.hp)) {
+        throw new Error('初始气血必须为有限数值');
+      }
+      this.currentHp = Math.max(0, Math.min(this.maxHp, options.hp));
+    }
+    if (typeof options.mp === 'number') {
+      if (!Number.isFinite(options.mp)) {
+        throw new Error('初始法力必须为有限数值');
+      }
+      this.currentMp = Math.max(0, Math.min(this.maxMp, options.mp));
+    }
+    if (typeof options.shield === 'number') {
+      if (!Number.isFinite(options.shield)) {
+        throw new Error('初始护盾必须为有限数值');
+      }
+      this.currentShield = Math.max(0, Math.round(options.shield));
+    }
+  }
+
+  /**
    * 增加护盾
    */
   addShield(amount: number): void {

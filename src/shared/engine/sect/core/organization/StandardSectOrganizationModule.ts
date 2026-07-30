@@ -695,6 +695,7 @@ class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
         'mine_patrol',
         {
           acquisition: 'preset',
+          stateStrategy: 'persistent_world',
           create({ player, opponentId }) {
             return {
               opponent: createRealmNpcOpponent(
@@ -715,6 +716,7 @@ class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
         'weekly_tournament',
         {
           acquisition: 'same-sect',
+          stateStrategy: 'standard_full',
           create({ target, opponentId }) {
             if (!target) throw new Error('宗门小比缺少已锁定对手');
             return {
@@ -729,6 +731,7 @@ class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
         'weekly_bounty_battle',
         {
           acquisition: 'other-sect',
+          stateStrategy: 'persistent_world',
           create({ target, opponentId }) {
             if (!target) throw new Error('战斗悬赏缺少已锁定目标');
             return {
@@ -743,6 +746,7 @@ class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
         'elder_trial',
         {
           acquisition: 'preset',
+          stateStrategy: 'persistent_world',
           create({ sectId, opponentId }) {
             const preset = theme.elderTrial;
             if (!preset)

@@ -5,12 +5,12 @@ import {
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
 import * as auctionRepository from '@server/lib/repositories/auctionRepository';
-import { AuctionServiceError } from '@server/lib/services/AuctionService';
 import {
   buyAuctionListing,
   cancelAuctionListing,
   listAuctionItem,
 } from '@server/lib/services/AuctionApplicationService';
+import { AuctionServiceError } from '@server/lib/services/AuctionService';
 import { toPlayerStateMutationResponse } from '@server/lib/services/ResourceMutationResponse';
 import { QUALITY_VALUES } from '@shared/types/constants';
 import { Hono } from 'hono';
@@ -167,6 +167,13 @@ router.post('/list', requireActiveCultivatorRef(), async (c) => {
     return c.json({ error: '未授权访问' }, 401);
   }
 
+  const request = ListSchema.safeParse(
+    await c.req.json().catch(() => undefined),
+  );
+  if (!request.success) {
+    return c.json({ error: '参数错误', details: request.error.issues }, 400);
+  }
+
   try {
     const {
       itemType,
@@ -175,7 +182,7 @@ router.post('/list', requireActiveCultivatorRef(), async (c) => {
       quantity,
       visibility,
       targetCultivatorId,
-    } = ListSchema.parse(await c.req.json());
+    } = request.data;
 
     const committed = await listAuctionItem({
       actor: {
@@ -193,10 +200,6 @@ router.post('/list', requireActiveCultivatorRef(), async (c) => {
   } catch (error) {
     const lockErrorResponse = redisLockErrorResponse(error);
     if (lockErrorResponse) return lockErrorResponse;
-    if (error instanceof z.ZodError) {
-      return c.json({ error: '参数错误', details: error.issues }, 400);
-    }
-
     if (error instanceof AuctionServiceError) {
       return jsonWithStatus(
         c,

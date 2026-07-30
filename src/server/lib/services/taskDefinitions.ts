@@ -89,6 +89,7 @@ export type RuntimeTaskDefinition =
 export interface TaskChallengeProfile {
   id: string;
   title: string;
+  stateStrategy: 'persistent_world';
   enemyDifficulty?: number;
   buildOpponent: (
     cultivator: CultivatorCombatInput,
@@ -163,6 +164,7 @@ const challengeProfiles: TaskChallengeProfile[] = [
   {
     id: 'heart_demon_nascent',
     title: '心魔劫',
+    stateStrategy: 'persistent_world',
     buildOpponent: (cultivator) =>
       cloneMirrorOpponent(
         cultivator,
@@ -182,6 +184,7 @@ const challengeProfiles: TaskChallengeProfile[] = [
   {
     id: 'tribulation_deity',
     title: '化神之扰',
+    stateStrategy: 'persistent_world',
     enemyDifficulty: BREAKTHROUGH_CHALLENGE_ENEMY_DIFFICULTY.tribulationDeity,
     buildOpponent: (cultivator) =>
       buildGeneratedChallengeOpponent(cultivator, {
@@ -194,6 +197,7 @@ const challengeProfiles: TaskChallengeProfile[] = [
   {
     id: 'law_insight_void',
     title: '法则试锋',
+    stateStrategy: 'persistent_world',
     enemyDifficulty: BREAKTHROUGH_CHALLENGE_ENEMY_DIFFICULTY.lawInsightVoid,
     buildOpponent: (cultivator) =>
       buildGeneratedChallengeOpponent(cultivator, {
@@ -206,6 +210,7 @@ const challengeProfiles: TaskChallengeProfile[] = [
   {
     id: 'tribulation_body',
     title: '雷劫淬体',
+    stateStrategy: 'persistent_world',
     enemyDifficulty: BREAKTHROUGH_CHALLENGE_ENEMY_DIFFICULTY.tribulationBody,
     buildOpponent: (cultivator) =>
       buildGeneratedChallengeOpponent(cultivator, {
@@ -218,6 +223,7 @@ const challengeProfiles: TaskChallengeProfile[] = [
   {
     id: 'inner_demon_grand',
     title: '大执念劫',
+    stateStrategy: 'persistent_world',
     buildOpponent: (cultivator) =>
       cloneMirrorOpponent(cultivator, {
         name: '执念化身',
@@ -229,6 +235,7 @@ const challengeProfiles: TaskChallengeProfile[] = [
   {
     id: 'heavenly_tribulation_final',
     title: '天劫前奏',
+    stateStrategy: 'persistent_world',
     enemyDifficulty:
       BREAKTHROUGH_CHALLENGE_ENEMY_DIFFICULTY.heavenlyTribulationFinal,
     buildOpponent: (cultivator) =>
@@ -247,7 +254,7 @@ const breakthroughDefinitions: BreakthroughTaskDefinition[] = [
     id: 'major_breakthrough_炼气_筑基',
     category: 'breakthrough_major',
     title: '筑基前引',
-    summary: '先凝住一口破境心气，再经药园试炼稳住根基，方可回静室冲击筑基。',
+    summary: '先凝住一口破境心气，稳住根基，便可回静室冲击筑基。',
     fromRealm: '炼气',
     toRealm: '筑基',
     taskTheme: 'foundation',
@@ -269,26 +276,6 @@ const breakthroughDefinitions: BreakthroughTaskDefinition[] = [
             title: '凝成破境心气',
             description: '服用筑基丹，让药力在丹田中化开，稳住冲击筑基前的第一口气。',
             statusKey: 'breakthrough_focus',
-          },
-        ],
-      },
-      {
-        id: 'foundation-trial',
-        title: '闯废弃药园',
-        description: '去血色禁地边缘的废弃药园走一遭，借险地灵机打磨根基。',
-        completionText: '药园灵机已历，根基略稳。',
-        links: [
-          { label: '去云游探秘', kind: 'dungeon' },
-          { label: '返回静室', kind: 'retreat' },
-        ],
-        objectives: [
-          {
-            id: 'clear-garden',
-            kind: 'complete_dungeon',
-            title: '通过落日森林·废弃药园',
-            description: '完成一次药园历练，稳住破境前的根基与心神。',
-            mapNodeId: 'SAT_TN_03',
-            mapNodeName: '落日森林·废弃药园',
           },
         ],
       },

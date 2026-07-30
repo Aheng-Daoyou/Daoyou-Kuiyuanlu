@@ -2,7 +2,7 @@ import {
   getCultivatorDisplayAttributes,
   type CultivatorDisplayInput,
 } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
-import type { BattleInitConfigV5 } from '@shared/engine/battle-v5/setup/types';
+import type { BattleUnitInitFragment } from '@shared/engine/battle-v5/setup/types';
 import type { UnitStateSnapshot } from '@shared/engine/battle-v5/systems/state/types';
 import {
   getBreakthroughPenalty,
@@ -20,13 +20,10 @@ import {
 import {
   breakthroughBodyCultivationRealm as advanceBodyCultivationRealm,
 } from '@shared/lib/bodyCultivation/breakthrough';
-import {
-  getBodyCultivationBattleInitHooks,
-} from '@shared/lib/bodyCultivation/effects';
+import { buildConditionBattleUnitInitFragment } from '@shared/lib/conditionBattle';
 import { PILL_TOXICITY_CAP } from '@shared/config/consumableSystem';
 import { normalizeMarrowWashState } from '@shared/lib/marrowWash';
 import type {
-  BattleMode,
   BodyCultivationRealm,
   ConditionStatusDuration,
   ConditionStatusInstance,
@@ -261,16 +258,6 @@ function setBattleWoundStatus(
   }
 
   return setMinimumWoundStatus(statuses, downgraded, now);
-}
-
-function toBattleStatusRefs(statuses: ConditionStatusInstance[], now: Date) {
-  return statuses
-    .filter((status) => isConditionStatusActive(status, now))
-    .map((status) => ({
-      version: 1 as const,
-      templateId: status.key,
-      stacks: status.stacks,
-    }));
 }
 
 function buildDefaultCondition(
@@ -628,21 +615,20 @@ export const ConditionService = {
     };
   },
 
-  buildBattleInit(
+  preparePersistentBattleCondition(
     cultivator: ConditionCultivatorFacts,
     conditionInput: CultivatorCondition | undefined,
-    mode: BattleMode,
     now: Date = new Date(),
-  ): BattleInitConfigV5 {
-    if (mode !== 'persistent_pve') {
-      return {};
-    }
-
+  ): {
+    condition: CultivatorCondition;
+    playerFragment: BattleUnitInitFragment;
+  } {
     const condition = this.tickNaturalRecovery(cultivator, conditionInput, now);
-    const battleInitHooks = getBodyCultivationBattleInitHooks(condition);
 
     return {
-      player: {
+      condition,
+      playerFragment: {
+        ...buildConditionBattleUnitInitFragment(condition, now),
         resourceState: {
           hp: {
             mode: 'absolute',
@@ -653,28 +639,22 @@ export const ConditionService = {
             value: condition.resources.mp.current,
           },
         },
-        statusRefs: toBattleStatusRefs(condition.statuses, now),
-        startingBuffs: battleInitHooks.startingBuffs.map((buff) => ({
-          buff,
-          source: 'self',
-        })),
       },
     };
   },
 
-  applyBattleOutcome(
+  settlePersistentBattleCondition(
     cultivator: ConditionCultivatorFacts,
-    conditionInput: CultivatorCondition | undefined,
+    conditionBaseline: CultivatorCondition,
     playerSnapshot: UnitStateSnapshot,
-    mode: BattleMode,
     didLose: boolean,
     now: Date = new Date(),
   ): CultivatorCondition {
-    if (mode !== 'persistent_pve') {
-      return this.normalizeCondition(cultivator, conditionInput, now);
-    }
-
-    const condition = this.tickNaturalRecovery(cultivator, conditionInput, now);
+    const condition = this.normalizeCondition(
+      cultivator,
+      conditionBaseline,
+      now,
+    );
     const { maxHp, maxMp } = this.getMaxResources(cultivator, condition);
 
     if (didLose) {

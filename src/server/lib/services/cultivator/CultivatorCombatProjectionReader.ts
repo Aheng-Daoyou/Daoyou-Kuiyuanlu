@@ -144,7 +144,7 @@ export async function loadCultivatorCombatInput(
     userId: owner.userId,
     cultivator: {
       ...baseInput,
-      condition: ConditionService.tickNaturalRecovery(
+      condition: ConditionService.normalizeCondition(
         baseInput,
         storedCondition,
         undefined,

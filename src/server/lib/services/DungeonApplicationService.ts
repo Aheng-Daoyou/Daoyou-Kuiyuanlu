@@ -10,12 +10,12 @@ import {
   type RedisLeaseContext,
 } from '@server/lib/redis/lock';
 import { hasCultivatorRecoveryPill } from '@server/lib/repositories/cultivatorRepository';
-import { loadPlayerDungeonReadinessFacts } from '@server/lib/services/cultivator/CultivatorConditionFactsReader';
+import { loadCultivatorCombatInput } from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
 import {
   RESOURCE_DATA_SCHEMAS,
   type ResourceChangeDescriptor,
 } from '@shared/contracts/resources';
-import { getCultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import { projectBattleUnitEntryState } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import {
   canChallengeDungeonRealm,
   getMapNode,
@@ -26,6 +26,7 @@ import {
   type NoviceDungeonReadiness,
 } from '@shared/lib/noviceGuidance';
 import { playerCommandExecutor } from './CommandExecutors';
+import { resolvePersistentWorldPlayerState } from './BattleStateCoordinator';
 import { readPlayerTaskSummary } from './PlayerResourceReaderService';
 import { toPlayerStateMutationResponse } from './ResourceMutationResponse';
 import { TaskService } from './TaskService';
@@ -91,7 +92,6 @@ export async function executeDungeonCommand(args: {
       key: redisLockKeys.cultivatorMutation(args.cultivatorId),
       context: source,
       timeoutMs: 240_000,
-      renewEveryMs: 60_000,
       retries: 0,
     },
     async (lease) => {
@@ -146,15 +146,21 @@ async function assertDungeonStartReady(args: {
   if (!isSatelliteNode(args.mapNodeId)) {
     throw new DungeonStartError('只有秘境节点可以进行副本挑战', 400);
   }
-  const [isFirstDungeonTutorialActive, cultivator, hasRecoveryPill] =
+  const now = new Date();
+  const [isFirstDungeonTutorialActive, cultivatorBundle, hasRecoveryPill] =
     await Promise.all([
       TaskService.isFirstDungeonTutorialActive(args.cultivatorId),
-      loadPlayerDungeonReadinessFacts(args.userId, args.cultivatorId),
+      loadCultivatorCombatInput(args.cultivatorId),
       hasCultivatorRecoveryPill(args.cultivatorId),
     ]);
-  if (!cultivator) {
+  if (!cultivatorBundle || cultivatorBundle.userId !== args.userId) {
     throw new DungeonStartError('当前没有活跃角色', 404);
   }
+  const preparedPlayer = resolvePersistentWorldPlayerState({
+    player: cultivatorBundle.cultivator,
+    now,
+  });
+  const cultivator = preparedPlayer.player;
   const selectedNode = getMapNode(args.mapNodeId);
   const selectedNodeRealm =
     selectedNode && 'realm_requirement' in selectedNode
@@ -169,12 +175,15 @@ async function assertDungeonStartReady(args: {
       409,
     );
   }
-  const display = getCultivatorDisplaySnapshot(cultivator);
+  const entryState = projectBattleUnitEntryState({
+    cultivator,
+    state: preparedPlayer.playerState,
+  });
   const readiness = evaluateNoviceReadiness({
     cultivator,
     selectedNodeRealm,
-    hp: display.resources.hp,
-    mp: display.resources.mp,
+    hp: entryState.hp,
+    mp: entryState.mp,
     isFirstDungeonTutorialActive,
     hasRecoveryPill,
   });

@@ -57,7 +57,6 @@ export function consumeCultivatorConsumable(args: {
       key: redisLockKeys.cultivatorMutation(args.actor.cultivatorId),
       context: 'consumable-use',
       timeoutMs: 30_000,
-      renewEveryMs: 10_000,
       retries: 0,
     },
     (lease) =>

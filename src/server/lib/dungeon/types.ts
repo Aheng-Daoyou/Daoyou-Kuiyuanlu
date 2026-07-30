@@ -1,6 +1,3 @@
-import type {
-  BattleInitConfigV5,
-} from '@shared/engine/battle-v5/setup/types';
 import type { ResourceOperation } from '@shared/engine/resource/types';
 import {
   ENEMY_RACE_VALUES,
@@ -335,7 +332,6 @@ export interface BattleSession {
     level: string;
     difficulty: number;
   };
-  battleInit: BattleInitConfigV5;
 }
 
 export type DungeonRunStatus =

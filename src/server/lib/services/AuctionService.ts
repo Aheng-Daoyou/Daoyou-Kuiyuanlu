@@ -18,6 +18,7 @@ import {
 import * as schema from '../drizzle/schema';
 import { mapConsumableRow } from './consumablePersistence';
 import { toArtifactFromProduct } from './creationProductArtifactSupport';
+import { mapMaterialRow } from './cultivator/CultivatorInventoryRepository';
 import {
   assertFriend,
   FriendServiceError,
@@ -181,7 +182,7 @@ export async function getAuctionItemSnapshot(
           ),
         )
         .limit(1);
-      return (material as Material | null) || null;
+      return material ? mapMaterialRow(material) : null;
     }
     case 'artifact': {
       const artifact = await getArtifactProductSnapshot(

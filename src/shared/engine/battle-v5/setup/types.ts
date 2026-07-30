@@ -44,10 +44,32 @@ export interface BattleUnitInitSpec {
   startingBuffs?: BattleUnitInitStartingBuff[];
 }
 
+export type BattleUnitInitFragment = BattleUnitInitSpec;
+
+export interface ResolvedBattleUnitInit
+  extends Omit<BattleUnitInitSpec, 'resourceState'> {
+  resourceState: {
+    hp: ResourcePointState;
+    mp: ResourcePointState;
+    shield?: number | ResourcePointState;
+  };
+}
+
 export interface BattleInitConfigV5 {
   player?: BattleUnitInitSpec;
   opponent?: BattleUnitInitSpec;
 }
+
+export interface ResolvedBattleInitConfigV5 {
+  player: ResolvedBattleUnitInit;
+  opponent: ResolvedBattleUnitInit;
+}
+
+export type BattleStateStrategyId =
+  | 'standard_full'
+  | 'persistent_world'
+  | 'isolated_run'
+  | 'training_custom';
 
 export interface CombatStatusTemplateDisplay {
   icon: string;

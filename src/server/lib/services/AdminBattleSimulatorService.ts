@@ -16,6 +16,7 @@ import type {
 } from '@shared/contracts/adminBattleSimulator';
 import { EnemyGenerator } from '@shared/engine/enemyGenerator';
 import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
+import { prepareStandardFullBattle } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import type { BattleRecord } from '@shared/types/battle';
 import {
   ENEMY_RACE_VALUES,
@@ -405,8 +406,10 @@ export class AdminBattleSimulatorService {
     combatants: { a: Combatant; b: Combatant },
   ): SimulationRun {
     const record = this.simulateBattle(
-      combatants.a.cultivator,
-      combatants.b.cultivator,
+      prepareStandardFullBattle({
+        player: combatants.a.cultivator,
+        opponent: combatants.b.cultivator,
+      }),
     );
     const winnerSide = record.winner.id === combatants.a.cultivator.id ? 'A' : 'B';
     return {

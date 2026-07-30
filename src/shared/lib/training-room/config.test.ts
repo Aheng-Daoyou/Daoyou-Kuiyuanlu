@@ -1,5 +1,6 @@
 import { simulateBattleV5 } from '@server/lib/services/simulateBattleV5';
 import type { Cultivator } from '@shared/types/cultivator';
+import { prepareStandardFullBattle } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import {
   buildTrainingBattleInitConfig,
   createDefaultTrainingRoomStorage,
@@ -84,11 +85,18 @@ describe('training-room config', () => {
   test('默认练功房配置能把木桩首帧初始化为十万血', () => {
     const player = createCultivator('player', '道友');
     const dummy = createCultivator('dummy', '木桩');
-    const initConfig = buildTrainingBattleInitConfig(
+    const fragments = buildTrainingBattleInitConfig(
       createDefaultTrainingRoomStorage().currentDraft,
     );
 
-    const result = simulateBattleV5(player, dummy, initConfig);
+    const result = simulateBattleV5(
+      prepareStandardFullBattle({
+        player,
+        opponent: dummy,
+        strategyId: 'training_custom',
+        ...fragments,
+      }),
+    );
     const initFrame = result.stateTimeline.frames[0].units.dummy;
 
     expect(initFrame.hp.current).toBe(100_000);
@@ -96,15 +104,10 @@ describe('training-room config', () => {
   });
 
   test('训练初始化不会读取玩家自定义草稿', () => {
-    const initConfig = buildTrainingBattleInitConfig({
+    const fragments = buildTrainingBattleInitConfig({
       dummy: createDefaultTrainingRoomStorage().currentDraft.dummy,
     } as unknown as Parameters<typeof buildTrainingBattleInitConfig>[0]);
 
-    expect(initConfig.player).toEqual({
-      resourceState: {
-        hp: { mode: 'percent', value: 1 },
-        mp: { mode: 'percent', value: 1 },
-      },
-    });
+    expect(fragments.playerFragment).toEqual({});
   });
 });

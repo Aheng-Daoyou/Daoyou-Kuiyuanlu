@@ -1,7 +1,9 @@
 import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
 import { useTaskList } from '@app/lib/hooks/useTaskList';
 import { useDungeonViewModel } from '@app/lib/hooks/dungeon/useDungeonViewModel';
-import { Suspense, useCallback } from 'react';
+import { projectBattleUnitEntryState } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
+import { buildConditionBattleUnitInitFragment } from '@shared/lib/conditionBattle';
+import { Suspense, useCallback, useMemo } from 'react';
 import { DungeonSceneScreen } from './dungeonScene';
 import { resolveDungeonSceneDescriptor } from './dungeonSceneRegistry';
 import { DungeonViewRenderer } from './components/DungeonViewRenderer';
@@ -18,7 +20,28 @@ import { useNavigate, useSearchParams } from 'react-router';
 function DungeonContent() {
   const projection = useCultivatorDisplayProjection();
   const cultivator = projection.data?.cultivator ?? null;
-  const display = projection.data?.display ?? null;
+  const battleEntryResources = useMemo(() => {
+    const data = projection.data;
+    if (!data) return undefined;
+    const entry = projectBattleUnitEntryState({
+      cultivator: data.cultivator,
+      state: {
+        resources: {
+          kind: 'absolute',
+          hp: data.projectedCondition.resources.hp.current,
+          mp: data.projectedCondition.resources.mp.current,
+        },
+        fragment: buildConditionBattleUnitInitFragment(
+          data.projectedCondition,
+          data.now,
+        ),
+      },
+    });
+    return {
+      hp: entry.hp,
+      mp: entry.mp,
+    };
+  }, [projection.data]);
   const isCultivatorLoading = projection.loading;
   const { tasks, loading: tasksLoading } = useTaskList(cultivator?.id);
   const [searchParams] = useSearchParams();
@@ -55,7 +78,7 @@ function DungeonContent() {
     <DungeonViewRenderer
       viewState={viewState}
       cultivator={cultivator}
-      displayResources={display?.resources}
+      displayResources={battleEntryResources}
       tasks={tasks}
       processing={processing}
       actions={actions}

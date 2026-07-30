@@ -124,7 +124,6 @@ export async function executeCraftCommand(args: {
       lock: {
         context: `alchemy-${mode}`,
         timeoutMs: 60_000,
-        renewEveryMs: 20_000,
       },
       command: async (tx) => {
         const qiReservation = await QiService.reserveQi({
@@ -193,7 +192,6 @@ export async function executeCraftCommand(args: {
     lock: {
       context: `creation-${creationCraftType}`,
       timeoutMs: 60_000,
-      renewEveryMs: 20_000,
     },
     command: async (tx) => {
       const qiReservation = await QiService.reserveQi({

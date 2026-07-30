@@ -132,7 +132,6 @@ async function withJobLock<T extends CronJobResult>(
         key: redisLockKeys.cron(jobName),
         context: `cron:${jobName}`,
         timeoutMs: ttlSeconds * 1000,
-        renewEveryMs: Math.max(1_000, Math.floor((ttlSeconds * 1000) / 3)),
         retries: 0,
       },
       async (lease) => {

@@ -20,6 +20,7 @@ import {
   type CultivatorTaskRecord,
 } from '@server/lib/repositories/taskRepository';
 import { loadCultivatorCombatInput } from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
+import { updateCultivator } from '@server/lib/services/cultivator/CultivatorStateRepository';
 import { getNextStage } from '@server/utils/breakthroughCalculator';
 import { getOrInitCultivationProgress } from '@server/utils/cultivationUtils';
 import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
@@ -49,7 +50,7 @@ import type {
   TaskStatus,
 } from '@shared/types/task';
 import { MailService } from './MailService';
-import { simulateBattleV5 } from './simulateBattleV5';
+import { executePersistentWorldBattle } from './BattleStateCoordinator';
 import {
   getBreakthroughTaskDefinition,
   getBreakthroughTaskDefinitionByTransition,
@@ -76,6 +77,7 @@ export interface TaskChallengeResult {
   battleResult: BattleRecord;
   isWin: boolean;
   challengeTitle: string;
+  condition: NonNullable<Cultivator['condition']>;
 }
 
 export interface MajorBreakthroughGate {
@@ -1509,8 +1511,18 @@ export const TaskService = {
     }
 
     const opponent = await challengeProfile.buildOpponent(cultivator);
-    const battleResult = simulateBattleV5(cultivator, opponent);
-    const isWin = battleResult.winner.id === cultivator.id;
+    const execution = executePersistentWorldBattle({
+      strategyId: challengeProfile.stateStrategy,
+      player: cultivator,
+      opponent,
+    });
+    const { battleResult, nextCondition, didLose } = execution;
+    const isWin = !didLose;
+    await updateCultivator(
+      cultivatorId,
+      { condition: nextCondition },
+      options.tx,
+    );
 
     if (isWin) {
       const nextStates = normalizeObjectiveStates(record.objectives);
@@ -1559,6 +1571,7 @@ export const TaskService = {
       battleResult,
       isWin,
       challengeTitle: challengeProfile.title,
+      condition: nextCondition,
     };
   },
 };

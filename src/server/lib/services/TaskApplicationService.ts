@@ -1,5 +1,6 @@
 import type { DbTransaction } from '@server/lib/drizzle/db';
 import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
+import { RESOURCE_DATA_SCHEMAS } from '@shared/contracts/resources';
 import {
   readPlayerMailSummary,
   readPlayerTaskSummary,
@@ -58,6 +59,14 @@ export function executeTaskChallengeCommand(args: {
             eventType: 'tasks.challenge_resolved',
             operation: 'replace',
             payload: taskSummary,
+          },
+          {
+            resourceTopic: 'player.condition',
+            eventType: 'condition.task_battle.settled',
+            operation: 'replace',
+            payload: RESOURCE_DATA_SCHEMAS['player.condition'].parse(
+              result.condition,
+            ),
           },
         ],
       };

@@ -15,6 +15,7 @@ import {
   usePlayerLoadout,
 } from '@app/lib/resources/player';
 import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
+import { prepareStandardFullBattle } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import type { BattleRecord } from '@shared/types/battle';
 import { simulateBattleV5 } from '@shared/lib/battle/simulateBattleV5';
 import { getResourceText } from '@shared/lib/gameConceptDisplay';
@@ -302,10 +303,14 @@ export default function TrainingRoomPage() {
         realm_stage: '初期',
       };
 
+      const fragments = buildTrainingBattleInitConfig(nextDraft);
       const result = simulateBattleV5(
-        cultivator,
-        mockDummy,
-        buildTrainingBattleInitConfig(nextDraft),
+        prepareStandardFullBattle({
+          player: cultivator,
+          opponent: mockDummy,
+          strategyId: 'training_custom',
+          ...fragments,
+        }),
       );
 
       setBattleResult(result);

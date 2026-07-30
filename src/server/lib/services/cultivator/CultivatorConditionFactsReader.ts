@@ -176,58 +176,6 @@ export async function loadPlayerInnRecoveryFacts(
   };
 }
 
-export async function loadPlayerDungeonReadinessFacts(
-  userId: string,
-  cultivatorId: string,
-  executor?: DbExecutor | DbTransaction,
-): Promise<CultivatorDisplayInput | null> {
-  const q = executor ?? getExecutor();
-  const [row] = await q
-    .select({
-      id: schema.cultivators.id,
-      name: schema.cultivators.name,
-      realm: schema.cultivators.realm,
-      realmStage: schema.cultivators.realm_stage,
-      vitality: schema.cultivators.vitality,
-      spirit: schema.cultivators.spirit,
-      wisdom: schema.cultivators.wisdom,
-      speed: schema.cultivators.speed,
-      willpower: schema.cultivators.willpower,
-      condition: schema.cultivators.condition,
-    })
-    .from(schema.cultivators)
-    .where(activeOwnedCultivatorFilter(userId, cultivatorId))
-    .limit(1);
-  if (!row) return null;
-  const [sect, gongfa, artifacts] = await runDbTasks(q, [
-    () => loadCultivatorSectState(cultivatorId, q),
-    () =>
-      creationProductRepository.findEquippedByType(cultivatorId, 'gongfa', q),
-    () =>
-      creationProductRepository.findEquippedByType(cultivatorId, 'artifact', q),
-  ]);
-  const loadout = mapLoadoutFromProducts([gongfa, artifacts]);
-  return {
-    id: row.id,
-    name: row.name,
-    realm: row.realm as RealmType,
-    realm_stage: row.realmStage as RealmStage,
-    attributes: {
-      vitality: row.vitality,
-      spirit: row.spirit,
-      wisdom: row.wisdom,
-      speed: row.speed,
-      willpower: row.willpower,
-    },
-    condition:
-      (row.condition as CultivatorCondition | null | undefined) ?? undefined,
-    cultivations: loadout.cultivations,
-    equipped: loadout.equipped,
-    inventory: { artifacts: loadout.artifacts },
-    sect,
-  };
-}
-
 export async function loadPlayerConsumableOperationFacts(
   userId: string,
   cultivatorId: string,

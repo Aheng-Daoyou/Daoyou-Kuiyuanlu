@@ -1,11 +1,9 @@
 import { renderPrompt } from '@server/lib/prompts';
 import type { BattleRecord } from '@server/lib/services/battleResult';
-import { simulateBattleV5 } from '@server/lib/services/simulateBattleV5';
 import { object } from '@server/utils/aiClient'; // AI client helper
 import { stableCompactStringify } from '@server/utils/llmPayload';
 import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import type { CultivatorDisplayInput } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
-import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import { EnemyGenerator } from '@shared/engine/enemyGenerator';
 import { TYPE_DESCRIPTIONS } from '@shared/engine/material/creation/config';
 import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
@@ -30,6 +28,7 @@ import {
   RealmType,
 } from '@shared/types/constants';
 import type { Cultivator } from '@shared/types/cultivator';
+import type { CultivatorCondition } from '@shared/types/condition';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 import { getExecutor, type DbTransaction } from '../drizzle/db';
@@ -43,6 +42,7 @@ import {
   type RedisLeaseContext,
 } from '../redis/lock';
 import { ConditionService } from '../services/ConditionService';
+import { executePersistentWorldBattle } from '../services/BattleStateCoordinator';
 import {
   loadCultivatorCombatInput,
   loadCultivatorDungeonPromptFacts,
@@ -57,7 +57,6 @@ import {
 import { QiService } from '../services/QiService';
 import { ServerEnemyCopyProvider } from '../services/ServerEnemyCopyProvider';
 import { TaskService } from '../services/TaskService';
-import { buildDungeonBattleInit } from './battleInit';
 import {
   buildDungeonRoundLlmContext,
   buildDungeonSettlementLlmContext,
@@ -531,7 +530,6 @@ export class DungeonService {
           key: redisLockKeys.dungeonCommand(cultivatorId),
           context,
           timeoutMs: FLOW_LOCK_TTL_SECONDS * 1000,
-          renewEveryMs: 60_000,
           retries: 0,
           delayMs: 50,
         },
@@ -1424,14 +1422,6 @@ export class DungeonService {
         level: `${enemy.realm} ${enemy.realm_stage}`,
         difficulty: enemyDifficulty,
       },
-      battleInit: {
-        opponent: {
-          resourceState: {
-            hp: { mode: 'percent', value: 1 },
-            mp: { mode: 'percent', value: 1 },
-          },
-        },
-      },
     };
 
     if (!options.deferPersistence) {
@@ -1452,7 +1442,8 @@ export class DungeonService {
   async handleBattleCallback(
     cultivatorId: string,
     battleResult: BattleRecord,
-    cultivator: CultivatorCombatInput,
+    nextCondition: CultivatorCondition,
+    didLose: boolean,
     options: DungeonFlowOptions = {},
   ): Promise<{
     state?: DungeonState;
@@ -1475,29 +1466,10 @@ export class DungeonService {
     delete state.activeBattleId;
 
     // Construct Narrative
-    const playerIdentity =
-      cultivator.id ?? state.playerInfo.id ?? state.playerInfo.name;
-    const winnerIdentity = battleResult.winner.id ?? battleResult.winner.name;
-    const loserIdentity = battleResult.loser.id ?? battleResult.loser.name;
-    const loserIsPlayer =
-      loserIdentity === playerIdentity ||
-      battleResult.loser.name === state.playerInfo.name;
-    const enemyName = loserIsPlayer
+    const enemyName = didLose
       ? battleResult.winner.name
       : battleResult.loser.name;
-    const isWin =
-      winnerIdentity === playerIdentity ||
-      battleResult.winner.name === state.playerInfo.name;
-    const playerSnapshot = isWin
-      ? battleResult.winnerSnapshot
-      : (battleResult.loserSnapshot ?? battleResult.winnerSnapshot);
-    const nextCondition = ConditionService.applyBattleOutcome(
-      cultivator,
-      cultivator.condition,
-      playerSnapshot,
-      'persistent_pve',
-      !isWin,
-    );
+    const isWin = !didLose;
     if (!options.deferPersistence) {
       await updateCultivator(cultivatorId, { condition: nextCondition });
     }
@@ -1526,10 +1498,10 @@ export class DungeonService {
             ? await settled.persist(tx)
             : undefined;
           return mergeDungeonPersistenceSettlements(
+            { condition: nextCondition },
             settlement && typeof settlement === 'object'
               ? settlement
               : undefined,
-            { condition: nextCondition },
           );
         },
         afterCommit: settled.afterCommit,
@@ -1588,7 +1560,7 @@ export class DungeonService {
     battleId: string,
     options: DungeonFlowOptions = {},
   ) {
-    const { battleKey, enemyObject, session } = await this.getBattleContext(
+    const { battleKey, enemyObject } = await this.getBattleContext(
       cultivatorId,
       battleId,
     );
@@ -1599,23 +1571,19 @@ export class DungeonService {
       throw new Error('未找到修真者数据');
     }
 
-    const battleResult = simulateBattleV5(
-      cultivatorBundle.cultivator,
-      enemyObject,
-      {
-        ...session.battleInit,
-        player: {
-          ...session.battleInit?.player,
-          ...buildDungeonBattleInit(cultivatorBundle.cultivator).player,
-        },
-      },
-    );
+    const execution = executePersistentWorldBattle({
+      strategyId: 'persistent_world',
+      player: cultivatorBundle.cultivator,
+      opponent: enemyObject,
+    });
+    const { battleResult, nextCondition, didLose } = execution;
 
     try {
       const callbackData = await this.handleBattleCallback(
         cultivatorId,
         battleResult,
-        cultivatorBundle.cultivator,
+        nextCondition,
+        didLose,
         options,
       );
       if (options.deferPersistence) {
@@ -1640,6 +1608,8 @@ export class DungeonService {
       const recovered = await this.recoverAfterBattleCallbackFailure(
         cultivatorId,
         battleResult,
+        nextCondition,
+        didLose,
         error instanceof Error ? error.message : undefined,
         options,
       );
@@ -1873,6 +1843,8 @@ export class DungeonService {
   async recoverAfterBattleCallbackFailure(
     cultivatorId: string,
     battleResult: BattleRecord,
+    nextCondition: CultivatorCondition,
+    didLose: boolean,
     reason?: string,
     options: DungeonFlowOptions = {},
   ): Promise<{
@@ -1893,22 +1865,41 @@ export class DungeonService {
 
     delete state.activeBattleId;
 
-    const enemyName =
-      battleResult.loser.name === state.playerInfo.name
-        ? battleResult.winner.name
-        : battleResult.loser.name;
-    const isWin = battleResult.winner.name === state.playerInfo.name;
+    const enemyName = didLose
+      ? battleResult.winner.name
+      : battleResult.loser.name;
+    const isWin = !didLose;
     const lastHistory = state.history[state.history.length - 1];
+    if (!options.deferPersistence) {
+      await updateCultivator(cultivatorId, { condition: nextCondition });
+    }
 
     if (!isWin) {
       if (lastHistory) {
         lastHistory.outcome = `你不敌 ${enemyName}，被迫退出秘境。${reason ? `（天机紊乱：${reason}）` : ''}`;
       }
 
-      return this.settleDungeon(state, {
+      const settled = await this.settleDungeon(state, {
         endDisposition: 'retreated_after_battle',
         deferPersistence: options.deferPersistence,
       });
+      if (!options.deferPersistence) return settled;
+      const persistSettlement = settled.persist;
+      return {
+        ...settled,
+        persist: async (tx) => {
+          await updateCultivator(cultivatorId, { condition: nextCondition }, tx);
+          const persisted = persistSettlement
+            ? await persistSettlement(tx)
+            : undefined;
+          return mergeDungeonPersistenceSettlements(
+            { condition: nextCondition },
+            persisted && typeof persisted === 'object'
+              ? persisted
+              : undefined,
+          );
+        },
+      };
     }
 
     // 胜利但回调失败，强制进入 LOOTING 状态进行自我修复
@@ -1924,7 +1915,9 @@ export class DungeonService {
         state,
         isFinished: false,
         persist: async (tx) => {
+          await updateCultivator(cultivatorId, { condition: nextCondition }, tx);
           await this.persistStateRecord(cultivatorId, state, undefined, tx);
+          return { condition: nextCondition };
         },
         afterCommit: async () => {
           await this.saveRedisState(cultivatorId, state);

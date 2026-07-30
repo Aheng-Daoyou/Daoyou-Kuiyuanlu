@@ -89,7 +89,6 @@ export async function executeYieldCommand(args: {
       key: redisLockKeys.cultivatorMutation(args.cultivatorId),
       context: 'yield',
       timeoutMs: 120_000,
-      renewEveryMs: 30_000,
       retries: 0,
       delayMs: 50,
     },

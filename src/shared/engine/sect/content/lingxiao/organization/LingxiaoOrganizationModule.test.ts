@@ -221,6 +221,27 @@ describe('LingxiaoOrganizationModule', () => {
     expect(() => createCombatUnitFromCultivator(result.opponent)).not.toThrow();
   });
 
+  it('declares the persistent or standardized resource strategy in scene metadata', () => {
+    expect(
+      Object.fromEntries(
+        [
+          'mine_patrol',
+          'weekly_tournament',
+          'weekly_bounty_battle',
+          'elder_trial',
+        ].map((taskId) => [
+          taskId,
+          LINGXIAO_ORGANIZATION.battles.get(taskId)?.stateStrategy,
+        ]),
+      ),
+    ).toEqual({
+      mine_patrol: 'persistent_world',
+      weekly_tournament: 'standard_full',
+      weekly_bounty_battle: 'persistent_world',
+      elder_trial: 'persistent_world',
+    });
+  });
+
   it.each([
     ['weekly_tournament', 'same-sect', '宗门小比'],
     ['weekly_bounty_battle', 'other-sect', '悬赏令·讨伐'],

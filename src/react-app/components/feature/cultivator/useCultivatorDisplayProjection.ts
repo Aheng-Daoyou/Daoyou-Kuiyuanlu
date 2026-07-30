@@ -16,7 +16,10 @@ import {
   getCultivatorDisplaySnapshot,
   type CultivatorDisplayInput,
 } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import {
+  getNextConditionStatusExpiryMs,
+  isConditionStatusActive,
   projectNaturalRecoveryResources,
   type NaturalRecoveryProjection,
 } from '@shared/lib/condition';
@@ -28,6 +31,7 @@ import { useMemo } from 'react';
 
 export type CultivatorDisplayProjectionInput = PlayerIdentityCultivator &
   Omit<CultivatorDisplayInput, 'condition'> &
+  Pick<CultivatorCombatInput, 'skills' | 'spiritual_roots'> &
   Pick<Cultivator, 'pre_heaven_fates'> & {
     condition: CultivatorCondition;
   };
@@ -91,6 +95,7 @@ export function useCultivatorDisplayProjection(enabled = true) {
     const cultivator: CultivatorDisplayProjectionInput = {
       ...identity,
       condition: condition.data,
+      skills: loadout.data.skills,
       cultivations: loadout.data.cultivations,
       equipped: loadout.data.equipped,
       inventory: { artifacts: loadout.data.artifacts },
@@ -127,11 +132,16 @@ export function useCultivatorDisplayProjection(enabled = true) {
     [basis, estimatedNowMs],
   );
   const shouldTick = Boolean(
-    initialProjection?.timestampValid &&
+    (initialProjection?.timestampValid &&
       ((!initialProjection.recovery.hp.isFull &&
         initialProjection.recovery.hp.perHour > 0) ||
         (!initialProjection.recovery.mp.isFull &&
-          initialProjection.recovery.mp.perHour > 0)),
+          initialProjection.recovery.mp.perHour > 0))) ||
+      (basis &&
+        getNextConditionStatusExpiryMs(
+          basis.cultivator.condition,
+          new Date(estimatedNowMs),
+        ) !== null),
   );
   const nowMs = useRecoveryClock(shouldTick);
 
@@ -150,6 +160,9 @@ export function useCultivatorDisplayProjection(enabled = true) {
     const projectedCondition: CultivatorCondition = {
       ...basis.cultivator.condition,
       resources: projection.resources,
+      statuses: basis.cultivator.condition.statuses.filter((status) =>
+        isConditionStatusActive(status, new Date(nowMs)),
+      ),
     };
     const cultivator = {
       ...basis.cultivator,

@@ -1,5 +1,6 @@
 import type { DailyTaskDifficulty } from '@shared/engine/cultivation/exp-gain-strategies/types';
 import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
+import type { BattleStateStrategyId } from '@shared/engine/battle-v5/setup/types';
 import type {
   SectDiscipleRank,
   SectRankRequirement,
@@ -199,8 +200,14 @@ export type SectBattleTargetAcquisition =
   | 'same-sect'
   | 'other-sect';
 
+export type SectBattleStateStrategy = Extract<
+  BattleStateStrategyId,
+  'standard_full' | 'persistent_world'
+>;
+
 export interface SectOpponentFactory {
   readonly acquisition: SectBattleTargetAcquisition;
+  readonly stateStrategy: SectBattleStateStrategy;
   create(context: SectOpponentFactoryContext): SectOpponentFactoryResult;
 }
 

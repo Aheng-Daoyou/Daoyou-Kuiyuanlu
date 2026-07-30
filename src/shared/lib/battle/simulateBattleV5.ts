@@ -1,8 +1,10 @@
 import { BattleEngineV5 } from '@shared/engine/battle-v5/BattleEngineV5';
 import { EventBus } from '@shared/engine/battle-v5/core/EventBus';
 import { createBattleUnitsWithInit } from '@shared/engine/battle-v5/setup/BattleInitApplier';
-import type { BattleInitConfigV5 } from '@shared/engine/battle-v5/setup/types';
-import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
+import {
+  assertPreparedBattleContext,
+  type PreparedBattleContext,
+} from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import type { BattleRecord } from '@shared/types/battle';
 import {
   withBattleRandomSource,
@@ -10,14 +12,14 @@ import {
 } from '@shared/engine/battle-v5/core/BattleRandom';
 
 export function simulateBattleV5(
-  player: CultivatorCombatInput,
-  opponent: CultivatorCombatInput,
-  initConfig?: BattleInitConfigV5,
+  context: PreparedBattleContext,
   randomSource?: BattleRandomSource,
 ): BattleRecord {
+  assertPreparedBattleContext(context);
   return withBattleRandomSource(randomSource, () => {
     EventBus.instance.reset();
 
+    const { player, opponent, initConfig } = context;
     const { playerUnit, opponentUnit } = createBattleUnitsWithInit(
       player,
       opponent,

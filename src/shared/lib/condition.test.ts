@@ -5,6 +5,7 @@ import type {
   CultivatorCondition,
 } from '@shared/types/condition';
 import {
+  getNextConditionStatusExpiryMs,
   NATURAL_RECOVERY_CONFIG,
   projectNaturalRecoveryResources,
 } from './condition';
@@ -269,5 +270,66 @@ describe('projectNaturalRecoveryResources', () => {
     expect(result.recovery.mp.timeToFullMs).toBe(
       Math.ceil(((1_000 - 480) / 380) * 3_600_000),
     );
+  });
+});
+
+describe('getNextConditionStatusExpiryMs', () => {
+  it('returns the nearest future active status expiry', () => {
+    const condition = createCondition({
+      statuses: [
+        {
+          ...createStatus('minor_wound'),
+          duration: {
+            kind: 'time',
+            expiresAt: '2026-01-01T00:30:00.000Z',
+          },
+        },
+        {
+          ...createStatus('weakness'),
+          duration: {
+            kind: 'time',
+            expiresAt: '2026-01-01T00:10:00.000Z',
+          },
+        },
+      ],
+    });
+
+    expect(
+      getNextConditionStatusExpiryMs(
+        condition,
+        new Date('2026-01-01T00:05:00.000Z'),
+      ),
+    ).toBe(Date.parse('2026-01-01T00:10:00.000Z'));
+  });
+
+  it('ignores expired, invalid, consumed, and permanent statuses', () => {
+    const condition = createCondition({
+      statuses: [
+        {
+          ...createStatus('minor_wound'),
+          duration: {
+            kind: 'time',
+            expiresAt: '2025-12-31T23:59:00.000Z',
+          },
+        },
+        {
+          ...createStatus('major_wound'),
+          duration: { kind: 'time', expiresAt: 'invalid-date' },
+        },
+        {
+          ...createStatus('weakness'),
+          usesRemaining: 0,
+          duration: {
+            kind: 'time',
+            expiresAt: '2026-01-01T00:10:00.000Z',
+          },
+        },
+        createStatus('near_death'),
+      ],
+    });
+
+    expect(
+      getNextConditionStatusExpiryMs(condition, new Date(BASELINE_AT)),
+    ).toBeNull();
   });
 });

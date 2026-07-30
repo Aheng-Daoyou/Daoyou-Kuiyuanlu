@@ -4,6 +4,7 @@ import { BuffType, ModifierType, AttributeType } from '../../core/types';
 import { StackRule } from '../../buffs/Buff';
 import { BuffFactory } from '../../factories/BuffFactory';
 import { createBattleUnitsWithInit } from '../../setup/BattleInitApplier';
+import { prepareStandardFullBattle } from '../../setup/BattleStateStrategy';
 import { EventBus } from '../../core/EventBus';
 import {
   BuffLayerChangedEvent,
@@ -251,20 +252,21 @@ describe('BattleInitApplier', () => {
     const player = createCultivator('player', '道友');
     const opponent = createCultivator('dummy', '木桩');
 
-    const result = simulateBattleV5(player, opponent, {
-      opponent: {
-        modifiers: [
-          {
-            attrType: AttributeType.MAX_HP,
-            type: ModifierType.OVERRIDE,
-            value: 1_000,
-          },
-        ],
-        resourceState: {
-          hp: { mode: 'absolute', value: 1_000 },
+    const result = simulateBattleV5(
+      prepareStandardFullBattle({
+        player,
+        opponent,
+        opponentFragment: {
+          modifiers: [
+            {
+              attrType: AttributeType.MAX_HP,
+              type: ModifierType.OVERRIDE,
+              value: 1_000,
+            },
+          ],
         },
-      },
-    });
+      }),
+    );
 
     const initFrame = result.stateTimeline.frames[0].units.dummy;
 

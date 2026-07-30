@@ -1,7 +1,5 @@
 import type { RealmType } from './constants';
 
-export type BattleMode = 'persistent_pve' | 'standard_pvp' | 'training';
-
 export type ConditionResourceKey = 'hp' | 'mp';
 
 export interface ConditionResourcePoint {

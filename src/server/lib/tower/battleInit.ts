@@ -1,33 +1,26 @@
 import type { AttributeModifierConfig } from '@shared/engine/battle-v5/core/configs';
 import {
-  AttributeType,
-  ModifierType,
-} from '@shared/engine/battle-v5/core/types';
-import type { BattleInitConfigV5 } from '@shared/engine/battle-v5/setup/types';
+  mergeBattleUnitInitFragments,
+} from '@shared/engine/battle-v5/setup/BattleStateStrategy';
+import type { BattleUnitInitFragment } from '@shared/engine/battle-v5/setup/types';
 import {
   createCombatUnitFromCultivator,
   type CultivatorCombatInput,
 } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
-import { isConditionStatusActive } from '@shared/lib/condition';
 import type {
   ConditionStatusInstance,
   ConditionStatusKey,
   CultivatorCondition,
 } from '@shared/types/condition';
 import {
+  buildTowerBlessingAttributeModifiers,
+  buildTowerEncounterAttributeModifiers,
   type TowerBlessingId,
   type TowerFloorKind,
 } from '@shared/lib/tower';
+import { buildConditionBattleUnitInitFragment } from '@shared/lib/conditionBattle';
 import type { UnitStateSnapshot } from '@shared/engine/battle-v5/systems/state/types';
 import { ConditionService } from '@server/lib/services/ConditionService';
-
-const PRIMARY_ATTRIBUTES = [
-  AttributeType.VITALITY,
-  AttributeType.SPIRIT,
-  AttributeType.SPEED,
-  AttributeType.WILLPOWER,
-  AttributeType.WISDOM,
-] as const;
 
 const WOUND_ORDER: ConditionStatusKey[] = [
   'minor_wound',
@@ -37,81 +30,6 @@ const WOUND_ORDER: ConditionStatusKey[] = [
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
-}
-
-function createModifier(
-  attrType: AttributeType,
-  value: number,
-): AttributeModifierConfig {
-  return {
-    attrType,
-    type: ModifierType.MULTIPLY,
-    value,
-  };
-}
-
-function appendRepeatedModifiers(
-  target: AttributeModifierConfig[],
-  attrTypes: readonly AttributeType[],
-  multiplier: number,
-  stacks: number,
-) {
-  for (let index = 0; index < stacks; index += 1) {
-    for (const attrType of attrTypes) {
-      target.push(createModifier(attrType, multiplier));
-    }
-  }
-}
-
-function buildBlessingModifiers(
-  blessings: Partial<Record<TowerBlessingId, number>>,
-) {
-  const modifiers: AttributeModifierConfig[] = [];
-
-  appendRepeatedModifiers(
-    modifiers,
-    [AttributeType.VITALITY],
-    1.08,
-    blessings.vitality_surge ?? 0,
-  );
-  appendRepeatedModifiers(
-    modifiers,
-    [AttributeType.SPIRIT],
-    1.08,
-    blessings.spirit_surge ?? 0,
-  );
-  appendRepeatedModifiers(
-    modifiers,
-    [AttributeType.SPEED],
-    1.08,
-    blessings.swift_step ?? 0,
-  );
-  appendRepeatedModifiers(
-    modifiers,
-    [AttributeType.WISDOM, AttributeType.WILLPOWER],
-    1.06,
-    blessings.mind_focus ?? 0,
-  );
-  appendRepeatedModifiers(
-    modifiers,
-    [AttributeType.MAX_HP],
-    1.1,
-    blessings.jade_bones ?? 0,
-  );
-  appendRepeatedModifiers(
-    modifiers,
-    [AttributeType.MAX_MP],
-    1.12,
-    blessings.sea_of_qi ?? 0,
-  );
-  appendRepeatedModifiers(
-    modifiers,
-    PRIMARY_ATTRIBUTES,
-    1.05,
-    blessings.balanced_dao ?? 0,
-  );
-
-  return modifiers;
 }
 
 function applyModifiersToUnit(
@@ -139,11 +57,15 @@ function applyModifiersToUnit(
 
 function getTowerMaxResources(args: {
   cultivator: CultivatorCombatInput;
-  blessings: Partial<Record<TowerBlessingId, number>>;
+  condition: CultivatorCondition;
+  blessings: Parameters<typeof buildTowerBlessingAttributeModifiers>[0];
 }) {
   const unit = applyModifiersToUnit(
-    args.cultivator,
-    buildBlessingModifiers(args.blessings),
+    {
+      ...args.cultivator,
+      condition: args.condition,
+    },
+    buildTowerBlessingAttributeModifiers(args.blessings),
   );
 
   return {
@@ -213,22 +135,6 @@ function applyPreBattleRecovery(args: {
   };
 }
 
-function buildOpponentModifiers(kind: TowerFloorKind) {
-  if (kind === 'normal') {
-    return [] as AttributeModifierConfig[];
-  }
-
-  const multiplier = kind === 'boss' ? 1.15 : 1.08;
-  const hpMultiplier = kind === 'boss' ? 1.3 : 1.18;
-  const modifiers: AttributeModifierConfig[] = [createModifier(AttributeType.MAX_HP, hpMultiplier)];
-
-  for (const attrType of PRIMARY_ATTRIBUTES) {
-    modifiers.push(createModifier(attrType, multiplier));
-  }
-
-  return modifiers;
-}
-
 function getWoundSeverity(key: ConditionStatusKey) {
   return WOUND_ORDER.indexOf(key);
 }
@@ -263,19 +169,24 @@ function replaceWoundStatus(
 export function buildTowerBattleInit(args: {
   cultivator: CultivatorCombatInput;
   condition: CultivatorCondition;
-  blessings: Partial<Record<TowerBlessingId, number>>;
+  blessings: Parameters<typeof buildTowerBlessingAttributeModifiers>[0];
   encounterKind: TowerFloorKind;
   recoverResources?: boolean;
+  now?: Date;
 }): {
-  battleInit: BattleInitConfigV5;
+  playerFragment: BattleUnitInitFragment;
+  opponentFragment: BattleUnitInitFragment;
   normalizedCondition: CultivatorCondition;
 } {
+  const now = args.now ?? new Date();
   const normalizedCondition = ConditionService.normalizeCondition(
     args.cultivator,
     args.condition,
+    now,
   );
   const { maxHp, maxMp } = getTowerMaxResources({
     cultivator: args.cultivator,
+    condition: normalizedCondition,
     blessings: args.blessings,
   });
   const towerCondition = withTowerResourceCaps({
@@ -305,40 +216,15 @@ export function buildTowerBattleInit(args: {
 
   return {
     normalizedCondition: battleStartCondition,
-    battleInit: {
-      player: {
-        modifiers: buildBlessingModifiers(args.blessings),
-        resourceState: {
-          hp: {
-            mode: 'absolute',
-            value: recovered.hp,
-          },
-          mp: {
-            mode: 'absolute',
-            value: recovered.mp,
-          },
+    playerFragment:
+      mergeBattleUnitInitFragments(
+        {
+          modifiers: buildTowerBlessingAttributeModifiers(args.blessings),
         },
-        statusRefs: normalizedCondition.statuses
-          .filter((status) => isConditionStatusActive(status))
-          .map((status) => ({
-            version: 1 as const,
-            templateId: status.key,
-            stacks: status.stacks,
-          })),
-      },
-      opponent: {
-        modifiers: buildOpponentModifiers(args.encounterKind),
-        resourceState: {
-          hp: {
-            mode: 'percent',
-            value: 1,
-          },
-          mp: {
-            mode: 'percent',
-            value: 1,
-          },
-        },
-      },
+        buildConditionBattleUnitInitFragment(battleStartCondition, now),
+      ) ?? {},
+    opponentFragment: {
+      modifiers: buildTowerEncounterAttributeModifiers(args.encounterKind),
     },
   };
 }
@@ -359,6 +245,7 @@ export function applyTowerBattleOutcome(args: {
   );
   const { maxHp, maxMp } = getTowerMaxResources({
     cultivator: args.cultivator,
+    condition: normalizedCondition,
     blessings: args.blessings,
   });
   const towerCondition = withTowerResourceCaps({

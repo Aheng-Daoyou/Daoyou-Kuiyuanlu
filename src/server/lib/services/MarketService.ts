@@ -876,7 +876,6 @@ async function generateAndCache(
         key: redisLockKeys.marketGeneration(nodeId, layer, String(cycle)),
         context: 'market-generation',
         timeoutMs: 120_000,
-        renewEveryMs: 30_000,
         retries: 0,
       },
       async (lease) => {

@@ -96,7 +96,6 @@ export function identifyMysteryMaterial(args: {
       key: redisLockKeys.cultivatorMutation(args.actor.cultivatorId),
       context: 'inventory-identify',
       timeoutMs: 30_000,
-      renewEveryMs: 10_000,
       retries: 0,
     },
     async (lease) => {

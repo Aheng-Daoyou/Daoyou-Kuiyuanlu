@@ -193,7 +193,6 @@ export async function listAuctionItem(args: {
     lock: {
       context: 'auction-list',
       timeoutMs: 10_000,
-      renewEveryMs: 3_000,
     },
     command: async (tx) => {
       const { name } = await readCultivatorName(

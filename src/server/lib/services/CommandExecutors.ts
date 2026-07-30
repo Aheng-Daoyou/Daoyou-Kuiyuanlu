@@ -85,7 +85,6 @@ export class PlayerCommandExecutor {
     lock?: {
       context?: string;
       timeoutMs?: number;
-      renewEveryMs?: number;
     };
     command(tx: DbTransaction): Promise<FeatureCommandResult<TResult>>;
   }): Promise<CommittedCommand<TResult>> {
@@ -94,7 +93,6 @@ export class PlayerCommandExecutor {
         key: redisLockKeys.cultivatorMutation(input.cultivatorId),
         context: input.lock?.context ?? `player-command:${input.source}`,
         timeoutMs: input.lock?.timeoutMs ?? 30_000,
-        renewEveryMs: input.lock?.renewEveryMs ?? 10_000,
         retries: 0,
       },
       (lease) =>
