@@ -145,12 +145,12 @@ describe('幽都战斗与展示投影', () => {
     const state = youduState();
     const expected = {
       'one-sigh': [0, 0],
-      'soul-severing-call': [30, 0],
-      'reveal-shadow': [35, 4],
-      'forgetful-river-tide': [45, 3],
-      'seize-soul': [38, 2],
-      'pin-soul': [55, 4],
-      'soul-shall-not-return': [80, 5],
+      'soul-severing-call': [80, 0],
+      'reveal-shadow': [140, 4],
+      'forgetful-river-tide': [160, 3],
+      'seize-soul': [140, 2],
+      'pin-soul': [180, 4],
+      'soul-shall-not-return': [240, 5],
     } as const;
     for (const [abilityId, [mpCost, cooldown]] of Object.entries(expected)) {
       const config = resolveSectAbility({
@@ -250,7 +250,9 @@ describe('幽都战斗与展示投影', () => {
     expect(finish).toContain('目标至少4层蚀魂');
     expect(finish).toContain('受到的气血治疗降低80%');
     expect(finish).toContain('速度降低30%');
-    expect(finish).toContain('目标每场首次进入4层时获得标记');
+    expect(finish).toContain(
+      '目标每场首次进入4层时获得标记；下一次终结命中后返还60点已支付法力并消耗标记',
+    );
     expect(finish).toContain('目标气血低于20%');
     expect(finish).toContain('每场一次');
     expect(finish).not.toContain('伤害：相当于70%法攻');

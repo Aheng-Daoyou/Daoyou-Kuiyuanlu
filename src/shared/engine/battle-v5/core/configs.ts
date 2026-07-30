@@ -415,10 +415,17 @@ export interface CombatResourceModifyParams {
   reason?: 'gain' | 'spend' | 'refund';
 }
 
-export interface RefundPaidCostParams {
-  ratio: number;
-  resource?: 'mp';
-}
+export type RefundPaidCostParams =
+  | {
+      amount: number;
+      ratio?: never;
+      resource?: 'mp';
+    }
+  | {
+      amount?: never;
+      ratio: number;
+      resource?: 'mp';
+    };
 
 export interface MechanicLogParams {
   mechanic: 'named_trigger' | 'status_transition';

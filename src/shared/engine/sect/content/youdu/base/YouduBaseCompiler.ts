@@ -1356,7 +1356,7 @@ function compileAbilities(
       {
         type: 'refund_paid_cost',
         conditions: [condition('has_tag', { scope: 'target', tag: judgmentTag })],
-        params: { ratio: 0.25, resource: 'mp' },
+        params: { amount: 60, resource: 'mp' },
       },
       {
         type: 'buff_layer_modify',
@@ -1465,7 +1465,7 @@ function compileAbilities(
         ? [`结算后施加忘川，持续${settings.forgetDuration}回合`]
         : []),
       ...(settings.oneNameOneJudgment
-        ? ['目标每场首次进入4层时获得标记；下一次终结命中后返还20点已支付法力并消耗标记']
+        ? ['目标每场首次进入4层时获得标记；下一次终结命中后返还60点已支付法力并消耗标记']
         : []),
       ...(settings.nameInYoudu
         ? ['结算后若目标气血低于20%，获得3点魂火并减少2回合冷却，每场一次']

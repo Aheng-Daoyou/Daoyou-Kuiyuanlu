@@ -173,7 +173,7 @@ describe('天衍所需通用 battle-v5 扩展', () => {
     expect(caster.attributes.getValue(AttributeType.CONTROL_HIT)).toBe(before);
   });
 
-  it('按施法快照返还实际支付法力', () => {
+  it('兼容按施法快照比例返还实际支付法力', () => {
     const caster = unit('caster');
     const target = unit('target');
     const before = caster.getCurrentMp();
@@ -203,6 +203,109 @@ describe('天衍所需通用 battle-v5 扩展', () => {
 
     expect(caster.getCurrentMp()).toBe(before - 40);
     expect(events.at(-1)).toMatchObject({ healAmount: 10, healType: 'mp' });
+  });
+
+  it('固定返还不超过本次实际支付法力', () => {
+    const caster = unit('caster');
+    const target = unit('target');
+    const before = caster.getCurrentMp();
+    caster.consumeMp(50);
+    const events: HealEvent[] = [];
+    EventBus.instance.subscribe<HealEvent>('HealEvent', (event) => events.push(event));
+
+    EffectRegistry.getInstance().create({
+      type: 'refund_paid_cost',
+      params: { amount: 80 },
+    })?.execute({
+      caster,
+      target,
+      castSnapshot: {
+        target,
+        targetId: target.id,
+        costs: [],
+        casterHpBeforeCost: caster.getCurrentHp(),
+        casterHpAfterCost: caster.getCurrentHp(),
+        casterHpRatioAfterCost: 1,
+        casterMpBeforeCost: before,
+        casterMpAfterCost: before - 50,
+        targetHpBeforeEffects: target.getCurrentHp(),
+        targetHpRatioBeforeEffects: 1,
+      },
+    });
+
+    expect(caster.getCurrentMp()).toBe(before);
+    expect(events.at(-1)).toMatchObject({
+      healAmount: 50,
+      appliedAmount: 50,
+      healType: 'mp',
+    });
+  });
+
+  it('未实际支付法力时固定返还不产生回蓝事件', () => {
+    const caster = unit('caster');
+    const target = unit('target');
+    const before = caster.getCurrentMp();
+    const events: HealEvent[] = [];
+    EventBus.instance.subscribe<HealEvent>('HealEvent', (event) => events.push(event));
+
+    EffectRegistry.getInstance().create({
+      type: 'refund_paid_cost',
+      params: { amount: 20 },
+    })?.execute({
+      caster,
+      target,
+      castSnapshot: {
+        target,
+        targetId: target.id,
+        costs: [],
+        casterHpBeforeCost: caster.getCurrentHp(),
+        casterHpAfterCost: caster.getCurrentHp(),
+        casterHpRatioAfterCost: 1,
+        casterMpBeforeCost: before,
+        casterMpAfterCost: before,
+        targetHpBeforeEffects: target.getCurrentHp(),
+        targetHpRatioBeforeEffects: 1,
+      },
+    });
+
+    expect(caster.getCurrentMp()).toBe(before);
+    expect(events).toHaveLength(0);
+  });
+
+  it('固定返还受到最大法力上限截断', () => {
+    const caster = unit('caster');
+    const target = unit('target');
+    const before = caster.getCurrentMp();
+    caster.consumeMp(5);
+    const events: HealEvent[] = [];
+    EventBus.instance.subscribe<HealEvent>('HealEvent', (event) => events.push(event));
+
+    EffectRegistry.getInstance().create({
+      type: 'refund_paid_cost',
+      params: { amount: 20 },
+    })?.execute({
+      caster,
+      target,
+      castSnapshot: {
+        target,
+        targetId: target.id,
+        costs: [],
+        casterHpBeforeCost: before,
+        casterHpAfterCost: before,
+        casterHpRatioAfterCost: 1,
+        casterMpBeforeCost: before + 45,
+        casterMpAfterCost: before - 5,
+        targetHpBeforeEffects: target.getCurrentHp(),
+        targetHpRatioBeforeEffects: 1,
+      },
+    });
+
+    expect(caster.getCurrentMp()).toBe(before);
+    expect(events.at(-1)).toMatchObject({
+      healAmount: 20,
+      appliedAmount: 5,
+      healType: 'mp',
+    });
   });
 
 });

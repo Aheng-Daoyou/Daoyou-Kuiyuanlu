@@ -118,7 +118,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       description: '青萝循气而生，一端缠住敌势，一端牵回施术者尚未断绝的生机。',
       role: 'generator',
       unlock: { type: 'method', methodId: 'wood-vitality', level: 1 },
-      mpCost: 22,
+      mpCost: 80,
       cooldown: 0,
     },
     {
@@ -129,7 +129,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
         '不催枯枝强生新叶，只把散落的生机逐寸引回，使该续的一息重新接上。',
       role: 'defensive',
       unlock: { type: 'method', methodId: 'wood-vitality', level: 5 },
-      mpCost: 36,
+      mpCost: 180,
       cooldown: 4,
     },
     {
@@ -140,7 +140,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
         '离火不作一瞬暴烈，沿气机流照而过；光所及处，余焰仍在暗中寻找可燃之物。',
       role: 'combo',
       unlock: { type: 'method', methodId: 'fire-illumination', level: 1 },
-      mpCost: 28,
+      mpCost: 100,
       cooldown: 0,
     },
     {
@@ -169,7 +169,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
         '坤气落下，不急于压碎敌形，先在施术者身前立住一座可承来力的山岳。',
       role: 'defensive',
       unlock: { type: 'method', methodId: 'earth-bearing', level: 1 },
-      mpCost: 24,
+      mpCost: 100,
       cooldown: 0,
     },
     {
@@ -180,7 +180,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
         '地不拒轻重，也不问来处。法域展开之时，落在其中的每一道力量都先由厚土承接。',
       role: 'defensive',
       unlock: { type: 'method', methodId: 'earth-bearing', level: 5 },
-      mpCost: 42,
+      mpCost: 200,
       cooldown: 5,
     },
     {
@@ -190,7 +190,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       description: '庚金凝成一线，所裁并非云气，而是藏在云后的护持与虚势。',
       role: 'finisher',
       unlock: { type: 'method', methodId: 'metal-severing', level: 1 },
-      mpCost: 30,
+      mpCost: 120,
       cooldown: 0,
     },
     {
@@ -201,7 +201,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
         '太白一线照入阵眼，先去遮蔽，再断灵机；锋芒不求伤重，只求所见再无虚假。',
       role: 'utility',
       unlock: { type: 'method', methodId: 'metal-severing', level: 5 },
-      mpCost: 34,
+      mpCost: 160,
       cooldown: 2,
     },
     {
@@ -212,7 +212,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
         '玄水不与来势正争，只在回澜时带走立足之力，使快者迟、满者退。',
       role: 'utility',
       unlock: { type: 'method', methodId: 'water-flowing', level: 1 },
-      mpCost: 26,
+      mpCost: 100,
       cooldown: 0,
     },
     {
@@ -223,7 +223,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
         '引天河过心窍，不洗记忆，也不洗选择，只带走此刻不应继续停留的浊意。',
       role: 'utility',
       unlock: { type: 'method', methodId: 'water-flowing', level: 5 },
-      mpCost: 30,
+      mpCost: 180,
       cooldown: 4,
     },
     {
@@ -234,7 +234,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
         '星宿未移，观测之宫先改。法印沿相生次序转过一位，原本无路的下一法便有了新的去处。',
       role: 'utility',
       unlock: { type: 'method', methodId: 'tianyan-canon', level: 5 },
-      mpCost: 20,
+      mpCost: 120,
       cooldown: 2,
     },
     {
@@ -245,7 +245,7 @@ export const TIANYAN_BASE_DEFINITION: SectDefinitionWithoutPaths = {
         '推演不必每次走到尽头。将尚未用尽的法印收回太初，余势仍可归为护身、养气与下一法的凭依。',
       role: 'utility',
       unlock: { type: 'method', methodId: 'tianyan-canon', level: 10 },
-      mpCost: 16,
+      mpCost: 160,
       cooldown: 4,
     },
     {

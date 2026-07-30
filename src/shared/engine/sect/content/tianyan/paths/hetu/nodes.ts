@@ -31,11 +31,11 @@ export const TIANYAN_HETU_NODES = [
     (facade) => facade.extendSeals(),
   ),
   hetuNode(
-    { id: 'hetu-blank-breath', layerId: '1', name: '太初留白', description: '每回合首次以太初玄光命中带印目标时，回复4%最大法力。' },
+    { id: 'hetu-blank-breath', layerId: '1', name: '太初留白', description: '每回合首次以太初玄光命中带印目标时，回复3%最大法力。' },
     (facade) => facade.enableBlankBreath(),
   ),
   hetuNode(
-    { id: 'hetu-flow-refund', layerId: '2', name: '法随气转', description: '成功触发反应后，返还本次落印术实际支付法力的20%。' },
+    { id: 'hetu-flow-refund', layerId: '2', name: '法随气转', description: '成功触发反应后，返还本次落印术实际支付的20点法力。' },
     (facade) => facade.enableReactionRefund(),
   ),
   hetuNode(
@@ -55,7 +55,7 @@ export const TIANYAN_HETU_NODES = [
     (facade) => facade.strengthenFireEarthShelter(),
   ),
   hetuNode(
-    { id: 'hetu-river-cleansing', layerId: '3', name: '天河洗尘', description: '天河洗心净化3个状态，回复17%最大法力并提高30%控制抗性。' },
+    { id: 'hetu-river-cleansing', layerId: '3', name: '天河洗尘', description: '天河洗心净化3个状态，回复12%最大法力并提高30%控制抗性。' },
     (facade) => facade.strengthenRiverCleansing(),
   ),
   hetuNode(

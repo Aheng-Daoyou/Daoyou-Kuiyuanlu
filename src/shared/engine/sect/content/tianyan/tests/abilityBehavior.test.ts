@@ -468,14 +468,16 @@ describe('天衍落印术与反应实际结算', () => {
     expect(owner.buffs.getAllBuffIds()).toContain('sect.tianyan.renewal');
   });
 
-  it('天河洗心在空净化时仍回复法力并获得控制抗性', () => {
+  it('天河洗心在空净化时仍回复8%最大法力并获得控制抗性', () => {
     const { owner, skill } = setup();
     owner.takeMp(Math.floor(owner.getMaxMp() * 0.5));
     const before = owner.getCurrentMp();
 
     cast(skill('heavenly-river-cleansing'), owner, owner);
 
-    expect(owner.getCurrentMp()).toBeGreaterThan(before);
+    expect(owner.getCurrentMp()).toBe(
+      before - 180 + Math.round(owner.getMaxMp() * 0.08),
+    );
     expect(owner.buffs.getAllBuffIds()).toContain('sect.tianyan.river-mind');
   });
 

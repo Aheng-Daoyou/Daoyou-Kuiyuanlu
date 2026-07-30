@@ -108,7 +108,7 @@ describe('幽都36参悟节点编译矩阵', () => {
     const pin = resolveSectAbility({
       sect: state, realm: '化神', abilityId: 'pin-soul',
     }).config;
-    expect(pin.mpCost).toBe(45);
+    expect(pin.mpCost).toBe(140);
     const highPin = pin.effectLayers?.find((layer) => layer.id === 'pin-high')
       ?.completionEffects?.find((effect) => effect.type === 'apply_buff');
     expect(highPin?.type === 'apply_buff' && highPin.params.controlHitBonus).toBe(0.15);

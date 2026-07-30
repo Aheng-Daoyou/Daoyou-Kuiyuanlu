@@ -129,12 +129,30 @@ describe('天衍衍数与双道途实际结算', () => {
 
     expect(directRequest?.damageIncreasePctBucket).toBeCloseTo(0.20, 8);
     expect(owner.getCurrentHp()).toBeGreaterThan(hpBefore);
-    expect(owner.getCurrentMp()).toBeGreaterThan(mpBefore - 28);
+    expect(owner.getCurrentMp()).toBe(
+      mpBefore - 100 + Math.round(owner.getMaxMp() * 0.04),
+    );
     expect(owner.combatResources.getCurrent(TIANYAN_DERIVATION)).toBe(0);
     expect(
       enemy.buffs.getAllBuffs().find((buff) => buff.id === TIANYAN_ELEMENT_SEAL)
         ?.getDuration(),
     ).toBe(3);
+  });
+
+  it('生生无穷将河图周天法力回复提高到8%最大法力', () => {
+    const { owner, enemy, skill } = setup(TIANYAN_HETU_PATH_ID, [
+      'hetu-endless-life',
+    ]);
+    owner.combatResources.set(TIANYAN_DERIVATION, 2);
+    owner.takeMp(Math.floor(owner.getMaxMp() * 0.3));
+    enemy.buffs.addBuff(BuffFactory.create(createElementSeal('wood', 2)), owner);
+    const before = owner.getCurrentMp();
+
+    cast(skill('flowing-flame'), owner, enemy);
+
+    expect(owner.getCurrentMp()).toBe(
+      before - 100 + Math.round(owner.getMaxMp() * 0.08),
+    );
   });
 
   it('第三次反应触发洛书断局，与冲克追伤按两个cause分别结算', () => {
@@ -159,7 +177,7 @@ describe('天衍衍数与双道途实际结算', () => {
     expect(owner.combatResources.getCurrent(TIANYAN_DERIVATION)).toBe(0);
   });
 
-  it('第一变只在首次命中无印目标时返还实付法力并留下3回合法印', () => {
+  it('第一变只在首次命中无印目标时固定返还80点法力并留下3回合法印', () => {
     const { owner, enemy, skill } = setup(TIANYAN_LUOSHU_PATH_ID, [
       'luoshu-first-change',
     ]);
@@ -168,7 +186,7 @@ describe('天衍衍数与双道途实际结算', () => {
 
     cast(water, owner, enemy);
 
-    expect(owner.getCurrentMp()).toBe(before);
+    expect(owner.getCurrentMp()).toBe(before - 20);
     expect(
       enemy.buffs.getAllBuffs().find((buff) => buff.id === TIANYAN_ELEMENT_SEAL)
         ?.getDuration(),
@@ -177,14 +195,14 @@ describe('天衍衍数与双道途实际结算', () => {
     enemy.buffs.removeBuff(TIANYAN_ELEMENT_SEAL);
     cast(skill('flowing-flame'), owner, enemy);
 
-    expect(owner.getCurrentMp()).toBeLessThan(before);
+    expect(owner.getCurrentMp()).toBe(before - 120);
     expect(
       enemy.buffs.getAllBuffs().find((buff) => buff.id === TIANYAN_ELEMENT_SEAL)
         ?.getDuration(),
     ).toBe(2);
   });
 
-  it('第一变在闪避时不消费首次机会，后续首次命中仍全额返还', () => {
+  it('第一变在闪避时不消费首次机会，后续首次命中仍固定返还80点', () => {
     const { owner, enemy, skill } = setup(TIANYAN_LUOSHU_PATH_ID, [
       'luoshu-first-change',
     ]);
@@ -200,7 +218,7 @@ describe('天衍衍数与双道途实际结算', () => {
 
     const hit = castWithRoll(water, owner, enemy, 0.99);
     expect(hit.isHit).toBe(true);
-    expect(owner.getCurrentMp()).toBe(afterMiss);
+    expect(owner.getCurrentMp()).toBe(afterMiss - 20);
     expect(
       enemy.buffs.getAllBuffs().find((buff) => buff.id === TIANYAN_ELEMENT_SEAL)
         ?.getDuration(),
@@ -221,13 +239,41 @@ describe('天衍衍数与双道途实际结算', () => {
     enemy.setHp(enemy.getMaxHp());
     cast(skill('primordial-ray'), owner, enemy);
 
-    expect(afterFirst - before).toBe(Math.round(owner.getMaxMp() * 0.04));
+    expect(afterFirst - before).toBe(Math.round(owner.getMaxMp() * 0.03));
     expect(owner.getCurrentMp()).toBe(afterFirst);
 
     setRuntimeRound(owner, 2);
     enemy.setHp(enemy.getMaxHp());
     cast(skill('primordial-ray'), owner, enemy);
-    expect(owner.getCurrentMp()).toBe(afterFirst + Math.round(owner.getMaxMp() * 0.04));
+    expect(owner.getCurrentMp()).toBe(
+      afterFirst + Math.round(owner.getMaxMp() * 0.03),
+    );
+  });
+
+  it('法随气转在触发反应后固定返还20点实付法力', () => {
+    const { owner, enemy, skill } = setup(TIANYAN_HETU_PATH_ID, [
+      'hetu-flow-refund',
+    ]);
+    enemy.buffs.addBuff(BuffFactory.create(createElementSeal('wood', 2)), owner);
+    const before = owner.getCurrentMp();
+
+    cast(skill('flowing-flame'), owner, enemy);
+
+    expect(owner.getCurrentMp()).toBe(before - 80);
+  });
+
+  it('天河洗尘将天河洗心法力回复提高到12%最大法力', () => {
+    const { owner, skill } = setup(TIANYAN_HETU_PATH_ID, [
+      'hetu-river-cleansing',
+    ]);
+    owner.takeMp(Math.floor(owner.getMaxMp() * 0.5));
+    const before = owner.getCurrentMp();
+
+    cast(skill('heavenly-river-cleansing'), owner, owner);
+
+    expect(owner.getCurrentMp()).toBe(
+      before - 180 + Math.round(owner.getMaxMp() * 0.12),
+    );
   });
 
   it('移宫承流同一回合最多获得一次衍数', () => {
@@ -547,7 +593,11 @@ describe('天衍衍数与双道途实际结算', () => {
 
     expect(enemy.buffs.getAllBuffIds()).not.toContain(TIANYAN_ELEMENT_SEAL);
     if (expected === 'hp') expect(owner.getCurrentHp()).toBeGreaterThan(hpBefore);
-    else if (expected === 'mp') expect(owner.getCurrentMp()).toBeGreaterThan(mpBefore);
+    else if (expected === 'mp') {
+      expect(owner.getCurrentMp()).toBe(
+        mpBefore - 160 + Math.round(owner.getMaxMp() * 0.10),
+      );
+    }
     else if (expected === 'shield') {
       expect(owner.getCurrentShield()).toBeGreaterThan(shieldBefore);
     } else expect(owner.buffs.getAllBuffIds()).toContain(expected);

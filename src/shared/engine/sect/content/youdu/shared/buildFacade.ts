@@ -71,7 +71,7 @@ export function createYouduBuildSettings(pathId?: SectPathId): YouduBuildSetting
     shadowDuration: 3,
     extraControlResistance: 0,
     seizeDuration: 2,
-    pinMpCost: 55,
+    pinMpCost: 180,
     soulFireBonus: 0.25,
     severHighLayerBonus: 0.50,
     firstShadowExtraLayer: false,
@@ -126,7 +126,7 @@ export class DecreeBuildFacade {
   extendShadow(): void { this.settings.shadowDuration = 4; }
   guardSpirit(): void { this.settings.extraControlResistance = 0.10; }
   extendSeize(): void { this.settings.seizeDuration = 3; }
-  quietNail(): void { this.settings.pinMpCost = 45; }
+  quietNail(): void { this.settings.pinMpCost = 140; }
   brightenSoulFire(): void { this.settings.soulFireBonus = 0.35; }
   deepenSevering(): void { this.settings.severHighLayerBonus = 0.70; }
   enableFirstShadowLayer(): void { this.settings.firstShadowExtraLayer = true; }

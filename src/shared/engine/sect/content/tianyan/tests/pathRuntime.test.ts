@@ -52,7 +52,7 @@ describe('天衍双道途与36参悟节点', () => {
     const shift = resolveSectAbility({
       sect, realm: '化神', abilityId: 'shift-palace',
     }).config;
-    expect(shift.mpCost).toBe(10);
+    expect(shift.mpCost).toBe(80);
     expect(shift.cooldown).toBe(1);
     const projection = projectSectCombat({ sect, realm: '化神' })!;
     const runtime = projection.abilities.find(

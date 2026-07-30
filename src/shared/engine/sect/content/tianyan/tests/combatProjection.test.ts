@@ -51,6 +51,31 @@ describe('天衍圣地战斗投影', () => {
     }
   });
 
+  it('十三门神通投影首版固定蓝耗', () => {
+    const sect = tianyanState(TIANYAN_HETU_PATH_ID);
+    const expected = {
+      'primordial-ray': 0,
+      'verdant-pulse': 80,
+      'myriad-wood-renewal': 180,
+      'flowing-flame': 100,
+      'lotus-in-fire': 0,
+      'earth-bearing-seal': 100,
+      'boundless-earth': 200,
+      'metal-cloud-cutter': 120,
+      'white-star-breaker': 160,
+      'dark-water-return': 100,
+      'heavenly-river-cleansing': 180,
+      'shift-palace': 120,
+      'five-qi-repository': 160,
+    } as const;
+
+    for (const [abilityId, mpCost] of Object.entries(expected)) {
+      expect(
+        resolveSectAbility({ sect, realm: '化神', abilityId }).config.mpCost ?? 0,
+      ).toBe(mpCost);
+    }
+  });
+
   it('宗门定义、初始构筑与全部持久化内容ID稳定', () => {
     const definition = TIANYAN_MODULE.definition;
     const localId = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

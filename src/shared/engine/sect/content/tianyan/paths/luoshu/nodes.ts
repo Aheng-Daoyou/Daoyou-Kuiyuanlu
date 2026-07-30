@@ -31,11 +31,11 @@ export const TIANYAN_LUOSHU_NODES = [
     (facade) => facade.observeSealGap(),
   ),
   luoshuNode(
-    { id: 'luoshu-first-change', layerId: '1', name: '第一变', description: '每场战斗首次落印命中无印目标后返还全部实付法力，并使新印持续3回合。' },
+    { id: 'luoshu-first-change', layerId: '1', name: '第一变', description: '每场战斗首次落印命中无印目标后返还80点实付法力，并使新印持续3回合。' },
     (facade) => facade.enableFirstChange(),
   ),
   luoshuNode(
-    { id: 'luoshu-fast-shift', layerId: '2', name: '移宫疾算', description: '移宫换宿消耗降至10，冷却降至1回合。' },
+    { id: 'luoshu-fast-shift', layerId: '2', name: '移宫疾算', description: '移宫换宿消耗降至80，冷却降至1回合。' },
     (facade) => facade.quickenShift(),
   ),
   luoshuNode(

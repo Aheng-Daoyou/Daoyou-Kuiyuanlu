@@ -200,7 +200,9 @@ export function describeEffectCore(
       return `直接伤害吸血 ${formatAffixPercent(effect.params.ratio)}`;
 
     case 'refund_paid_cost':
-      return `返还本次实际支付法力的 ${formatAffixPercent(effect.params.ratio)}`;
+      return typeof effect.params.amount === 'number'
+        ? `返还本次实际支付的 ${formatAffixNumber(effect.params.amount)} 点法力`
+        : `返还本次实际支付法力的 ${formatAffixPercent(effect.params.ratio)}`;
 
     case 'mechanic_log':
       return `触发「${effect.params.displayName}」`;

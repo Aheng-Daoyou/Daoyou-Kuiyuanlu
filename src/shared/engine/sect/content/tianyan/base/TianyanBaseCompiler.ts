@@ -1060,10 +1060,10 @@ function commonReactionPrelude(
       ),
     );
   }
-  if (settings.reactionManaRefund > 0) {
+  if (settings.reactionManaRefundAmount > 0) {
     effects.push({
       type: 'refund_paid_cost',
-      params: { ratio: settings.reactionManaRefund, resource: 'mp' },
+      params: { amount: settings.reactionManaRefundAmount, resource: 'mp' },
     });
   }
   return effects;
@@ -1265,7 +1265,7 @@ function buildLandingBranch(
       {
         type: 'refund_paid_cost',
         conditions: [unused],
-        params: { ratio: 1, resource: 'mp' },
+        params: { amount: 80, resource: 'mp' },
       },
       selfBuff(
         buff(TIANYAN_FIRST_CHANGE, '第一变', BuffType.BUFF, -1, {
@@ -1648,7 +1648,7 @@ function compileSecrets(
         }),
       ),
     ],
-    water: [healMp(0.15 * multiplier)],
+    water: [healMp(0.10 * multiplier)],
   };
   const repositoryLayers: AbilityEffectLayerConfig[] = TIANYAN_ELEMENTS.map((oldSeal) => ({
     id: `repository-${oldSeal}`,
@@ -1727,7 +1727,7 @@ function runtimeListeners(settings: TianyanBuildSettings): ListenerConfig[] {
           scope: 'target', id: TIANYAN_ELEMENT_SEAL, value: 1,
         }),
       ],
-      effects: [healMp(0.04)],
+      effects: [healMp(0.03)],
     });
   }
   if (settings.shiftGain > 0) {

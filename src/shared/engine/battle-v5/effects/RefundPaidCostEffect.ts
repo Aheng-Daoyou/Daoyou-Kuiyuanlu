@@ -17,7 +17,10 @@ export class RefundPaidCostEffect extends GameplayEffect {
       0,
       snapshot.casterMpBeforeCost - snapshot.casterMpAfterCost,
     );
-    const requested = Math.round(paid * Math.max(0, this.params.ratio));
+    const requested =
+      'amount' in this.params && typeof this.params.amount === 'number'
+        ? Math.min(paid, Math.round(Math.max(0, this.params.amount)))
+        : Math.round(paid * Math.max(0, this.params.ratio));
     if (requested <= 0) return;
 
     const applied = context.caster.restoreMp(requested);

@@ -90,14 +90,14 @@ describe('宗门注册投影', () => {
   it('九个神通跨境界保持固定蓝耗且问剑式始终免费', () => {
     const expected = new Map([
       ['plain-sword', 0],
-      ['guiding-sword', 30],
-      ['linked-edge', 50],
-      ['turning-body', 45],
-      ['shadow-step', 40],
-      ['breaking-edge', 50],
-      ['sword-aegis', 45],
-      ['nurturing-sword', 50],
-      ['sect-ultimate', 75],
+      ['guiding-sword', 80],
+      ['linked-edge', 140],
+      ['turning-body', 160],
+      ['shadow-step', 120],
+      ['breaking-edge', 160],
+      ['sword-aegis', 180],
+      ['nurturing-sword', 180],
+      ['sect-ultimate', 240],
     ]);
     for (const realm of ['炼气', '化神', '渡劫'] as const) {
       for (const [abilityId, mpCost] of expected) {

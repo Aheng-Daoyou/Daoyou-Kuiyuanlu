@@ -23,7 +23,7 @@ export interface TianyanBuildSettings {
   overcomingShieldRatio: number;
   threeTalents: boolean;
   blankBreath: boolean;
-  reactionManaRefund: number;
+  reactionManaRefundAmount: number;
   innerOuter: boolean;
   hetuMainBonus: number;
   hetuHpRatio: number;
@@ -71,7 +71,7 @@ export function createTianyanBuildSettings(
     sealDuration: 2,
     repositoryMultiplier: 1,
     repositoryGain: 0,
-    shiftCost: 20,
+    shiftCost: 120,
     shiftCooldown: 2,
     shiftSteps: 1,
     shiftGain: 0,
@@ -82,17 +82,17 @@ export function createTianyanBuildSettings(
     earthShieldMultiplier: 1,
     earthReduction: 0.15,
     riverCleanseCount: 2,
-    riverMpRatio: 0.12,
+    riverMpRatio: 0.08,
     riverControlResistance: 0.20,
     generationHealRatio: 0,
     overcomingShieldRatio: 0,
     threeTalents: false,
     blankBreath: false,
-    reactionManaRefund: 0,
+    reactionManaRefundAmount: 0,
     innerOuter: false,
     hetuMainBonus: 0.20,
     hetuHpRatio: 0.05,
-    hetuMpRatio: 0.06,
+    hetuMpRatio: 0.04,
     hetuSealExtension: 1,
     hetuRetain: false,
     hetuReactionValueBonus: 0,
@@ -136,7 +136,7 @@ abstract class TianyanBuildFacade {
 
 export class HetuBuildFacade extends TianyanBuildFacade {
   enableBlankBreath(): void { this.settings.blankBreath = true; }
-  enableReactionRefund(): void { this.settings.reactionManaRefund = 0.20; }
+  enableReactionRefund(): void { this.settings.reactionManaRefundAmount = 20; }
   enableShiftFlow(): void { this.settings.shiftGain = 1; }
   strengthenWoodHealing(): void {
     this.settings.woodHealingMultiplier = 1.25;
@@ -149,7 +149,7 @@ export class HetuBuildFacade extends TianyanBuildFacade {
   }
   strengthenRiverCleansing(): void {
     this.settings.riverCleanseCount = 3;
-    this.settings.riverMpRatio = 0.17;
+    this.settings.riverMpRatio = 0.12;
     this.settings.riverControlResistance = 0.30;
   }
   healOnGeneration(): void { this.settings.generationHealRatio = 0.02; }
@@ -164,7 +164,7 @@ export class HetuBuildFacade extends TianyanBuildFacade {
   }
   grantEndlessLife(): void {
     this.settings.hetuHpRatio += 0.07;
-    this.settings.hetuMpRatio += 0.06;
+    this.settings.hetuMpRatio += 0.04;
     this.settings.hetuRetain = true;
   }
   returnEscapedOne(): void { this.settings.nonLandingSlotBonus = 0.08; }
@@ -174,7 +174,7 @@ export class LuoshuBuildFacade extends TianyanBuildFacade {
   observeSealGap(): void { this.settings.observeSealDamageBonus = 0.08; }
   enableFirstChange(): void { this.settings.firstChange = true; }
   quickenShift(): void {
-    this.settings.shiftCost = 10;
+    this.settings.shiftCost = 80;
     this.settings.shiftCooldown = 1;
   }
   reverseTwoPalaces(): void {

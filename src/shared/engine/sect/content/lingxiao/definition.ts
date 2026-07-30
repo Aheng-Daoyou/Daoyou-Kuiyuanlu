@@ -109,7 +109,7 @@ export const LINGXIAO_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       description: '剑意至极，平生所见皆归于一锋。此剑不借天威，只决眼前之局。',
       unlock: { type: 'method', methodId: 'lingxiao-canon', level: 10 },
       role: 'finisher',
-      mpCost: 75,
+      mpCost: 240,
       cooldown: 4,
     },
     {
@@ -119,7 +119,7 @@ export const LINGXIAO_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       description: '剑意初动，如沧海生澜；一势既起，后招便随之而来。',
       unlock: { type: 'method', methodId: 'sword-guidance', level: 1 },
       role: 'generator',
-      mpCost: 30,
+      mpCost: 80,
       cooldown: 0,
     },
     {
@@ -129,7 +129,7 @@ export const LINGXIAO_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       description: '剑锋纵横，数势相连；前剑未尽，后剑已越其锋。',
       unlock: { type: 'method', methodId: 'sword-guidance', level: 5 },
       role: 'combo',
-      mpCost: 50,
+      mpCost: 140,
       cooldown: 2,
     },
     {
@@ -139,7 +139,7 @@ export const LINGXIAO_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       description: '收剑藏势，静候敌招；待来势真正落下，再以后发之剑应之。',
       unlock: { type: 'method', methodId: 'void-step', level: 3 },
       role: 'defensive',
-      mpCost: 45,
+      mpCost: 160,
       cooldown: 3,
     },
     {
@@ -149,7 +149,7 @@ export const LINGXIAO_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       description: '身随剑行，进退不滞；剑光掠过之后，唯余风雪未定。',
       unlock: { type: 'method', methodId: 'void-step', level: 5 },
       role: 'generator',
-      mpCost: 40,
+      mpCost: 120,
       cooldown: 4,
     },
     {
@@ -159,7 +159,7 @@ export const LINGXIAO_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       description: '剑意照见虚实，以锋芒截断敌方变化，使诸般护持无所藏形。',
       unlock: { type: 'method', methodId: 'edge-cleansing', level: 3 },
       role: 'utility',
-      mpCost: 50,
+      mpCost: 160,
       cooldown: 3,
     },
     {
@@ -169,7 +169,7 @@ export const LINGXIAO_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       description: '心念澄澈，剑意自明；外法临身，只见其变，不为其所动。',
       unlock: { type: 'method', methodId: 'origin-returning', level: 3 },
       role: 'defensive',
-      mpCost: 45,
+      mpCost: 180,
       cooldown: 5,
     },
     {
@@ -179,7 +179,7 @@ export const LINGXIAO_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       description: '气随意转，意随剑行；持剑之人与手中之锋再无迟滞。',
       unlock: { type: 'method', methodId: 'sword-nurturing', level: 3 },
       role: 'defensive',
-      mpCost: 50,
+      mpCost: 180,
       cooldown: 5,
     },
     {
