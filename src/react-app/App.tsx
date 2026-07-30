@@ -1,5 +1,6 @@
 import { AppVersionNotifier } from '@app/components/feature/app-version/AppVersionNotifier';
 import { InkUIProvider } from '@app/components/providers/InkUIProvider';
+import { PwaInstallProvider } from '@app/components/providers/PwaInstallProvider';
 import Link from '@app/components/router/AppLink';
 import { RouteDocumentTitle } from '@app/components/router/RouteDocumentTitle';
 import {
@@ -32,11 +33,13 @@ function NavigationIndicator() {
 export default function App() {
   return (
     <InkUIProvider>
-      <AppVersionNotifier />
-      <RouteDocumentTitle />
-      <ScrollRestoration />
-      <NavigationIndicator />
-      <Outlet />
+      <PwaInstallProvider>
+        <AppVersionNotifier />
+        <RouteDocumentTitle />
+        <ScrollRestoration />
+        <NavigationIndicator />
+        <Outlet />
+      </PwaInstallProvider>
     </InkUIProvider>
   );
 }

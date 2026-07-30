@@ -6,10 +6,10 @@ import { AdminShell } from './_components/AdminShell';
 export const loader = requireAdminLoader;
 
 export default function AdminLayout() {
-  const { adminEmail } = useLoaderData() as AdminLoaderData;
+  const { adminEmail, adminUserId } = useLoaderData() as AdminLoaderData;
 
   return (
-    <AdminShell adminEmail={adminEmail}>
+    <AdminShell adminEmail={adminEmail} adminUserId={adminUserId}>
       <Outlet />
     </AdminShell>
   );

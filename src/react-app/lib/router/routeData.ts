@@ -10,5 +10,6 @@ export interface UserLoaderData {
 }
 
 export interface AdminLoaderData {
+  adminUserId: string;
   adminEmail: string;
 }

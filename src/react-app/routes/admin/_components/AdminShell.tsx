@@ -6,10 +6,15 @@ import { adminNavItems } from '../_config/nav';
 
 interface AdminShellProps {
   adminEmail: string;
+  adminUserId: string;
   children: ReactNode;
 }
 
-export function AdminShell({ adminEmail, children }: AdminShellProps) {
+export function AdminShell({
+  adminEmail,
+  adminUserId,
+  children,
+}: AdminShellProps) {
   const { pathname } = useLocation();
   const isNavItemActive = (href: string) => {
     if (href === '/admin') {
@@ -28,6 +33,9 @@ export function AdminShell({ adminEmail, children }: AdminShellProps) {
             </p>
             <h1 className="font-heading text-ink mt-2 text-3xl">万界司天台</h1>
             <p className="text-ink-secondary mt-2 text-sm">{adminEmail}</p>
+            <p className="text-ink-secondary/75 mt-1 font-mono text-[11px] break-all">
+              ID: {adminUserId}
+            </p>
           </div>
 
           <nav className="space-y-2">

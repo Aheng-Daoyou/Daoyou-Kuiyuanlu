@@ -11,6 +11,7 @@ type SessionData = SessionResult['data'];
 
 type AdminSessionResponse = {
   success?: boolean;
+  userId?: string;
   email?: string;
   error?: string;
 };
@@ -112,11 +113,12 @@ export async function requireAdminLoader({
     return replace('/game');
   }
 
-  if (!response.ok || !payload.email) {
+  if (!response.ok || !payload.userId || !payload.email) {
     throw new Error(payload.error ?? '加载管理员会话失败');
   }
 
   return {
+    adminUserId: payload.userId,
     adminEmail: payload.email,
   };
 }

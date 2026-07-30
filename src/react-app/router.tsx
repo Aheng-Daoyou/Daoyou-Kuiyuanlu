@@ -1109,6 +1109,11 @@ export const router = createBrowserRouter(
           handle={title('用户反馈')}
         />
         <Route
+          path="accounts"
+          lazy={lazyRoute(() => import('@app/routes/admin/accounts/route'))}
+          handle={title('账号管理')}
+        />
+        <Route
           path="broadcast/email"
           lazy={lazyRoute(
             () => import('@app/routes/admin/broadcast/email/route'),

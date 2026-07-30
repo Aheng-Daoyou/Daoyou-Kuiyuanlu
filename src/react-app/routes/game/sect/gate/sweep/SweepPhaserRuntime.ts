@@ -45,7 +45,7 @@ const SWEEP_MARK_FRAMES = [
 ] as const;
 
 export interface SweepPhaserController {
-  move: (direction: SweepDirection) => void;
+  move: (direction: SweepDirection) => boolean;
   reset: () => void;
   destroy: () => void;
 }
@@ -89,7 +89,7 @@ export function attachSweepPhaser(
   const renderScale = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
   let state = createSweepGameState(args.seed);
   let queuedState = state;
-  let moveScene: ((direction: SweepDirection) => void) | undefined;
+  let moveScene: ((direction: SweepDirection) => boolean) | undefined;
   let resetScene: (() => void) | undefined;
   let destroyed = false;
 
@@ -148,17 +148,18 @@ export function attachSweepPhaser(
       canvas.setAttribute('role', 'application');
     }
 
-    private enqueueDirection(direction: SweepDirection) {
-      if (queuedState.phase !== 'playing') return;
+    private enqueueDirection(direction: SweepDirection): boolean {
+      if (queuedState.phase !== 'playing') return false;
       const result = stepSweepGame(queuedState, direction);
       if (!result.moved) {
         if (!this.animating && this.moveQueue.length === 0)
           this.blockedFeedback();
-        return;
+        return false;
       }
       queuedState = result.state;
       this.moveQueue.push({ direction, state: queuedState });
       this.pumpQueue();
+      return true;
     }
 
     private enqueueCell(cell: SweepCell) {
@@ -474,7 +475,7 @@ export function attachSweepPhaser(
   const game = new Phaser.Game(config);
 
   return {
-    move: (direction) => moveScene?.(direction),
+    move: (direction) => moveScene?.(direction) ?? false,
     reset: () => resetScene?.(),
     destroy: () => {
       if (destroyed) return;

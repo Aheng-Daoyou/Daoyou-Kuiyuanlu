@@ -16,6 +16,11 @@ export const adminNavItems: AdminNavItem[] = [
     href: '/admin/feedback',
   },
   {
+    title: '账号管理',
+    description: '查询账号与改绑登录邮箱',
+    href: '/admin/accounts',
+  },
+  {
     title: '邮箱群发',
     description: '面向已验证邮箱用户',
     href: '/admin/broadcast/email',

@@ -1,3 +1,8 @@
+import {
+  isAdminIdentity,
+  isAdminUserId,
+  isLegacyAdminEmail,
+} from '@server/lib/auth/adminAccess';
 import { auth } from '@server/lib/auth/auth';
 import type { AuthUser } from '@server/lib/auth/types';
 import { getExecutor } from '@server/lib/drizzle/db';
@@ -171,7 +176,10 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function applyAuthHeaders(context: Context<AppEnv>, headers?: Headers | null) {
+export function applyAuthHeaders(
+  context: Context<AppEnv>,
+  headers?: Headers | null,
+) {
   if (!headers) {
     return;
   }
@@ -208,16 +216,8 @@ async function resolveUser(context: Context<AppEnv>): Promise<AuthUser | null> {
   };
 }
 
-function getAdminEmails(): string[] {
-  return (process.env.ADMIN_EMAILS ?? '')
-    .split(',')
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
-}
-
 export function isAdminEmail(email?: string | null): boolean {
-  if (!email) return false;
-  return getAdminEmails().includes(email.toLowerCase());
+  return isLegacyAdminEmail(email);
 }
 
 export function errorBody(
@@ -321,8 +321,30 @@ export function requireAdmin(): MiddlewareHandler<AppEnv> {
       return;
     }
 
-    if (!isAdminEmail(user.email)) {
+    if (!isAdminIdentity(user)) {
       context.res = errorBody('无管理员权限', 403);
+      return;
+    }
+
+    context.set('user', user);
+    await next();
+  };
+}
+
+export function requireBetterAuthAdmin(): MiddlewareHandler<AppEnv> {
+  return async (context, next) => {
+    const user = await resolveUser(context);
+
+    if (!user) {
+      context.res = errorBody('未授权访问', 401);
+      return;
+    }
+
+    if (!isAdminUserId(user.id)) {
+      context.res = errorBody(
+        '账号管理需要在 ADMIN_USER_IDS 中配置当前管理员用户 ID',
+        403,
+      );
       return;
     }
 

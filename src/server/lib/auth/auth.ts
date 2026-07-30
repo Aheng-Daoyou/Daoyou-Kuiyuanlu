@@ -1,6 +1,7 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { i18n, type TranslationDictionary } from '@better-auth/i18n';
 import { betterAuth } from 'better-auth';
+import { admin } from 'better-auth/plugins/admin';
 import { emailOTP } from 'better-auth/plugins/email-otp';
 import { sendViaSmtp } from '../admin/smtp';
 import { db } from '../drizzle/db';
@@ -9,6 +10,7 @@ import {
   markAccountDeletionCompleted,
   recordPendingAccountDeletion,
 } from '../repositories/accountDeletionRepository';
+import { getAdminUserIds } from './adminAccess';
 import { getCookieDomainConfig } from './cookieDomain';
 import { BETTER_AUTH_SCHEMA_NAME, betterAuthSchema } from './schema';
 
@@ -172,6 +174,9 @@ export const auth = betterAuth({
       translations: {
         zh: zhAuthTranslations,
       },
+    }),
+    admin({
+      adminUserIds: getAdminUserIds(),
     }),
     emailOTP({
       otpLength: 6,

@@ -8,13 +8,21 @@ import {
   decodeSectTaskOutcome,
   readSweepSessionOutcome,
 } from '@app/components/feature/sect/sectTaskOutcomeRegistry';
+import {
+  GameActivityFullscreenRetry,
+  GameActivityLaunchGate,
+  GameActivityOverlay,
+  GameActivityRotationNotice,
+  useGameActivityViewport,
+} from '@app/components/feature/game-activity';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkNotice } from '@app/components/ui';
 import {
-  readActivityViewportState,
+  readActivityImmersiveNavigationState,
   releaseActivityImmersiveMode,
   requestActivityImmersiveMode,
   shouldBlockActivityForPortrait,
+  type ActivityImmersiveResult,
 } from '@app/lib/gameActivityImmersive';
 import { useResourceMutation } from '@app/lib/resources/mutations';
 import type {
@@ -25,11 +33,12 @@ import type {
 } from '@shared/contracts/sect';
 import type { SweepDirection, SweepGameProgress } from '@shared/engine/sect';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import {
   attachSweepPhaser,
   type SweepPhaserController,
 } from './SweepPhaserRuntime';
+import { SweepDirectionPad } from './SweepDirectionPad';
 import {
   resolveSweepActivityMode,
   sweepActivityMessage,
@@ -63,45 +72,37 @@ function postJson(
   };
 }
 
-function useSweepLandscapeGate() {
-  const [viewport, setViewport] = useState(() => readActivityViewportState());
-
-  useEffect(() => {
-    const coarse = window.matchMedia('(pointer: coarse)');
-    const landscape = window.matchMedia('(orientation: landscape)');
-    const update = () => setViewport(readActivityViewportState());
-    coarse.addEventListener('change', update);
-    landscape.addEventListener('change', update);
-    window.addEventListener('orientationchange', update);
-    document.addEventListener('fullscreenchange', update);
-    return () => {
-      coarse.removeEventListener('change', update);
-      landscape.removeEventListener('change', update);
-      window.removeEventListener('orientationchange', update);
-      document.removeEventListener('fullscreenchange', update);
-    };
-  }, []);
-
-  return shouldBlockActivityForPortrait(viewport);
-}
-
 export default function SectGateSweepPage() {
   const rootRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<SweepPhaserController | undefined>(undefined);
-  const startedRef = useRef(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const viewport = useGameActivityViewport();
   const context = useSectContextQuery();
   const { data: taskData, error: taskError } = useSectTasksQuery();
   const presentation = getSectPresentationForContext(context.data);
   const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
-  const portraitBlocked = useSweepLandscapeGate();
+  const portraitBlocked = shouldBlockActivityForPortrait(viewport);
+  const [immersiveAttempt, setImmersiveAttempt] = useState<
+    ActivityImmersiveResult | undefined
+  >(() => readActivityImmersiveNavigationState(location.state));
+  const [fallbackAccepted, setFallbackAccepted] = useState(false);
   const [session, setSession] = useState<ActiveSweepSession>();
+  const [started, setStarted] = useState(false);
   const [progress, setProgress] = useState<SweepGameProgress>();
   const [settlement, setSettlement] = useState<SweepSettlement>();
   const [starting, setStarting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [operationError, setOperationError] = useState<string>();
+  const fullscreenReady =
+    !viewport.coarsePointer ||
+    viewport.standalone ||
+    viewport.fullscreenActive ||
+    fallbackAccepted;
+  const launchBlocked =
+    viewport.coarsePointer && (!viewport.landscape || !fullscreenReady);
+  const activityStarted = starting || started || Boolean(session);
 
   const beginPractice = useCallback(() => {
     setSession({
@@ -111,7 +112,7 @@ export default function SectGateSweepPage() {
     setProgress(undefined);
     setSettlement(undefined);
     setOperationError(undefined);
-    startedRef.current = true;
+    setStarted(true);
   }, []);
 
   const beginSession = useCallback(
@@ -122,7 +123,7 @@ export default function SectGateSweepPage() {
       setProgress(undefined);
       setSettlement(undefined);
       setOperationError(undefined);
-      startedRef.current = true;
+      setStarted(true);
       if (mode.kind === 'practice') {
         beginPractice();
         setStarting(false);
@@ -157,10 +158,11 @@ export default function SectGateSweepPage() {
   );
 
   useEffect(() => {
-    if (portraitBlocked || startedRef.current || (!taskData && !taskError))
+    if (launchBlocked || started || (!taskData && !taskError))
       return;
-    void beginSession(taskData);
-  }, [beginSession, portraitBlocked, taskData, taskError]);
+    const timer = window.setTimeout(() => void beginSession(taskData), 0);
+    return () => window.clearTimeout(timer);
+  }, [beginSession, launchBlocked, started, taskData, taskError]);
 
   const complete = useCallback(
     async (moves: SweepDirection[]) => {
@@ -203,7 +205,7 @@ export default function SectGateSweepPage() {
 
   useEffect(() => {
     const root = rootRef.current;
-    if (!root || !session || portraitBlocked) return;
+    if (!root || !session) return;
     const controller = attachSweepPhaser({
       root,
       seed: session.seed,
@@ -218,7 +220,7 @@ export default function SectGateSweepPage() {
       if (controllerRef.current === controller)
         controllerRef.current = undefined;
     };
-  }, [complete, portraitBlocked, presentation.terms.sweepCanvasLabel, session]);
+  }, [complete, presentation.terms.sweepCanvasLabel, session]);
 
   useEffect(
     () => () => {
@@ -241,12 +243,13 @@ export default function SectGateSweepPage() {
   };
 
   const newGame = async () => {
-    startedRef.current = true;
+    setStarted(true);
     await beginSession(taskData);
   };
 
   const retryImmersive = async () => {
-    await requestActivityImmersiveMode();
+    const result = await requestActivityImmersiveMode();
+    setImmersiveAttempt(result);
   };
 
   const phaseFailure =
@@ -272,21 +275,33 @@ export default function SectGateSweepPage() {
       />
       <div className="absolute inset-0 bg-[#101513]/35" aria-hidden="true" />
 
-      {!portraitBlocked ? (
-        <div ref={rootRef} className="absolute inset-0" />
-      ) : null}
+      <div ref={rootRef} className="absolute inset-0" />
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 px-[max(env(safe-area-inset-left),0.75rem)] pt-[max(env(safe-area-inset-top),0.75rem)] pr-[max(env(safe-area-inset-right),0.75rem)]">
         <div className="pointer-events-auto rounded-full bg-[#18201c]/50 px-4 py-2 text-sm shadow-lg ring-1 ring-white/10 backdrop-blur-md">
           <span>
-            落叶 {progress?.cleared ?? 0}/{progress?.totalLeaves ?? 4}
+            {viewport.coarsePointer ? '叶' : '落叶'} {progress?.cleared ?? 0}/
+            {progress?.totalLeaves ?? 4}
           </span>
-          <span className="ml-4">步数 {progress?.steps ?? 0}</span>
-          <span className="ml-4 text-xs text-stone-300">
-            {session?.kind === 'reward' ? '今日委托' : '自由练习'}
+          <span className="ml-3">
+            {viewport.coarsePointer
+              ? `${progress?.steps ?? 0}步`
+              : `步数 ${progress?.steps ?? 0}`}
           </span>
+          {!viewport.coarsePointer ? (
+            <span className="ml-4 text-xs text-stone-300">
+              {session?.kind === 'reward' ? '今日委托' : '自由练习'}
+            </span>
+          ) : null}
         </div>
         <div className="pointer-events-auto flex gap-2">
+          {viewport.coarsePointer &&
+          viewport.landscape &&
+          !viewport.standalone &&
+          !viewport.fullscreenActive &&
+          session ? (
+            <GameActivityFullscreenRetry onRetry={retryImmersive} />
+          ) : null}
           <button
             type="button"
             className="rounded-full bg-[#18201c]/50 px-4 py-2 text-sm shadow-lg ring-1 ring-white/10 backdrop-blur-md transition hover:bg-[#18201c]/75 disabled:opacity-50"
@@ -306,31 +321,30 @@ export default function SectGateSweepPage() {
         </div>
       </div>
 
-      {portraitBlocked ? (
-        <FullscreenNotice>
-          <p className="text-lg font-semibold">请将设备旋转为横屏</p>
-          <p className="mt-2 text-sm leading-7 text-stone-300">
-            棋盘会在横屏后开启，避免格子缩得过小。
-          </p>
-          <div className="mt-5 flex flex-wrap justify-center gap-3">
-            <InkButton variant="primary" onClick={() => void retryImmersive()}>
-              进入横屏全屏
-            </InkButton>
-            <InkButton variant="secondary" onClick={() => void exit()}>
-              返回山门
-            </InkButton>
-          </div>
-        </FullscreenNotice>
+      {activityStarted && portraitBlocked ? (
+        <GameActivityRotationNotice />
+      ) : !activityStarted && launchBlocked ? (
+        <GameActivityLaunchGate
+          viewport={viewport}
+          attempt={immersiveAttempt}
+          instructions={
+            <p>方向盘每次前进一步；收齐落叶后再踏入终点。</p>
+          }
+          exitLabel="返回山门"
+          onRetry={retryImmersive}
+          onContinue={() => setFallbackAccepted(true)}
+          onExit={() => void exit()}
+        />
       ) : starting || (!session && !operationError) ? (
-        <FullscreenNotice>
+        <GameActivityOverlay>
           <p className="loading-tip">山门步道正在铺开……</p>
-        </FullscreenNotice>
+        </GameActivityOverlay>
       ) : submitting ? (
-        <FullscreenNotice>
+        <GameActivityOverlay>
           <p className="loading-tip">正在验收清扫轨迹……</p>
-        </FullscreenNotice>
+        </GameActivityOverlay>
       ) : operationError ? (
-        <FullscreenNotice>
+        <GameActivityOverlay>
           <InkNotice>{operationError}</InkNotice>
           <div className="mt-5 flex flex-wrap justify-center gap-3">
             <InkButton onClick={() => void newGame()}>重新开启</InkButton>
@@ -341,9 +355,9 @@ export default function SectGateSweepPage() {
               返回山门
             </InkButton>
           </div>
-        </FullscreenNotice>
+        </GameActivityOverlay>
       ) : settlement ? (
-        <FullscreenNotice>
+        <GameActivityOverlay>
           <p className="text-xl font-semibold">
             {settlement.kind === 'reward' ? '今日勤务已完成' : '清扫完成'}
           </p>
@@ -360,9 +374,9 @@ export default function SectGateSweepPage() {
               再来一局
             </InkButton>
           </div>
-        </FullscreenNotice>
+        </GameActivityOverlay>
       ) : phaseFailure ? (
-        <FullscreenNotice>
+        <GameActivityOverlay>
           <p className="text-xl font-semibold">此路不通</p>
           <p className="mt-3 text-sm leading-7 text-stone-300">
             {phaseFailure}
@@ -375,37 +389,43 @@ export default function SectGateSweepPage() {
               返回山门
             </InkButton>
           </div>
-        </FullscreenNotice>
+        </GameActivityOverlay>
       ) : !progress ? (
-        <FullscreenNotice>
+        <GameActivityOverlay>
           <p className="loading-tip">正在绘制山门格阵……</p>
-        </FullscreenNotice>
+        </GameActivityOverlay>
+      ) : null}
+
+      {viewport.coarsePointer &&
+      session &&
+      progress?.phase === 'playing' &&
+      !settlement ? (
+        <SweepDirectionPad
+          disabled={submitting || starting || portraitBlocked}
+          onMove={(direction) =>
+            controllerRef.current?.move(direction) ?? false
+          }
+        />
       ) : null}
 
       {!portraitBlocked && session && progress?.phase === 'playing' ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pb-[max(env(safe-area-inset-bottom),0.65rem)] text-center">
           <p className="inline-block rounded-full bg-black/45 px-4 py-2 text-xs text-stone-300 backdrop-blur-sm">
-            {sweepActivityMessage(
-              session.kind === 'reward'
-                ? { kind: 'reward', task: session.task }
-                : mode.kind === 'practice'
-                  ? mode
-                  : {
-                      kind: 'practice',
-                      reason: 'unavailable',
-                    },
-            )}
+            {viewport.coarsePointer
+              ? '收齐落叶后前往终点 · 走过的格子不能返回'
+              : sweepActivityMessage(
+                  session.kind === 'reward'
+                    ? { kind: 'reward', task: session.task }
+                    : mode.kind === 'practice'
+                      ? mode
+                      : {
+                          kind: 'practice',
+                          reason: 'unavailable',
+                        },
+                )}
           </p>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function FullscreenNotice({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="absolute inset-0 z-30 grid place-items-center bg-black/72 p-6 backdrop-blur-sm">
-      <div className="w-full max-w-md text-center">{children}</div>
     </div>
   );
 }

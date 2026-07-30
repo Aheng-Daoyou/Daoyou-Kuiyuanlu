@@ -128,6 +128,7 @@ cp .env.example .env.local
 | `PUBLIC_WEB_ORIGINS` | 允许访问 API 的前端 origin，逗号分隔，如 `https://app.example.com,http://localhost:5173` |
 | `BETTER_AUTH_COOKIE_DOMAIN` | 可选；同站子域部署时可填 `.example.com` 启用跨子域 cookie |
 | `ADMIN_EMAILS` | 管理员邮箱白名单，逗号分隔 |
+| `ADMIN_USER_IDS` | Better Auth 管理员用户 ID 白名单，逗号分隔；账号管理工具必须配置 |
 
 ### 生产 cron 必需
 

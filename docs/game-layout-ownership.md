@@ -15,7 +15,9 @@
 - 造化/参悟共享材料选择器放在 `src/react-app/components/feature/creation/MaterialSelector.tsx`
 - 道身长期状态与称号编辑放在 `src/react-app/components/feature/cultivator/`
 - 跨玩法复用的分幕演出舞台放在 `src/react-app/components/feature/narrative/`
-- 清扫与采掘共用的横屏、全屏进入和释放逻辑放在 `src/react-app/lib/gameActivityImmersive.ts`；各玩法的 Phaser runtime 与规则保持独立
+- 清扫与采掘共用的横屏、全屏进入和释放逻辑放在 `src/react-app/lib/gameActivityImmersive.ts`；共享启动层和沉浸状态监听放在 `src/react-app/components/feature/game-activity/`
+- 清扫方向盘和采掘放索按钮属于玩法私有控制组件；各玩法的 Phaser runtime 与服务端重放规则保持独立
+- PWA 安装状态由应用根 Provider 统一持有；小游戏只在全屏失败时给出场景化安装提示，系统设置保留固定安装入口
 - `routes/game/components/` 只保留真正属于某个页面的私有组件；跨两个以上路由族复用的组件不得继续放在 `routes/**`
 
 ## 禁止项

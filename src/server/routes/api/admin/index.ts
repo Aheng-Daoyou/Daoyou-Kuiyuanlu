@@ -1,5 +1,6 @@
 import { requireAdmin } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
+import accountsRouter from '@server/routes/api/admin/accounts.router';
 import announcementRouter from '@server/routes/api/admin/announcement.router';
 import battleSimulatorRouter from '@server/routes/api/admin/battle-simulator.router';
 import broadcastRouter from '@server/routes/api/admin/broadcast.router';
@@ -21,10 +22,12 @@ router.get('/session', requireAdmin(), (c) => {
   const user = c.get('user');
   return c.json({
     success: true,
+    userId: user?.id ?? '',
     email: user?.email ?? '',
   });
 });
 
+router.route('/accounts', accountsRouter);
 router.route('/templates', templatesRouter);
 router.route('/feedback', feedbackRouter);
 router.route('/broadcast', broadcastRouter);

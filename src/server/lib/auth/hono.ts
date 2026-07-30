@@ -15,6 +15,7 @@ const CAPTCHA_PROTECTED_PATHS = new Set([
   '/api/auth/request-password-reset',
   '/api/auth/email-otp/send-verification-otp',
 ]);
+const ADMIN_AUTH_PATH = '/api/auth/admin';
 
 async function readRequestBody(request: Request): Promise<Record<string, unknown>> {
   const contentType = request.headers.get('content-type') || '';
@@ -100,6 +101,13 @@ async function validateOtpSignUpName(context: Context): Promise<Response | null>
 }
 
 export async function handleAuthRequest(context: Context): Promise<Response> {
+  if (
+    context.req.path === ADMIN_AUTH_PATH ||
+    context.req.path.startsWith(`${ADMIN_AUTH_PATH}/`)
+  ) {
+    return authError('未找到该接口', 404);
+  }
+
   if (context.req.method === 'POST') {
     const captchaError = await validateCaptcha(context);
     if (captchaError) {

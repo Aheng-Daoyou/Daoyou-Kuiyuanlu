@@ -23,6 +23,10 @@ export const authUsers = authSchema.table('user', {
   email: text('email').notNull().unique('user_email_key'),
   emailVerified: boolean('emailVerified').notNull(),
   image: text('image'),
+  role: text('role'),
+  banned: boolean('banned').default(false),
+  banReason: text('banReason'),
+  banExpires: authTimestamp('banExpires'),
   createdAt: authTimestamp('createdAt').defaultNow().notNull(),
   updatedAt: authTimestamp('updatedAt').defaultNow().notNull(),
 });
@@ -40,6 +44,7 @@ export const authSessions = authSchema.table(
     ipAddress: text('ipAddress'),
     userAgent: text('userAgent'),
     userId: uuid('userId').notNull(),
+    impersonatedBy: text('impersonatedBy'),
   },
   (table) => [
     foreignKey({

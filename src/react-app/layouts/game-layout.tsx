@@ -395,7 +395,7 @@ export function GameCombatLayout() {
 
 export function GameActivityLayout() {
   return (
-    <div className="h-[100dvh] overflow-hidden bg-[#141918]">
+    <div className="h-[100dvh] touch-none overflow-hidden overscroll-none bg-[#141918]">
       <main className="h-full overflow-hidden">
         <Outlet />
       </main>

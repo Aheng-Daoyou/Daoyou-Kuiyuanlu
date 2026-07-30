@@ -17,7 +17,10 @@ import {
   useSectInfrastructureQuery,
   useSectTasksQuery,
 } from '@app/components/feature/sect/sectResources';
-import { requestActivityImmersiveMode } from '@app/lib/gameActivityImmersive';
+import {
+  createActivityImmersiveNavigationState,
+  requestActivityImmersiveMode,
+} from '@app/lib/gameActivityImmersive';
 import {
   describeSectFacilityStatus,
   STANDARD_SECT_PRESENTATION,
@@ -136,8 +139,10 @@ function SpiritVeinFacilityConversation({
         if (optionId === 'leave') onExit();
         else if (optionId === 'mining') {
           setEntering(true);
-          void requestActivityImmersiveMode().then(() =>
-            navigate('/game/sect/spirit-vein/mining'),
+          void requestActivityImmersiveMode().then((result) =>
+            navigate('/game/sect/spirit-vein/mining', {
+              state: createActivityImmersiveNavigationState(result),
+            }),
           );
         }
       }}

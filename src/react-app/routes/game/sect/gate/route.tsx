@@ -13,7 +13,10 @@ import {
   useSectInfrastructureQuery,
   useSectTasksQuery,
 } from '@app/components/feature/sect/sectResources';
-import { requestActivityImmersiveMode } from '@app/lib/gameActivityImmersive';
+import {
+  createActivityImmersiveNavigationState,
+  requestActivityImmersiveMode,
+} from '@app/lib/gameActivityImmersive';
 import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -118,8 +121,10 @@ function GateSweepConversation({
         if (optionId === 'leave') onExit();
         else if (optionId === 'sweep') {
           setEntering(true);
-          void requestActivityImmersiveMode().then(() =>
-            navigate('/game/sect/gate/sweep'),
+          void requestActivityImmersiveMode().then((result) =>
+            navigate('/game/sect/gate/sweep', {
+              state: createActivityImmersiveNavigationState(result),
+            }),
           );
         }
       }}
