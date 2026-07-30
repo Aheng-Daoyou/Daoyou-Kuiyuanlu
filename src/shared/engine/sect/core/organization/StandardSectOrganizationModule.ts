@@ -358,7 +358,7 @@ const tasks: readonly SectTaskDefinition[] = [
     fulfillment: [],
     presentation: taskPresentation(
       '悬赏令·讨伐',
-      '追缉一名与自身境界相当的外宗修士。',
+      '追缉一名与自身同境或低一境的外宗修士。',
       '前往讨伐',
       {
         offeredReply: '这份讨伐悬赏由我来办',
@@ -737,7 +737,7 @@ class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
             return {
               opponent: createLockedCultivatorOpponent(target, opponentId),
               title: '悬赏令·讨伐',
-              description: '悬赏令上与你境界相当的外宗目标。',
+              description: '悬赏令上与你同境或低一境的外宗目标。',
             };
           },
         },

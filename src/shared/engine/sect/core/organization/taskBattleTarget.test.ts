@@ -4,6 +4,7 @@ import {
   SECT_BATTLE_TARGET_SCHEMA_VERSION,
   SectBattleTargetSnapshotSchema,
   readSectBattleTargetSnapshot,
+  resolveSectBattleTargetRealmCandidates,
   summarizeSectBattleTarget,
 } from './taskBattleTarget';
 
@@ -30,6 +31,20 @@ function combatantFixture(): CultivatorCombatInput {
 }
 
 describe('sect battle target snapshot', () => {
+  it.each([
+    ['same-sect', '金丹', ['金丹']],
+    ['other-sect', '炼气', ['炼气']],
+    ['other-sect', '金丹', ['金丹', '筑基']],
+    ['other-sect', '渡劫', ['渡劫', '大乘']],
+  ] as const)(
+    'resolves %s target realm candidates from %s',
+    (acquisition, realm, expected) => {
+      expect(
+        resolveSectBattleTargetRealmCandidates(realm, acquisition),
+      ).toEqual(expected);
+    },
+  );
+
   it('round-trips a complete cultivator target through JSON', () => {
     const snapshot = SectBattleTargetSnapshotSchema.parse({
       schemaVersion: SECT_BATTLE_TARGET_SCHEMA_VERSION,

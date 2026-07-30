@@ -6,6 +6,7 @@ import {
   type RealmType,
 } from '@shared/types/constants';
 import { z } from 'zod';
+import type { SectBattleTargetAcquisition } from './contracts';
 
 export const SECT_BATTLE_TARGET_SCHEMA_VERSION = 1;
 
@@ -73,6 +74,17 @@ export interface SectBattleTargetSummary {
   realmStage: RealmStage;
   sectId?: string;
   sectName?: string;
+}
+
+export function resolveSectBattleTargetRealmCandidates(
+  realm: RealmType,
+  acquisition: SectBattleTargetAcquisition,
+): readonly RealmType[] {
+  if (acquisition !== 'other-sect') return [realm];
+
+  const realmIndex = REALM_VALUES.indexOf(realm);
+  const previousRealm = REALM_VALUES[realmIndex - 1];
+  return previousRealm ? [realm, previousRealm] : [realm];
 }
 
 export function readSectBattleTargetSnapshot(

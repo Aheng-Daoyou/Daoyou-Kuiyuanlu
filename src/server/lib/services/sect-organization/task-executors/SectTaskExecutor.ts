@@ -18,6 +18,7 @@ import {
   MINING_SESSION_TTL_MS,
   MINING_TIER_MATERIAL_QUANTITY,
   miningRewardQualityPreference,
+  resolveSectBattleTargetRealmCandidates,
   resolveSectTaskExecutionLocationParameters,
   scaleMiningTaskReward,
   SECT_BATTLE_TARGET_SCHEMA_VERSION,
@@ -519,14 +520,17 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
         (await context.ports.cultivators.findBattleTargetCandidate({
           requesterSectId: context.membership.sectId,
           excludeCultivatorId: context.cultivatorId,
-          realm: player.realm,
+          realms: resolveSectBattleTargetRealmCandidates(
+            player.realm,
+            factory.acquisition,
+          ),
           relation: factory.acquisition,
         })) ?? undefined;
       if (!source)
         invalid(
           factory.acquisition === 'same-sect'
             ? '本周演武名册尚未排到与你同境的同门，不妨过些时候再来问问。'
-            : '近日悬赏册上没有与你境界相当的外宗目标，这份令暂时不能揭。',
+            : '近日悬赏册上没有与你同境或低一境的外宗目标，这份令暂时不能揭。',
           409,
         );
       target = await context.ports.cultivators.loadRuntime(source.cultivatorId);
@@ -534,7 +538,7 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
         invalid(
           factory.acquisition === 'same-sect'
             ? '本周演武名册尚未排到与你同境的同门，不妨过些时候再来问问。'
-            : '近日悬赏册上没有与你境界相当的外宗目标，这份令暂时不能揭。',
+            : '近日悬赏册上没有与你同境或低一境的外宗目标，这份令暂时不能揭。',
           409,
         );
     }

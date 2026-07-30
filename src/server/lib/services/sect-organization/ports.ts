@@ -269,7 +269,7 @@ export interface SectCultivatorGateway {
   findBattleTargetCandidate(input: {
     requesterSectId: string;
     excludeCultivatorId: string;
-    realm: RealmType;
+    realms: readonly RealmType[];
     relation: 'same-sect' | 'other-sect';
   }): Promise<{
     cultivatorId: string;

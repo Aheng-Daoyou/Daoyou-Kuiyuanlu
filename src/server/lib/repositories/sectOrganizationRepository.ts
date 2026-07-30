@@ -15,6 +15,7 @@ import {
   sectTaskRecords,
 } from '@server/lib/drizzle/schema';
 import type { SectDiscipleRank, SectOffice } from '@shared/engine/sect';
+import type { RealmType } from '@shared/types/constants';
 import { and, asc, count, desc, eq, gt, gte, inArray, sql } from 'drizzle-orm';
 
 export async function ensureSectFacilities(
@@ -822,7 +823,7 @@ export async function findSectBattleTargetCandidate(
   input: {
     requesterSectId: string;
     excludeCultivatorId: string;
-    realm: string;
+    realms: readonly RealmType[];
     relation: 'same-sect' | 'other-sect';
   },
   q: DbExecutor | DbTransaction,
@@ -838,7 +839,7 @@ export async function findSectBattleTargetCandidate(
       and(
         eq(sectMemberships.status, 'active'),
         eq(cultivators.status, 'active'),
-        eq(cultivators.realm, input.realm),
+        inArray(cultivators.realm, input.realms),
         sql`${sectMemberships.cultivatorId} <> ${input.excludeCultivatorId}`,
         input.relation === 'same-sect'
           ? eq(sectMemberships.sectId, input.requesterSectId)
