@@ -1,4 +1,8 @@
-import type { DbExecutor, DbTransaction } from '@server/lib/drizzle/db';
+import {
+  runDbTasks,
+  type DbExecutor,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
 import {
   creationProducts,
   cultivators,
@@ -164,23 +168,27 @@ async function hydrateMembership(
   q: DbExecutor | DbTransaction,
   runtime: SectRuntime,
 ): Promise<CultivatorSectState> {
-  const [methods, pathRows, meridians, abilities] = await Promise.all([
-    q
-      .select()
-      .from(sectMethodProgress)
-      .where(eq(sectMethodProgress.membershipId, membership.id)),
-    q
-      .select()
-      .from(sectPathProgress)
-      .where(eq(sectPathProgress.membershipId, membership.id)),
-    q
-      .select()
-      .from(sectMeridianLoadouts)
-      .where(eq(sectMeridianLoadouts.membershipId, membership.id)),
-    q
-      .select()
-      .from(sectAbilityLoadouts)
-      .where(eq(sectAbilityLoadouts.membershipId, membership.id)),
+  const [methods, pathRows, meridians, abilities] = await runDbTasks(q, [
+    () =>
+      q
+        .select()
+        .from(sectMethodProgress)
+        .where(eq(sectMethodProgress.membershipId, membership.id)),
+    () =>
+      q
+        .select()
+        .from(sectPathProgress)
+        .where(eq(sectPathProgress.membershipId, membership.id)),
+    () =>
+      q
+        .select()
+        .from(sectMeridianLoadouts)
+        .where(eq(sectMeridianLoadouts.membershipId, membership.id)),
+    () =>
+      q
+        .select()
+        .from(sectAbilityLoadouts)
+        .where(eq(sectAbilityLoadouts.membershipId, membership.id)),
   ]);
   const state: CultivatorSectState = {
     membershipId: membership.id,

@@ -1,6 +1,7 @@
 import * as creationProductRepository from '@server/lib/repositories/creationProductRepository';
 import {
   getExecutor,
+  runDbTasks,
   type DbExecutor,
   type DbTransaction,
 } from '@server/lib/drizzle/db';
@@ -126,22 +127,25 @@ export async function getPlayerLoadoutByCultivatorId(
   executor?: DbExecutor | DbTransaction,
 ): Promise<PlayerLoadout> {
   const q = executor ?? getExecutor();
-  const [skills, cultivations, artifacts] = await Promise.all([
-    creationProductRepository.findEquippedByType(
-      cultivatorId,
-      'skill',
-      q,
-    ),
-    creationProductRepository.findEquippedByType(
-      cultivatorId,
-      'gongfa',
-      q,
-    ),
-    creationProductRepository.findEquippedByType(
-      cultivatorId,
-      'artifact',
-      q,
-    ),
+  const [skills, cultivations, artifacts] = await runDbTasks(q, [
+    () =>
+      creationProductRepository.findEquippedByType(
+        cultivatorId,
+        'skill',
+        q,
+      ),
+    () =>
+      creationProductRepository.findEquippedByType(
+        cultivatorId,
+        'gongfa',
+        q,
+      ),
+    () =>
+      creationProductRepository.findEquippedByType(
+        cultivatorId,
+        'artifact',
+        q,
+      ),
   ]);
   return mapLoadoutFromProducts([skills, cultivations, artifacts]);
 }

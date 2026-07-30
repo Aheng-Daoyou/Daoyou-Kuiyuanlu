@@ -140,10 +140,8 @@ export async function addFriendPair(
   }
 
   const persist = async (tx: DbTransaction) => {
-    const [current, friend] = await Promise.all([
-      getActiveCultivatorSummary(cultivatorId, tx),
-      getActiveCultivatorSummary(friendCultivatorId, tx),
-    ]);
+    const current = await getActiveCultivatorSummary(cultivatorId, tx);
+    const friend = await getActiveCultivatorSummary(friendCultivatorId, tx);
 
     if (!current) {
       throw new FriendServiceError(404, '当前角色不存在');

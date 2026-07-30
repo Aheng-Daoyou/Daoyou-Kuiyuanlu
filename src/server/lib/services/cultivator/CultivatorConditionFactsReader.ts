@@ -2,6 +2,7 @@ import * as creationProductRepository from '@server/lib/repositories/creationPro
 import { loadCultivatorSectState } from '@server/lib/repositories/sectRepository';
 import {
   getExecutor,
+  runDbTasks,
   type DbExecutor,
   type DbTransaction,
 } from '@server/lib/drizzle/db';
@@ -59,15 +60,18 @@ export async function loadPlayerRetreatFacts(
     .limit(1);
   if (!row) return null;
 
-  const [roots, fates, sect, gongfa, artifacts] = await Promise.all([
-    q
-      .select()
-      .from(schema.spiritualRoots)
-      .where(eq(schema.spiritualRoots.cultivatorId, cultivatorId)),
-    getCultivatorPreHeavenFates(cultivatorId, q),
-    loadCultivatorSectState(cultivatorId, q),
-    creationProductRepository.findEquippedByType(cultivatorId, 'gongfa', q),
-    creationProductRepository.findEquippedByType(cultivatorId, 'artifact', q),
+  const [roots, fates, sect, gongfa, artifacts] = await runDbTasks(q, [
+    () =>
+      q
+        .select()
+        .from(schema.spiritualRoots)
+        .where(eq(schema.spiritualRoots.cultivatorId, cultivatorId)),
+    () => getCultivatorPreHeavenFates(cultivatorId, q),
+    () => loadCultivatorSectState(cultivatorId, q),
+    () =>
+      creationProductRepository.findEquippedByType(cultivatorId, 'gongfa', q),
+    () =>
+      creationProductRepository.findEquippedByType(cultivatorId, 'artifact', q),
   ]);
   const loadout = mapLoadoutFromProducts([gongfa, artifacts]);
   return {
@@ -135,11 +139,13 @@ export async function loadPlayerInnRecoveryFacts(
     .limit(1);
   if (!row) return null;
 
-  const [fates, sect, gongfa, artifacts] = await Promise.all([
-    getCultivatorPreHeavenFates(cultivatorId, q),
-    loadCultivatorSectState(cultivatorId, q),
-    creationProductRepository.findEquippedByType(cultivatorId, 'gongfa', q),
-    creationProductRepository.findEquippedByType(cultivatorId, 'artifact', q),
+  const [fates, sect, gongfa, artifacts] = await runDbTasks(q, [
+    () => getCultivatorPreHeavenFates(cultivatorId, q),
+    () => loadCultivatorSectState(cultivatorId, q),
+    () =>
+      creationProductRepository.findEquippedByType(cultivatorId, 'gongfa', q),
+    () =>
+      creationProductRepository.findEquippedByType(cultivatorId, 'artifact', q),
   ]);
   const loadout = mapLoadoutFromProducts([gongfa, artifacts]);
   return {
@@ -193,10 +199,12 @@ export async function loadPlayerDungeonReadinessFacts(
     .where(activeOwnedCultivatorFilter(userId, cultivatorId))
     .limit(1);
   if (!row) return null;
-  const [sect, gongfa, artifacts] = await Promise.all([
-    loadCultivatorSectState(cultivatorId, q),
-    creationProductRepository.findEquippedByType(cultivatorId, 'gongfa', q),
-    creationProductRepository.findEquippedByType(cultivatorId, 'artifact', q),
+  const [sect, gongfa, artifacts] = await runDbTasks(q, [
+    () => loadCultivatorSectState(cultivatorId, q),
+    () =>
+      creationProductRepository.findEquippedByType(cultivatorId, 'gongfa', q),
+    () =>
+      creationProductRepository.findEquippedByType(cultivatorId, 'artifact', q),
   ]);
   const loadout = mapLoadoutFromProducts([gongfa, artifacts]);
   return {
@@ -248,15 +256,18 @@ export async function loadPlayerConsumableOperationFacts(
     .limit(1);
   if (!row) return null;
 
-  const [roots, fates, sect, gongfa, artifacts] = await Promise.all([
-    q
-      .select()
-      .from(schema.spiritualRoots)
-      .where(eq(schema.spiritualRoots.cultivatorId, cultivatorId)),
-    getCultivatorPreHeavenFates(cultivatorId, q),
-    loadCultivatorSectState(cultivatorId, q),
-    creationProductRepository.findEquippedByType(cultivatorId, 'gongfa', q),
-    creationProductRepository.findEquippedByType(cultivatorId, 'artifact', q),
+  const [roots, fates, sect, gongfa, artifacts] = await runDbTasks(q, [
+    () =>
+      q
+        .select()
+        .from(schema.spiritualRoots)
+        .where(eq(schema.spiritualRoots.cultivatorId, cultivatorId)),
+    () => getCultivatorPreHeavenFates(cultivatorId, q),
+    () => loadCultivatorSectState(cultivatorId, q),
+    () =>
+      creationProductRepository.findEquippedByType(cultivatorId, 'gongfa', q),
+    () =>
+      creationProductRepository.findEquippedByType(cultivatorId, 'artifact', q),
   ]);
   const loadout = mapLoadoutFromProducts([gongfa, artifacts]);
   return {

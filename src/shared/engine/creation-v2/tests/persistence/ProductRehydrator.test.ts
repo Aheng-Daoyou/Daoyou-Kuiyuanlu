@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { artifactSchema } from '@shared/contracts/resources/inventory';
 import { composeProductFromAffixIds } from '@shared/engine/creation-v2/composeProductFromAffixIds';
+import { projectAbilityConfig } from '@shared/engine/creation-v2/models/AbilityProjection';
 import {
   deserializeAndRehydrate,
   serializeProductModel,
@@ -48,6 +50,29 @@ describe('ProductRehydrator', () => {
     const rehydrated = deserializeAndRehydrate(serializeProductModel(model));
 
     expect(z.json().safeParse(rehydrated).success).toBe(true);
+  });
+
+  it('keeps nested buff configs JSON-safe when optional listeners are absent', () => {
+    const model = composeProductFromAffixIds({
+      productType: 'artifact',
+      element: '雷',
+      name: '吞雷瓶',
+      affixIds: ['artifact-treasure-thunder-devour-bottle'],
+      requestedSlot: 'accessory',
+    });
+
+    const rehydrated = deserializeAndRehydrate(serializeProductModel(model));
+
+    expect(z.json().safeParse(rehydrated).success).toBe(true);
+    expect(
+      artifactSchema.safeParse({
+        name: model.name,
+        slot: 'accessory',
+        element: '雷',
+        abilityConfig: projectAbilityConfig(rehydrated),
+        productModel: rehydrated,
+      }).success,
+    ).toBe(true);
   });
 
   it('preserves enemy pacing context when rebuilding skill battleProjection', () => {

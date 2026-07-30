@@ -327,20 +327,18 @@ export class MiningGameTaskExecutor extends BaseTaskExecutor<
     const startedAt = context.ports.clock.now();
     const expiresAt = new Date(startedAt.getTime() + MINING_SESSION_TTL_MS);
     const realm = context.record.payload.offer.anchorRealm;
-    const rewardCandidates = Object.fromEntries(
-      await Promise.all(
-        MINING_SCORE_TIERS.map(async (tier) => {
-          const preferred = miningRewardQualityPreference(realm, tier);
-          const candidate = await context.ports.rewardMaterials.sampleOre(
-            preferred,
-            `${seed}:${tier}`,
-          );
-          if (!candidate)
-            invalid('宗门材料库暂无可供采掘结算的灵矿，请稍后再试', 503);
-          return [tier, candidate] as const;
-        }),
-      ),
-    );
+    const rewardCandidateEntries = [];
+    for (const tier of MINING_SCORE_TIERS) {
+      const preferred = miningRewardQualityPreference(realm, tier);
+      const candidate = await context.ports.rewardMaterials.sampleOre(
+        preferred,
+        `${seed}:${tier}`,
+      );
+      if (!candidate)
+        invalid('宗门材料库暂无可供采掘结算的灵矿，请稍后再试', 503);
+      rewardCandidateEntries.push([tier, candidate] as const);
+    }
+    const rewardCandidates = Object.fromEntries(rewardCandidateEntries);
     const session = miningSessionSchema.parse({
       sessionId,
       seed,
@@ -770,18 +768,18 @@ export class MaterialDeliveryTaskExecutor extends DeliveryTaskExecutor {
     if (actionKey !== 'execute') invalid('材料交付不支持该操作');
     const requirement = this.requirement(context.record);
     if (requirement.kind !== 'material') invalid('任务材料要求缺失');
-    const selections = await Promise.all(
-      input.items.map(async (selection) => {
-        const item = await context.ports.submissionInventory.findSubmissionItem(
+    const selections = [];
+    for (const selection of input.items) {
+      const item =
+        await context.ports.submissionInventory.findSubmissionItem(
           context.cultivatorId,
           'material',
           selection.itemId,
         );
-        if (!item || item.kind !== 'material')
-          invalid('悬赏所需材料状态已经变化');
-        return { item, quantity: selection.quantity };
-      }),
-    );
+      if (!item || item.kind !== 'material')
+        invalid('悬赏所需材料状态已经变化');
+      selections.push({ item, quantity: selection.quantity });
+    }
     const match = matchSectMaterialDeliverySelection(requirement, selections);
     if (!match.eligible)
       invalid(match.violations[0]?.message ?? '材料不符合要求');

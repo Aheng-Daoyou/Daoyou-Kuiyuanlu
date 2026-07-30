@@ -78,10 +78,14 @@ export async function executeTaskRewardClaimCommand(args: {
     args.taskId,
     args.tx,
   );
-  const [mailSummary, taskSummary] = await Promise.all([
-    readPlayerMailSummary(args.cultivatorId, args.tx),
-    readPlayerTaskSummary(args.cultivatorId, args.tx),
-  ]);
+  const mailSummary = await readPlayerMailSummary(
+    args.cultivatorId,
+    args.tx,
+  );
+  const taskSummary = await readPlayerTaskSummary(
+    args.cultivatorId,
+    args.tx,
+  );
 
   return {
     result,

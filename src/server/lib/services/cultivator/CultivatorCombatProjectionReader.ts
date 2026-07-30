@@ -1,5 +1,6 @@
 import {
   getExecutor,
+  runDbTasks,
   type DbExecutor,
   type DbTransaction,
 } from '@server/lib/drizzle/db';
@@ -97,14 +98,15 @@ export async function loadCultivatorCombatInput(
     .limit(1);
   if (!row) return null;
 
-  const [roots, fates, sect, loadout] = await Promise.all([
-    q
-      .select()
-      .from(schema.spiritualRoots)
-      .where(eq(schema.spiritualRoots.cultivatorId, cultivatorId)),
-    getCultivatorPreHeavenFates(cultivatorId, q),
-    loadCultivatorSectState(cultivatorId, q),
-    getPlayerLoadoutByCultivatorId(cultivatorId, q),
+  const [roots, fates, sect, loadout] = await runDbTasks(q, [
+    () =>
+      q
+        .select()
+        .from(schema.spiritualRoots)
+        .where(eq(schema.spiritualRoots.cultivatorId, cultivatorId)),
+    () => getCultivatorPreHeavenFates(cultivatorId, q),
+    () => loadCultivatorSectState(cultivatorId, q),
+    () => getPlayerLoadoutByCultivatorId(cultivatorId, q),
   ]);
   const storedCondition =
     (row.condition as CultivatorCondition | null | undefined) ?? undefined;
@@ -186,13 +188,14 @@ async function loadCultivatorDungeonPromptBaseFacts(
     .limit(1);
   if (!row) return null;
 
-  const [roots, fates, sect] = await Promise.all([
-    q
-      .select()
-      .from(schema.spiritualRoots)
-      .where(eq(schema.spiritualRoots.cultivatorId, cultivatorId)),
-    getCultivatorPreHeavenFates(cultivatorId, q),
-    loadCultivatorSectState(cultivatorId, q),
+  const [roots, fates, sect] = await runDbTasks(q, [
+    () =>
+      q
+        .select()
+        .from(schema.spiritualRoots)
+        .where(eq(schema.spiritualRoots.cultivatorId, cultivatorId)),
+    () => getCultivatorPreHeavenFates(cultivatorId, q),
+    () => loadCultivatorSectState(cultivatorId, q),
   ]);
   return {
     id: row.id,
@@ -225,10 +228,12 @@ export async function loadCultivatorDungeonPromptFacts(
   executor?: DbExecutor | DbTransaction,
 ): Promise<CultivatorDungeonPromptFacts | null> {
   const q = executor ?? getExecutor();
-  const [base, gongfa, artifacts] = await Promise.all([
-    loadCultivatorDungeonPromptBaseFacts(cultivatorId, q),
-    creationProductRepository.findEquippedByType(cultivatorId, 'gongfa', q),
-    creationProductRepository.findEquippedByType(cultivatorId, 'artifact', q),
+  const [base, gongfa, artifacts] = await runDbTasks(q, [
+    () => loadCultivatorDungeonPromptBaseFacts(cultivatorId, q),
+    () =>
+      creationProductRepository.findEquippedByType(cultivatorId, 'gongfa', q),
+    () =>
+      creationProductRepository.findEquippedByType(cultivatorId, 'artifact', q),
   ]);
   if (!base) return null;
   const loadout = mapLoadoutFromProducts([gongfa, artifacts]);
@@ -281,16 +286,18 @@ export async function loadCultivatorInspectionData(
   const q = executor ?? getExecutor();
   const owner = await findCultivatorOwnerStatusById(cultivatorId, q);
   if (!owner || owner.status !== 'active') return null;
-  const [identity, loadout, sect, state] = await Promise.all([
-    getPlayerIdentityCultivatorById(owner.userId, cultivatorId, q),
-    getPlayerLoadoutByCultivatorId(cultivatorId, q),
-    loadCultivatorSectState(cultivatorId, q),
-    q
-      .select({ condition: schema.cultivators.condition })
-      .from(schema.cultivators)
-      .where(eq(schema.cultivators.id, cultivatorId))
-      .limit(1)
-      .then((rows) => rows[0] ?? null),
+  const [identity, loadout, sect, state] = await runDbTasks(q, [
+    () => getPlayerIdentityCultivatorById(owner.userId, cultivatorId, q),
+    () => getPlayerLoadoutByCultivatorId(cultivatorId, q),
+    () => loadCultivatorSectState(cultivatorId, q),
+    async (): Promise<{ condition: unknown } | null> => {
+      const rows = await q
+        .select({ condition: schema.cultivators.condition })
+        .from(schema.cultivators)
+        .where(eq(schema.cultivators.id, cultivatorId))
+        .limit(1);
+      return rows[0] ?? null;
+    },
   ]);
   if (!identity || !state) return null;
   return {

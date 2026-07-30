@@ -1,5 +1,6 @@
 import {
   getExecutor,
+  runDbTasks,
   type DbExecutor,
   type DbTransaction,
 } from '@server/lib/drizzle/db';
@@ -338,25 +339,27 @@ export async function readResourceEventWindow(
       earliestAvailableVersion: 0,
     };
   }
-  const [[watermark], rows] = await Promise.all([
-    q
-      .select({ version: min(resourceEvents.scopeVersion) })
-      .from(resourceEvents)
-      .where(eq(resourceEvents.scopeId, scopeRow.id)),
-    q
-      .select()
-      .from(resourceEvents)
-      .where(
-        and(
-          eq(resourceEvents.scopeId, scopeRow.id),
-          sql`${resourceEvents.scopeVersion} > ${after}`,
-        ),
-      )
-      .orderBy(
-        asc(resourceEvents.scopeVersion),
-        asc(resourceEvents.mutationOrdinal),
-      )
-      .limit(RESOURCE_EVENT_PAGE_LIMIT + 1),
+  const [[watermark], rows] = await runDbTasks(q, [
+    () =>
+      q
+        .select({ version: min(resourceEvents.scopeVersion) })
+        .from(resourceEvents)
+        .where(eq(resourceEvents.scopeId, scopeRow.id)),
+    () =>
+      q
+        .select()
+        .from(resourceEvents)
+        .where(
+          and(
+            eq(resourceEvents.scopeId, scopeRow.id),
+            sql`${resourceEvents.scopeVersion} > ${after}`,
+          ),
+        )
+        .orderBy(
+          asc(resourceEvents.scopeVersion),
+          asc(resourceEvents.mutationOrdinal),
+        )
+        .limit(RESOURCE_EVENT_PAGE_LIMIT + 1),
   ]);
   return {
     changes: rows.map((row) => mapResourceEventRow(row, scope)),

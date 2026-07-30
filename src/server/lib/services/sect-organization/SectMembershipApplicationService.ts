@@ -77,16 +77,16 @@ export class SectMembershipApplicationService {
     const completedTaskTags = new Set<string>();
     for (const required of requirement.requiredTaskTags ?? []) {
       const tasks = organization.tasks.listByCompletionTag(required.tag);
-      if (
-        (
-          await Promise.all(
-            tasks.map((task) =>
-              context.memberships.hasCompletedTask(membership.id, task.id),
-            ),
-          )
-        ).some(Boolean)
-      )
-        completedTaskTags.add(required.tag);
+      let hasCompletedTag = false;
+      for (const task of tasks) {
+        if (
+          await context.memberships.hasCompletedTask(membership.id, task.id)
+        ) {
+          hasCompletedTag = true;
+          break;
+        }
+      }
+      if (hasCompletedTag) completedTaskTags.add(required.tag);
     }
     const dailyCompletions = requirement.dailyCompletions
       ? await context.memberships.countCompletedDailyTasks(membership.id)

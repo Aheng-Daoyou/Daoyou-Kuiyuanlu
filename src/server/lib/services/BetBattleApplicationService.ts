@@ -143,15 +143,13 @@ export async function executeBetBattleChallengeCommand(
   const { tx, ...input } = args;
   const challenge = await challengeBetBattle(input, { tx });
   const isWin = challenge.winnerId === input.challengerId;
-  const [stakeChanges, winnerMailSummary] = await Promise.all([
-    stakeResourceChanges({
-      ...input,
-      cultivatorId: input.challengerId,
-      tx,
-      inventoryChange: challenge.stakeInventoryChange,
-    }),
-    readPlayerMailSummary(challenge.winnerId, tx),
-  ]);
+  const stakeChanges = await stakeResourceChanges({
+    ...input,
+    cultivatorId: input.challengerId,
+    tx,
+    inventoryChange: challenge.stakeInventoryChange,
+  });
+  const winnerMailSummary = await readPlayerMailSummary(challenge.winnerId, tx);
   return {
     result: {
       type: 'battle_result',

@@ -1,5 +1,7 @@
 import { betterAuthSchema } from '@server/lib/auth/schema';
+import { is } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { PgTransaction } from 'drizzle-orm/pg-core';
 import { Pool } from 'pg';
 import * as schema from './schema';
 
@@ -60,4 +62,30 @@ export type DbExecutor = DbClient | DbTransaction;
 
 export function getExecutor(tx?: DbTransaction): DbExecutor {
   return tx ?? db;
+}
+
+type DbTask = () => Promise<unknown>;
+type DbTaskResults<TTasks extends readonly DbTask[]> = {
+  -readonly [TIndex in keyof TTasks]: Awaited<ReturnType<TTasks[TIndex]>>;
+};
+
+/**
+ * A node-postgres transaction owns one physical client, so its queries must be
+ * submitted serially. Pool-backed reads can still use separate clients.
+ */
+export async function runDbTasks<const TTasks extends readonly DbTask[]>(
+  executor: DbExecutor,
+  tasks: TTasks,
+): Promise<DbTaskResults<TTasks>> {
+  if (!is(executor, PgTransaction)) {
+    return Promise.all(tasks.map((task) => task())) as Promise<
+      DbTaskResults<TTasks>
+    >;
+  }
+
+  const results: unknown[] = [];
+  for (const task of tasks) {
+    results.push(await task());
+  }
+  return results as DbTaskResults<TTasks>;
 }

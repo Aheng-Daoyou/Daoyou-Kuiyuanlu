@@ -1,5 +1,6 @@
 import {
   getExecutor,
+  runDbTasks,
   type DbExecutor,
   type DbTransaction,
 } from '@server/lib/drizzle/db';
@@ -168,15 +169,17 @@ export async function listSectShopItems(
     whereConditions.length > 0
       ? await query.where(and(...whereConditions))
       : await query;
-  return Promise.all(
-    rows.map((entry) =>
-      buildView({
-        row: entry.row,
-        item: entry.item,
-        cultivatorId: args.cultivatorId,
-        purchaseWeek: args.purchaseWeek,
-        q,
-      }),
+  return runDbTasks(
+    q,
+    rows.map(
+      (entry) => () =>
+        buildView({
+          row: entry.row,
+          item: entry.item,
+          cultivatorId: args.cultivatorId,
+          purchaseWeek: args.purchaseWeek,
+          q,
+        }),
     ),
   );
 }

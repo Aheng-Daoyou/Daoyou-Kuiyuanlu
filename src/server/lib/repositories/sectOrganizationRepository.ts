@@ -1,4 +1,8 @@
-import type { DbExecutor, DbTransaction } from '@server/lib/drizzle/db';
+import {
+  runDbTasks,
+  type DbExecutor,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
 import {
   consumables,
   creationProducts,
@@ -496,15 +500,16 @@ export async function listOwnedSubmissionMaterials(
   q: DbExecutor | DbTransaction,
 ) {
   const where = eq(materials.cultivatorId, cultivatorId);
-  const [rows, totals] = await Promise.all([
-    q
-      .select()
-      .from(materials)
-      .where(where)
-      .orderBy(desc(materials.createdAt), asc(materials.id))
-      .limit(pageSize)
-      .offset((page - 1) * pageSize),
-    q.select({ total: count() }).from(materials).where(where),
+  const [rows, totals] = await runDbTasks(q, [
+    () =>
+      q
+        .select()
+        .from(materials)
+        .where(where)
+        .orderBy(desc(materials.createdAt), asc(materials.id))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+    () => q.select({ total: count() }).from(materials).where(where),
   ]);
   return { rows, total: Number(totals[0]?.total ?? 0) };
 }
@@ -520,15 +525,16 @@ export async function listOwnedSubmissionConsumables(
     eq(consumables.type, '丹药'),
     sql`${consumables.spec} ->> 'kind' = 'pill'`,
   );
-  const [rows, totals] = await Promise.all([
-    q
-      .select()
-      .from(consumables)
-      .where(condition)
-      .orderBy(desc(consumables.createdAt), asc(consumables.id))
-      .limit(pageSize)
-      .offset((page - 1) * pageSize),
-    q.select({ total: count() }).from(consumables).where(condition),
+  const [rows, totals] = await runDbTasks(q, [
+    () =>
+      q
+        .select()
+        .from(consumables)
+        .where(condition)
+        .orderBy(desc(consumables.createdAt), asc(consumables.id))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+    () => q.select({ total: count() }).from(consumables).where(condition),
   ]);
   return { rows, total: Number(totals[0]?.total ?? 0) };
 }
@@ -543,15 +549,16 @@ export async function listOwnedSubmissionArtifacts(
     eq(creationProducts.cultivatorId, cultivatorId),
     eq(creationProducts.productType, 'artifact'),
   );
-  const [rows, totals] = await Promise.all([
-    q
-      .select()
-      .from(creationProducts)
-      .where(condition)
-      .orderBy(desc(creationProducts.createdAt), asc(creationProducts.id))
-      .limit(pageSize)
-      .offset((page - 1) * pageSize),
-    q.select({ total: count() }).from(creationProducts).where(condition),
+  const [rows, totals] = await runDbTasks(q, [
+    () =>
+      q
+        .select()
+        .from(creationProducts)
+        .where(condition)
+        .orderBy(desc(creationProducts.createdAt), asc(creationProducts.id))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+    () => q.select({ total: count() }).from(creationProducts).where(condition),
   ]);
   return { rows, total: Number(totals[0]?.total ?? 0) };
 }
@@ -704,25 +711,29 @@ export async function listSectMembers(
     eq(sectMemberships.sectId, sectId),
     eq(sectMemberships.status, 'active'),
   );
-  const [totalRow, rows] = await Promise.all([
-    q.select({ value: count() }).from(sectMemberships).where(where),
-    q
-      .select({
-        cultivatorId: cultivators.id,
-        name: cultivators.name,
-        realm: cultivators.realm,
-        realmStage: cultivators.realm_stage,
-        discipleRank: sectMemberships.discipleRank,
-        office: sectMemberships.office,
-        joinedAt: sectMemberships.joinedAt,
-        lastActiveAt: cultivators.lastActiveAt,
-      })
-      .from(sectMemberships)
-      .innerJoin(cultivators, eq(cultivators.id, sectMemberships.cultivatorId))
-      .where(where)
-      .orderBy(desc(sectMemberships.promotedAt), asc(cultivators.name))
-      .limit(pageSize)
-      .offset((page - 1) * pageSize),
+  const [totalRow, rows] = await runDbTasks(q, [
+    () => q.select({ value: count() }).from(sectMemberships).where(where),
+    () =>
+      q
+        .select({
+          cultivatorId: cultivators.id,
+          name: cultivators.name,
+          realm: cultivators.realm,
+          realmStage: cultivators.realm_stage,
+          discipleRank: sectMemberships.discipleRank,
+          office: sectMemberships.office,
+          joinedAt: sectMemberships.joinedAt,
+          lastActiveAt: cultivators.lastActiveAt,
+        })
+        .from(sectMemberships)
+        .innerJoin(
+          cultivators,
+          eq(cultivators.id, sectMemberships.cultivatorId),
+        )
+        .where(where)
+        .orderBy(desc(sectMemberships.promotedAt), asc(cultivators.name))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
   ]);
   return {
     rows: rows.map((row) => ({

@@ -1,4 +1,8 @@
-import { db, type DbTransaction } from '@server/lib/drizzle/db';
+import {
+  db,
+  runDbTasks,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
 import {
   readResourceVersions,
   readScopeVersion,
@@ -23,9 +27,9 @@ export async function readResourceWithMeta<TTopic extends ResourceTopic>(
     );
     const data = await read(tx);
     RESOURCE_DATA_SCHEMAS[topic].parse(data);
-    const [scopeVersion, resourceVersions] = await Promise.all([
-      readScopeVersion(scope, tx),
-      readResourceVersions(scope, [topic], tx),
+    const [scopeVersion, resourceVersions] = await runDbTasks(tx, [
+      () => readScopeVersion(scope, tx),
+      () => readResourceVersions(scope, [topic], tx),
     ]);
     return {
       success: true,
@@ -57,9 +61,9 @@ export async function readResourceWithResolvedScope<
     );
     const { scope, data } = await read(tx);
     RESOURCE_DATA_SCHEMAS[topic].parse(data);
-    const [scopeVersion, resourceVersions] = await Promise.all([
-      readScopeVersion(scope, tx),
-      readResourceVersions(scope, [topic], tx),
+    const [scopeVersion, resourceVersions] = await runDbTasks(tx, [
+      () => readScopeVersion(scope, tx),
+      () => readResourceVersions(scope, [topic], tx),
     ]);
     return {
       success: true,

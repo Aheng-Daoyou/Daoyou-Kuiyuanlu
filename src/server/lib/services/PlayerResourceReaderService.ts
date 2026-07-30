@@ -1,4 +1,9 @@
-import { db, getExecutor, type DbExecutor } from '@server/lib/drizzle/db';
+import {
+  db,
+  getExecutor,
+  runDbTasks,
+  type DbExecutor,
+} from '@server/lib/drizzle/db';
 import {
   cultivators,
   cultivatorTasks,
@@ -194,10 +199,10 @@ export async function readPlayerResources(args: {
   if (!active && !wantsOnlySession) throw new Error('当前没有活跃角色');
 
   const resourceData: Partial<PlayerResourceMap> = {};
-  const resourceReads: Array<Promise<void>> = [];
+  const resourceReads: Array<() => Promise<void>> = [];
   if (args.keys.includes('session')) {
     resourceReads.push(
-      (async () => {
+      async () => {
         const membership = active
           ? await q.query.sectMemberships.findFirst({
               columns: { sectId: true },
@@ -219,16 +224,16 @@ export async function readPlayerResources(args: {
             ? { note: await findInactiveCultivatorNote(args.userId, q) }
             : {}),
         };
-      })(),
+      },
     );
   }
 
   if (!active) {
-    await Promise.all(resourceReads);
+    await runDbTasks(q, resourceReads);
     const accountScope = { kind: 'account' as const, id: args.userId };
-    const [scopeVersion, versions] = await Promise.all([
-      readScopeVersion(accountScope, q),
-      readResourceVersions(accountScope, ['player.session'], q),
+    const [scopeVersion, versions] = await runDbTasks(q, [
+      () => readScopeVersion(accountScope, q),
+      () => readResourceVersions(accountScope, ['player.session'], q),
     ]);
     return {
       cultivatorId: null,
@@ -256,40 +261,41 @@ export async function readPlayerResources(args: {
     q,
   );
   resourceReads.push(
-    ...requested.map(async (key) => {
-      const startedAt = performance.now();
-      const context: ReaderContext = {
-        userId: args.userId,
-        cultivatorId: active.id,
-        q,
-        cultivatorState,
-      };
-      Object.assign(resourceData, {
-        [key]: await readers[key](context),
-      });
-      console.info('[player-resource-reader]', {
-        resourceKey: key,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
-    }),
+    ...requested.map(
+      (key) => async () => {
+        const startedAt = performance.now();
+        const context: ReaderContext = {
+          userId: args.userId,
+          cultivatorId: active.id,
+          q,
+          cultivatorState,
+        };
+        Object.assign(resourceData, {
+          [key]: await readers[key](context),
+        });
+        console.info('[player-resource-reader]', {
+          resourceKey: key,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+      },
+    ),
   );
 
   const accountScope = { kind: 'account' as const, id: args.userId };
   const cultivatorScope = { kind: 'cultivator' as const, id: active.id };
   const cultivatorTopics = requested.map((key) => PLAYER_TOPIC_BY_KEY[key]);
-  const versionsRead = Promise.all([
-    readScopeVersion(accountScope, q),
-    readResourceVersions(accountScope, ['player.session'], q),
-    readScopeVersion(cultivatorScope, q),
-    readResourceVersions(cultivatorScope, cultivatorTopics, q),
-  ]);
-  await Promise.all(resourceReads);
+  await runDbTasks(q, resourceReads);
   const [
     accountScopeVersion,
     accountVersions,
     cultivatorScopeVersion,
     cultivatorVersions,
-  ] = await versionsRead;
+  ] = await runDbTasks(q, [
+    () => readScopeVersion(accountScope, q),
+    () => readResourceVersions(accountScope, ['player.session'], q),
+    () => readScopeVersion(cultivatorScope, q),
+    () => readResourceVersions(cultivatorScope, cultivatorTopics, q),
+  ]);
   const resources: PlayerResourcesData['resources'] = {};
   for (const key of args.keys) {
     const data = resourceData[key];

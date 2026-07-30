@@ -1,4 +1,9 @@
-import { getExecutor, type DbExecutor, type DbTransaction } from '@server/lib/drizzle/db';
+import {
+  getExecutor,
+  runDbTasks,
+  type DbExecutor,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
 import {
   itemLibrary,
   reputationShopItems,
@@ -169,14 +174,16 @@ export async function listReputationShopItems(args: {
       ? await query.where(and(...whereConditions))
       : await query;
 
-  return Promise.all(
-    rows.map((entry) =>
-      buildView({
-        row: entry.row,
-        item: entry.item,
-        cultivatorId: args.cultivatorId,
-        q,
-      }),
+  return runDbTasks(
+    q,
+    rows.map(
+      (entry) => () =>
+        buildView({
+          row: entry.row,
+          item: entry.item,
+          cultivatorId: args.cultivatorId,
+          q,
+        }),
     ),
   );
 }

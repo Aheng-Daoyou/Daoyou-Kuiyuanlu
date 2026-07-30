@@ -81,18 +81,23 @@ export class AffixEffectTranslator {
     }
 
     if (effect.type === 'apply_buff') {
+      const listeners = effect.params.buffConfig.listeners;
       return {
         ...effect,
         params: {
           ...effect.params,
           buffConfig: {
             ...effect.params.buffConfig,
-            listeners: effect.params.buffConfig.listeners?.map((listener) => ({
-              ...listener,
-              effects: listener.effects.map((nestedEffect) =>
-                this.withDeathPreventTriggerKey(nestedEffect, triggerKey),
-              ),
-            })),
+            ...(listeners
+              ? {
+                  listeners: listeners.map((listener) => ({
+                    ...listener,
+                    effects: listener.effects.map((nestedEffect) =>
+                      this.withDeathPreventTriggerKey(nestedEffect, triggerKey),
+                    ),
+                  })),
+                }
+              : {}),
           },
         },
       };

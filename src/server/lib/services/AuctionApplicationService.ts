@@ -29,22 +29,20 @@ export async function executeAuctionBuyCommand(args: {
     },
     { tx: args.tx, deferCacheClear: true },
   );
-  const [[currency], [mailSummary]] = await Promise.all([
-    args.tx
-      .select({ spiritStones: cultivators.spirit_stones })
-      .from(cultivators)
-      .where(eq(cultivators.id, args.buyerCultivatorId))
-      .limit(1),
-    args.tx
-      .select({ unreadCount: sql<number>`count(*)::int` })
-      .from(mails)
-      .where(
-        and(
-          eq(mails.cultivatorId, args.buyerCultivatorId),
-          eq(mails.isRead, false),
-        ),
+  const [currency] = await args.tx
+    .select({ spiritStones: cultivators.spirit_stones })
+    .from(cultivators)
+    .where(eq(cultivators.id, args.buyerCultivatorId))
+    .limit(1);
+  const [mailSummary] = await args.tx
+    .select({ unreadCount: sql<number>`count(*)::int` })
+    .from(mails)
+    .where(
+      and(
+        eq(mails.cultivatorId, args.buyerCultivatorId),
+        eq(mails.isRead, false),
       ),
-  ]);
+    );
   if (!currency) throw new Error('拍卖结算后角色不存在');
   return {
     result: { message: '成功购入物品，请查收邮件' },
@@ -192,7 +190,11 @@ export async function listAuctionItem(args: {
     userId: args.actor.userId,
     cultivatorId: args.actor.cultivatorId,
     source: 'auction_list',
-    lock: { context: 'auction-list', timeoutMs: 10_000 },
+    lock: {
+      context: 'auction-list',
+      timeoutMs: 10_000,
+      renewEveryMs: 3_000,
+    },
     command: async (tx) => {
       const { name } = await readCultivatorName(
         args.actor.cultivatorId,

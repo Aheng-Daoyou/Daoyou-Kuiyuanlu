@@ -98,14 +98,15 @@ export function consumeCultivatorConsumable(args: {
             args.actor.cultivatorId,
             tx,
           );
-          const [remainingConsumable, taskSummary] = await Promise.all([
-            getCultivatorConsumableById(
-              args.actor.cultivatorId,
-              args.consumableId,
-              tx,
-            ),
-            readPlayerTaskSummary(args.actor.cultivatorId, tx),
-          ]);
+          const remainingConsumable = await getCultivatorConsumableById(
+            args.actor.cultivatorId,
+            args.consumableId,
+            tx,
+          );
+          const taskSummary = await readPlayerTaskSummary(
+            args.actor.cultivatorId,
+            tx,
+          );
           return {
             result: {
               message: result.message,

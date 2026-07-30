@@ -1,5 +1,6 @@
 import {
   getExecutor,
+  runDbTasks,
   type DbExecutor,
   type DbTransaction,
 } from '@server/lib/drizzle/db';
@@ -336,18 +337,20 @@ export async function listEligibleBodyCultivationBreakthroughItems(
         ),
       ),
     );
-    const [rows, totals] = await Promise.all([
-      q
-        .select()
-        .from(schema.materials)
-        .where(condition)
-        .orderBy(desc(schema.materials.createdAt), asc(schema.materials.id))
-        .limit(options.pageSize)
-        .offset((options.materialPage - 1) * options.pageSize),
-      q
-        .select({ total: sql<number>`count(*)::int` })
-        .from(schema.materials)
-        .where(condition),
+    const [rows, totals] = await runDbTasks(q, [
+      () =>
+        q
+          .select()
+          .from(schema.materials)
+          .where(condition)
+          .orderBy(desc(schema.materials.createdAt), asc(schema.materials.id))
+          .limit(options.pageSize)
+          .offset((options.materialPage - 1) * options.pageSize),
+      () =>
+        q
+          .select({ total: sql<number>`count(*)::int` })
+          .from(schema.materials)
+          .where(condition),
     ]);
     materialTotal = Number(totals[0]?.total ?? 0);
     materialCandidates = rows.map(toMaterial);
@@ -384,18 +387,23 @@ export async function listEligibleBodyCultivationBreakthroughItems(
         ),
       ),
     );
-    const [rows, totals] = await Promise.all([
-      q
-        .select()
-        .from(schema.consumables)
-        .where(condition)
-        .orderBy(desc(schema.consumables.createdAt), asc(schema.consumables.id))
-        .limit(options.pageSize)
-        .offset((options.consumablePage - 1) * options.pageSize),
-      q
-        .select({ total: sql<number>`count(*)::int` })
-        .from(schema.consumables)
-        .where(condition),
+    const [rows, totals] = await runDbTasks(q, [
+      () =>
+        q
+          .select()
+          .from(schema.consumables)
+          .where(condition)
+          .orderBy(
+            desc(schema.consumables.createdAt),
+            asc(schema.consumables.id),
+          )
+          .limit(options.pageSize)
+          .offset((options.consumablePage - 1) * options.pageSize),
+      () =>
+        q
+          .select({ total: sql<number>`count(*)::int` })
+          .from(schema.consumables)
+          .where(condition),
     ]);
     consumableTotal = Number(totals[0]?.total ?? 0);
     consumableCandidates = rows.map(mapConsumableRow);

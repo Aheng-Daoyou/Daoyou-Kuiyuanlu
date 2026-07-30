@@ -1,4 +1,8 @@
-import type { DbTransaction } from '@server/lib/drizzle/db';
+import {
+  getExecutor,
+  runDbTasks,
+  type DbTransaction,
+} from '@server/lib/drizzle/db';
 import {
   findActiveCultivatorTaskProgressById,
   findHighestCultivatorTechniqueQuality,
@@ -243,12 +247,12 @@ async function loadTaskProgressContextOrThrow(
   cultivatorId: string,
   options: TaskServiceWriteOptions = {},
 ): Promise<TaskProgressContext> {
-  const q = options.tx;
+  const q = options.tx ?? getExecutor();
   const [record, highestTechniqueQuality, breakthroughPills] =
-    await Promise.all([
-      findActiveCultivatorTaskProgressById(cultivatorId, q),
-      findHighestCultivatorTechniqueQuality(cultivatorId, q),
-      getCultivatorBreakthroughPillQuantities(cultivatorId, q),
+    await runDbTasks(q, [
+      () => findActiveCultivatorTaskProgressById(cultivatorId, q),
+      () => findHighestCultivatorTechniqueQuality(cultivatorId, q),
+      () => getCultivatorBreakthroughPillQuantities(cultivatorId, q),
     ]);
 
   if (!record) {
@@ -1056,8 +1060,12 @@ async function syncCultivatorTasksWithContext(
     q: options.tx,
   });
   const activeRecords = records.filter((record) => record.category !== 'daily');
-  const visibleTasks = await Promise.all(
-    activeRecords.map((record) => syncTaskRecord(context, record, options)),
+  const q = options.tx ?? getExecutor();
+  const visibleTasks = await runDbTasks(
+    q,
+    activeRecords.map(
+      (record) => () => syncTaskRecord(context, record, options),
+    ),
   );
 
   if (!options.hideCompletedBreakthrough) {
@@ -1445,9 +1453,10 @@ export const TaskService = {
     taskId: string,
     options: TaskServiceWriteOptions = {},
   ): Promise<TaskChallengeResult> {
-    const [cultivator, context] = await Promise.all([
-      loadCombatInputOrThrow(cultivatorId, options),
-      loadTaskProgressContextOrThrow(cultivatorId, options),
+    const q = options.tx ?? getExecutor();
+    const [cultivator, context] = await runDbTasks(q, [
+      () => loadCombatInputOrThrow(cultivatorId, options),
+      () => loadTaskProgressContextOrThrow(cultivatorId, options),
     ]);
     await ensureCurrentTaskRecords(context, options);
     const record = await findCultivatorTaskById(

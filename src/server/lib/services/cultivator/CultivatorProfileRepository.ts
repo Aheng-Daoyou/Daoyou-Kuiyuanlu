@@ -33,6 +33,7 @@ import { and,desc,eq,sql } from 'drizzle-orm';
 import {
 db,
 getExecutor,
+runDbTasks,
 type DbExecutor,
 type DbTransaction,
 } from '../../drizzle/db';
@@ -323,15 +324,17 @@ export async function getPlayerIdentityCultivatorById(
     .limit(1);
   if (!cultivatorRecord) return null;
 
-  const [spiritualRoots, preHeavenFates] = await Promise.all([
-    q
-      .select()
-      .from(schema.spiritualRoots)
-      .where(eq(schema.spiritualRoots.cultivatorId, cultivatorId)),
-    q
-      .select()
-      .from(schema.preHeavenFates)
-      .where(eq(schema.preHeavenFates.cultivatorId, cultivatorId)),
+  const [spiritualRoots, preHeavenFates] = await runDbTasks(q, [
+    () =>
+      q
+        .select()
+        .from(schema.spiritualRoots)
+        .where(eq(schema.spiritualRoots.cultivatorId, cultivatorId)),
+    () =>
+      q
+        .select()
+        .from(schema.preHeavenFates)
+        .where(eq(schema.preHeavenFates.cultivatorId, cultivatorId)),
   ]);
   return {
     id: cultivatorRecord.id,
