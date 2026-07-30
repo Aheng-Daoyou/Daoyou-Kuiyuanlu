@@ -13,6 +13,7 @@ import {
 import {
   getPlayerLoadoutByCultivatorId,
 } from '@server/lib/services/cultivator/CultivatorLoadoutReader';
+import { toArtifactFromProduct } from './creationProductArtifactSupport';
 import { playerCommandExecutor } from './CommandExecutors';
 
 type ProductMutationResult = {
@@ -299,12 +300,14 @@ export async function toggleArtifactLoadout(args: {
         args.cultivatorId,
         tx,
       );
-      const artifact = loadout.artifacts.find(
-        (item) => item.id === args.artifactId,
+      const updatedProduct = await creationProductRepository.findById(
+        args.artifactId,
+        tx,
       );
-      if (!artifact) {
-        throw new Error('法宝装备后无法读取权威投影');
+      if (!updatedProduct) {
+        throw new Error('法宝状态更新后无法读取权威投影');
       }
+      const artifact = toArtifactFromProduct(updatedProduct);
       const resourceChanges: ResourceChangeDescriptor[] = [
         {
           resourceTopic: 'player.loadout',

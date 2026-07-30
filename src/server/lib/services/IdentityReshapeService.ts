@@ -321,6 +321,9 @@ export function generateIdentityReshape(args: {
       const cultivator = await getExecutor().query.cultivators.findFirst({
         columns: {
           name: true,
+          origin: true,
+          personality: true,
+          background: true,
           gender: true,
           playerRace: true,
           age: true,
@@ -335,15 +338,22 @@ export function generateIdentityReshape(args: {
       }
 
       const rendered = renderPrompt('identity-reshape', {
-        cultivatorContext: JSON.stringify({
-          currentName: cultivator.name,
-          gender: cultivator.gender,
-          playerRace: cultivator.playerRace,
-          age: cultivator.age,
-          realm: cultivator.realm,
-          realmStage: cultivator.realm_stage,
-        }),
         answerContext: describeIdentityReshapeAnswers(args.answers),
+        originalCharacterContext: JSON.stringify({
+          originalNarrative: {
+            name: cultivator.name,
+            origin: cultivator.origin,
+            personality: cultivator.personality,
+            background: cultivator.background,
+          },
+          immutableFacts: {
+            gender: cultivator.gender,
+            playerRace: cultivator.playerRace,
+            age: cultivator.age,
+            realm: cultivator.realm,
+            realmStage: cultivator.realm_stage,
+          },
+        }),
         description,
       });
       const response = await object(
