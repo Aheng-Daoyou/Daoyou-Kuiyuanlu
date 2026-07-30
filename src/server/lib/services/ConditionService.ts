@@ -6,10 +6,8 @@ import type { BattleInitConfigV5 } from '@shared/engine/battle-v5/setup/types';
 import type { UnitStateSnapshot } from '@shared/engine/battle-v5/systems/state/types';
 import {
   getBreakthroughPenalty,
-  getNaturalRecoveryStatusMultiplier,
-  getPillToxicityRecoveryMultiplier,
   isConditionStatusActive,
-  NATURAL_RECOVERY_CONFIG,
+  projectNaturalRecoveryResources,
 } from '@shared/lib/condition';
 import { evaluateFateContext } from '@shared/lib/fates';
 import {
@@ -485,9 +483,17 @@ export const ConditionService = {
     );
     const { maxHp, maxMp } = this.getMaxResources(cultivator, condition);
     const statuses = pruneInactiveStatuses(condition.statuses, now);
-    const lastRecoveryAt = Date.parse(condition.timestamps.lastRecoveryAt ?? '');
+    const fateContext = evaluateFateContext(cultivator.pre_heaven_fates ?? []);
+    const projection = projectNaturalRecoveryResources({
+      conditionInput: condition,
+      maxHp,
+      maxMp,
+      toxicityPenaltyMultiplier: fateContext.toxicityPenaltyMultiplier,
+      naturalRecoveryMultiplier: fateContext.naturalRecoveryMultiplier,
+      now,
+    });
 
-    if (!Number.isFinite(lastRecoveryAt)) {
+    if (!projection.timestampValid) {
       return {
         ...condition,
         statuses,
@@ -498,39 +504,19 @@ export const ConditionService = {
       };
     }
 
-    const elapsedHours = Math.max(0, now.getTime() - lastRecoveryAt) / 3600000;
-    if (elapsedHours <= 0) {
+    if (projection.elapsedMs <= 0) {
       return {
         ...condition,
         statuses,
       };
     }
 
-    const fateContext = evaluateFateContext(cultivator.pre_heaven_fates ?? []);
-    const toxicityMultiplier = getPillToxicityRecoveryMultiplier(
-      condition,
-      fateContext.toxicityPenaltyMultiplier,
-    );
-    const statusMultiplier = getNaturalRecoveryStatusMultiplier(condition, now);
-    const recoveryFactor =
-      toxicityMultiplier *
-      statusMultiplier *
-      fateContext.naturalRecoveryMultiplier;
-    const hpRecover = Math.floor(
-      maxHp * NATURAL_RECOVERY_CONFIG.hpPerHour * elapsedHours * recoveryFactor,
-    );
-    const mpRecover = Math.floor(
-      maxMp * NATURAL_RECOVERY_CONFIG.mpPerHour * elapsedHours * recoveryFactor,
-    );
-    const nextHp = clamp(condition.resources.hp.current + hpRecover, 0, maxHp);
-    const nextMp = clamp(condition.resources.mp.current + mpRecover, 0, maxMp);
+    const nextHp = projection.resources.hp.current;
+    const nextMp = projection.resources.mp.current;
 
     return {
       ...condition,
-      resources: {
-        hp: { current: nextHp, max: maxHp },
-        mp: { current: nextMp, max: maxMp },
-      },
+      resources: projection.resources,
       statuses,
       timestamps: {
         ...condition.timestamps,

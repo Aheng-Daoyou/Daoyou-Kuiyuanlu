@@ -15,6 +15,7 @@ import {
   loadResourceEndpoint,
   resolveTopicScope,
 } from './definitionCore';
+import { observePlayerResourceServerTime } from './recoveryClock';
 import type { ResourceDefinition } from './store';
 
 type PlayerTopic<K extends PlayerResourceKey> = `player.${K}`;
@@ -90,6 +91,7 @@ async function flushPlayerResourceBatch(): Promise<void> {
     if (!response.ok || !json.success) {
       throw new Error('error' in json ? json.error : `HTTP ${response.status}`);
     }
+    observePlayerResourceServerTime(json.data.serverTime);
     for (const item of active) {
       if (item.signal.aborted) continue;
       const resource = json.data.resources[item.key];

@@ -1,16 +1,11 @@
 import { YieldCard } from '@app/components/feature/cultivator/YieldCard';
+import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
 import { CaveQuickGrid } from '@app/components/feature/home/CaveQuickGrid';
 import { HomeAside } from '@app/components/feature/home/HomeAside';
 import { HomeUrgentRow } from '@app/components/feature/home/HomeUrgentRow';
 import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
 import { InkButton, InkNotice } from '@app/components/ui';
-import {
-  useCultivatorCondition,
-  useCultivatorIdentity,
-  useCultivatorProgress,
-  usePlayerLoadout,
-} from '@app/lib/resources/player';
-import { getCultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import { useCultivatorProgress } from '@app/lib/resources/player';
 import { useTaskList } from '@app/lib/hooks/useTaskList';
 import { findCurrentMajorBreakthroughTask } from '@app/lib/tasks/taskClient';
 import { getNextNoviceHomeAction } from '@app/lib/tasks/noviceHomeAction';
@@ -33,37 +28,20 @@ function calculateYieldHours(lastYieldAt: Date | string | undefined) {
 }
 
 export function HomeView() {
-  const profile = useCultivatorIdentity();
-  const condition = useCultivatorCondition();
+  const projection = useCultivatorDisplayProjection();
   const progress = useCultivatorProgress();
-  const loadout = usePlayerLoadout();
-  const identity = profile.data?.cultivator;
   const cultivator = useMemo(
     () =>
-      identity &&
-      condition.data &&
-      progress.data &&
-      loadout.data
+      projection.data && progress.data
         ? {
-            ...identity,
-            condition: condition.data,
+            ...projection.data.cultivator,
             cultivation_progress: progress.data,
-            cultivations: loadout.data.cultivations,
-            equipped: loadout.data.equipped,
-            inventory: { artifacts: loadout.data.artifacts },
           }
         : null,
-    [condition.data, identity, loadout.data, progress.data],
+    [progress.data, projection.data],
   );
-  const display = useMemo(
-    () => (cultivator ? getCultivatorDisplaySnapshot(cultivator) : null),
-    [cultivator],
-  );
-  const isLoading =
-    profile.loading ||
-    condition.loading ||
-    progress.loading ||
-    loadout.loading;
+  const display = projection.data?.display ?? null;
+  const isLoading = projection.loading || progress.loading;
   const {
     tasks,
     loading: tasksLoading,
@@ -93,7 +71,11 @@ export function HomeView() {
     const currentHp = Math.max(0, Math.floor(hp?.current ?? maxHp));
     const currentMp = Math.max(0, Math.floor(mp?.current ?? maxMp));
     const activeStatuses = (cultivator.condition?.statuses ?? []).filter(
-      (status) => isConditionStatusActive(status),
+      (status) =>
+        isConditionStatusActive(
+          status,
+          projection.data?.now ?? new Date(),
+        ),
     );
     const pillToxicityStage = getPillToxicityStage(cultivator.condition);
     const cultivationProgress = cultivator.cultivation_progress;
@@ -128,7 +110,7 @@ export function HomeView() {
       bodySummaryText,
       insight: cultivationProgress?.comprehension_insight ?? 0,
     };
-  }, [cultivator, display]);
+  }, [cultivator, display, projection.data?.now]);
 
   const currentMajorTask = useMemo(
     () =>

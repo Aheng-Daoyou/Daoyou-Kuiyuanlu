@@ -1,4 +1,5 @@
 import type {
+  ConditionResourcePoint,
   ConditionResourceKey,
   ConditionStatusKey,
   ConditionStatusDuration,
@@ -29,8 +30,57 @@ export interface NaturalRecoveryEstimate {
   isFull: boolean;
 }
 
+export interface NaturalRecoveryResourceProjection
+  extends NaturalRecoveryEstimate {
+  current: number;
+  max: number;
+  recovered: number;
+}
+
+export interface NaturalRecoveryProjection {
+  resources: {
+    hp: Required<ConditionResourcePoint>;
+    mp: Required<ConditionResourcePoint>;
+  };
+  recovery: {
+    hp: NaturalRecoveryResourceProjection;
+    mp: NaturalRecoveryResourceProjection;
+  };
+  elapsedMs: number;
+  recoveryFactor: number;
+  timestampValid: boolean;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function normalizeResourceMax(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+function normalizeProjectedResourceCurrent(
+  point: ConditionResourcePoint | undefined,
+  runtimeMax: number,
+): number {
+  const rawCurrent =
+    typeof point?.current === 'number' && Number.isFinite(point.current)
+      ? Math.floor(point.current)
+      : runtimeMax;
+  const storedMax =
+    typeof point?.max === 'number' &&
+    Number.isFinite(point.max) &&
+    point.max >= 0
+      ? Math.floor(point.max)
+      : undefined;
+  const shouldPreserveFullState =
+    storedMax !== undefined &&
+    runtimeMax > storedMax &&
+    rawCurrent >= storedMax;
+
+  return shouldPreserveFullState
+    ? runtimeMax
+    : clamp(rawCurrent, 0, runtimeMax);
 }
 
 function getDurationExpiresAt(duration: ConditionStatusDuration): number | null {
@@ -144,7 +194,7 @@ export function getNaturalRecoveryEstimate(options: {
     now = new Date(),
   } = options;
   const safeCurrent = Math.max(0, current);
-  const safeMax = Math.max(0, max);
+  const safeMax = normalizeResourceMax(max);
 
   if (safeCurrent >= safeMax) {
     return {
@@ -187,6 +237,138 @@ export function getNaturalRecoveryEstimate(options: {
     perHour,
     timeToFullMs: Math.ceil((deficit / perHour) * 3600000),
     isFull: false,
+  };
+}
+
+function projectNaturalRecoveryResource(options: {
+  resource: ConditionResourceKey;
+  current: number;
+  max: number;
+  elapsedHours: number;
+  conditionInput: CultivatorCondition | undefined;
+  toxicityPenaltyMultiplier: number;
+  naturalRecoveryMultiplier: number;
+  now: Date;
+}): NaturalRecoveryResourceProjection {
+  const {
+    resource,
+    current,
+    max,
+    elapsedHours,
+    conditionInput,
+    toxicityPenaltyMultiplier,
+    naturalRecoveryMultiplier,
+    now,
+  } = options;
+  const estimateAtBaseline = getNaturalRecoveryEstimate({
+    resource,
+    current,
+    max,
+    conditionInput,
+    toxicityPenaltyMultiplier,
+    naturalRecoveryMultiplier,
+    now,
+  });
+  const recovered = Math.max(
+    0,
+    Math.min(
+      max - current,
+      Math.floor(estimateAtBaseline.perHour * elapsedHours),
+    ),
+  );
+  const projectedCurrent = clamp(current + recovered, 0, max);
+  const estimate = getNaturalRecoveryEstimate({
+    resource,
+    current: projectedCurrent,
+    max,
+    conditionInput,
+    toxicityPenaltyMultiplier,
+    naturalRecoveryMultiplier,
+    now,
+  });
+
+  return {
+    ...estimate,
+    current: projectedCurrent,
+    max,
+    recovered,
+  };
+}
+
+export function projectNaturalRecoveryResources(options: {
+  conditionInput: CultivatorCondition | undefined;
+  maxHp: number;
+  maxMp: number;
+  toxicityPenaltyMultiplier?: number;
+  naturalRecoveryMultiplier?: number;
+  now: Date;
+}): NaturalRecoveryProjection {
+  const {
+    conditionInput,
+    toxicityPenaltyMultiplier = 1,
+    naturalRecoveryMultiplier = 1,
+    now,
+  } = options;
+  const maxHp = normalizeResourceMax(options.maxHp);
+  const maxMp = normalizeResourceMax(options.maxMp);
+  const hpCurrent = normalizeProjectedResourceCurrent(
+    conditionInput?.resources.hp,
+    maxHp,
+  );
+  const mpCurrent = normalizeProjectedResourceCurrent(
+    conditionInput?.resources.mp,
+    maxMp,
+  );
+  const lastRecoveryAt = Date.parse(
+    conditionInput?.timestamps.lastRecoveryAt ?? '',
+  );
+  const timestampValid = Number.isFinite(lastRecoveryAt);
+  const elapsedMs = timestampValid
+    ? Math.max(0, now.getTime() - lastRecoveryAt)
+    : 0;
+  const elapsedHours = elapsedMs / 3_600_000;
+  const toxicityMultiplier = getPillToxicityRecoveryMultiplier(
+    conditionInput,
+    toxicityPenaltyMultiplier,
+  );
+  const statusMultiplier = getNaturalRecoveryStatusMultiplier(
+    conditionInput,
+    now,
+  );
+  const recoveryFactor =
+    toxicityMultiplier *
+    statusMultiplier *
+    Math.max(0, naturalRecoveryMultiplier);
+  const hp = projectNaturalRecoveryResource({
+    resource: 'hp',
+    current: hpCurrent,
+    max: maxHp,
+    elapsedHours,
+    conditionInput,
+    toxicityPenaltyMultiplier,
+    naturalRecoveryMultiplier,
+    now,
+  });
+  const mp = projectNaturalRecoveryResource({
+    resource: 'mp',
+    current: mpCurrent,
+    max: maxMp,
+    elapsedHours,
+    conditionInput,
+    toxicityPenaltyMultiplier,
+    naturalRecoveryMultiplier,
+    now,
+  });
+
+  return {
+    resources: {
+      hp: { current: hp.current, max: hp.max },
+      mp: { current: mp.current, max: mp.max },
+    },
+    recovery: { hp, mp },
+    elapsedMs,
+    recoveryFactor,
+    timestampValid,
   };
 }
 

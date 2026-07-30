@@ -1,9 +1,4 @@
-import {
-  useCultivatorCondition,
-  useCultivatorIdentity,
-  usePlayerLoadout,
-} from '@app/lib/resources/player';
-import { getCultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
 import { useTaskList } from '@app/lib/hooks/useTaskList';
 import { useDungeonViewModel } from '@app/lib/hooks/dungeon/useDungeonViewModel';
 import { Suspense, useCallback } from 'react';
@@ -21,25 +16,10 @@ import { useNavigate, useSearchParams } from 'react-router';
  * 3. 视图渲染：委托给 DungeonViewRenderer 处理
  */
 function DungeonContent() {
-  const profile = useCultivatorIdentity();
-  const condition = useCultivatorCondition();
-  const loadout = usePlayerLoadout();
-  const identity = profile.data?.cultivator;
-  const cultivator =
-    identity && condition.data && loadout.data
-      ? {
-          ...identity,
-          condition: condition.data,
-          cultivations: loadout.data.cultivations,
-          equipped: loadout.data.equipped,
-          inventory: { artifacts: loadout.data.artifacts },
-        }
-      : null;
-  const display = cultivator
-    ? getCultivatorDisplaySnapshot(cultivator)
-    : null;
-  const isCultivatorLoading =
-    profile.loading || condition.loading || loadout.loading;
+  const projection = useCultivatorDisplayProjection();
+  const cultivator = projection.data?.cultivator ?? null;
+  const display = projection.data?.display ?? null;
+  const isCultivatorLoading = projection.loading;
   const { tasks, loading: tasksLoading } = useTaskList(cultivator?.id);
   const [searchParams] = useSearchParams();
   const preSelectedNodeId = searchParams.get('nodeId');

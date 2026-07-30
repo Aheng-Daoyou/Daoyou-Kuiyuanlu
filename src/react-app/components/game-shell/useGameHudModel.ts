@@ -2,16 +2,13 @@ import {
   getPillToxicityEffectDetails,
   getStatusEffectDetails,
 } from '@app/components/feature/cultivator/persistentStatusDetails';
+import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
 import {
-  useCultivatorCondition,
   useCultivatorCurrency,
-  useCultivatorIdentity,
   useCultivatorProgress,
-  usePlayerLoadout,
   useUnreadMailCount,
 } from '@app/lib/resources/player';
 import {
-  getCultivatorDisplaySnapshot,
   type CultivatorDisplayInput,
   type CultivatorDisplaySnapshot,
 } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
@@ -308,35 +305,26 @@ export function buildGameHudSnapshot(input: {
 }
 
 export function useGameHudModel() {
-  const profile = useCultivatorIdentity();
-  const condition = useCultivatorCondition();
+  const projection = useCultivatorDisplayProjection();
   const progress = useCultivatorProgress();
   const currency = useCultivatorCurrency();
-  const loadout = usePlayerLoadout();
-  const identity = profile.data?.cultivator;
   const cultivator: HudCultivatorView | null =
-    identity && condition.data && progress.data && currency.data && loadout.data
+    projection.data && progress.data && currency.data
       ? {
-          ...identity,
-          condition: condition.data,
+          ...projection.data.cultivator,
           cultivation_progress: progress.data,
           spirit_stones: currency.data.spiritStones,
           reputation: currency.data.reputation,
-          cultivations: loadout.data.cultivations,
-          equipped: loadout.data.equipped,
-          inventory: { artifacts: loadout.data.artifacts },
         }
       : null;
-  const display = cultivator
-    ? getCultivatorDisplaySnapshot(cultivator)
-    : null;
   const unreadMailCount = useUnreadMailCount();
 
   return unreadMailCount === undefined
     ? null
     : buildGameHudSnapshot({
         cultivator,
-        display,
+        display: projection.data?.display ?? null,
         unreadMailCount,
+        now: projection.data?.now,
       });
 }

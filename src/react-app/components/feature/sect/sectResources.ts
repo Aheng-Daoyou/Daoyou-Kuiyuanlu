@@ -44,17 +44,19 @@ export function useSectContextQuery(enabled = true) {
   );
 }
 
-export function useActiveSectContextQuery() {
-  const session = usePlayerSession();
-  const hasSect = Boolean(session.data?.activeCultivator?.sectId);
+export function useActiveSectContextQuery(enabled = true) {
+  const session = usePlayerSession(enabled);
+  const hasSect =
+    enabled && Boolean(session.data?.activeCultivator?.sectId);
   const context = useSectContextQuery(hasSect);
   return useMemo(
     () => ({
       ...context,
       hasSect,
       sessionLoading: session.loading,
+      sessionError: session.error,
     }),
-    [context, hasSect, session.loading],
+    [context, hasSect, session.error, session.loading],
   );
 }
 
@@ -62,8 +64,8 @@ export function useSectInfrastructureQuery() {
   return useSingletonResource(sectInfrastructureResource);
 }
 
-export function useSectProgressionQuery() {
-  return useSingletonResource(sectProgressionResource);
+export function useSectProgressionQuery(enabled = true) {
+  return useSingletonResource(sectProgressionResource, enabled);
 }
 
 export function useSectTasksQuery() {

@@ -1,16 +1,9 @@
 import { GameSceneSection } from '@app/components/game-shell/GameSceneSection';
 import { InkButton, InkDialog, type InkDialogState } from '@app/components/ui';
-import {
-  useCultivatorCondition,
-  useCultivatorIdentity,
-  useCultivatorProgress,
-  usePlayerLoadout,
-} from '@app/lib/resources/player';
-import { getCultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import { useCultivatorProgress } from '@app/lib/resources/player';
 import { cn } from '@shared/lib/cn';
 import {
   getBreakthroughPenaltyPercent,
-  getNaturalRecoveryEstimate,
   getPillToxicityRecoveryMultiplier,
   getPillToxicityStage,
   isConditionStatusActive,
@@ -30,6 +23,7 @@ import {
   getPillToxicityEffectDetails,
   getStatusEffectDetails,
 } from './persistentStatusDetails';
+import { useCultivatorDisplayProjection } from './useCultivatorDisplayProjection';
 
 const TRACK_ORDER: ConditionTrackPath[] = [
   'marrow_wash',
@@ -81,28 +75,19 @@ function formatRecoveryPerHour(value: number): string {
 }
 
 function usePersistentStatusState() {
-  const profile = useCultivatorIdentity();
-  const condition = useCultivatorCondition();
+  const projection = useCultivatorDisplayProjection();
   const progress = useCultivatorProgress();
-  const loadout = usePlayerLoadout();
-  const identity = profile.data?.cultivator;
   const cultivator =
-    identity && condition.data && progress.data && loadout.data
+    projection.data && progress.data
       ? {
-          ...identity,
-          condition: condition.data,
+          ...projection.data.cultivator,
           cultivation_progress: progress.data,
-          cultivations: loadout.data.cultivations,
-          equipped: loadout.data.equipped,
-          inventory: { artifacts: loadout.data.artifacts },
         }
       : null;
-  const display = cultivator
-    ? getCultivatorDisplaySnapshot(cultivator)
-    : null;
-  const [now] = useState(() => Date.now());
 
-  if (!cultivator) return null;
+  if (!cultivator || !projection.data) return null;
+  const display = projection.data.display;
+  const now = projection.data.now.getTime();
   const statuses = (cultivator.condition?.statuses ?? []).filter((status) =>
     isConditionStatusActive(status, new Date(now)),
   );
@@ -170,24 +155,8 @@ function usePersistentStatusState() {
       threshold,
     };
   });
-  const hpRecovery = getNaturalRecoveryEstimate({
-    resource: 'hp',
-    current: currentHp,
-    max: maxHp,
-    conditionInput: cultivator.condition,
-    toxicityPenaltyMultiplier: fateContext.toxicityPenaltyMultiplier,
-    naturalRecoveryMultiplier: fateContext.naturalRecoveryMultiplier,
-    now: new Date(now),
-  });
-  const mpRecovery = getNaturalRecoveryEstimate({
-    resource: 'mp',
-    current: currentMp,
-    max: maxMp,
-    conditionInput: cultivator.condition,
-    toxicityPenaltyMultiplier: fateContext.toxicityPenaltyMultiplier,
-    naturalRecoveryMultiplier: fateContext.naturalRecoveryMultiplier,
-    now: new Date(now),
-  });
+  const hpRecovery = projection.data.recovery.hp;
+  const mpRecovery = projection.data.recovery.mp;
 
   return {
     currentHp,

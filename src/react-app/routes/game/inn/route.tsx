@@ -1,14 +1,11 @@
 import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
+import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkCard, InkNotice } from '@app/components/ui';
 import {
-  useCultivatorCondition,
   useCultivatorCurrency,
-  useCultivatorIdentity,
   useCultivatorProgress,
-  usePlayerLoadout,
 } from '@app/lib/resources/player';
-import { getCultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   calculateInnRecoverySpiritStoneCost,
@@ -30,33 +27,22 @@ type InnRecoveryResponse = {
 };
 
 export default function InnRecoveryPage() {
-  const profile = useCultivatorIdentity();
-  const condition = useCultivatorCondition();
+  const projection = useCultivatorDisplayProjection();
   const progress = useCultivatorProgress();
   const currency = useCultivatorCurrency();
-  const loadout = usePlayerLoadout();
-  const identity = profile.data?.cultivator;
   const cultivator =
-    identity && condition.data && progress.data && currency.data && loadout.data
+    projection.data && progress.data && currency.data
       ? {
-          ...identity,
-          condition: condition.data,
+          ...projection.data.cultivator,
           cultivation_progress: progress.data,
           spirit_stones: currency.data.spiritStones,
-          cultivations: loadout.data.cultivations,
-          equipped: loadout.data.equipped,
-          inventory: { artifacts: loadout.data.artifacts },
         }
       : null;
-  const display = cultivator
-    ? getCultivatorDisplaySnapshot(cultivator)
-    : null;
+  const display = projection.data?.display ?? null;
   const isLoading =
-    profile.loading ||
-    condition.loading ||
+    projection.loading ||
     progress.loading ||
-    currency.loading ||
-    loadout.loading;
+    currency.loading;
   const { mutate } = useResourceMutation();
   const { openDialog, pushToast } = useInkUI();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -76,7 +62,11 @@ export default function InnRecoveryPage() {
         const currentHp = Math.max(0, Math.floor(hp?.current ?? maxHp));
         const currentMp = Math.max(0, Math.floor(mp?.current ?? maxMp));
         const activeStatusCount = (cultivator.condition?.statuses ?? []).filter(
-          (status) => isConditionStatusActive(status),
+          (status) =>
+            isConditionStatusActive(
+              status,
+              projection.data?.now ?? new Date(),
+            ),
         ).length;
         const cultivationLossRange = calculateInnRecoveryLossRange(
           cultivator.cultivation_progress?.cultivation_exp ?? 0,
