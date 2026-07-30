@@ -86,8 +86,7 @@ async function flushPlayerResourceBatch(): Promise<void> {
       { signal: controller.signal },
     );
     const json = (await response.json()) as
-      | PlayerResourcesResponse
-      | { success: false; error: string };
+      PlayerResourcesResponse | { success: false; error: string };
     if (!response.ok || !json.success) {
       throw new Error('error' in json ? json.error : `HTTP ${response.status}`);
     }
@@ -168,7 +167,25 @@ export const playerProfileResource: ResourceDefinition<'player.profile', void> =
   };
 export const playerConditionResource = playerDefinition('condition');
 export const playerProgressResource = playerDefinition('progress');
-export const playerCurrencyResource = playerDefinition('currency');
+export const playerCurrencyResource: ResourceDefinition<
+  'player.currency',
+  void
+> = {
+  ...playerDefinition('currency'),
+  reduce(current, change) {
+    if (change.operation === 'merge') {
+      const hasQi = Object.prototype.hasOwnProperty.call(change.payload, 'qi');
+      const hasQiBaseline = Object.prototype.hasOwnProperty.call(
+        change.payload,
+        'qiLastRefreshedAt',
+      );
+      if (hasQi !== hasQiBaseline) {
+        return { status: 'stale' };
+      }
+    }
+    return defaultResourceReducer(current, change);
+  },
+};
 export const playerLoadoutResource = playerDefinition('loadout');
 export const playerMailSummaryResource = playerDefinition('mail-summary');
 export const playerTaskSummaryResource = playerDefinition('task-summary');

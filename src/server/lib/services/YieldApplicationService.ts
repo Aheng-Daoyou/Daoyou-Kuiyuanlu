@@ -1,6 +1,10 @@
 import { cultivators } from '@server/lib/drizzle/schema';
 import { runDetached } from '@server/lib/http/response';
 import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
+import {
+  updateCultivationExp,
+  updateSpiritStones,
+} from '@server/lib/services/cultivator/CultivatorStateRepository';
 import { getOrInitCultivationProgress } from '@server/utils/cultivationUtils';
 import { MaterialGenerator } from '@shared/engine/material/creation/MaterialGenerator';
 import type { GeneratedMaterial } from '@shared/engine/material/creation/types';
@@ -10,10 +14,6 @@ import type { CultivationProgress } from '@shared/types/cultivator';
 import { and, eq } from 'drizzle-orm';
 import { getExecutor } from '../drizzle/db';
 import { playerCommandExecutor } from './CommandExecutors';
-import {
-  updateCultivationExp,
-  updateSpiritStones,
-} from '@server/lib/services/cultivator/CultivatorStateRepository';
 import { MailService, type MailAttachment } from './MailService';
 import { readPlayerMailSummary } from './PlayerResourceReaderService';
 
@@ -33,8 +33,6 @@ interface YieldFacts {
   lastYieldAt: Date;
   spiritStones: number;
   progress: CultivationProgress;
-  qi: number;
-  qiLastRefreshedAt: Date | null;
 }
 
 async function loadYieldFacts(
@@ -49,8 +47,6 @@ async function loadYieldFacts(
       lastYieldAt: cultivators.last_yield_at,
       spiritStones: cultivators.spirit_stones,
       progress: cultivators.cultivation_progress,
-      qi: cultivators.qi,
-      qiLastRefreshedAt: cultivators.qiLastRefreshedAt,
     })
     .from(cultivators)
     .where(
@@ -75,8 +71,6 @@ async function loadYieldFacts(
       realm,
       realmStage,
     ),
-    qi: row.qi,
-    qiLastRefreshedAt: row.qiLastRefreshedAt,
   };
 }
 
@@ -187,9 +181,6 @@ export async function executeYieldCommand(args: {
                 operation: 'merge',
                 payload: {
                   spiritStones,
-                  qi: facts.qi,
-                  qiLastRefreshedAt:
-                    facts.qiLastRefreshedAt?.toISOString() ?? null,
                 },
               },
               {

@@ -1,12 +1,19 @@
 import { renderPrompt } from '@server/lib/prompts';
+import { findActiveCultivatorOwnerId } from '@server/lib/repositories/cultivatorRepository';
 import type { BattleRecord } from '@server/lib/services/battleResult';
+import {
+  loadCultivatorCombatInput,
+  loadCultivatorDungeonPromptFacts,
+} from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
+import { getPaginatedInventoryByType } from '@server/lib/services/cultivator/CultivatorInventoryRepository';
+import { updateCultivator } from '@server/lib/services/cultivator/CultivatorStateRepository';
+import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
 import { object } from '@server/utils/aiClient'; // AI client helper
 import { stableCompactStringify } from '@server/utils/llmPayload';
-import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import type { CultivatorDisplayInput } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { EnemyGenerator } from '@shared/engine/enemyGenerator';
 import { TYPE_DESCRIPTIONS } from '@shared/engine/material/creation/config';
-import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
 import type {
   ResourceOperation,
   ResourceOperationResult,
@@ -20,6 +27,7 @@ import {
   isSatelliteNode,
   resolveDungeonMapConfig,
 } from '@shared/lib/game/mapSystem';
+import type { CultivatorCondition } from '@shared/types/condition';
 import {
   MaterialType,
   Quality,
@@ -28,7 +36,6 @@ import {
   RealmType,
 } from '@shared/types/constants';
 import type { Cultivator } from '@shared/types/cultivator';
-import type { CultivatorCondition } from '@shared/types/condition';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 import { getExecutor, type DbTransaction } from '../drizzle/db';
@@ -41,19 +48,8 @@ import {
   withRedisLock,
   type RedisLeaseContext,
 } from '../redis/lock';
-import { ConditionService } from '../services/ConditionService';
 import { executePersistentWorldBattle } from '../services/BattleStateCoordinator';
-import {
-  loadCultivatorCombatInput,
-  loadCultivatorDungeonPromptFacts,
-} from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
-import { findActiveCultivatorOwnerId } from '@server/lib/repositories/cultivatorRepository';
-import {
-  getPaginatedInventoryByType,
-} from '@server/lib/services/cultivator/CultivatorInventoryRepository';
-import {
-  updateCultivator,
-} from '@server/lib/services/cultivator/CultivatorStateRepository';
+import { ConditionService } from '../services/ConditionService';
 import { QiService } from '../services/QiService';
 import { ServerEnemyCopyProvider } from '../services/ServerEnemyCopyProvider';
 import { TaskService } from '../services/TaskService';
@@ -125,9 +121,7 @@ type DungeonSettlementResult = {
   settlement?: DungeonSettlement;
   isFinished: boolean;
   realGains?: ResourceOperation[];
-  persist?: (
-    tx: DbTransaction,
-  ) => Promise<DungeonPersistenceSettlement | void>;
+  persist?: (tx: DbTransaction) => Promise<DungeonPersistenceSettlement | void>;
   afterCommit?: () => Promise<void>;
 };
 
@@ -145,9 +139,7 @@ type DungeonFlowOptions = {
 };
 
 type DungeonPersistenceHooks = {
-  persist: (
-    tx: DbTransaction,
-  ) => Promise<DungeonPersistenceSettlement | void>;
+  persist: (tx: DbTransaction) => Promise<DungeonPersistenceSettlement | void>;
   afterCommit: () => Promise<void>;
 };
 
@@ -196,8 +188,7 @@ function mergeDungeonPersistenceSettlements(
 function toDungeonPersistenceSettlement(
   result: ResourceOperationResult,
 ): DungeonPersistenceSettlement {
-  const settlement: ResourceOperationSettlement | undefined =
-    result.settlement;
+  const settlement: ResourceOperationSettlement | undefined = result.settlement;
   if (!settlement) return {};
   return {
     currency: {
@@ -941,7 +932,10 @@ export class DungeonService {
               tx,
             });
             return {
-              currency: { qi: reservation.qiAfter },
+              currency: {
+                qi: reservation.qiAfter,
+                qiLastRefreshedAt: reservation.qiLastRefreshedAt,
+              },
             } satisfies DungeonPersistenceSettlement;
           },
           afterCommit: async () => {
@@ -1057,18 +1051,13 @@ export class DungeonService {
 
       const costs = actionCosts as ResourceOperation[];
       const result = dryRun
-        ? await resourceEngine.validate(
-            userId,
-            cultivatorId,
-            costs,
-            getExecutor(),
-          ).then(
-            (validation): ResourceOperationResult => ({
+        ? await resourceEngine
+            .validate(userId, cultivatorId, costs, getExecutor())
+            .then((validation): ResourceOperationResult => ({
               success: validation.valid,
               operations: costs,
               errors: validation.errors,
-            }),
-          )
+            }))
         : await getExecutor().transaction(async (tx) => {
             const applied = await resourceEngine.applyInTransaction({
               userId,
@@ -1565,8 +1554,7 @@ export class DungeonService {
       battleId,
     );
 
-    const cultivatorBundle =
-      await loadCultivatorCombatInput(cultivatorId);
+    const cultivatorBundle = await loadCultivatorCombatInput(cultivatorId);
     if (!cultivatorBundle?.cultivator) {
       throw new Error('未找到修真者数据');
     }
@@ -1888,15 +1876,17 @@ export class DungeonService {
       return {
         ...settled,
         persist: async (tx) => {
-          await updateCultivator(cultivatorId, { condition: nextCondition }, tx);
+          await updateCultivator(
+            cultivatorId,
+            { condition: nextCondition },
+            tx,
+          );
           const persisted = persistSettlement
             ? await persistSettlement(tx)
             : undefined;
           return mergeDungeonPersistenceSettlements(
             { condition: nextCondition },
-            persisted && typeof persisted === 'object'
-              ? persisted
-              : undefined,
+            persisted && typeof persisted === 'object' ? persisted : undefined,
           );
         },
       };
@@ -1915,7 +1905,11 @@ export class DungeonService {
         state,
         isFinished: false,
         persist: async (tx) => {
-          await updateCultivator(cultivatorId, { condition: nextCondition }, tx);
+          await updateCultivator(
+            cultivatorId,
+            { condition: nextCondition },
+            tx,
+          );
           await this.persistStateRecord(cultivatorId, state, undefined, tx);
           return { condition: nextCondition };
         },
@@ -2112,17 +2106,17 @@ export class DungeonService {
             tx,
           });
           if (applied.success && runId) {
-                await tx
-                  .update(dungeonRuns)
-                  .set({
-                    runState: {
-                      ...state,
-                      gainLedger: nextGainLedger,
-                      realGains,
-                    },
-                    gainLedger: nextGainLedger,
-                  })
-                  .where(eq(dungeonRuns.id, runId));
+            await tx
+              .update(dungeonRuns)
+              .set({
+                runState: {
+                  ...state,
+                  gainLedger: nextGainLedger,
+                  realGains,
+                },
+                gainLedger: nextGainLedger,
+              })
+              .where(eq(dungeonRuns.id, runId));
           }
           return applied;
         });
@@ -2195,8 +2189,7 @@ export class DungeonService {
               pendingActionToCommit.costs,
               tx,
             )) ?? undefined;
-          consumedSettlement =
-            toDungeonPersistenceSettlement(consumeResult);
+          consumedSettlement = toDungeonPersistenceSettlement(consumeResult);
         }
 
         if (!committedSettlementGain) {
@@ -2208,17 +2201,17 @@ export class DungeonService {
             tx,
           });
           if (gainResult.success && runId) {
-                  await tx
-                    .update(dungeonRuns)
-                    .set({
-                      runState: {
-                        ...state,
-                        gainLedger: nextGainLedger,
-                        realGains,
-                      },
-                      gainLedger: nextGainLedger,
-                    })
-                    .where(eq(dungeonRuns.id, runId));
+            await tx
+              .update(dungeonRuns)
+              .set({
+                runState: {
+                  ...state,
+                  gainLedger: nextGainLedger,
+                  realGains,
+                },
+                gainLedger: nextGainLedger,
+              })
+              .where(eq(dungeonRuns.id, runId));
           }
           if (!gainResult.success) {
             throw new Error(gainResult.errors?.join('; ') || '资源获得失败');
@@ -2443,8 +2436,7 @@ export class DungeonService {
   async getPlayer(cultivatorId: string) {
     const cultivatorBundle =
       await loadCultivatorDungeonPromptFacts(cultivatorId);
-    if (!cultivatorBundle)
-      throw new Error('未找到名为该道友的记录');
+    if (!cultivatorBundle) throw new Error('未找到名为该道友的记录');
     const cultivator = cultivatorBundle;
     const { finalAttributes, attrs } =
       getCultivatorDisplayAttributes(cultivator);

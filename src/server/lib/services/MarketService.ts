@@ -52,6 +52,7 @@ import type {
 } from '@shared/types/market';
 import { MARKET_PRESET_FALLBACK_LAYERS } from '@shared/types/market';
 import { and, eq, sql } from 'drizzle-orm';
+import { mapMaterialRow } from './cultivator/CultivatorInventoryRepository';
 import {
   getHiddenMysteryReveal,
   sanitizeMaterialDetails,
@@ -66,7 +67,6 @@ import {
   type MaterialLibrarySampleRequest,
 } from './MaterialLibraryService';
 import { QiService } from './QiService';
-import { mapMaterialRow } from './cultivator/CultivatorInventoryRepository';
 
 // ─── Redis 键前缀 ───
 
@@ -1022,9 +1022,7 @@ export async function getMarketListings(input: {
   };
 }
 
-export async function prepareMarketItemPurchase(
-  input: BuyInput,
-) {
+export async function prepareMarketItemPurchase(input: BuyInput) {
   const {
     nodeId,
     layer,
@@ -1164,9 +1162,7 @@ export async function prepareMarketItemPurchase(
   };
 }
 
-export async function prepareBatchMarketPurchase(
-  input: BatchBuyInput,
-) {
+export async function prepareBatchMarketPurchase(input: BatchBuyInput) {
   const { nodeId, layer, items, userId, cultivatorId, cultivatorRealm } = input;
 
   if (items.length === 0) {
@@ -1531,6 +1527,7 @@ export async function prepareMysteryMaterialIdentification(
           },
           cost,
           qiAfter,
+          qiLastRefreshedAt: qiReservation.qiLastRefreshedAt,
           jackpotLevel,
           revealEffect:
             delta >= 2 ? '金光冲霄' : delta <= -2 ? '灵尘散尽' : '封印破除',

@@ -2,12 +2,12 @@ import {
   QI_ACTION_COSTS,
   QI_DAILY_RESTORE_ITEM_LIMIT,
   QI_MAX,
-  QI_NATURAL_RESTORE_PER_HOUR,
   QI_OVERFLOW_MAX,
   QI_REFRESH_TIMEZONE,
   type QiAction,
 } from '@shared/config/qiSystem';
 import type { QiLogsResponse, QiState } from '@shared/contracts/qi';
+import { projectNaturalQiState } from '@shared/lib/qi';
 import type {
   QiLogMetadata,
   QiLogStatus,
@@ -20,7 +20,6 @@ import { getExecutor, type DbTransaction } from '../drizzle/db';
 import { cultivators, qiLogs } from '../drizzle/schema';
 
 const RESTORE_STATUS: QiLogStatus = 'restore_committed';
-const QI_NATURAL_RESTORE_INTERVAL_MS = 60 * 60 * 1000;
 
 function isQiEnabled() {
   return process.env.QI_SYSTEM_ENABLED !== 'false';
@@ -79,59 +78,17 @@ export class QiService {
     shouldPersist: boolean;
   } {
     const now = input.now ?? new Date();
-    const rawQi = Math.max(0, Math.floor(input.qi));
-
-    if (!input.qiLastRefreshedAt) {
-      return {
-        qi: rawQi,
-        qiLastRefreshedAt: now,
-        restored: 0,
-        shouldPersist: true,
-      };
-    }
-
-    if (rawQi >= QI_MAX) {
-      return {
-        qi: rawQi,
-        qiLastRefreshedAt: now,
-        restored: 0,
-        shouldPersist: input.qiLastRefreshedAt.getTime() !== now.getTime(),
-      };
-    }
-
-    const elapsedMs = Math.max(
-      0,
-      now.getTime() - input.qiLastRefreshedAt.getTime(),
-    );
-    const elapsedHours = Math.floor(
-      elapsedMs / QI_NATURAL_RESTORE_INTERVAL_MS,
-    );
-
-    if (elapsedHours <= 0) {
-      return {
-        qi: rawQi,
-        qiLastRefreshedAt: input.qiLastRefreshedAt,
-        restored: 0,
-        shouldPersist: false,
-      };
-    }
-
-    const rawRestored = elapsedHours * QI_NATURAL_RESTORE_PER_HOUR;
-    const nextQi = Math.min(QI_MAX, rawQi + rawRestored);
-    const restored = nextQi - rawQi;
-    const qiLastRefreshedAt =
-      nextQi >= QI_MAX
-        ? now
-        : new Date(
-            input.qiLastRefreshedAt.getTime() +
-              elapsedHours * QI_NATURAL_RESTORE_INTERVAL_MS,
-          );
+    const projection = projectNaturalQiState({
+      qi: input.qi,
+      qiLastRefreshedAt: input.qiLastRefreshedAt,
+      now,
+    });
 
     return {
-      qi: nextQi,
-      qiLastRefreshedAt,
-      restored,
-      shouldPersist: restored > 0,
+      qi: projection.current,
+      qiLastRefreshedAt: projection.baselineAt,
+      restored: projection.restored,
+      shouldPersist: projection.shouldPersist,
     };
   }
 
@@ -206,9 +163,15 @@ export class QiService {
     };
   }
 
-  private static async getRawQi(cultivatorId: string): Promise<number> {
+  private static async getRawQiState(cultivatorId: string): Promise<{
+    qi: number;
+    qiLastRefreshedAt: Date | null;
+  }> {
     const [row] = await getExecutor()
-      .select({ qi: cultivators.qi })
+      .select({
+        qi: cultivators.qi,
+        qiLastRefreshedAt: cultivators.qiLastRefreshedAt,
+      })
       .from(cultivators)
       .where(eq(cultivators.id, cultivatorId))
       .limit(1);
@@ -217,7 +180,7 @@ export class QiService {
       throw new QiServiceError('角色不存在', 404);
     }
 
-    return row.qi;
+    return row;
   }
 
   static async listLogs(
@@ -281,13 +244,14 @@ export class QiService {
     const cost = input.cost ?? this.getCost(input.action);
 
     if (!isQiEnabled()) {
-      const current = await this.getRawQi(input.cultivatorId);
+      const current = await this.getRawQiState(input.cultivatorId);
       return {
         success: true,
         action: input.action,
         actionInstanceId: input.actionInstanceId,
-        qiBefore: current,
-        qiAfter: current,
+        qiBefore: current.qi,
+        qiAfter: current.qi,
+        qiLastRefreshedAt: current.qiLastRefreshedAt?.toISOString() ?? null,
         consumed: 0,
       };
     }
@@ -316,6 +280,7 @@ export class QiService {
             actionInstanceId: input.actionInstanceId,
             qiBefore: existing.qiBefore,
             qiAfter: existing.qiAfter,
+            qiLastRefreshedAt: row.qiLastRefreshedAt?.toISOString() ?? null,
             consumed: existing.qiCost,
           };
         }
@@ -354,6 +319,7 @@ export class QiService {
         actionInstanceId: input.actionInstanceId,
         qiBefore: row.qi,
         qiAfter,
+        qiLastRefreshedAt: row.qiLastRefreshedAt?.toISOString() ?? null,
         consumed: cost,
       };
     };
@@ -392,12 +358,7 @@ export class QiService {
           },
           updatedAt: new Date(),
         })
-        .where(
-          and(
-            eq(qiLogs.id, log.id),
-            eq(qiLogs.status, 'reserved'),
-          ),
-        )
+        .where(and(eq(qiLogs.id, log.id), eq(qiLogs.status, 'reserved')))
         .returning({ id: qiLogs.id });
       if (!updated) {
         const [current] = await tx
@@ -447,12 +408,7 @@ export class QiService {
           },
           updatedAt: new Date(),
         })
-        .where(
-          and(
-            eq(qiLogs.id, log.id),
-            eq(qiLogs.status, 'reserved'),
-          ),
-        )
+        .where(and(eq(qiLogs.id, log.id), eq(qiLogs.status, 'reserved')))
         .returning({ id: qiLogs.id });
       if (!updated) {
         const [current] = await tx
@@ -567,6 +523,7 @@ export class QiService {
           success: true,
           qiBefore: existing.qiBefore,
           qiAfter: existing.qiAfter,
+          qiLastRefreshedAt: row.qiLastRefreshedAt?.toISOString() ?? null,
           restored: existing.qiGain,
           overflowMax: QI_OVERFLOW_MAX,
         };
@@ -629,6 +586,7 @@ export class QiService {
         success: true,
         qiBefore: row.qi,
         qiAfter,
+        qiLastRefreshedAt: row.qiLastRefreshedAt?.toISOString() ?? null,
         restored,
         overflowMax: QI_OVERFLOW_MAX,
       };
@@ -639,5 +597,4 @@ export class QiService {
     }
     return getExecutor().transaction(run);
   }
-
 }

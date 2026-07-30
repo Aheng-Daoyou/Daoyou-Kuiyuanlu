@@ -22,12 +22,18 @@ export interface QiLogMetadata {
   [key: string]: unknown;
 }
 
+export interface QiProjectionBaseline {
+  qi: number;
+  qiLastRefreshedAt: string | null;
+}
+
 export interface QiReservationResult {
   success: boolean;
   action: QiAction;
   actionInstanceId: string;
   qiBefore: number;
   qiAfter: number;
+  qiLastRefreshedAt: string | null;
   consumed: number;
 }
 
@@ -35,6 +41,7 @@ export interface QiRestoreResult {
   success: boolean;
   qiBefore: number;
   qiAfter: number;
+  qiLastRefreshedAt: string | null;
   restored: number;
   overflowMax: number;
 }

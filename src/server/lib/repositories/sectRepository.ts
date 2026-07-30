@@ -423,7 +423,7 @@ export async function appendUnlockedPathLayer(
   const rows = await tx
     .update(sectPathProgress)
     .set({
-      unlockedLayerIds: sql`${sectPathProgress.unlockedLayerIds} || jsonb_build_array(${layerId})`,
+      unlockedLayerIds: sql`${sectPathProgress.unlockedLayerIds} || jsonb_build_array(${layerId}::text)`,
       updatedAt: new Date(),
     })
     .where(

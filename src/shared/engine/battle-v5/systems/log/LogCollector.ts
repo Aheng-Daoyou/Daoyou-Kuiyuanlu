@@ -203,12 +203,15 @@ export class LogCollector {
     });
 
     this._addHandler(eventBus, 'HealEvent', (e: HealEvent) => {
+      const value = Math.round(e.appliedAmount ?? e.healAmount);
+      if (value <= 0) return;
+
       const healType = e.healType ?? 'hp';
       this._aggregator.addEntry({
         id: this._generateId(),
         type: 'heal',
         data: {
-          value: Math.round(e.appliedAmount ?? e.healAmount),
+          value,
           remainHp: Math.round(e.target.getCurrentHp()),
           ...(healType === 'mp'
             ? { remainMp: Math.round(e.target.getCurrentMp()) }

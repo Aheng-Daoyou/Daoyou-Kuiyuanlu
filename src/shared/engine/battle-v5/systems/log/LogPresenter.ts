@@ -128,14 +128,33 @@ export class LogPresenter {
         this.textPart(' 回合】'),
       ),
     ];
+
+    const recoveryByTarget = new Map<string, Record<'hp' | 'mp', number>>();
     for (const entry of this.findEntries(span.entries, 'heal')) {
+      if (entry.data.value <= 0) continue;
+      const totals = recoveryByTarget.get(entry.data.targetName) ?? {
+        hp: 0,
+        mp: 0,
+      };
+      totals[entry.data.healType ?? 'hp'] += entry.data.value;
+      recoveryByTarget.set(entry.data.targetName, totals);
+    }
+    for (const [targetName, totals] of recoveryByTarget) {
+      const recoveryParts: PresentedLogPart[] = [];
+      for (const healType of ['hp', 'mp'] as const) {
+        if (totals[healType] <= 0) continue;
+        if (recoveryParts.length > 0) recoveryParts.push(this.textPart('、'));
+        recoveryParts.push(
+          this.numberPart(totals[healType], 'positive'),
+          this.textPart(` 点${getResourceText(healType)}`),
+        );
+      }
       lines.push(
         this.line(
           'system',
-          this.unitPart(entry.data.targetName),
+          this.unitPart(targetName),
           this.textPart('恢复 '),
-          this.numberPart(entry.data.value, 'positive'),
-          this.textPart(` 点${getResourceText(entry.data.healType ?? 'hp')}`),
+          ...recoveryParts,
         ),
       );
     }

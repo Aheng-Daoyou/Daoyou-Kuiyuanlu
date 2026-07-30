@@ -5,6 +5,7 @@ import {
   type ResourceChangeDescriptor,
   type ResourceDataMap,
 } from '@shared/contracts/resources';
+import type { ResourceOperationSettlement } from '@shared/engine/resource/types';
 import { isTalismanConsumable } from '@shared/lib/consumables';
 import type { RealmStage, RealmType } from '@shared/types/constants';
 import type {
@@ -12,7 +13,11 @@ import type {
   CultivationProgress,
   Cultivator,
 } from '@shared/types/cultivator';
-import type { ResourceOperationSettlement } from '@shared/engine/resource/types';
+import {
+  qiCurrencyChange,
+  qiCurrencyPatch,
+  type QiSettlementBaseline,
+} from './QiResourceChanges';
 
 export function conditionChangesAfterConsumable(args: {
   consumable: Consumable;
@@ -25,6 +30,7 @@ export function conditionChangesAfterConsumable(args: {
     realmStage: RealmStage;
     spiritStones?: number;
     qi?: number;
+    qiLastRefreshedAt?: Date | null;
     vitality?: number;
     spirit?: number;
     wisdom?: number;
@@ -69,9 +75,7 @@ export function conditionChangesAfterConsumable(args: {
       speed: args.state.speed,
       willpower: args.state.willpower,
     };
-    if (
-      Object.values(attributes).some((value) => typeof value !== 'number')
-    ) {
+    if (Object.values(attributes).some((value) => typeof value !== 'number')) {
       throw new Error('洗髓符结算缺少权威属性值');
     }
     changes.push({
@@ -86,20 +90,25 @@ export function conditionChangesAfterConsumable(args: {
             speed: attributes.speed!,
             willpower: attributes.willpower!,
           },
-          unallocated_attribute_points:
-            args.state.unallocatedAttributePoints,
+          unallocated_attribute_points: args.state.unallocatedAttributePoints,
         },
       },
       operation: 'merge',
     });
   } else if (isTalismanConsumable(args.consumable)) {
+    if (typeof args.state.qi !== 'number' || !args.state.qiLastRefreshedAt) {
+      throw new Error('聚灵符结算缺少权威灵气基线');
+    }
     changes.push({
       resourceTopic: 'player.currency',
       eventType: 'currency.qi.changed',
       operation: 'merge',
       payload: {
         spiritStones: args.state.spiritStones,
-        qi: args.state.qi,
+        ...qiCurrencyPatch({
+          qiAfter: args.state.qi,
+          qiLastRefreshedAt: args.state.qiLastRefreshedAt.toISOString(),
+        }),
       },
     });
   } else {
@@ -141,7 +150,6 @@ export function conditionChangesAfterConsumable(args: {
 export function innRecoveryChanges(args: {
   condition: ResourceDataMap['player.condition'];
   spiritStones: number;
-  qi: number;
   progress: ResourceDataMap['player.progress'];
 }): ResourceChangeDescriptor[] {
   return [
@@ -155,7 +163,7 @@ export function innRecoveryChanges(args: {
       resourceTopic: 'player.currency',
       eventType: 'currency.spirit_stones.changed',
       operation: 'merge',
-      payload: { spiritStones: args.spiritStones, qi: args.qi },
+      payload: { spiritStones: args.spiritStones },
     },
     {
       resourceTopic: 'player.progress',
@@ -204,7 +212,7 @@ export function bodyBreakthroughChanges(args: {
 export function marrowWashBreakthroughChanges(args: {
   condition: ResourceDataMap['player.condition'];
   spiritualRoots: Cultivator['spiritual_roots'];
-  qiAfter: number | null;
+  qi: QiSettlementBaseline;
 }): ResourceChangeDescriptor[] {
   return [
     {
@@ -219,11 +227,6 @@ export function marrowWashBreakthroughChanges(args: {
       operation: 'merge',
       payload: { cultivator: { spiritual_roots: args.spiritualRoots } },
     },
-    {
-      resourceTopic: 'player.currency',
-      eventType: 'currency.qi.spent',
-      operation: 'merge',
-      payload: args.qiAfter === null ? {} : { qi: args.qiAfter },
-    },
+    qiCurrencyChange('currency.qi.spent', args.qi),
   ];
 }

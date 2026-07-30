@@ -1,16 +1,21 @@
-import { LogPresenter } from '../../../systems/log/LogPresenter';
 import { Ability } from '../../../abilities/Ability';
 import { EventBus } from '../../../core/EventBus';
-import type { BattleInitEvent, HealEvent, SkillCastEvent } from '../../../core/events';
+import type {
+  BattleInitEvent,
+  HealEvent,
+  RoundStartEvent,
+  SkillCastEvent,
+} from '../../../core/events';
 import { AbilityType, BuffType } from '../../../core/types';
 import { BuffFactory } from '../../../factories/BuffFactory';
 import { CombatLogSystem } from '../../../systems/log/CombatLogSystem';
-import { Unit } from '../../../units/Unit';
+import { LogPresenter } from '../../../systems/log/LogPresenter';
 import type {
   LogEntry,
   LogEntryType,
   LogSpan,
 } from '../../../systems/log/types';
+import { Unit } from '../../../units/Unit';
 
 function entry<T extends LogEntryType>(
   type: T,
@@ -37,6 +42,58 @@ function action(entries: LogEntry[]): LogSpan {
 }
 
 describe('V4.2战斗日志归组', () => {
+  it('回合开始时按角色合计回血回蓝并忽略零恢复', () => {
+    EventBus.instance.reset();
+    const actor = new Unit('actor', '魁星士', {});
+    const target = new Unit('target', '木桩', {});
+    const logs = new CombatLogSystem();
+    logs.subscribe(EventBus.instance);
+
+    EventBus.instance.publish<BattleInitEvent>({
+      type: 'BattleInitEvent',
+      timestamp: Date.now(),
+      player: actor,
+      opponent: target,
+    });
+    EventBus.instance.publish<RoundStartEvent>({
+      type: 'RoundStartEvent',
+      timestamp: Date.now(),
+      turn: 2,
+    });
+    for (const recovery of [
+      { value: 100, healType: 'hp' },
+      { value: 50, healType: 'hp' },
+      { value: 75, healType: 'mp' },
+      { value: 0.4, healType: 'hp' },
+    ] as const) {
+      EventBus.instance.publish<HealEvent>({
+        type: 'HealEvent',
+        timestamp: Date.now(),
+        target: actor,
+        healAmount: recovery.value,
+        appliedAmount: recovery.value,
+        healType: recovery.healType,
+      });
+    }
+
+    const roundStart = logs
+      .getSpans()
+      .find((span) => span.type === 'round_start');
+    expect(
+      roundStart?.entries
+        .filter((item) => item.type === 'heal')
+        .map((item) => item.data.value),
+    ).toEqual([100, 50, 75]);
+    expect(logs.getPlayerLogs()).toEqual([
+      '【战斗开始】',
+      '【第 2 回合】',
+      '「魁星士」恢复 150 点气血、75 点法力',
+    ]);
+
+    logs.destroy();
+    EventBus.instance.reset();
+  });
+
   it('多段伤害合计吸取和削蓝，行动级剑势与调息只输出一次', () => {
     const source = {
       unitId: 'actor',

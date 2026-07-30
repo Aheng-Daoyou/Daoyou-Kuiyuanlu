@@ -1,5 +1,6 @@
 export const QI_MAX = 200;
 export const QI_NATURAL_RESTORE_PER_HOUR = 10;
+export const QI_NATURAL_RESTORE_INTERVAL_MS = 60 * 60 * 1000;
 export const QI_OVERFLOW_MAX = 300;
 export const QI_DAILY_RESTORE_ITEM_LIMIT = 3;
 export const QI_REFRESH_TIMEZONE = 'Asia/Shanghai';

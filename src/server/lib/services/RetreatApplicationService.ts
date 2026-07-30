@@ -1,11 +1,21 @@
+import { consumeLifespanAndHandleDepletion } from '@server/lib/lifespan/handleLifespan';
 import {
   redisLockKeys,
   withRedisLock,
   type RedisLeaseContext,
 } from '@server/lib/redis/lock';
-import { consumeLifespanAndHandleDepletion } from '@server/lib/lifespan/handleLifespan';
 import { removeFromAllRankingRealmsExcept } from '@server/lib/redis/rankings';
 import { createMessage } from '@server/lib/repositories/worldChatRepository';
+import { loadPlayerRetreatFacts } from '@server/lib/services/cultivator/CultivatorConditionFactsReader';
+import {
+  addBreakthroughHistoryEntry,
+  addRetreatRecord,
+  updateCultivator,
+} from '@server/lib/services/cultivator/CultivatorStateRepository';
+import type {
+  BreakthroughStoryPayload,
+  LifespanExhaustedStoryPayload,
+} from '@server/utils/prompts';
 import { getRetreatQiCost } from '@shared/config/qiSystem';
 import { RESOURCE_DATA_SCHEMAS } from '@shared/contracts/resources';
 import type { RetreatResultData } from '@shared/contracts/retreat';
@@ -13,28 +23,13 @@ import {
   attemptBreakthrough,
   performCultivation,
 } from '@shared/engine/cultivation/CultivationEngine';
-import type {
-  BreakthroughStoryPayload,
-  LifespanExhaustedStoryPayload,
-} from '@server/utils/prompts';
 import type { RealmType } from '@shared/types/constants';
 import type { BreakthroughHistoryEntry } from '@shared/types/cultivator';
 import { randomUUID } from 'crypto';
 import { playerCommandExecutor } from './CommandExecutors';
 import { PillOperationExecutor } from './PillOperationExecutor';
-import {
-  breakthroughChanges,
-  retreatChanges,
-} from './RetreatResourceChanges';
-import {
-  addBreakthroughHistoryEntry,
-  addRetreatRecord,
-  updateCultivator,
-} from '@server/lib/services/cultivator/CultivatorStateRepository';
-import {
-  loadPlayerRetreatFacts,
-} from '@server/lib/services/cultivator/CultivatorConditionFactsReader';
 import { QiService } from './QiService';
+import { breakthroughChanges, retreatChanges } from './RetreatResourceChanges';
 import { sectOrganizationFacade } from './sect-organization';
 import { TaskService } from './TaskService';
 
@@ -117,14 +112,12 @@ export function executeRetreatCommand(args: {
         if (cultivator.lifespan - cultivator.age < args.years) {
           throw new RetreatCommandError('道友，您没有这么多寿元了', 400);
         }
-        const sectBonuses =
-          await sectOrganizationFacade.getFacilityBonuses(args.cultivatorId);
-        const result = performCultivation(
-          cultivator,
-          args.years,
-          Math.random,
-          { retreatExpMultiplier: sectBonuses.retreatMultiplier },
+        const sectBonuses = await sectOrganizationFacade.getFacilityBonuses(
+          args.cultivatorId,
         );
+        const result = performCultivation(cultivator, args.years, Math.random, {
+          retreatExpMultiplier: sectBonuses.retreatMultiplier,
+        });
         const { committed, lifespanStoryPayload } =
           await commitCultivationRetreat({
             userId: args.userId,
@@ -156,14 +149,10 @@ export function executeRetreatCommand(args: {
         args.cultivatorId,
       );
       if (majorGate.required && majorGate.blocked) {
-        throw new RetreatCommandError(
-          '大境界突破仍需先完成破境任务',
-          409,
-          {
-            errorCode: 'MAJOR_BREAKTHROUGH_TASK_REQUIRED',
-            data: { task: majorGate.task },
-          },
-        );
+        throw new RetreatCommandError('大境界突破仍需先完成破境任务', 409, {
+          errorCode: 'MAJOR_BREAKTHROUGH_TASK_REQUIRED',
+          data: { task: majorGate.task },
+        });
       }
       const result = attemptBreakthrough(cultivator);
       result.cultivator.condition =
@@ -290,8 +279,6 @@ export async function commitCultivationRetreat(args: {
         metadata: { years: args.years, retreatAction: 'cultivate' },
         tx,
       });
-      const qiAfter =
-        typeof reservation?.qiAfter === 'number' ? reservation.qiAfter : null;
       await addRetreatRecord(
         args.userId,
         args.cultivatorId,
@@ -353,7 +340,7 @@ export async function commitCultivationRetreat(args: {
           condition: RESOURCE_DATA_SCHEMAS['player.condition'].parse(
             next.condition,
           ),
-          qiAfter,
+          qi: reservation,
           depleted: Boolean(streamResult.depleted),
         }),
       };
@@ -390,8 +377,6 @@ export function commitBreakthroughRetreat(args: {
         metadata: { retreatAction: 'breakthrough' },
         tx,
       });
-      const qiAfter =
-        typeof reservation?.qiAfter === 'number' ? reservation.qiAfter : null;
       const next = args.result.cultivator;
       if (
         !(await updateCultivator(
@@ -402,8 +387,7 @@ export function commitBreakthroughRetreat(args: {
             age: next.age,
             lifespan: next.lifespan,
             attributes: next.attributes,
-            unallocated_attribute_points:
-              next.unallocated_attribute_points,
+            unallocated_attribute_points: next.unallocated_attribute_points,
             cultivation_progress: next.cultivation_progress,
             condition: next.condition,
           },
@@ -435,8 +419,7 @@ export function commitBreakthroughRetreat(args: {
             age: next.age,
             lifespan: next.lifespan,
             attributes: next.attributes,
-            unallocated_attribute_points:
-              next.unallocated_attribute_points,
+            unallocated_attribute_points: next.unallocated_attribute_points,
           },
           condition: RESOURCE_DATA_SCHEMAS['player.condition'].parse(
             next.condition,
@@ -444,7 +427,7 @@ export function commitBreakthroughRetreat(args: {
           progress: RESOURCE_DATA_SCHEMAS['player.progress'].parse(
             next.cultivation_progress,
           ),
-          qiAfter,
+          qi: reservation,
         }),
       };
     },

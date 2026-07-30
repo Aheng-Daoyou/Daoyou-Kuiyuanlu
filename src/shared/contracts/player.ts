@@ -1,5 +1,6 @@
 import type { ApiSuccess } from '@shared/contracts/http';
 import type { CultivationProgress, Cultivator } from '@shared/types/cultivator';
+import type { QiProjectionBaseline } from '@shared/types/qi';
 import type {
   ResourceChange,
   ResourceReadMeta,
@@ -82,11 +83,9 @@ export interface PlayerResourceMap {
   };
   condition: Cultivator['condition'];
   progress: CultivationProgress;
-  currency: {
+  currency: QiProjectionBaseline & {
     spiritStones: number;
     reputation: number;
-    qi: number;
-    qiLastRefreshedAt: string | null;
   };
   loadout: PlayerLoadout;
   'mail-summary': {

@@ -1,10 +1,10 @@
-import { useQiState } from '@app/components/feature/cultivator/useQiState';
 import {
   BodyCultivationSummaryContent,
   MarrowWashSummaryContent,
 } from '@app/components/feature/cultivator/BodyCultivationPanels';
-import { useActiveSectContextQuery } from '@app/components/feature/sect/sectResources';
+import { useQiState } from '@app/components/feature/cultivator/useQiState';
 import { getSectIdentityLabels } from '@app/components/feature/sect/sectIdentityDisplay';
+import { useActiveSectContextQuery } from '@app/components/feature/sect/sectResources';
 import { useSectIdentityDialog } from '@app/components/feature/sect/useSectIdentityDialog';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import Link from '@app/components/router/AppLink';
@@ -261,8 +261,6 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
     error: qiError,
   } = useQiState({
     cultivatorId: snapshot?.cultivatorId ?? '',
-    autoTick: true,
-    tickInterval: 60_000,
   });
 
   if (!snapshot) return null;
@@ -629,9 +627,9 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
             </section>
           ) : null}
 
-          {(Object.keys(groupedStatuses) as Array<
-            keyof typeof groupedStatuses
-          >).map((category) => {
+          {(
+            Object.keys(groupedStatuses) as Array<keyof typeof groupedStatuses>
+          ).map((category) => {
             const statuses = groupedStatuses[category];
             if (statuses.length === 0) return null;
 

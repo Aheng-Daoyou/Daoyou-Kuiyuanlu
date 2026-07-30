@@ -993,7 +993,7 @@ export const ARTIFACT_AFFIXES: AffixDefinition[] = [
     effectTemplate: {
       type: 'magic_shield',
       params: {
-        absorbRatio: { base: 0.18, scale: 'quality', coefficient: 0.015 },
+        absorbRatio: { base: 0.18, scale: 'quality', coefficient: 0.03 },
       },
     },
     listenerSpec: {

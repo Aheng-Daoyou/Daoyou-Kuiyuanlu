@@ -42,6 +42,7 @@ export class ResourceEventCommitter {
     if (input.changes.length === 0) {
       return { changes: [], baselines: [] };
     }
+    assertCompleteQiBaselines(input.changes);
     const scopedChanges = resolveResourceChangeScopes(
       input.changes,
       input.scopeDefaults,
@@ -61,6 +62,29 @@ export class ResourceEventCommitter {
       changes,
       baselines: baselinesFromCommits(commits),
     };
+  }
+}
+
+function assertCompleteQiBaselines(
+  changes: readonly ResourceChangeDescriptor[],
+): void {
+  for (const change of changes) {
+    if (
+      change.resourceTopic !== 'player.currency' ||
+      change.operation !== 'merge'
+    ) {
+      continue;
+    }
+    const hasQi = Object.prototype.hasOwnProperty.call(change.payload, 'qi');
+    const hasQiBaseline = Object.prototype.hasOwnProperty.call(
+      change.payload,
+      'qiLastRefreshedAt',
+    );
+    if (hasQi !== hasQiBaseline) {
+      throw new Error(
+        'player.currency 灵气事件必须同时提供 qi 与 qiLastRefreshedAt',
+      );
+    }
   }
 }
 
@@ -84,8 +108,7 @@ export function resolveResourceChangeScopes(
         `宗门共享资源必须显式声明 scope: ${change.resourceTopic}`,
       );
     }
-    const id =
-      kind === 'account' ? defaults.accountId : defaults.cultivatorId;
+    const id = kind === 'account' ? defaults.accountId : defaults.cultivatorId;
     if (!id) {
       throw new Error(
         `${kind} 资源必须显式声明 scope 或提供默认作用域: ${change.resourceTopic}`,

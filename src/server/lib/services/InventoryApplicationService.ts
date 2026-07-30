@@ -1,19 +1,15 @@
 import { consumables, materials } from '@server/lib/drizzle/schema';
-import {
-  redisLockKeys,
-  withRedisLock,
-} from '@server/lib/redis/lock';
+import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import * as creationProductRepository from '@server/lib/repositories/creationProductRepository';
+import { getPlayerLoadoutByCultivatorId } from '@server/lib/services/cultivator/CultivatorLoadoutReader';
 import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
 import { and, eq } from 'drizzle-orm';
 import { playerCommandExecutor } from './CommandExecutors';
 import {
-  getPlayerLoadoutByCultivatorId,
-} from '@server/lib/services/cultivator/CultivatorLoadoutReader';
-import {
   MarketServiceError,
   prepareMysteryMaterialIdentification,
 } from './MarketService';
+import { qiCurrencyChange } from './QiResourceChanges';
 
 type Actor = { userId: string; cultivatorId: string };
 
@@ -41,8 +37,7 @@ export function discardInventoryItem(args: {
           deleted = true;
         }
       } else {
-        const table =
-          args.itemType === 'consumable' ? consumables : materials;
+        const table = args.itemType === 'consumable' ? consumables : materials;
         const result = await tx
           .delete(table)
           .where(
@@ -115,12 +110,10 @@ export function identifyMysteryMaterial(args: {
           return {
             result: command.result,
             resourceChanges: [
-              {
-                resourceTopic: 'player.currency',
-                eventType: 'currency.qi.material_identified',
-                operation: 'merge',
-                payload: { qi: command.result.qiAfter },
-              },
+              qiCurrencyChange(
+                'currency.qi.material_identified',
+                command.result,
+              ),
               {
                 resourceTopic: 'inventory.materials',
                 eventType: 'inventory.material.identified',
@@ -134,14 +127,12 @@ export function identifyMysteryMaterial(args: {
               },
               ...command.inventoryChanges
                 .filter((change) => change.operation === 'remove')
-                .map(
-                  (change): ResourceChangeDescriptor => ({
-                    resourceTopic: 'inventory.materials',
-                    eventType: 'inventory.material.identified',
-                    operation: 'remove-items',
-                    payload: { idKey: 'id', ids: [change.id] },
-                  }),
-                ),
+                .map((change): ResourceChangeDescriptor => ({
+                  resourceTopic: 'inventory.materials',
+                  eventType: 'inventory.material.identified',
+                  operation: 'remove-items',
+                  payload: { idKey: 'id', ids: [change.id] },
+                })),
             ],
           };
         },

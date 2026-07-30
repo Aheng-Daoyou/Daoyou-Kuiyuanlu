@@ -1,35 +1,13 @@
 import type { DbTransaction } from '@server/lib/drizzle/db';
-import {
-  redisLockKeys,
-  withRedisLock,
-} from '@server/lib/redis/lock';
+import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import { createMessage } from '@server/lib/repositories/worldChatRepository';
-import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
-import {
-  prepareFormulaCraft,
-} from './AlchemyFormulaService';
-import { prepareAlchemyCraft } from './alchemyServiceV2';
-import {
-  abandonPending,
-  prepareCreation,
-  prepareCreationConfirmation,
-} from './creationServiceV2';
-import {
-  getPlayerLoadoutByCultivatorId,
-} from '@server/lib/services/cultivator/CultivatorLoadoutReader';
-import { playerCommandExecutor, type CommittedCommand } from './CommandExecutors';
-import {
-  readPlayerProgress,
-  readPlayerTaskSummary,
-} from './PlayerResourceReaderService';
-import { QiService } from './QiService';
-import { TaskService } from './TaskService';
+import { getPlayerLoadoutByCultivatorId } from '@server/lib/services/cultivator/CultivatorLoadoutReader';
 import { normalizeFreeformLlmInput } from '@server/utils/llmPayload';
 import type { QiAction } from '@shared/config/qiSystem';
-import {
-  type CreationCraftType,
-} from '@shared/engine/creation-v2/config/CreationCraftPolicy';
+import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
+import { type CreationCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
 import type { CreationProductType } from '@shared/engine/creation-v2/types';
+import type { ResourceOperationSettlement } from '@shared/engine/resource/types';
 import {
   QUALITY_ORDER,
   type ElementType,
@@ -38,10 +16,30 @@ import {
 } from '@shared/types/constants';
 import type { AlchemyMode } from '@shared/types/consumable';
 import type { Consumable } from '@shared/types/cultivator';
-import type { ResourceOperationSettlement } from '@shared/engine/resource/types';
 import type { ItemShowcaseSnapshotMap } from '@shared/types/world-chat';
 import { randomUUID } from 'node:crypto';
+import { prepareFormulaCraft } from './AlchemyFormulaService';
+import { prepareAlchemyCraft } from './alchemyServiceV2';
+import {
+  playerCommandExecutor,
+  type CommittedCommand,
+} from './CommandExecutors';
+import {
+  abandonPending,
+  prepareCreation,
+  prepareCreationConfirmation,
+} from './creationServiceV2';
 import { readCultivatorName } from './cultivator/CultivatorFactsReader';
+import {
+  readPlayerProgress,
+  readPlayerTaskSummary,
+} from './PlayerResourceReaderService';
+import {
+  qiCurrencyChange,
+  type QiSettlementBaseline,
+} from './QiResourceChanges';
+import { QiService } from './QiService';
+import { TaskService } from './TaskService';
 
 const WORLD_CHAT_BROADCAST_QUALITY_FLOOR: Quality = '天品';
 
@@ -82,9 +80,7 @@ export async function executeCraftCommand(args: {
   input: CraftCommandInput;
 }): Promise<CommittedCommand<unknown>> {
   const { input } = args;
-  const { name: cultivatorName } = await readCultivatorName(
-    args.cultivatorId,
-  );
+  const { name: cultivatorName } = await readCultivatorName(args.cultivatorId);
   if (input.materialIds.length === 0) {
     throw new CraftCommandError('参数缺失，请选择材料');
   }
@@ -155,7 +151,7 @@ export async function executeCraftCommand(args: {
           resourceChanges: await settleAlchemyCraft({
             cultivatorId: args.cultivatorId,
             tx,
-            qiAfter: qiReservation.qiAfter,
+            qi: qiReservation,
             taskSynced: true,
             inventoryChanges: preparedCommit.inventoryChanges,
           }),
@@ -218,7 +214,7 @@ export async function executeCraftCommand(args: {
           cultivatorId: args.cultivatorId,
           tx,
           craftType: creationCraftType,
-          qiAfter: qiReservation.qiAfter,
+          qi: qiReservation,
           needsReplace: Boolean(preparedCommit.result.needs_replace),
           inventoryChanges: preparedCommit.inventoryChanges,
         }),
@@ -254,9 +250,7 @@ export async function executeCreationConfirmationCommand(args: {
       }>;
     }
 > {
-  const { name: cultivatorName } = await readCultivatorName(
-    args.cultivatorId,
-  );
+  const { name: cultivatorName } = await readCultivatorName(args.cultivatorId);
   if (args.abandon) {
     await withRedisLock(
       {
@@ -317,17 +311,12 @@ export class CraftCommandError extends Error {
 export async function settleAlchemyCraft(args: {
   cultivatorId: string;
   tx: DbTransaction;
-  qiAfter: number;
+  qi: QiSettlementBaseline;
   taskSynced: boolean;
   inventoryChanges: ResourceOperationSettlement['inventoryChanges'];
 }): Promise<ResourceChangeDescriptor[]> {
   const changes: ResourceChangeDescriptor[] = [
-    {
-      resourceTopic: 'player.currency',
-      eventType: 'currency.changed',
-      payload: { qi: args.qiAfter },
-      operation: 'merge',
-    },
+    qiCurrencyChange('currency.changed', args.qi),
   ];
   for (const change of args.inventoryChanges) {
     changes.push(
@@ -347,10 +336,7 @@ export async function settleAlchemyCraft(args: {
     );
   }
   if (args.taskSynced) {
-    const taskSummary = await readPlayerTaskSummary(
-      args.cultivatorId,
-      args.tx,
-    );
+    const taskSummary = await readPlayerTaskSummary(args.cultivatorId, args.tx);
     changes.push({
       resourceTopic: 'player.task-summary',
       eventType: 'tasks.changed',
@@ -365,17 +351,12 @@ export async function settleCreationCraft(args: {
   cultivatorId: string;
   tx: DbTransaction;
   craftType: CreationCraftType;
-  qiAfter: number;
+  qi: QiSettlementBaseline;
   needsReplace?: boolean;
   inventoryChanges: ResourceOperationSettlement['inventoryChanges'];
 }): Promise<ResourceChangeDescriptor[]> {
   const changes: ResourceChangeDescriptor[] = [
-    {
-      resourceTopic: 'player.currency',
-      eventType: 'currency.changed',
-      payload: { qi: args.qiAfter },
-      operation: 'merge',
-    },
+    qiCurrencyChange('currency.changed', args.qi),
   ];
   for (const change of args.inventoryChanges) {
     changes.push(
@@ -461,9 +442,7 @@ function craftQiAction(
   alchemyMode?: AlchemyMode,
 ): QiAction {
   if (craftType === 'alchemy') {
-    return alchemyMode === 'formula'
-      ? 'alchemy_formula'
-      : 'alchemy_improvised';
+    return alchemyMode === 'formula' ? 'alchemy_formula' : 'alchemy_improvised';
   }
   if (craftType === 'refine') return 'creation_artifact';
   if (craftType === 'create_gongfa') return 'creation_gongfa';

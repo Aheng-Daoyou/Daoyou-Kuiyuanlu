@@ -1,6 +1,7 @@
 import { BattlePageLayout } from '@app/components/feature/battle/BattlePageLayout';
 import { BattlePlaybackPanel } from '@app/components/feature/battle/BattlePlaybackPanel';
 import { useBattlePlaybackState } from '@app/components/feature/battle/useBattlePlaybackState';
+import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
 import { GameImmersiveLoading } from '@app/components/game-shell';
 import { CombatResultDialog } from '@app/components/feature/battle/v5/CombatResultDialog';
 import { InkButton } from '@app/components/ui/InkButton';
@@ -9,11 +10,6 @@ import { inkFieldVariants } from '@app/components/ui/inkFieldStyles';
 import { AttributeType, ModifierType } from '@shared/engine/battle-v5/core/types';
 import type { TrainingRoomModifierDraft } from '@shared/engine/battle-v5/setup/types';
 import { ATTR_LABELS } from '@shared/engine/battle-v5/effects/affixText/attributes';
-import {
-  useCultivatorCondition,
-  useCultivatorIdentity,
-  usePlayerLoadout,
-} from '@app/lib/resources/player';
 import type { CultivatorCombatInput } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import { prepareStandardFullBattle } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import type { BattleRecord } from '@shared/types/battle';
@@ -21,7 +17,7 @@ import { simulateBattleV5 } from '@shared/lib/battle/simulateBattleV5';
 import { getResourceText } from '@shared/lib/gameConceptDisplay';
 import {
   buildTrainingBattleInitConfig, createDefaultTrainingRoomDraft, parseTrainingRoomStorage, TRAINING_ROOM_STORAGE_KEY, TRAINING_ROOM_STORAGE_VERSION, type TrainingRoomDraft, type TrainingRoomPreset, } from '@shared/lib/training-room/config';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 const ATTRIBUTE_OPTIONS = Object.values(AttributeType);
@@ -221,34 +217,9 @@ function ModifierEditor({
 
 export default function TrainingRoomPage() {
   const navigate = useNavigate();
-  const profile = useCultivatorIdentity();
-  const condition = useCultivatorCondition();
-  const loadout = usePlayerLoadout();
-  const identity = profile.data?.cultivator;
-  const cultivator = useMemo<CultivatorCombatInput | null>(
-    () =>
-      identity && condition.data && loadout.data
-        ? {
-            id: identity.id,
-            name: identity.name,
-            realm: identity.realm,
-            realm_stage: identity.realm_stage,
-            attributes: identity.attributes,
-            spiritual_roots: identity.spiritual_roots,
-            pre_heaven_fates: identity.pre_heaven_fates,
-            condition: condition.data,
-            skills: loadout.data.skills,
-            cultivations: loadout.data.cultivations,
-            equipped: loadout.data.equipped,
-            inventory: { artifacts: loadout.data.artifacts },
-          }
-        : null,
-    [condition.data, identity, loadout.data],
-  );
-  const isLoading =
-    profile.loading ||
-    condition.loading ||
-    loadout.loading;
+  const projection = useCultivatorDisplayProjection();
+  const cultivator = projection.data?.cultivator ?? null;
+  const isLoading = projection.loading;
   const [isFighting, setIsFighting] = useState(false);
   const [battleResult, setBattleResult] = useState<BattleRecord>();
   const [draft, setDraft] = useState<TrainingRoomDraft>(() => {

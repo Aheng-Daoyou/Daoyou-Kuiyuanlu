@@ -2,6 +2,10 @@ import type {
   ResourceChangeDescriptor,
   ResourceDataMap,
 } from '@shared/contracts/resources';
+import {
+  qiCurrencyChange,
+  type QiSettlementBaseline,
+} from './QiResourceChanges';
 
 export function retreatChanges(args: {
   profile: Pick<
@@ -10,7 +14,7 @@ export function retreatChanges(args: {
   >;
   progress: ResourceDataMap['player.progress'];
   condition: ResourceDataMap['player.condition'];
-  qiAfter: number | null;
+  qi: QiSettlementBaseline;
   depleted: boolean;
 }): ResourceChangeDescriptor[] {
   const changes: ResourceChangeDescriptor[] = [
@@ -32,12 +36,7 @@ export function retreatChanges(args: {
       operation: 'replace',
       payload: args.condition,
     },
-    {
-      resourceTopic: 'player.currency',
-      eventType: 'currency.qi.spent',
-      operation: 'merge',
-      payload: args.qiAfter === null ? {} : { qi: args.qiAfter },
-    },
+    qiCurrencyChange('currency.qi.spent', args.qi),
   ];
   if (args.depleted) {
     changes.push({
@@ -62,7 +61,7 @@ export function breakthroughChanges(args: {
   >;
   condition: ResourceDataMap['player.condition'];
   progress: ResourceDataMap['player.progress'];
-  qiAfter: number | null;
+  qi: QiSettlementBaseline;
 }): ResourceChangeDescriptor[] {
   return [
     {
@@ -83,11 +82,6 @@ export function breakthroughChanges(args: {
       operation: 'replace',
       payload: args.progress,
     },
-    {
-      resourceTopic: 'player.currency',
-      eventType: 'currency.qi.spent',
-      operation: 'merge',
-      payload: args.qiAfter === null ? {} : { qi: args.qiAfter },
-    },
+    qiCurrencyChange('currency.qi.spent', args.qi),
   ];
 }

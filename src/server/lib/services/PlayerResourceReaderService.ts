@@ -14,12 +14,8 @@ import {
   readResourceVersions,
   readScopeVersion,
 } from '@server/lib/repositories/playerStateRepository';
-import {
-  getPlayerIdentityCultivatorById,
-} from '@server/lib/services/cultivator/CultivatorProfileRepository';
-import {
-  getPlayerLoadoutByCultivatorId,
-} from '@server/lib/services/cultivator/CultivatorLoadoutReader';
+import { getPlayerLoadoutByCultivatorId } from '@server/lib/services/cultivator/CultivatorLoadoutReader';
+import { getPlayerIdentityCultivatorById } from '@server/lib/services/cultivator/CultivatorProfileRepository';
 import { QiService } from '@server/lib/services/QiService';
 import { getOrInitCultivationProgress } from '@server/utils/cultivationUtils';
 import {
@@ -54,6 +50,7 @@ type ReaderContext = {
   userId: string;
   cultivatorId: string;
   q: DbExecutor;
+  now: Date;
   cultivatorState?: RequestedCultivatorState;
 };
 
@@ -68,9 +65,7 @@ export async function readPlayerMailSummary(
   const [result] = await q
     .select({ count: sql<number>`count(*)::int` })
     .from(mails)
-    .where(
-      and(eq(mails.cultivatorId, cultivatorId), eq(mails.isRead, false)),
-    );
+    .where(and(eq(mails.cultivatorId, cultivatorId), eq(mails.isRead, false)));
   return { unreadCount: Number(result?.count ?? 0) };
 }
 
@@ -141,11 +136,12 @@ const readers: {
       realm_stage: row.realm_stage!,
     });
   },
-  currency: async ({ cultivatorState }) => {
+  currency: async ({ cultivatorState, now }) => {
     const row = requireRequestedCultivatorState(cultivatorState, 'currency');
     const qiState = QiService.calculateNaturalQiState({
       qi: row.qi!,
       qiLastRefreshedAt: row.qiLastRefreshedAt!,
+      now,
     });
     return {
       spiritStones: row.spirit_stones!,
@@ -201,35 +197,34 @@ export async function readPlayerResources(args: {
   const resourceData: Partial<PlayerResourceMap> = {};
   const resourceReads: Array<() => Promise<void>> = [];
   if (args.keys.includes('session')) {
-    resourceReads.push(
-      async () => {
-        const membership = active
-          ? await q.query.sectMemberships.findFirst({
-              columns: { sectId: true },
-              where: and(
-                eq(sectMemberships.cultivatorId, active.id),
-                eq(sectMemberships.status, 'active'),
-              ),
-            })
-          : null;
-        resourceData.session = {
-          activeCultivator: active
-            ? {
-                id: active.id,
-                status: 'active',
-                sectId: membership?.sectId ?? null,
-              }
-            : null,
-          ...(!active
-            ? { note: await findInactiveCultivatorNote(args.userId, q) }
-            : {}),
-        };
-      },
-    );
+    resourceReads.push(async () => {
+      const membership = active
+        ? await q.query.sectMemberships.findFirst({
+            columns: { sectId: true },
+            where: and(
+              eq(sectMemberships.cultivatorId, active.id),
+              eq(sectMemberships.status, 'active'),
+            ),
+          })
+        : null;
+      resourceData.session = {
+        activeCultivator: active
+          ? {
+              id: active.id,
+              status: 'active',
+              sectId: membership?.sectId ?? null,
+            }
+          : null,
+        ...(!active
+          ? { note: await findInactiveCultivatorNote(args.userId, q) }
+          : {}),
+      };
+    });
   }
 
   if (!active) {
     await runDbTasks(q, resourceReads);
+    const now = new Date();
     const accountScope = { kind: 'account' as const, id: args.userId };
     const [scopeVersion, versions] = await runDbTasks(q, [
       () => readScopeVersion(accountScope, q),
@@ -248,7 +243,7 @@ export async function readPlayerResources(args: {
           },
         },
       },
-      serverTime: new Date().toISOString(),
+      serverTime: now.toISOString(),
     };
   }
 
@@ -260,25 +255,25 @@ export async function readPlayerResources(args: {
     requested,
     q,
   );
+  const now = new Date();
   resourceReads.push(
-    ...requested.map(
-      (key) => async () => {
-        const startedAt = performance.now();
-        const context: ReaderContext = {
-          userId: args.userId,
-          cultivatorId: active.id,
-          q,
-          cultivatorState,
-        };
-        Object.assign(resourceData, {
-          [key]: await readers[key](context),
-        });
-        console.info('[player-resource-reader]', {
-          resourceKey: key,
-          durationMs: Math.round(performance.now() - startedAt),
-        });
-      },
-    ),
+    ...requested.map((key) => async () => {
+      const startedAt = performance.now();
+      const context: ReaderContext = {
+        userId: args.userId,
+        cultivatorId: active.id,
+        q,
+        now,
+        cultivatorState,
+      };
+      Object.assign(resourceData, {
+        [key]: await readers[key](context),
+      });
+      console.info('[player-resource-reader]', {
+        resourceKey: key,
+        durationMs: Math.round(performance.now() - startedAt),
+      });
+    }),
   );
 
   const accountScope = { kind: 'account' as const, id: args.userId };
@@ -305,8 +300,7 @@ export async function readPlayerResources(args: {
     const scope = key === 'session' ? accountScope : cultivatorScope;
     const scopeVersion =
       key === 'session' ? accountScopeVersion : cultivatorScopeVersion;
-    const versions =
-      key === 'session' ? accountVersions : cultivatorVersions;
+    const versions = key === 'session' ? accountVersions : cultivatorVersions;
     Object.assign(resources, {
       [key]: {
         data,
@@ -322,7 +316,7 @@ export async function readPlayerResources(args: {
   return {
     cultivatorId: active.id,
     resources,
-    serverTime: new Date().toISOString(),
+    serverTime: now.toISOString(),
   };
 }
 
