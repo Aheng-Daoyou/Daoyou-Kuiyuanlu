@@ -13,6 +13,7 @@ export interface BattleRankingItem {
   realm: string;
   realm_stage: string;
   origin: string | null;
+  sectAffiliation: string;
   bodyCultivation?: BodyCultivationRankingInfo;
 }
 

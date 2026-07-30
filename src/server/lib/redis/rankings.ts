@@ -1,5 +1,7 @@
 import { db } from '@server/lib/drizzle/db';
-import { cultivators } from '@server/lib/drizzle/schema';
+import { cultivators, sectMemberships } from '@server/lib/drizzle/schema';
+import { SECT_DISCIPLE_RANKS, SECT_RANK_LABELS } from '@shared/engine/sect';
+import { productionSectRuntime } from '@shared/engine/sect/content';
 import { getBodyCultivationRankingTag } from '@shared/lib/bodyCultivation/ranking';
 import { REALM_VALUES, type RealmType } from '@shared/types/constants';
 import type { BattleRankingItem } from '@shared/types/rankings';
@@ -30,6 +32,8 @@ interface RankingCultivatorProjection {
   realmStage: string;
   origin: string | null;
   condition: CultivatorCondition | null;
+  sectId: string | null;
+  discipleRank: string | null;
 }
 
 export interface CultivatorRankInfo {
@@ -50,6 +54,22 @@ function getTodayString(): string {
 
 function getRankingListKey(realm: RealmType): string {
   return `${RANKING_LIST_PREFIX}${realm}`;
+}
+
+function getSectAffiliation(
+  record: Pick<RankingCultivatorProjection, 'sectId' | 'discipleRank'>,
+): string {
+  if (!record.sectId) return '散修';
+
+  const sectName =
+    productionSectRuntime.registry.get(record.sectId)?.definition.name ??
+    '未知宗门';
+  const discipleRank = SECT_DISCIPLE_RANKS.find(
+    (rank) => rank === record.discipleRank,
+  );
+  const rankLabel = discipleRank ? SECT_RANK_LABELS[discipleRank] : '宗门弟子';
+
+  return `${sectName} · ${rankLabel}`;
 }
 
 /**
@@ -104,14 +124,18 @@ async function getHydratedRankingOrder(
       realmStage: cultivators.realm_stage,
       origin: cultivators.origin,
       condition: cultivators.condition,
+      sectId: sectMemberships.sectId,
+      discipleRank: sectMemberships.discipleRank,
     })
     .from(cultivators)
-    .where(
+    .leftJoin(
+      sectMemberships,
       and(
-        inArray(cultivators.id, ids),
-        eq(cultivators.status, 'active'),
+        eq(sectMemberships.cultivatorId, cultivators.id),
+        eq(sectMemberships.status, 'active'),
       ),
-    );
+    )
+    .where(and(inArray(cultivators.id, ids), eq(cultivators.status, 'active')));
   const projections: RankingCultivatorProjection[] = rows.map((row) => ({
     ...row,
     condition:
@@ -182,6 +206,7 @@ export async function getRankingList(realm: RealmType): Promise<RankingItem[]> {
       realm: record.realm,
       realm_stage: record.realmStage,
       origin: record.origin,
+      sectAffiliation: getSectAffiliation(record),
       bodyCultivation: getBodyCultivationRankingTag(record.condition ?? undefined),
     });
   }

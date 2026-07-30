@@ -149,7 +149,7 @@ function BattleRankingCardComponent({
   onProbe,
 }: BattleRankingCardProps) {
   const rankTone = resolveBattleRankTone(item.rank);
-  const origin = item.origin ?? '散修';
+  const sectAffiliation = item.sectAffiliation || '散修';
   const realmLabel = [item.realm, item.realm_stage].filter(Boolean).join(' · ');
   const hasActions = !isSelf || Boolean(challengeUnavailableReason);
 
@@ -188,7 +188,7 @@ function BattleRankingCardComponent({
               </MetaChip>
             ) : null}
             <MetaChip>{item.age} 岁</MetaChip>
-            <MetaChip>{origin}</MetaChip>
+            <MetaChip>{sectAffiliation}</MetaChip>
           </div>
         </div>
 
