@@ -1,6 +1,12 @@
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
+import { BasicAttack } from '../../abilities/BasicAttack';
 import { StackRule } from '../../buffs/Buff';
-import { AttributeType, BuffType, ModifierType } from '../../core/types';
+import {
+  AbilityType,
+  AttributeType,
+  BuffType,
+  ModifierType,
+} from '../../core/types';
 import { AbilityFactory } from '../../factories/AbilityFactory';
 import { BuffFactory } from '../../factories/BuffFactory';
 import { BattleStateRecorder } from '../../systems/state/BattleStateRecorder';
@@ -142,5 +148,35 @@ describe('BattleStateRecorder action states', () => {
       }),
     ]);
     expect(snapshot.canAct).toBe(true);
+  });
+});
+
+describe('BattleStateRecorder ability roles', () => {
+  it('marks the default attack separately from equipped active abilities', () => {
+    const unit = new Unit('unit', '测试者', {});
+    unit.abilities.setDefaultAttack(new BasicAttack());
+    unit.abilities.addAbility(
+      AbilityFactory.create({
+        slug: 'equipped-skill',
+        name: '装配神通',
+        type: AbilityType.ACTIVE_SKILL,
+        tags: [GameplayTags.ABILITY.FUNCTION.BUFF],
+        effects: [],
+      }),
+    );
+
+    const recorder = new BattleStateRecorder();
+    recorder.record('battle_init', 0, [unit]);
+
+    expect(recorder.getFrames()[0].units.unit.cooldowns).toEqual([
+      expect.objectContaining({
+        skillId: 'basic_attack',
+        isDefaultAttack: true,
+      }),
+      expect.objectContaining({
+        skillId: 'equipped-skill',
+        isDefaultAttack: false,
+      }),
+    ]);
   });
 });

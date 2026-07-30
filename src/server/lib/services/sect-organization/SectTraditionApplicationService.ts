@@ -2,9 +2,7 @@ import { getRealmStageRank } from '@shared/config/realmProgression';
 import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
 import {
   AbilityLoadoutSpecification,
-  fillFirstEmptyAbilitySlots,
   getEffectiveSectMethodLevelCap,
-  listUnlockedAbilityIds,
   MeridianLoadoutSpecification,
   MethodTrainingSpecification,
   SectTradition,
@@ -101,21 +99,6 @@ export class SectTraditionApplicationService {
       args.methodId,
       args.targetLevel,
     );
-    const trained = await this.requireActive(args.cultivatorId);
-    const unlocked = listUnlockedAbilityIds(module.definition, trained).filter(
-      (id) =>
-        module.definition.abilities.find((ability) => ability.id === id)
-          ?.kind === 'active',
-    );
-    const nextLoadout = fillFirstEmptyAbilitySlots(
-      trained.abilityLoadout,
-      unlocked,
-    );
-    if (nextLoadout.some((id, index) => id !== trained.abilityLoadout[index]))
-      await this.repository.replaceAbilityLoadout(
-        trained.membershipId,
-        nextLoadout,
-      );
     return {
       sect: await this.requireActive(args.cultivatorId),
       methodId: args.methodId,

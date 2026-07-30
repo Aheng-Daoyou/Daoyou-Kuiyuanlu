@@ -34,7 +34,7 @@ type ChannelFeed = {
   loadingMore: boolean;
 };
 
-const CHANNELS: WorldChatChannel[] = ['world', 'sect', 'system'];
+const CHANNELS: WorldChatChannel[] = ['system', 'world', 'sect'];
 
 function createEmptyFeed(): ChannelFeed {
   return {
@@ -62,8 +62,14 @@ export function WorldChatFeedProvider({ children }: { children: ReactNode }) {
   const hasSect = Boolean(sectId);
   const isWorldChatRoute = location.pathname === '/game/world-chat';
   const [activeChannel, setActiveChannel] =
-    useState<WorldChatChannel>('world');
+    useState<WorldChatChannel>('system');
   const [feeds, setFeeds] = useState(createFeeds);
+  const [previewMessages, setPreviewMessages] = useState<
+    WorldChatMessageDTO[]
+  >([]);
+  const [lastSeenPreviewMessageId, setLastSeenPreviewMessageId] = useState<
+    string | null
+  >(null);
   const [posting, setPosting] = useState(false);
   const [lastSeenIds, setLastSeenIds] = useState<
     Record<WorldChatChannel, string | null>
@@ -163,17 +169,54 @@ export function WorldChatFeedProvider({ children }: { children: ReactNode }) {
     [pushToast, sectId],
   );
 
+  const fetchLatestPreview = useCallback(async () => {
+    try {
+      const response = await fetch(
+        '/api/world-chat/messages?channel=all&limit=1',
+        { cache: 'no-store' },
+      );
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || '获取传音失败');
+      }
+      const nextMessages = (payload.data || []) as WorldChatMessageDTO[];
+      setPreviewMessages((current) =>
+        mergeWorldChatMessages(current, nextMessages).slice(0, PAGE_SIZE),
+      );
+    } catch (error) {
+      pushToast({
+        message: error instanceof Error ? error.message : '获取传音失败',
+        tone: 'danger',
+      });
+    }
+  }, [pushToast]);
+
   useEffect(() => {
-    if (!initializedRef.current.world) {
-      void fetchPage('world', 1, false);
+    if (!isWorldChatRoute) {
+      return;
     }
-    if (!initializedRef.current.system) {
-      void fetchPage('system', 1, false);
+    const channels = CHANNELS.filter((channel) => channel !== 'sect' || sectId);
+    for (const channel of channels) {
+      if (!initializedRef.current[channel]) {
+        void fetchPage(channel, 1, false);
+      }
     }
-    if (sectId && !initializedRef.current.sect) {
-      void fetchPage('sect', 1, false);
+  }, [fetchPage, isWorldChatRoute, sectId]);
+
+  useEffect(() => {
+    if (isWorldChatRoute) {
+      return;
     }
-  }, [fetchPage, sectId]);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void fetchLatestPreview();
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchLatestPreview, isWorldChatRoute]);
 
   useEffect(() => {
     const previousSectId = previousSectIdRef.current;
@@ -188,16 +231,16 @@ export function WorldChatFeedProvider({ children }: { children: ReactNode }) {
       setFeeds((current) => ({ ...current, sect: createEmptyFeed() }));
       setLastSeenIds((current) => ({ ...current, sect: null }));
       if (!sectId && activeChannel === 'sect') {
-        setActiveChannel('world');
+        setActiveChannel('system');
       }
-      if (sectId && previousSectId !== null) {
+      if (sectId && previousSectId !== null && isWorldChatRoute) {
         void fetchPage('sect', 1, false);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [activeChannel, fetchPage, sectId]);
+  }, [activeChannel, fetchPage, isWorldChatRoute, sectId]);
 
   useEffect(() => {
     realtimeClient.enableChannel('world-chat');
@@ -221,6 +264,11 @@ export function WorldChatFeedProvider({ children }: { children: ReactNode }) {
             ),
           },
         }));
+        if (message.channel !== 'sect') {
+          setPreviewMessages((current) =>
+            mergeWorldChatMessages(current, [message]).slice(0, PAGE_SIZE),
+          );
+        }
         if (isWorldChatRoute && activeChannel === message.channel) {
           setLastSeenIds((current) => ({
             ...current,
@@ -230,6 +278,42 @@ export function WorldChatFeedProvider({ children }: { children: ReactNode }) {
       }),
     [activeChannel, isWorldChatRoute, sectId],
   );
+
+  const latestMessage = previewMessages[0] ?? null;
+
+  useEffect(() => {
+    if (lastSeenPreviewMessageId || !latestMessage) {
+      return;
+    }
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setLastSeenPreviewMessageId(latestMessage.id);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [lastSeenPreviewMessageId, latestMessage]);
+
+  useEffect(() => {
+    if (
+      !isWorldChatRoute ||
+      !latestMessage ||
+      lastSeenPreviewMessageId === latestMessage.id
+    ) {
+      return;
+    }
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setLastSeenPreviewMessageId(latestMessage.id);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isWorldChatRoute, lastSeenPreviewMessageId, latestMessage]);
 
   useEffect(() => {
     const latest = feeds[activeChannel].messages[0];
@@ -255,6 +339,13 @@ export function WorldChatFeedProvider({ children }: { children: ReactNode }) {
       if (!chat.enabled || chat.state !== 'online') return;
       if (wasOnline && !reconnectRefreshPendingRef.current) {
         reconnectRefreshPendingRef.current = true;
+        if (!isWorldChatRoute) {
+          void fetchLatestPreview().finally(() => {
+            reconnectRefreshPendingRef.current = false;
+          });
+          wasOnline = true;
+          return;
+        }
         const channels = CHANNELS.filter(
           (channel) => channel !== 'sect' || sectId,
         );
@@ -266,7 +357,7 @@ export function WorldChatFeedProvider({ children }: { children: ReactNode }) {
       }
       wasOnline = true;
     });
-  }, [fetchPage, sectId]);
+  }, [fetchLatestPreview, fetchPage, isWorldChatRoute, sectId]);
 
   const activeFeed = feeds[activeChannel];
   const unreadCounts = useMemo(
@@ -283,17 +374,12 @@ export function WorldChatFeedProvider({ children }: { children: ReactNode }) {
     }),
     [feeds, lastSeenIds],
   );
-  const latestMessage = useMemo(
-    () =>
-      CHANNELS.flatMap((channel) => feeds[channel].messages.slice(0, 1)).sort(
-        (left, right) =>
-          +new Date(right.createdAt) - +new Date(left.createdAt),
-      )[0] ?? null,
-    [feeds],
-  );
   const newMessageCount = isWorldChatRoute
     ? 0
-    : unreadCounts.world + unreadCounts.sect + unreadCounts.system;
+    : countNewWorldChatMessages(
+        previewMessages,
+        lastSeenPreviewMessageId,
+      );
 
   const loadMore = useCallback(async () => {
     if (!activeFeed.hasMore || activeFeed.loadingMore) return;
@@ -344,6 +430,11 @@ export function WorldChatFeedProvider({ children }: { children: ReactNode }) {
             ),
           },
         }));
+        if (created.channel !== 'sect') {
+          setPreviewMessages((current) =>
+            mergeWorldChatMessages(current, [created]).slice(0, PAGE_SIZE),
+          );
+        }
         setLastSeenIds((current) => ({
           ...current,
           [created.channel]: created.id,

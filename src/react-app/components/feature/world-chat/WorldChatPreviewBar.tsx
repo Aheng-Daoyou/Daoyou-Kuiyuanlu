@@ -14,12 +14,7 @@ export function WorldChatPreviewBar() {
     ? getWorldChatMessageBody(latestMessage)
     : '暂无新声';
   const sender = latestMessage?.senderName ?? '万界频道';
-  const channelLabel =
-    latestMessage?.channel === 'system'
-      ? '系统'
-      : latestMessage?.channel === 'sect'
-        ? '宗门'
-        : '世界';
+  const channelLabel = latestMessage?.channel === 'system' ? '系统' : '世界';
 
   return (
     <div className="battle-dock border-battle-rule-strong border-t border-dashed">

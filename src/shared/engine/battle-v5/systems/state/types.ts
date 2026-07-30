@@ -24,6 +24,8 @@ export interface BuffStateView {
 export interface CooldownStateView {
   skillId: string;
   skillName: string;
+  /** 是否为不占主动装配槽的基础式；旧战斗记录可能缺失。 */
+  isDefaultAttack?: boolean;
   /** 当前效果计划；基础计划不存在时省略。 */
   runtimePlanId?: string;
   description?: string;

@@ -31,7 +31,7 @@ import {
   type SectAbilitySlots,
 } from '@shared/engine/sect';
 import { resolveSectAbilities } from '@shared/engine/sect/content';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
   SectPageLoading,
@@ -40,6 +40,14 @@ import {
 } from '../components/SectScene';
 
 const EMPTY_SLOTS: SectAbilitySlots = createAbilitySlots([]);
+type AbilityLoadoutDraft = {
+  slots: SectAbilitySlots;
+  baseKey: string;
+};
+
+const abilitySlotsKey = (slots: readonly (string | null)[]) =>
+  JSON.stringify(slots);
+
 const json = (method: string, body: unknown): RequestInit => ({
   method,
   headers: {
@@ -164,9 +172,12 @@ function SectAbilitiesBody() {
       : undefined;
   const definition = context.data ? getSectDefinition(context.data) : undefined;
   const presentation = getSectPresentationForContext(context.data);
-  const [draftSlots, setDraftSlots] = useState<SectAbilitySlots>(() =>
-    createAbilitySlots(sect?.abilityLoadout ?? []),
+  const serverSlots = createAbilitySlots(sect?.abilityLoadout ?? EMPTY_SLOTS);
+  const serverSlotsKey = abilitySlotsKey(serverSlots);
+  const [loadoutDraft, setLoadoutDraft] = useState<AbilityLoadoutDraft | null>(
+    null,
   );
+  const draftSlots = loadoutDraft?.slots ?? serverSlots;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [expandedAbilityId, setExpandedAbilityId] = useState<string | null>(
     null,
@@ -176,13 +187,10 @@ function SectAbilitiesBody() {
   const { mutate } = useResourceMutation();
   const { pushToast } = useInkUI();
 
-  const details = useMemo(
-    () =>
-      sect && definition && cultivator
-        ? resolveSectAbilities({ sect, realm: cultivator.realm })
-        : [],
-    [cultivator, definition, sect],
-  );
+  const details =
+    sect && definition && cultivator
+      ? resolveSectAbilities({ sect, realm: cultivator.realm })
+      : [];
   const activeDetails = details.filter((detail) =>
     definition?.abilities.some(
       (ability) =>
@@ -200,8 +208,9 @@ function SectAbilitiesBody() {
     (detail) => detail.id === definition?.foundationPassiveId,
   );
   const selected = draftSlots.filter((id): id is string => id !== null);
-  const serverSlots = sect?.abilityLoadout ?? EMPTY_SLOTS;
-  const changed = draftSlots.some((id, index) => id !== serverSlots[index]);
+  const changed = loadoutDraft !== null;
+  const loadoutConflict =
+    loadoutDraft !== null && loadoutDraft.baseKey !== serverSlotsKey;
   const path = definition?.paths.find(
     (entry) => entry.id === sect?.activePathId,
   );
@@ -209,17 +218,36 @@ function SectAbilitiesBody() {
     (entry) => entry.pathId === sect.activePathId,
   );
 
+  const updateDraftSlots = (slots: readonly (string | null)[]) => {
+    const nextSlots = createAbilitySlots(slots);
+    if (abilitySlotsKey(nextSlots) === serverSlotsKey) {
+      setLoadoutDraft(null);
+      return;
+    }
+    setLoadoutDraft((current) => ({
+      slots: nextSlots,
+      baseKey: current?.baseKey ?? serverSlotsKey,
+    }));
+  };
+
   const save = async () => {
     if (!sect || !changed) return;
+    if (loadoutConflict) {
+      pushToast({
+        message: '宗门神通配置已在其他操作中更新，请先载入最新配置',
+        tone: 'warning',
+      });
+      return;
+    }
     setBusy(true);
     try {
-      const result = await mutate<{ sect: CultivatorSectState }>(
+      await mutate<{ sect: CultivatorSectState }>(
         fetch(
           '/api/sects/current/ability-loadout',
           json('PUT', { abilityIds: draftSlots }),
         ),
       );
-      setDraftSlots(createAbilitySlots(result.sect.abilityLoadout));
+      setLoadoutDraft(null);
       pushToast({ message: '宗门神通配置已保存', tone: 'success' });
     } catch (reason) {
       pushToast({
@@ -234,7 +262,7 @@ function SectAbilitiesBody() {
   const toggle = (abilityId: string) => {
     if (!sect || busy) return;
     if (selected.includes(abilityId)) {
-      setDraftSlots(
+      updateDraftSlots(
         createAbilitySlots(selected.filter((id) => id !== abilityId)),
       );
       return;
@@ -246,7 +274,7 @@ function SectAbilitiesBody() {
       });
       return;
     }
-    setDraftSlots(createAbilitySlots([...selected, abilityId]));
+    updateDraftSlots(createAbilitySlots([...selected, abilityId]));
   };
 
   const setTactic = async (tacticId: string) => {
@@ -361,7 +389,7 @@ function SectAbilitiesBody() {
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <InkButton
                   disabled={busy || selected.length === 0}
-                  onClick={() => setDraftSlots(EMPTY_SLOTS)}
+                  onClick={() => updateDraftSlots(EMPTY_SLOTS)}
                 >
                   清空全部
                 </InkButton>
@@ -375,7 +403,20 @@ function SectAbilitiesBody() {
                 >
                   {busy ? '保存中' : '保存配置'}
                 </InkButton>
-                {changed ? (
+                {loadoutConflict ? (
+                  <>
+                    <span className="text-crimson text-sm">
+                      配置已在其他操作中更新
+                    </span>
+                    <InkButton
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => setLoadoutDraft(null)}
+                    >
+                      载入最新配置
+                    </InkButton>
+                  </>
+                ) : changed ? (
                   <span className="text-crimson text-sm">配置尚未保存</span>
                 ) : null}
               </div>

@@ -208,12 +208,15 @@ export class BattleStateRecorder {
   private _buildCooldowns(unit: Unit): CooldownStateView[] {
     const abilities = unit.abilities.getAllAbilities();
     const defaultAttack = unit.abilities.getDefaultAttackForSnapshot();
-    if (defaultAttack && !abilities.includes(defaultAttack)) abilities.unshift(defaultAttack);
+    if (defaultAttack && !abilities.includes(defaultAttack)) {
+      abilities.unshift(defaultAttack);
+    }
     return abilities
       .filter((a): a is ActiveSkill => a instanceof ActiveSkill)
       .map((skill) => ({
         skillId: skill.id,
         skillName: skill.name,
+        isDefaultAttack: skill === defaultAttack,
         runtimePlanId: skill.runtimePlanId,
         description: skill.description,
         current: skill.currentCooldown,

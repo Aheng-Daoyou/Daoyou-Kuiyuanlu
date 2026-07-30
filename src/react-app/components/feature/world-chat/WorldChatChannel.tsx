@@ -81,9 +81,9 @@ export function WorldChatChannel() {
   const channelTabs = useMemo(
     () =>
       [
+        { label: '系统', value: 'system' },
         { label: '世界', value: 'world' },
         { label: '宗门', value: 'sect' },
-        { label: '系统', value: 'system' },
       ].map((item) => ({
         ...item,
         label:
