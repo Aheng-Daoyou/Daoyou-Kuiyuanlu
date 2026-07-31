@@ -1,11 +1,10 @@
-import { objectArray } from '@server/utils/aiClient';
+import { generateAiArray } from '@server/utils/aiClient';
 import {
   MATERIAL_TYPE_VALUES,
   QUALITY_VALUES,
   type MaterialType,
   type Quality,
 } from '@shared/types/constants';
-import z from 'zod';
 import {
   BASE_PRICES,
   QUALITY_CHANCE_MAP,
@@ -67,20 +66,17 @@ export class MaterialGenerator {
     const prompt = getMaterialGenerationPrompt();
     const userPrompt = getMaterialGenerationUserPrompt(skeletons);
     try {
-      const aiResponse = await objectArray(
-        prompt,
-        userPrompt,
-        {
-          schema: z.array(MaterialAISchema),
-          schemaName: 'MaterialTextList',
-          sceneId: 'material-generation',
-        },
-        false, // use fast model
-      );
+      const aiResponse = await generateAiArray({
+        system: prompt,
+        prompt: userPrompt,
+        elementSchema: MaterialAISchema,
+        name: 'MaterialTextList',
+        sceneId: 'material-generation',
+      });
 
       // 组合结果
       return skeletons.map((skeleton, index) => {
-        const aiData = aiResponse.object[index] || {
+        const aiData = aiResponse.output[index] || {
           name: '未知材料',
           description: '天道感应模糊...',
           element: skeleton.forcedElement || '金',

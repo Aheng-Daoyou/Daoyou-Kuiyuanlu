@@ -13,8 +13,8 @@ description: Daoyou Hono API、认证、授权、Better Auth、Turnstile、admin
 - `src/server/lib/hono/middleware.ts`
 - `src/server/lib/auth/auth.ts`
 - `src/server/lib/auth/hono.ts`
-- `src/server/lib/llm/allowedHosts.ts`
-- `src/shared/config/llmProviders.ts`
+- `src/server/utils/aiClient.ts`
+- `src/shared/config/deepseek.ts`
 - `src/shared/contracts`
 
 ## API Boundary Facts
@@ -33,11 +33,10 @@ description: Daoyou Hono API、认证、授权、Better Auth、Turnstile、admin
 
 ## LLM Security Facts
 
-- The browser patches `window.fetch` in `src/react-app/main.tsx` to add `x-llm-*` headers for `/api/` requests.
-- Server LLM calls should use `src/server/utils/aiClient.ts` (`text`, `stream_text`, `object`, `objectArray`, `tool`) so provider resolution, metrics, schema prompt injection, retry, and `jsonrepair` stay in one path.
-- Server accepts user LLM config only when provider, apiKey, model, and fastModel are present.
-- Non-empty `x-llm-base-url` must pass HTTPS and hostname whitelist validation in `src/server/lib/llm/allowedHosts.ts`.
-- The whitelist source of truth is `src/shared/config/llmProviders.ts`; do not add a second server-only allowlist.
+- The browser patches `window.fetch` in `src/react-app/main.tsx` to add `x-llm-api-key` and `x-llm-model` headers for `/api/` requests.
+- Server LLM calls should use `src/server/utils/aiClient.ts` (`generateAiText`, `streamAiText`, `generateAiObject`, `generateAiArray`) so DeepSeek model resolution, metrics, structured output, and retry behavior stay in one path.
+- Server accepts request-level DeepSeek BYOK only when both API key and model pass `src/shared/config/deepseek.ts`; partial or invalid configuration returns 400 without falling back to the server key.
+- DeepSeek calls use the official provider endpoint. Do not accept a request-level provider or Base URL.
 - LLM metrics use in-memory fallback plus Redis key `admin:llm-metrics:events:v1`; do not add a parallel metrics store.
 - Prompt files under `src/server/prompts/*.md` have `id:` headers. New prompt scenes usually also need `LlmSceneId`, caller `sceneId`, and schema/constraint updates.
 - Treat LLM output as untrusted input. Numeric state changes need Zod bounds and service/resource-layer guards.
@@ -65,7 +64,7 @@ description: Daoyou Hono API、认证、授权、Better Auth、Turnstile、admin
 - Do not rely on React loaders for authorization.
 - Do not bypass `src/server/lib/auth/hono.ts` for login, signup, reset, OTP, or Turnstile-protected flows.
 - Do not add admin files under `/api/admin` without explicit admin authorization.
-- Do not read `x-llm-base-url` directly in business code; use the validated context config.
+- Do not add provider or Base URL request headers; use the validated DeepSeek configuration from the Hono context.
 - Do not make public list/ranking/community endpoints private without checking frontend/product usage.
 - Do not assume `src/shared/api` exists; shared contracts live under `src/shared/contracts`.
 - Do not bypass `aiClient.ts` for LLM calls.

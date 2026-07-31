@@ -251,6 +251,44 @@ describe('幽都自动战术', () => {
     );
   });
 
+  it('长夜未装备忘川潮时仍按当前层数选择其他神通', () => {
+    const strategy = new YouduTideSelectionStrategy('long-night');
+    const context = selectionContext(
+      ['soul-severing-call', 'pin-soul', 'reveal-shadow'],
+      4,
+    );
+    context.opponent?.buffs.removeBuff(YOUDU_FORGETFUL_RIVER);
+
+    expect(strategy.select(context)?.ability.id).toBe(
+      'sect.youdu.reveal-shadow',
+    );
+  });
+
+  it('长夜将一叹作为回退优先级时返回默认攻击', () => {
+    const strategy = new YouduTideSelectionStrategy('long-night');
+    const context = selectionContext(
+      ['soul-severing-call', 'reveal-shadow'],
+      3,
+    );
+
+    expect(strategy.select(context)).toBeNull();
+  });
+
+  it.each([
+    ['照影在前', ['reveal-shadow', 'seize-soul']],
+    ['夺魄在前', ['seize-soul', 'reveal-shadow']],
+  ])('四层判决缺少终结技能时使用默认评分且不受槽位顺序影响：%s', (
+    _label,
+    abilityIds,
+  ) => {
+    const strategy = new YouduDecreeSelectionStrategy('judge-at-four');
+    const context = selectionContext(abilityIds, 4, 'decree', true);
+
+    expect(strategy.select(context)?.ability.id).toBe(
+      'sect.youdu.seize-soul',
+    );
+  });
+
   it('钉法者先补照影，并在敌方控制或治疗进入关键窗口时镇魂', () => {
     const strategy = new YouduDecreeSelectionStrategy('pin-the-caster');
     const withoutShadow = selectionContext(

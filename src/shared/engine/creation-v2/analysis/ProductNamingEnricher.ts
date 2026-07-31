@@ -1,6 +1,6 @@
 import { renderPrompt } from '@server/lib/prompts';
 import type { TemplateVariableMap } from '@server/lib/template/render';
-import { object } from '@server/utils/aiClient';
+import { generateAiObject } from '@server/utils/aiClient';
 import { truncateText } from '@server/utils/llmPayload';
 import {
   getCreationProductTypeLabel,
@@ -66,7 +66,7 @@ function formatAffixLines(affixes: RolledAffix[]): string {
 /**
  * DeepSeek 命名增强器。
  *
- * 默认开启：只要具备 OPENAI_API_KEY，就会尝试调用 LLM 命名。
+ * 默认开启：具备服务端 DeepSeek 配置或请求级 BYOK 时会尝试调用 LLM 命名。
  * 如需显式关闭（例如离线环境），设置 `DISABLE_LLM_NAMING=true`。
  * 遗留变量 `ENABLE_LLM_NAMING=false` 也会被当作显式关闭。
  */
@@ -93,7 +93,7 @@ export class DeepSeekProductNamingEnricher {
 
     try {
       const response = await this.withTimeout(this.callAI(facts));
-      return response.object;
+      return response.output;
     } catch (error) {
       console.error(
         '[DeepSeekProductNamingEnricher] LLM naming failed:',
@@ -107,16 +107,13 @@ export class DeepSeekProductNamingEnricher {
     const variables = this.buildPromptVariables(facts);
     const { system, user } = renderPrompt('product-naming', variables);
 
-    return await object(
+    return await generateAiObject({
       system,
-      user,
-      {
-        schema: namingResultSchema,
-        schemaName: 'ProductNamingResult',
-        sceneId: 'product-naming',
-      },
-      true,
-    );
+      prompt: user,
+      schema: namingResultSchema,
+      name: 'ProductNamingResult',
+      sceneId: 'product-naming',
+    });
   }
 
   private async withTimeout<T>(promise: Promise<T>): Promise<T> {

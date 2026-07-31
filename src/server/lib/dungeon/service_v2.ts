@@ -8,7 +8,7 @@ import {
 import { getPaginatedInventoryByType } from '@server/lib/services/cultivator/CultivatorInventoryRepository';
 import { updateCultivator } from '@server/lib/services/cultivator/CultivatorStateRepository';
 import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
-import { object } from '@server/utils/aiClient'; // AI client helper
+import { generateAiObject } from '@server/utils/aiClient';
 import { stableCompactStringify } from '@server/utils/llmPayload';
 import type { CultivatorDisplayInput } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
@@ -1991,14 +1991,16 @@ export class DungeonService {
           settlementContextJson: stableCompactStringify(settlementContext),
         });
 
-      const aiRes = await object(settlementPrompt, settlementUserPrompt, {
-        schema: DungeonSettlementGeneratedSchema,
-        llmSchema: DungeonSettlementLlmSchema,
-        schemaName: 'DungeonSettlement',
+      const aiRes = await generateAiObject({
+        system: settlementPrompt,
+        prompt: settlementUserPrompt,
+        schema: DungeonSettlementLlmSchema,
+        resultSchema: DungeonSettlementGeneratedSchema,
+        name: 'DungeonSettlement',
         sceneId: 'dungeon-settlement',
       });
       settlement = normalizeSettlementRewards(
-        aiRes.object,
+        aiRes.output,
         state.accumulatedRewards ?? [],
       );
     }
@@ -2268,18 +2270,16 @@ export class DungeonService {
       phase,
     });
 
-    const aiRes = await object(
-      this.getSystemPrompt(),
-      stableCompactStringify(userContext),
-      {
-        schema: DungeonRoundSchema,
-        llmSchema: DungeonRoundLlmSchema,
-        schemaName: 'DungeonRound',
-        sceneId: 'dungeon-round',
-      },
-    );
+    const aiRes = await generateAiObject({
+      system: this.getSystemPrompt(),
+      prompt: stableCompactStringify(userContext),
+      schema: DungeonRoundLlmSchema,
+      resultSchema: DungeonRoundSchema,
+      name: 'DungeonRound',
+      sceneId: 'dungeon-round',
+    });
 
-    return aiRes.object;
+    return aiRes.output;
   }
 
   async saveState(

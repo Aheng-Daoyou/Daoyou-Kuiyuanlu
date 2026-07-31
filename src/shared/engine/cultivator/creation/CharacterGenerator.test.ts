@@ -3,12 +3,12 @@ import type { CultivatorAIRawData } from './types';
 import { CharacterGenerator } from './CharacterGenerator';
 import { CultivatorAIRawSchema } from './types';
 
-const { objectMock } = vi.hoisted(() => ({
-  objectMock: vi.fn(),
+const { generateAiObjectMock } = vi.hoisted(() => ({
+  generateAiObjectMock: vi.fn(),
 }));
 
 vi.mock('@server/utils/aiClient', () => ({
-  object: objectMock,
+  generateAiObject: generateAiObjectMock,
 }));
 
 const buildAIData = (
@@ -31,23 +31,22 @@ describe('CharacterGenerator', () => {
   });
 
   it('uses the tolerant AI schema and trims extra element preferences', async () => {
-    objectMock.mockResolvedValueOnce({
-      object: buildAIData({
+    generateAiObjectMock.mockResolvedValueOnce({
+      output: buildAIData({
         element_preferences: ['金', '木', '水', '火', '土'],
       }),
     });
 
     const { cultivator } = await CharacterGenerator.generate('偏向剑修的少年');
 
-    expect(objectMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(String),
+    expect(generateAiObjectMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        system: expect.any(String),
+        prompt: expect.any(String),
         schema: CultivatorAIRawSchema,
-        schemaName: '修仙真形骨架',
+        name: '修仙真形骨架',
         sceneId: 'character-generation',
       }),
-      false,
     );
     expect(cultivator.spiritual_roots.map((root) => root.element)).toEqual([
       '金',
@@ -58,8 +57,8 @@ describe('CharacterGenerator', () => {
   });
 
   it('deduplicates repeated element preferences before generating roots', async () => {
-    objectMock.mockResolvedValueOnce({
-      object: buildAIData({
+    generateAiObjectMock.mockResolvedValueOnce({
+      output: buildAIData({
         element_preferences: ['火', '火', '水'],
       }),
     });
@@ -73,8 +72,8 @@ describe('CharacterGenerator', () => {
   });
 
   it('creates fixed base attributes without a persisted skill cap field', async () => {
-    objectMock.mockResolvedValueOnce({
-      object: buildAIData({
+    generateAiObjectMock.mockResolvedValueOnce({
+      output: buildAIData({
         aptitude_score: 95,
       }),
     });

@@ -1,5 +1,5 @@
 import { renderPrompt } from '@server/lib/prompts';
-import { object } from '@server/utils/aiClient';
+import { generateAiObject } from '@server/utils/aiClient';
 import { stableCompactStringify, truncateText } from '@server/utils/llmPayload';
 import {
   GENERATABLE_ALCHEMY_PROPERTY_KEY_VALUES,
@@ -60,7 +60,6 @@ export class AlchemyRecipePlanner {
   constructor(
     private readonly options: {
       timeoutMs?: number;
-      fastModel?: boolean;
     } = {},
   ) {}
 
@@ -88,19 +87,16 @@ export class AlchemyRecipePlanner {
     });
 
     const response = await this.withTimeout(
-      object(
+      generateAiObject({
         system,
-        user,
-        {
-          schema: alchemyRecipePlanSchema,
-          schemaName: 'AlchemyRecipePlan',
-          sceneId: 'alchemy-recipe-plan',
-        },
-        this.options.fastModel ?? true,
-      ),
+        prompt: user,
+        schema: alchemyRecipePlanSchema,
+        name: 'AlchemyRecipePlan',
+        sceneId: 'alchemy-recipe-plan',
+      }),
     );
 
-    const normalized = normalizePlan(response.object);
+    const normalized = normalizePlan(response.output);
     const materialMap = new Map(
       input.materials.map((material) => [material.materialRef, material]),
     );

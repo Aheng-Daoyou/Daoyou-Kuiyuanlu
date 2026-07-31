@@ -58,6 +58,8 @@ function hasImminentControlOrHealing(
 }
 
 abstract class YouduSelectionStrategy implements AbilitySelectionStrategy {
+  protected readonly fallback = new DefaultAbilitySelectionStrategy();
+
   constructor(protected readonly tacticId: SectTacticId) {}
   abstract select(
     context: AbilitySelectionContext,
@@ -70,13 +72,11 @@ abstract class YouduSelectionStrategy implements AbilitySelectionStrategy {
   ): AbilitySelectionResult | null {
     const index = new SectStrategyCandidates(YOUDU_SECT_ID, context.candidates);
     for (const id of priorities) {
+      if (id === 'one-sigh') return null;
       const result = index.result(id, score);
       if (result) return result;
     }
-    const fallback = context.candidates[0];
-    return fallback
-      ? { ability: fallback.ability, target: fallback.target, score: 100 }
-      : null;
+    return this.fallback.select(context);
   }
 
   protected pickOnly(
@@ -94,8 +94,6 @@ abstract class YouduSelectionStrategy implements AbilitySelectionStrategy {
 }
 
 export class YouduBaseSelectionStrategy extends YouduSelectionStrategy {
-  private readonly fallback = new DefaultAbilitySelectionStrategy();
-
   constructor() {
     super('base');
   }
@@ -143,11 +141,8 @@ export class YouduTideSelectionStrategy extends YouduSelectionStrategy {
     const targetHp = context.opponent?.getHpPercent() ?? 1;
 
     if (!hasForget) {
-      return this.pick(
-        context,
-        ['forgetful-river-tide', 'soul-severing-call', 'one-sigh'],
-        780,
-      );
+      const forget = this.pickOnly(context, ['forgetful-river-tide'], 780);
+      if (forget) return forget;
     }
     if (erosion < 3) {
       return this.pick(

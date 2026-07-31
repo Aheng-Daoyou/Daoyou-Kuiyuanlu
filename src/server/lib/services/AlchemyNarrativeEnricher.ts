@@ -1,5 +1,5 @@
 import { renderPrompt } from '@server/lib/prompts';
-import { object } from '@server/utils/aiClient';
+import { generateAiObject } from '@server/utils/aiClient';
 import { formatAlchemyPropertyVector } from '@shared/lib/alchemyProperties';
 import { getConditionStatusTemplate } from '@shared/lib/conditionStatusRegistry';
 import { getResourceLabel, getResourceText } from '@shared/lib/gameConceptDisplay';
@@ -149,18 +149,15 @@ export class AlchemyNarrativeEnricher {
         variables,
       );
       const response = await this.withTimeout(
-        object(
+        generateAiObject({
           system,
-          user,
-          {
-            schema: improvisedPillCopySchema,
-            schemaName: 'ImprovisedPillCopy',
-            sceneId: 'alchemy-improvised-copy',
-          },
-          true,
-        ),
+          prompt: user,
+          schema: improvisedPillCopySchema,
+          name: 'ImprovisedPillCopy',
+          sceneId: 'alchemy-improvised-copy',
+        }),
       );
-      return response.object;
+      return response.output;
     } catch (error) {
       console.error(
         '[AlchemyNarrativeEnricher] improvised copy failed:',

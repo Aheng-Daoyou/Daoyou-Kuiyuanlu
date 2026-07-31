@@ -1,5 +1,5 @@
 import { redis } from '@server/lib/redis';
-import type { LlmCallMetrics, LlmSceneId } from '@server/utils/aiClient';
+import type { LlmCallMetrics, LlmSceneId } from '@server/lib/llm/types';
 
 const LLM_METRICS_REDIS_KEY = 'admin:llm-metrics:events:v1';
 const MAX_REDIS_EVENTS = 2000;
@@ -233,7 +233,7 @@ export function buildLlmMetricsSnapshot(args: {
   const filteredEvents = filterEventsByScene(args.events, args.sceneId);
   const sceneIds = Array.from(
     new Set(args.events.map((event) => event.sceneId)),
-  ).sort() as Array<LlmSceneId | 'unknown'>;
+  ).sort() as LlmSceneId[];
   const eventsByScene = sceneIds
     .map((sceneId) => {
       const sceneEvents = filteredEvents.filter((event) => event.sceneId === sceneId);

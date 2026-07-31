@@ -1,5 +1,5 @@
 import { renderPrompt } from '@server/lib/prompts';
-import { object } from '@server/utils/aiClient';
+import { generateAiObject } from '@server/utils/aiClient';
 import {
   stableCompactStringify,
   truncateText,
@@ -54,7 +54,6 @@ const enrichmentSchema = z.object({
 export interface DeepSeekMaterialSemanticEnricherOptions {
   enabled?: boolean;
   timeoutMs?: number;
-  fastModel?: boolean;
   providerName?: string;
 }
 
@@ -68,13 +67,11 @@ export interface DeepSeekMaterialSemanticEnricherOptions {
 export class DeepSeekMaterialSemanticEnricher implements MaterialSemanticEnricher {
   private readonly enabled: boolean;
   private readonly timeoutMs: number;
-  private readonly fastModel: boolean;
   private readonly providerName: string;
 
   constructor(options: DeepSeekMaterialSemanticEnricherOptions = {}) {
     this.enabled = options.enabled ?? true;
     this.timeoutMs = options.timeoutMs ?? 30_000;
-    this.fastModel = options.fastModel ?? true;
     this.providerName = options.providerName ?? 'deepseek-structured';
   }
 
@@ -120,23 +117,20 @@ export class DeepSeekMaterialSemanticEnricher implements MaterialSemanticEnriche
         payloadJson,
       });
       const response = await this.withTimeout(
-        object(
+        generateAiObject({
           system,
-          user,
-          {
-            schema: enrichmentSchema,
-            schemaName: 'CreationMaterialSemanticEnrichment',
-            sceneId: 'material-semantic-enrichment',
-          },
-          this.fastModel,
-        ),
+          prompt: user,
+          schema: enrichmentSchema,
+          name: 'CreationMaterialSemanticEnrichment',
+          sceneId: 'material-semantic-enrichment',
+        }),
       );
 
       return {
         status: 'success',
         provider: this.providerName,
-        batchInsight: response.object.batchInsight,
-        materials: response.object.materials.map((item) => {
+        batchInsight: response.output.batchInsight,
+        materials: response.output.materials.map((item) => {
           const normalized = normalizeSemanticTags(item.additionalSemanticTags);
           return {
             materialId: item.materialId,

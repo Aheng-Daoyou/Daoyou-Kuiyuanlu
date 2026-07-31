@@ -3,7 +3,7 @@ import type {
   Cultivator,
   Skill,
 } from '@shared/types/cultivator';
-import { object } from '@server/utils/aiClient';
+import { generateAiObject } from '@server/utils/aiClient';
 import { BASIC_SKILLS, BASIC_TECHNIQUES } from './config';
 import {
   getCharacterGenerationPrompt,
@@ -24,18 +24,15 @@ export class CharacterGenerator {
     const prompt = getCharacterGenerationPrompt();
     const userPrompt = getCharacterGenerationUserPrompt(userInput);
 
-    const aiResponse = await object(
-      prompt,
-      userPrompt,
-      {
-        schema: CultivatorAIRawSchema,
-        schemaName: '修仙真形骨架',
-        sceneId: 'character-generation',
-      },
-      false,
-    );
+    const aiResponse = await generateAiObject({
+      system: prompt,
+      prompt: userPrompt,
+      schema: CultivatorAIRawSchema,
+      name: '修仙真形骨架',
+      sceneId: 'character-generation',
+    });
 
-    const data = normalizeCultivatorAIData(aiResponse.object);
+    const data = normalizeCultivatorAIData(aiResponse.output);
 
     // 2. 数值化生成
     const attributes = generateAttributes();

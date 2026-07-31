@@ -1,5 +1,5 @@
 import { renderPrompt } from '@server/lib/prompts';
-import { object } from '@server/utils/aiClient';
+import { generateAiObject } from '@server/utils/aiClient';
 import { stableCompactStringify, truncateText } from '@server/utils/llmPayload';
 import {
   GENERATABLE_ALCHEMY_PROPERTY_KEY_VALUES,
@@ -65,7 +65,6 @@ export class AlchemyFormulaAnalyzer {
   constructor(
     private readonly options: {
       timeoutMs?: number;
-      fastModel?: boolean;
     } = {},
   ) {}
 
@@ -108,19 +107,16 @@ export class AlchemyFormulaAnalyzer {
     });
 
     const response = await this.withTimeout(
-      object(
+      generateAiObject({
         system,
-        user,
-        {
-          schema: formulaAnalysisSchema,
-          schemaName: 'AlchemyFormulaAnalysis',
-          sceneId: 'alchemy-formula-analysis',
-        },
-        this.options.fastModel ?? true,
-      ),
+        prompt: user,
+        schema: formulaAnalysisSchema,
+        name: 'AlchemyFormulaAnalysis',
+        sceneId: 'alchemy-formula-analysis',
+      }),
     );
 
-    const normalized = normalizePlan(response.object);
+    const normalized = normalizePlan(response.output);
     const materialMap = new Map(
       input.materials.map((material) => [material.materialRef, material]),
     );

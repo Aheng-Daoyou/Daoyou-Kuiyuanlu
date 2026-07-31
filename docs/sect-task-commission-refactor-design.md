@@ -480,7 +480,8 @@ interface SectPillDeliveryRequirement {
 
 - `kind`：`spec.kind === 'pill'`
 - `minQuality`：`consumable.quality`
-- `family`：`spec.family`
+- `family`：优先读取 `spec.family` 作为主丹类；复合丹药若实际 operation
+  已投影出目标 family 对应的 trait，则同样满足该目标丹类
 - `appearance`：`spec.alchemyMeta.appearance`
 - `increase_lifespan`：`spec.operations` 中存在 `type === 'increase_lifespan'`
 - 其他 trait：由一个集中映射器从 `operations` 和稳定 status key 推导

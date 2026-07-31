@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router';
 import './index.css';
 import { resolveApiUrl } from './lib/api/url';
 import { registerPreloadErrorRecovery } from './lib/appVersion';
+import { readStoredDeepSeekConfig } from './lib/deepseekConfig';
 import { initializePwaInstallCapture } from './lib/pwaInstall';
 import { router } from './router';
 
@@ -16,20 +17,12 @@ const originalFetch = window.fetch;
 window.fetch = (async (input, init) => {
   if (typeof input === 'string' && input.startsWith('/api/')) {
     init = { ...init, credentials: init?.credentials ?? 'include' };
-    const raw = localStorage.getItem('daoyou_llm_config');
-    if (raw) {
-      try {
-        const cfg = JSON.parse(raw);
-        const headers = new Headers(init?.headers);
-        headers.set('x-llm-provider', cfg.provider);
-        headers.set('x-llm-api-key', cfg.apiKey);
-        if (cfg.baseUrl) headers.set('x-llm-base-url', cfg.baseUrl);
-        headers.set('x-llm-model', cfg.model);
-        headers.set('x-llm-fast-model', cfg.fastModel);
-        init = { ...init, headers };
-      } catch {
-        // ignore invalid json
-      }
+    const cfg = readStoredDeepSeekConfig();
+    if (cfg) {
+      const headers = new Headers(init?.headers);
+      headers.set('x-llm-api-key', cfg.apiKey);
+      headers.set('x-llm-model', cfg.model);
+      init = { ...init, headers };
     }
 
     input = resolveApiUrl(input);

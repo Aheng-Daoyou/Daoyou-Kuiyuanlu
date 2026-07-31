@@ -5,7 +5,12 @@ import {
   type MaterialType,
   type Quality,
 } from '@shared/types/constants';
-import type { PillAppearanceGrade, PillFamily } from '@shared/types/consumable';
+import { CULTIVATION_BOOST_STATUS_KEY } from '@shared/lib/cultivationBoost';
+import type {
+  PillAppearanceGrade,
+  PillFamily,
+  PillSpec,
+} from '@shared/types/consumable';
 import type {
   SectDeliveryRequirement,
   SectMaterialDeliveryRequirement,
@@ -88,6 +93,45 @@ const APPEARANCE_ORDER: Record<PillAppearanceGrade, number> = {
   perfect: 3,
 };
 
+export function projectSectPillTraits(
+  spec: Pick<PillSpec, 'operations'>,
+): SectPillTraitKey[] {
+  const traits = new Set<SectPillTraitKey>();
+  for (const operation of spec.operations) {
+    if (operation.type === 'restore_resource')
+      traits.add(operation.resource === 'hp' ? 'restore_hp' : 'restore_mp');
+    else if (
+      operation.type === 'change_gauge' &&
+      operation.gauge === 'pillToxicity' &&
+      operation.delta < 0
+    )
+      traits.add('detox');
+    else if (operation.type === 'gain_progress')
+      traits.add(
+        operation.target === 'cultivation_exp'
+          ? 'gain_cultivation'
+          : 'gain_insight',
+      );
+    else if (operation.type === 'increase_lifespan')
+      traits.add('increase_lifespan');
+    else if (operation.type === 'advance_track')
+      traits.add(
+        operation.track === 'marrow_wash' ? 'marrow_wash' : 'tempering',
+      );
+    else if (operation.type === 'add_status') {
+      if (operation.status === CULTIVATION_BOOST_STATUS_KEY)
+        traits.add('gain_cultivation');
+      else if (
+        ['breakthrough_focus', 'protect_meridians', 'clear_mind'].includes(
+          operation.status,
+        )
+      )
+        traits.add('breakthrough_support');
+    }
+  }
+  return [...traits];
+}
+
 export function matchSectDeliveryRequirement(
   requirement: SectDeliveryRequirement,
   candidate: SectSubmissionItemFacts,
@@ -106,9 +150,12 @@ export function matchSectDeliveryRequirement(
     add('quantity_too_low', `数量不足 ${requirement.quantity}`);
 
   if (requirement.kind === 'pill' && candidate.kind === 'pill') {
-    if (candidate.family !== requirement.family)
-      add('wrong_family', '丹药类别不符合要求');
-    if (!candidate.traits.includes(requirement.trait))
+    // family records the dominant intent; compound-pill eligibility follows
+    // the effects actually projected from operations.
+    const hasRequiredTrait = candidate.traits.includes(requirement.trait);
+    if (!hasRequiredTrait && candidate.family !== requirement.family)
+      add('wrong_family', '丹药主类别不符合要求');
+    if (!hasRequiredTrait)
       add('missing_trait', '丹药不具备指定功效');
     const actual = candidate.appearance;
     const matches =

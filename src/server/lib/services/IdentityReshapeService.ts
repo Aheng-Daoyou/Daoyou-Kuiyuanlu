@@ -8,7 +8,7 @@ import { renderPrompt } from '@server/lib/prompts';
 import { redis } from '@server/lib/redis';
 import { parseRedisJson } from '@server/lib/redis/json';
 import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
-import { object } from '@server/utils/aiClient';
+import { generateAiObject } from '@server/utils/aiClient';
 import { normalizeFreeformLlmInput } from '@server/utils/llmPayload';
 import {
   describeIdentityReshapeAnswers,
@@ -354,17 +354,14 @@ export function generateIdentityReshape(args: {
         }),
         description,
       });
-      const response = await object(
-        rendered.system,
-        rendered.user,
-        {
-          schema: IdentityReshapeCandidateSchema,
-          schemaName: '改天换地后的角色文案',
-          sceneId: 'identity-reshape',
-        },
-        false,
-      );
-      const candidate = IdentityReshapeCandidateSchema.parse(response.object);
+      const response = await generateAiObject({
+        system: rendered.system,
+        prompt: rendered.user,
+        schema: IdentityReshapeCandidateSchema,
+        name: '改天换地后的角色文案',
+        sceneId: 'identity-reshape',
+      });
+      const candidate = response.output;
       const nameCheck = await checkActiveName(candidate.name);
       const next: IdentityReshapeSessionStore = {
         ...session,

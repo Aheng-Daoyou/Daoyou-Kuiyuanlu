@@ -1,7 +1,11 @@
-export interface DivineFortune {
-  fortune: string;
-  hint: string;
-}
+import { z } from 'zod';
+
+export const DivineFortuneSchema = z.object({
+  fortune: z.string().min(1),
+  hint: z.string().min(1),
+});
+
+export type DivineFortune = z.infer<typeof DivineFortuneSchema>;
 
 export const FALLBACK_FORTUNES: DivineFortune[] = [
   {

@@ -3,6 +3,7 @@ import {
   matchSectDeliveryCandidate,
   matchSectDeliveryRequirement,
   matchSectMaterialDeliverySelection,
+  projectSectPillTraits,
   type SectMaterialSubmissionFacts,
 } from './taskRequirementMatcher';
 
@@ -29,6 +30,62 @@ describe('sect delivery requirement matcher', () => {
       },
     );
     expect(result).toEqual({ eligible: true, violations: [] });
+  });
+
+  it('accepts a compound pill when its secondary effect satisfies the requested family trait', () => {
+    const traits = projectSectPillTraits({
+      operations: [
+        {
+          type: 'add_status',
+          status: 'cultivation_boost',
+          usesRemaining: 1,
+        },
+        {
+          type: 'restore_resource',
+          resource: 'mp',
+          mode: 'percent',
+          value: 1,
+        },
+      ],
+    });
+    const result = matchSectDeliveryRequirement(
+      {
+        kind: 'pill',
+        quantity: 1,
+        minQuality: '真品',
+        family: 'mana',
+        trait: 'restore_mp',
+        appearance: { mode: 'at_least', grade: 'low' },
+      },
+      {
+        kind: 'pill',
+        id: 'compound-pill',
+        name: '青藤养元丹',
+        quality: '地品',
+        quantity: 1,
+        family: 'cultivation',
+        appearance: 'middle',
+        traits,
+      },
+    );
+
+    expect(result).toEqual({ eligible: true, violations: [] });
+    expect(traits).toEqual(['gain_cultivation', 'restore_mp']);
+  });
+
+  it('projects detox from a negative pill-toxicity operation, not wound removal', () => {
+    expect(
+      projectSectPillTraits({
+        operations: [
+          {
+            type: 'change_gauge',
+            gauge: 'pillToxicity',
+            delta: -20,
+          },
+          { type: 'remove_status', status: 'minor_wound' },
+        ],
+      }),
+    ).toEqual(['detox']);
   });
 
   it('does not accept high appearance for exact perfect', () => {

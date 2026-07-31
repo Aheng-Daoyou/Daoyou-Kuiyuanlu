@@ -1,5 +1,5 @@
 import { renderPrompt } from '@server/lib/prompts';
-import { object } from '@server/utils/aiClient';
+import { generateAiObject } from '@server/utils/aiClient';
 import { stableCompactStringify, truncateText } from '@server/utils/llmPayload';
 import type {
   EnemyCopyPayload,
@@ -108,18 +108,15 @@ export class ServerEnemyCopyProvider implements EnemyCopyProvider {
         factsJson,
       });
       const response = await this.withTimeout(
-        object(
+        generateAiObject({
           system,
-          user,
-          {
-            schema: enemyCopySchema,
-            schemaName: 'EnemyCopyPayload',
-            sceneId: 'enemy-narrative',
-          },
-          true,
-        ),
+          prompt: user,
+          schema: enemyCopySchema,
+          name: 'EnemyCopyPayload',
+          sceneId: 'enemy-narrative',
+        }),
       );
-      return response.object;
+      return response.output;
     } catch (error) {
       console.error('[ServerEnemyCopyProvider] copy generation failed:', error);
       return null;

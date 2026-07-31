@@ -1,12 +1,15 @@
 import { redis } from '@server/lib/redis';
 import { parseRedisJson } from '@server/lib/redis/json';
 import type { AppEnv } from '@server/lib/hono/types';
-import { text } from '@server/utils/aiClient';
+import { generateAiObject } from '@server/utils/aiClient';
 import {
   getDivineFortunePrompt,
   getRandomFallbackFortune,
-  type DivineFortune,
 } from '@server/utils/divineFortune';
+import {
+  DivineFortuneSchema,
+  type DivineFortune,
+} from '@shared/lib/divineFortune';
 import { Hono } from 'hono';
 
 const CACHE_KEY = 'divine_fortune_data';
@@ -31,23 +34,16 @@ router.get('/', async (c) => {
     }
 
     const [systemPrompt, userPrompt] = getDivineFortunePrompt();
-    const aiResponse = await text(systemPrompt, userPrompt, true, undefined, {
+    const aiResponse = await generateAiObject({
+      system: systemPrompt,
+      prompt: userPrompt,
+      schema: DivineFortuneSchema,
+      name: 'DivineFortune',
       sceneId: 'divine-fortune',
     });
 
-    let fortune: DivineFortune;
-    try {
-      fortune = JSON.parse(aiResponse.text);
-
-      if (!fortune.fortune || !fortune.hint) {
-        throw new Error('Invalid fortune format');
-      }
-
-      await redis.set(CACHE_KEY, JSON.stringify(fortune), 'EX', CACHE_TTL);
-    } catch (parseError) {
-      console.warn('Failed to parse AI response, using fallback:', parseError);
-      fortune = getRandomFallbackFortune();
-    }
+    const fortune = aiResponse.output;
+    await redis.set(CACHE_KEY, JSON.stringify(fortune), 'EX', CACHE_TTL);
 
     return c.json({
       success: true,

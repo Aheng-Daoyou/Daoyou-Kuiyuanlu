@@ -12,7 +12,7 @@ import {
   QiInsufficientError,
   QiServiceError,
 } from '@server/lib/services/QiService';
-import { stream_text } from '@server/utils/aiClient';
+import { streamAiText } from '@server/utils/aiClient';
 import {
   getBreakthroughStoryPrompt,
   getLifespanExhaustedStoryPrompt,
@@ -60,6 +60,7 @@ function createRetreatStreamResponse(args: {
   result: RetreatResultData;
   state?: PlayerResourceMutationMeta;
   storySource: RetreatStorySource;
+  abortSignal: AbortSignal;
   onStoryComplete?: (story: string) => Promise<void> | void;
 }): Response {
   const encoder = new TextEncoder();
@@ -84,7 +85,10 @@ function createRetreatStreamResponse(args: {
           args.storySource.type === 'breakthrough'
             ? getBreakthroughStoryPrompt(args.storySource.payload)
             : getLifespanExhaustedStoryPrompt(args.storySource.payload);
-        const aiStreamResult = stream_text(prompt[0], prompt[1], true, false, {
+        const aiStreamResult = streamAiText({
+          system: prompt[0],
+          prompt: prompt[1],
+          abortSignal: args.abortSignal,
           sceneId:
             args.storySource.type === 'breakthrough'
               ? 'breakthrough-story'
@@ -146,6 +150,7 @@ retreatRouter.post('/', requireActiveCultivatorRef(), async (c) => {
       result: execution.committed.result,
       state: execution.committed.state,
       storySource: execution.storySource,
+      abortSignal: c.req.raw.signal,
       onStoryComplete: execution.onStoryComplete,
     });
   } catch (error) {

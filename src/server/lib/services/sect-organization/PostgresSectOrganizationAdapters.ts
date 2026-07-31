@@ -25,10 +25,10 @@ import {
 import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
 import { SeededBattleRandomSource } from '@shared/engine/battle-v5/core/BattleRandom';
 import {
+  projectSectPillTraits,
   SectTaskRecordPayloadSchema,
   type SectDiscipleRank,
   type SectPillSubmissionFacts,
-  type SectPillTraitKey,
   type SectRuntime,
   type SectSubmissionItemFacts,
   type SectSubmissionItemKind,
@@ -331,37 +331,6 @@ function normalizeQuality(value: string | null): Quality {
     : '凡品';
 }
 
-function pillTraits(spec: unknown): SectPillTraitKey[] {
-  if (!isPillSpec(spec as ConsumableSpec)) return [];
-  const pillSpec = spec as Extract<ConsumableSpec, { kind: 'pill' }>;
-  const traits = new Set<SectPillTraitKey>();
-  for (const operation of pillSpec.operations) {
-    if (operation.type === 'restore_resource')
-      traits.add(operation.resource === 'hp' ? 'restore_hp' : 'restore_mp');
-    else if (operation.type === 'remove_status') traits.add('detox');
-    else if (operation.type === 'gain_progress')
-      traits.add(
-        operation.target === 'cultivation_exp'
-          ? 'gain_cultivation'
-          : 'gain_insight',
-      );
-    else if (operation.type === 'increase_lifespan')
-      traits.add('increase_lifespan');
-    else if (operation.type === 'advance_track')
-      traits.add(
-        operation.track === 'marrow_wash' ? 'marrow_wash' : 'tempering',
-      );
-    else if (
-      operation.type === 'add_status' &&
-      ['breakthrough_focus', 'protect_meridians', 'clear_mind'].includes(
-        operation.status,
-      )
-    )
-      traits.add('breakthrough_support');
-  }
-  return [...traits];
-}
-
 function mapSubmissionPill(row: {
   id: string;
   name: string;
@@ -379,7 +348,7 @@ function mapSubmissionPill(row: {
     quantity: row.quantity,
     family: spec.family,
     appearance: spec.alchemyMeta.appearance,
-    traits: pillTraits(spec),
+    traits: projectSectPillTraits(spec),
   };
 }
 

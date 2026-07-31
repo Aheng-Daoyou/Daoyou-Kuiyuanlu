@@ -8,7 +8,7 @@ import {
   YieldCommandError,
 } from '@server/lib/services/YieldApplicationService';
 import { renderPrompt } from '@server/lib/prompts';
-import { stream_text } from '@server/utils/aiClient';
+import { streamAiText } from '@server/utils/aiClient';
 import { getGameConceptLabel } from '@shared/lib/gameConceptDisplay';
 import { Hono } from 'hono';
 
@@ -64,7 +64,10 @@ yieldRouter.post('/', requireActiveCultivatorRef(), async (c) => {
               return extra ? `；${extra}` : '';
             })(),
           });
-          const aiStreamResult = stream_text(system, prompt, true, false, {
+          const aiStreamResult = streamAiText({
+            system,
+            prompt,
+            abortSignal: c.req.raw.signal,
             sceneId: 'yield-story',
           });
           for await (const chunk of aiStreamResult.textStream) {

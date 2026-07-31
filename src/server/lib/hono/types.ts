@@ -1,4 +1,5 @@
 import type { AuthUser } from '@server/lib/auth/types';
+import type { DeepSeekByokConfig } from '@shared/config/deepseek';
 export type ActiveCultivatorRef = {
   userId: string;
   cultivatorId: string;
@@ -8,13 +9,7 @@ export type ActiveCultivatorRef = {
 export type AppVariables = {
   user: AuthUser;
   activeCultivatorRef: ActiveCultivatorRef;
-  llmConfig: {
-    provider: string;
-    apiKey: string;
-    baseUrl: string | null;
-    model: string;
-    fastModel: string;
-  };
+  llmConfig: DeepSeekByokConfig;
   validatedJson: unknown;
   validatedQuery: unknown;
 };

@@ -42,7 +42,7 @@ describe('DeepSeekProductNamingEnricher', () => {
     (enricher as any).enabled = true;
 
     const mockResponse = {
-      object: {
+      output: {
         name: '赤炎焚天诀',
         description: '此功法运转时如置身炼狱，赤炎破脉而出。',
         styleInsight: '火系意象与爆发标签结合',
@@ -57,7 +57,7 @@ describe('DeepSeekProductNamingEnricher', () => {
     const result = await enricher.enrich(mockFacts);
 
     expect(callAISpy).toHaveBeenCalled();
-    expect(result).toEqual(mockResponse.object);
+    expect(result).toEqual(mockResponse.output);
   });
 
   it('应向 prompt 传递最小且格式化后的命名字段', () => {
