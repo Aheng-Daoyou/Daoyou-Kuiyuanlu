@@ -3,20 +3,20 @@ import { InkButton } from '@app/components/ui/InkButton';
 import { InkCard } from '@app/components/ui/InkCard';
 import { InkChoiceButton } from '@app/components/ui/InkChoiceButton';
 import { InkTag } from '@app/components/ui/InkTag';
-import type { CultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
-import type {
-  DungeonOptionCost,
-  DungeonOption,
-  DungeonRound,
-  DungeonState,
-} from '@shared/lib/dungeon/types';
-import type { Cultivator } from '@shared/types/cultivator';
-import { getResourceIcon } from '@shared/lib/gameConceptDisplay';
 import {
   formatDungeonCostBodyCultivationFeedback,
   formatDungeonCostName,
   formatDungeonCostValue,
 } from '@app/lib/dungeon/formatDungeonCost';
+import type { CultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import type {
+  DungeonOption,
+  DungeonOptionCost,
+  DungeonRound,
+  DungeonState,
+} from '@shared/lib/dungeon/types';
+import { getResourceIcon } from '@shared/lib/gameConceptDisplay';
+import type { Cultivator } from '@shared/types/cultivator';
 import { useState } from 'react';
 import { DungeonRunPanel } from './DungeonRunPanel';
 
@@ -32,7 +32,9 @@ interface DungeonExploringProps {
 
 function OptionCostPreview({ costs }: { costs: DungeonOptionCost[] }) {
   if (costs.length === 0) {
-    return <div className="text-ink-secondary mt-1 text-sm">代价: 无需代价</div>;
+    return (
+      <div className="text-ink-secondary mt-1 text-sm">代价: 无需代价</div>
+    );
   }
 
   const bodyFeedbacks = costs
@@ -56,10 +58,7 @@ function OptionCostPreview({ costs }: { costs: DungeonOptionCost[] }) {
         ))}
       </div>
       {bodyFeedbacks.map((text, index) => (
-        <div
-          key={`${text}-${index}`}
-          className="text-wood text-xs leading-5"
-        >
+        <div key={`${text}-${index}`} className="text-wood text-xs leading-5">
           {text}
         </div>
       ))}
@@ -153,7 +152,9 @@ export function DungeonExploring({
         <InkButton
           variant="primary"
           className="mx-auto mt-4 block!"
-          disabled={!selectedOptionId || processing}
+          disabled={!selectedOptionId}
+          pending={processing}
+          pendingLabel="推演中……"
           onClick={async () => {
             const option = lastRound.interaction.options.find(
               (item) => item.id === selectedOptionId,
@@ -164,7 +165,7 @@ export function DungeonExploring({
             setSelectedOptionId(null);
           }}
         >
-          {processing ? '推演中...' : '确定抉择'}
+          确定抉择
         </InkButton>
       </InkSection>
 

@@ -1,3 +1,4 @@
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { InkModal } from '@app/components/layout/InkModal';
 import { InkButton, InkNotice } from '@app/components/ui';
 import { useMemo, useState } from 'react';
@@ -144,7 +145,8 @@ export function ItemSubmissionDialog({
             </InkButton>
             <InkButton
               variant="primary"
-              disabled={busy}
+              pending={busy}
+              pendingLabel="正在移交……"
               onClick={() =>
                 void onConfirm(
                   selections.map((selection) => ({
@@ -154,7 +156,7 @@ export function ItemSubmissionDialog({
                 )
               }
             >
-              {busy ? '正在移交…' : '确认永久移交'}
+              确认永久移交
             </InkButton>
           </div>
         ) : (
@@ -200,7 +202,7 @@ export function ItemSubmissionDialog({
           ) : null}
         </div>
       ) : loading ? (
-        <p className="mt-4 text-sm text-stone-500">正在查阅背包卷宗…</p>
+        <GameLoadingState message="正在查阅背包卷宗……" variant="inline" />
       ) : error ? (
         <div className="mt-4">
           <InkNotice>{error}</InkNotice>

@@ -1,3 +1,4 @@
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { usePwaInstall } from '@app/components/providers/PwaInstallProvider';
 import { InkButton } from '@app/components/ui';
 import type {
@@ -18,8 +19,7 @@ interface GameActivityLaunchGateProps {
 
 function failedToEnterFullscreen(attempt?: ActivityImmersiveResult) {
   return (
-    attempt?.fullscreen === 'unsupported' ||
-    attempt?.fullscreen === 'rejected'
+    attempt?.fullscreen === 'unsupported' || attempt?.fullscreen === 'rejected'
   );
 }
 
@@ -68,14 +68,11 @@ export function GameActivityLaunchGate({
         {attempt?.fullscreen !== 'unsupported' ? (
           <InkButton
             variant="primary"
-            disabled={retrying}
+            pending={retrying}
+            pendingLabel="正在切换……"
             onClick={() => void retry()}
           >
-            {retrying
-              ? '正在切换'
-              : viewport.landscape
-                ? '进入全屏并开始'
-                : '进入横屏全屏'}
+            {viewport.landscape ? '进入全屏并开始' : '进入横屏全屏'}
           </InkButton>
         ) : null}
         {fullscreenFailed && viewport.landscape ? (
@@ -139,5 +136,13 @@ export function GameActivityOverlay({
     <div className="absolute inset-0 z-30 grid place-items-center bg-black/72 pt-[max(env(safe-area-inset-top),1.5rem)] pr-[max(env(safe-area-inset-right),1.5rem)] pb-[max(env(safe-area-inset-bottom),1.5rem)] pl-[max(env(safe-area-inset-left),1.5rem)] backdrop-blur-sm">
       <div className="w-full max-w-md text-center">{children}</div>
     </div>
+  );
+}
+
+export function GameActivityLoadingOverlay({ message }: { message: string }) {
+  return (
+    <GameActivityOverlay>
+      <GameLoadingState message={message} variant="immersive" />
+    </GameActivityOverlay>
   );
 }

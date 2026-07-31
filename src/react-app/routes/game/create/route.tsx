@@ -8,6 +8,7 @@ import {
   type ProductRecordLike,
 } from '@app/components/feature/products';
 import { LingGen } from '@app/components/func/LingGen';
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { InkSection } from '@app/components/layout';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import {
@@ -22,8 +23,8 @@ import {
   InkTag,
 } from '@app/components/ui';
 import { ItemCard } from '@app/components/ui/ItemCard';
-import { usePlayerSession } from '@app/lib/resources/player';
 import { consumeResourceMutation } from '@app/lib/resources/mutations';
+import { usePlayerSession } from '@app/lib/resources/player';
 import {
   CHARACTER_GENERATION_DAILY_LIMIT,
   type CharacterGenerationQuota,
@@ -307,7 +308,7 @@ export default function CreatePage() {
       setGenerationQuota(aiResult.data.quota);
 
       pushToast({
-        message: '灵气汇聚，真形初现。正在推演气运...',
+        message: '灵气汇聚，真形初现。正在推演气运……',
         tone: 'success',
       });
 
@@ -457,11 +458,7 @@ export default function CreatePage() {
   const secondaryRows = chunkPairs(secondaryVisible);
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <InkNotice tone="info">检查道身状态……</InkNotice>
-      </div>
-    );
+    return <GameLoadingState message="检查道身状态……" variant="scene" />;
   }
 
   if (hasActiveCultivator) {
@@ -509,14 +506,15 @@ export default function CreatePage() {
                     variant="primary"
                     onClick={handleGenerateCharacter}
                     disabled={
-                      isGenerating ||
                       !trimmedPrompt ||
                       promptTooLong ||
                       promptTooShort ||
                       quotaExhausted
                     }
+                    pending={isGenerating}
+                    pendingLabel="灵气汇聚中……"
                   >
-                    {isGenerating ? '灵气汇聚中…' : '凝气成形'}
+                    凝气成形
                   </InkButton>
                 )}
                 {player && (
@@ -536,20 +534,18 @@ export default function CreatePage() {
                   {tempCultivatorId && (
                     <InkButton
                       variant="secondary"
-                      disabled={isGeneratingFates || remainingRerolls <= 0}
+                      disabled={remainingRerolls <= 0}
+                      pending={isGeneratingFates}
+                      pendingLabel="推演中……"
                       onClick={() => handleGenerateFates(tempCultivatorId)}
                     >
-                      {isGeneratingFates
-                        ? '推演中...'
-                        : `逆天改命 (${remainingRerolls})`}
+                      {`逆天改命 (${remainingRerolls})`}
                     </InkButton>
                   )}
                 </div>
 
                 {isGeneratingFates ? (
-                  <div className="text-ink-secondary py-8 text-center">
-                    <p>正在推演天机...</p>
-                  </div>
+                  <GameLoadingState message="正在推演天机……" variant="inline" />
                 ) : availableFates.length > 0 ? (
                   <InkList>
                     {availableFates.map((fate, idx) => {
@@ -894,9 +890,10 @@ export default function CreatePage() {
               <InkButton
                 variant="primary"
                 onClick={confirmSaveCharacter}
-                disabled={isSaving}
+                pending={isSaving}
+                pendingLabel="入世中……"
               >
-                {isSaving ? '入世中…' : '保存道身'}
+                保存道身
               </InkButton>
             </InkActionGroup>
           </div>

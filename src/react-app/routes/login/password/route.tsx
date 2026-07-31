@@ -149,10 +149,11 @@ export default function LoginPasswordRoute() {
         <InkButton
           type="submit"
           variant="primary"
-          disabled={loading}
+          pending={loading}
+          pendingLabel="登录中……"
           className="w-full text-center"
         >
-          {loading ? '登录中…' : '立即登录'}
+          立即登录
         </InkButton>
       </form>
     </AuthPageShell>

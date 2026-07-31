@@ -1,7 +1,14 @@
-import type { ItemDetailPayload } from '@app/components/feature/items';
 import { buildTalismanUseConfirmText } from '@app/components/feature/consumables';
+import type { ItemDetailPayload } from '@app/components/feature/items';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import type { InkDialogState } from '@app/components/ui/InkDialog';
+import {
+  inventoryArtifactsResource,
+  inventoryConsumablesResource,
+  inventoryMaterialsResource,
+} from '@app/lib/resources/definitions';
+import { useResource } from '@app/lib/resources/hooks';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   useCultivatorCondition,
   useCultivatorCurrency,
@@ -9,19 +16,13 @@ import {
   usePlayerLoadout,
   usePlayerSession,
 } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
-import {
-  inventoryArtifactsResource,
-  inventoryConsumablesResource,
-  inventoryMaterialsResource,
-} from '@app/lib/resources/definitions';
-import { useResource } from '@app/lib/resources/hooks';
 import { isAttributeResetTalismanScenario } from '@shared/config/attributeResetTalisman';
 import { isQiRestoreTalismanScenario } from '@shared/config/qiSystem';
 import {
   isPillConsumable,
   isTalismanConsumable,
 } from '@shared/lib/consumables';
+import type { CultivatorCondition } from '@shared/types/condition';
 import {
   QUALITY_ORDER,
   type ElementType,
@@ -29,7 +30,6 @@ import {
   type Quality,
   type RealmType,
 } from '@shared/types/constants';
-import type { CultivatorCondition } from '@shared/types/condition';
 import type {
   Artifact,
   Consumable,
@@ -110,6 +110,7 @@ export interface UseInventoryViewModelReturn {
   equipped: EquippedItems | null;
   isLoading: boolean;
   isTabLoading: boolean;
+  isTabRefreshing: boolean;
   note: string | undefined;
   pagination: InventoryPagination;
 
@@ -257,7 +258,8 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
       : activeTab === 'materials'
         ? materialsQuery
         : consumablesQuery;
-  const isTabLoading = activeQuery.loading || activeQuery.isRefreshing;
+  const isTabLoading = activeQuery.loading;
+  const isTabRefreshing = activeQuery.isRefreshing;
 
   // 打开物品详情
   const openItemDetail = useCallback((item: ItemDetailPayload) => {
@@ -330,7 +332,7 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
           </p>
         ),
         confirmLabel: '确认丢弃',
-        loadingLabel: '丢弃中...',
+        loadingLabel: '丢弃中……',
         onConfirm: async () => await handleDiscard(item, type),
       });
     },
@@ -438,7 +440,8 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
           content: (
             <div className="space-y-3 py-3 text-sm leading-7">
               <p className="text-center">
-                确认使用 <span className="font-bold">{usableItem.name}</span> 吗？
+                确认使用 <span className="font-bold">{usableItem.name}</span>{' '}
+                吗？
               </p>
               <div className="border-ink/10 bg-paper space-y-1 border border-dashed p-3">
                 <p className="text-ink-secondary text-xs font-bold">效用</p>
@@ -452,7 +455,7 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
             </div>
           ),
           confirmLabel: '确认使用',
-          loadingLabel: '使用中...',
+          loadingLabel: '使用中……',
           onConfirm: async () => await executeConsumableUse(usableItem),
         });
         return;
@@ -546,7 +549,7 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
           </p>
         ),
         confirmLabel: '确认鉴定',
-        loadingLabel: '鉴定中...',
+        loadingLabel: '鉴定中……',
         onConfirm: executeIdentify,
       });
     },
@@ -595,6 +598,7 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
     equipped,
     isLoading,
     isTabLoading,
+    isTabRefreshing,
     note,
     pagination,
 

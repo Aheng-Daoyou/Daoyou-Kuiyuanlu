@@ -1,4 +1,5 @@
 import {
+  GameLoadingState,
   GameSceneAsideSection,
   GameSceneFrame,
   GameSceneTabs,
@@ -13,19 +14,21 @@ import {
   InkListItem,
   InkNotice,
 } from '@app/components/ui';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   useCultivatorCurrency,
   usePlayerSession,
 } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
-import { getGameConceptInfo } from '@shared/lib/gameConceptDisplay';
-import { Material } from '@shared/types/cultivator';
-import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
 import {
   getMarketNodeSwitchOptions,
   getMarketProfileHint,
   resolveMarketSwitchLayer,
 } from '@shared/lib/game/marketConfig';
+import {
+  getGameConceptInfo,
+  getMaterialTypeInfo,
+} from '@shared/lib/gameConceptDisplay';
+import { Material } from '@shared/types/cultivator';
 import { MarketLayer } from '@shared/types/market';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -591,9 +594,7 @@ export default function MarketPage() {
       <div className="space-y-4">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <InkButton onClick={openMarketSwitchDialog}>
-              快捷切换
-            </InkButton>
+            <InkButton onClick={openMarketSwitchDialog}>快捷切换</InkButton>
             <InkButton
               onClick={() => {
                 setIsBatchMode(!isBatchMode);
@@ -637,8 +638,11 @@ export default function MarketPage() {
         <p className="text-ink-secondary mb-4 text-sm leading-6">
           下批好货刷新倒计时：{timeLeft}
         </p>
+        {isRefreshingMarket && listings.length > 0 ? (
+          <GameLoadingState message="坊市掌柜正在更新货单……" variant="inline" />
+        ) : null}
         {isLoadingMarket ? (
-          <div className="py-10 text-center">坊市掌柜正在盘货...</div>
+          <GameLoadingState message="坊市掌柜正在盘货……" variant="inline" />
         ) : listings.length > 0 ? (
           <InkList>
             {listings.map((item) => {
@@ -724,7 +728,10 @@ export default function MarketPage() {
             })}
           </InkList>
         ) : isRefreshingMarket ? (
-          <InkNotice>坊市掌柜正在盘货，请稍候片刻再来。</InkNotice>
+          <GameLoadingState
+            message="坊市掌柜正在盘货，请稍候片刻再来。"
+            variant="inline"
+          />
         ) : (
           <InkNotice>当前层级暂无货物，请等待下次刷新。</InkNotice>
         )}
@@ -737,10 +744,7 @@ export default function MarketPage() {
         dialog={buyConfirmDialog}
         onClose={() => setBuyConfirmDialog(null)}
       />
-      <InkDialog
-        dialog={switchDialog}
-        onClose={() => setSwitchDialog(null)}
-      />
+      <InkDialog dialog={switchDialog} onClose={() => setSwitchDialog(null)} />
     </GameSceneFrame>
   );
 }

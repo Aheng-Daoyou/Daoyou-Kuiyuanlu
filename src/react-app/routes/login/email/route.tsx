@@ -145,10 +145,11 @@ export default function LoginEmailRoute() {
         <InkButton
           type="submit"
           variant="primary"
-          disabled={loading}
+          pending={loading}
+          pendingLabel="发送中……"
           className="w-full text-center"
         >
-          {loading ? '发送中…' : '发送验证码'}
+          发送验证码
         </InkButton>
       </form>
     </AuthPageShell>

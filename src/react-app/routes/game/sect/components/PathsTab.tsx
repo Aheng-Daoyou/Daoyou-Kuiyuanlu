@@ -3,6 +3,7 @@ import {
   getSectPresentationForContext,
   useSectContextQuery,
 } from '@app/components/feature/sect/sectResources';
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import {
   InkButton,
   InkCard,
@@ -268,11 +269,14 @@ function PathDrawer({
     : undefined;
 
   if (!progressQuery.data || !currencyQuery.data) {
+    const error = progressQuery.error ?? currencyQuery.error;
     return (
       <InkDetailDrawer isOpen onClose={onClose} title={path.name}>
-        <InkNotice>
-          {progressQuery.error ?? currencyQuery.error ?? '正在读取修炼资源……'}
-        </InkNotice>
+        {error ? (
+          <InkNotice>{error}</InkNotice>
+        ) : (
+          <GameLoadingState message="正在读取修炼资源……" variant="inline" />
+        )}
       </InkDetailDrawer>
     );
   }
@@ -379,10 +383,11 @@ function PathDrawer({
         <InkButton onClick={() => setConfirmSave(false)}>返回检查</InkButton>
         <InkButton
           variant="primary"
-          disabled={busy}
+          pending={busy}
+          pendingLabel="保存中……"
           onClick={() => void saveDraft()}
         >
-          {busy ? '保存中' : '确认保存'}
+          确认保存
         </InkButton>
       </div>
     </div>
@@ -408,7 +413,8 @@ function PathDrawer({
     <div className="flex justify-end">
       <InkButton
         variant="primary"
-        disabled={busy}
+        pending={busy}
+        pendingLabel="设置中……"
         onClick={() =>
           void action(
             `/api/sects/current/paths/${path.id}/meridian-loadouts/${slot}/activate`,
@@ -416,7 +422,7 @@ function PathDrawer({
           )
         }
       >
-        {busy ? '设置中' : '设为当前方案'}
+        设为当前方案
       </InkButton>
     </div>
   ) : (
@@ -721,10 +727,12 @@ function UnlockFooter({
         {onCancel ? <InkButton onClick={onCancel}>返回</InkButton> : null}
         <InkButton
           variant="primary"
-          disabled={busy || Boolean(disabledReason)}
+          disabled={Boolean(disabledReason)}
+          pending={busy}
+          pendingLabel="参悟中……"
           onClick={onConfirm}
         >
-          {busy ? '参悟中' : `参悟${layer.label}`}
+          {`参悟${layer.label}`}
         </InkButton>
       </div>
     </div>
@@ -782,8 +790,13 @@ function PathOverviewFooter({
   if (active) return <p className="text-crimson text-sm">当前流派</p>;
   return (
     <div className="flex justify-end">
-      <InkButton variant="primary" disabled={busy} onClick={onActivate}>
-        {busy ? '切换中' : '设为当前流派'}
+      <InkButton
+        variant="primary"
+        pending={busy}
+        pendingLabel="切换中……"
+        onClick={onActivate}
+      >
+        设为当前流派
       </InkButton>
     </div>
   );

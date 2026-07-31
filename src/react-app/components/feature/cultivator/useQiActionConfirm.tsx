@@ -52,7 +52,7 @@ export function useQiActionConfirm() {
         ),
         confirmLabel,
         cancelLabel: '再想想',
-        loadingLabel: '行功中...',
+        loadingLabel: '行功中……',
         onConfirm,
       });
     },

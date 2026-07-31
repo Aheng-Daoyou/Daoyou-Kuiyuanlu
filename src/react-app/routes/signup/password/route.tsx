@@ -185,10 +185,11 @@ export default function SignupPasswordRoute() {
         <InkButton
           type="submit"
           variant="primary"
-          disabled={loading}
+          pending={loading}
+          pendingLabel="注册中……"
           className="w-full text-center"
         >
-          {loading ? '注册中…' : '注册并发送验证邮件'}
+          注册并发送验证邮件
         </InkButton>
       </form>
     </AuthPageShell>

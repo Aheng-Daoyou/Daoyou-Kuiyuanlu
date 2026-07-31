@@ -1,6 +1,7 @@
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
+import { TypewriterText } from '@app/components/ui/TypewriterText';
 import { useDivineFortune } from '@app/lib/hooks/useDivineFortune';
 import { cn } from '@shared/lib/utils';
-import { TypewriterText } from '@app/components/ui/TypewriterText';
 
 interface DivineFortuneProps {
   className?: string;
@@ -23,11 +24,11 @@ export function DivineFortune({
 
   if (isLoading) {
     return (
-      <div className={cn('py-8 text-center', className)}>
-        <p className="text-wood/70 animate-pulse text-lg">
-          正在推演天机……
-        </p>
-      </div>
+      <GameLoadingState
+        message="正在推演天机……"
+        variant="inline"
+        className={className}
+      />
     );
   }
 

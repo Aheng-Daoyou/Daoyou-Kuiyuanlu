@@ -1,3 +1,4 @@
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { InkModal } from '@app/components/layout';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkBadge } from '@app/components/ui/InkBadge';
@@ -232,7 +233,7 @@ export function WorldChatChannel() {
           }}
         >
           {loading ? (
-            <InkNotice>加载中……</InkNotice>
+            <GameLoadingState message="正在接引传音……" variant="inline" />
           ) : messages.length === 0 ? (
             <InkNotice>
               {activeChannel === 'system'
@@ -241,16 +242,20 @@ export function WorldChatChannel() {
                   ? '尚未拜入宗门，暂无宗门频道。'
                   : activeChannel === 'sect'
                     ? '暂无宗门传音。'
-                : activeChannel === 'world'
-                  ? '暂无世界传音。'
-                  : '暂无传音。'}
+                    : activeChannel === 'world'
+                      ? '暂无世界传音。'
+                      : '暂无传音。'}
             </InkNotice>
           ) : (
             <div>
               {hasMore ? (
                 <div className="mb-2 flex justify-center">
-                  <InkButton onClick={handleLoadMore} disabled={loadingMore}>
-                    {loadingMore ? '加载中...' : '加载更早消息'}
+                  <InkButton
+                    onClick={handleLoadMore}
+                    pending={loadingMore}
+                    pendingLabel="加载中……"
+                  >
+                    加载更早消息
                   </InkButton>
                 </div>
               ) : null}
@@ -286,9 +291,11 @@ export function WorldChatChannel() {
               <InkButton
                 variant="primary"
                 onClick={handleSend}
-                disabled={posting || charCount < 1}
+                disabled={charCount < 1}
+                pending={posting}
+                pendingLabel="传音中……"
               >
-                {posting ? '传音中...' : '发送'}
+                发送
               </InkButton>
             </div>
           </div>
@@ -329,7 +336,7 @@ export function WorldChatChannel() {
           />
 
           {showcaseLoading ? (
-            <InkNotice>读取储物袋中……</InkNotice>
+            <GameLoadingState message="正在读取储物袋……" variant="inline" />
           ) : currentShowcaseItems.length === 0 ? (
             <InkNotice>当前分类暂无可展示道具</InkNotice>
           ) : (

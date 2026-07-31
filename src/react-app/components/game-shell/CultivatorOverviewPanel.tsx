@@ -38,6 +38,7 @@ import { getEquipmentSlotInfo } from '@shared/lib/gameConceptDisplay';
 import type { Cultivator } from '@shared/types/cultivator';
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
+import { GameLoadingState } from './GameLoadingState';
 import { GameSceneSection } from './GameSceneSection';
 
 const PRIMARY_ATTRIBUTE_HELP = [
@@ -51,8 +52,7 @@ const PRIMARY_ATTRIBUTE_HELP = [
   },
   {
     label: attrLabel(AttributeType.SPEED),
-    description:
-      '提升身形腾挪，主要增加闪避与行动速度，并少量增加命中。',
+    description: '提升身形腾挪，主要增加闪避与行动速度，并少量增加命中。',
   },
   {
     label: attrLabel(AttributeType.WILLPOWER),
@@ -303,7 +303,7 @@ export function CultivatorOverviewPanel() {
         }
       >
         {sectContext.sessionLoading ? (
-          <p className="loading-tip">宗门名册正在核验……</p>
+          <GameLoadingState message="宗门名册正在核验……" variant="inline" />
         ) : !sectContext.hasSect ? (
           <InkNotice>尚未拜入宗门，当前仍以散修身份行走。</InkNotice>
         ) : sectContext.error ? (
@@ -316,7 +316,7 @@ export function CultivatorOverviewPanel() {
         ) : sectContext.data ? (
           <SectIdentityDetails context={sectContext.data} showJoinedAt />
         ) : (
-          <p className="loading-tip">身份玉牒正在显化……</p>
+          <GameLoadingState message="身份玉牒正在显化……" variant="inline" />
         )}
       </GameSceneSection>
 

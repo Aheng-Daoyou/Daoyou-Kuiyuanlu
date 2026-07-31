@@ -1,3 +1,4 @@
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { InkButton } from '@app/components/ui/InkButton';
 import type { QiLogEntry, QiLogsResponse } from '@shared/contracts/qi';
 import { useEffect, useState } from 'react';
@@ -118,7 +119,7 @@ export function QiLogsTab() {
       <div className="grid gap-4">
         {error ? <SettingsMessage type="error">{error}</SettingsMessage> : null}
         {isLoading && logs.length === 0 ? (
-          <SettingsMessage>读取中</SettingsMessage>
+          <GameLoadingState message="正在读取灵气审计……" variant="inline" />
         ) : null}
         {!isLoading && !error && logs.length === 0 ? (
           <SettingsMessage>暂无天地灵气审计日志</SettingsMessage>

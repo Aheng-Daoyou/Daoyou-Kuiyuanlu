@@ -22,6 +22,16 @@
 - 冷启动壳由 `index.html` 提供首字节后的静态反馈，React Router 根路由使用同构的 `AppBootScreen` 承接懒加载与初始 loader 阶段
 - `routes/game/components/` 只保留真正属于某个页面的私有组件；跨两个以上路由族复用的组件不得继续放在 `routes/**`
 
+## 加载体验归属
+
+- `index.html` 持有冷启动首帧结构、宣纸背景和 `.ink-loading-bar` 关键 CSS；React 组件不得另建同名动画或复制关键帧
+- `InkLoadingBar` 是玩家端唯一的未知进度动画原语，只负责 `ink`、`inverse`、`accent` 色调与 `boot`、`scene`、`inline`、`navigation` 尺寸
+- `GameLoadingState` 负责 `scene`、`inline`、`immersive`、`fullscreen` 四种状态层级以及 status/live/busy 可访问性；页面只传入场景化文案
+- `GameSceneLoading`、`GameImmersiveLoading`、`NarrativePerformanceLoading` 是面向既有调用方的语义入口，内部必须委托 `GameLoadingState`
+- `GameActivityLoadingOverlay` 只负责小游戏开始、运行时初始化与结算提交遮罩，并复用小游戏安全区覆盖层；玩法规则、Phaser 生命周期和任务协议不归加载组件管理
+- 首次无数据时才使用页面或区域占位；后台刷新必须保留已有内容，并在对应区域显示紧凑 `inline` 状态
+- 玩家端提交反馈统一使用 `InkButton.pending` 与场景化中文动作词；按钮内不放加载条。管理员后台不在本轮统一范围内
+
 ## 禁止项
 
 - 游戏页面不得新增 `InkPageShell` 依赖

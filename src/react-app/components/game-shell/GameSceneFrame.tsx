@@ -2,6 +2,7 @@ import { resolveGameScene } from '@app/lib/router/routeTitle';
 import { cn } from '@shared/lib/cn';
 import type { ReactNode } from 'react';
 import { useMatches } from 'react-router';
+import { GameLoadingState } from './GameLoadingState';
 import { getGameSceneGroupTitle } from './gameNavigation';
 import { resolveGameSceneFrameHeader } from './gameSceneFrameHeader';
 import { GameSceneHelpButton, type GameSceneHelp } from './GameSceneSection';
@@ -18,11 +19,7 @@ export interface GameSceneFrameProps {
 }
 
 export function GameSceneLoading({ message }: { message: string }) {
-  return (
-    <div className="flex h-full items-center justify-center px-4">
-      <p className="loading-tip">{message}</p>
-    </div>
-  );
+  return <GameLoadingState message={message} variant="scene" />;
 }
 
 function SceneSurface({

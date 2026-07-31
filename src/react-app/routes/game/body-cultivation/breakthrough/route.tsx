@@ -1,4 +1,9 @@
-import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
+import {
+  GameLoadingState,
+  GameSceneFrame,
+  GameSceneLoading,
+  GameSceneSection,
+} from '@app/components/game-shell';
 import { InkModal } from '@app/components/layout';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import {
@@ -318,7 +323,9 @@ function SelectionModal({
       }
     >
       <div className="space-y-4">
-        {isLoading ? <InkNotice>正在检索可用资材……</InkNotice> : null}
+        {isLoading ? (
+          <GameLoadingState message="正在检索可用资材……" variant="inline" />
+        ) : null}
         {error ? (
           <InkNotice tone="danger">
             {error}
@@ -649,11 +656,7 @@ export default function BodyCultivationBreakthroughPage() {
   };
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">正在读取肉身状态……</p>
-      </div>
-    );
+    return <GameSceneLoading message="正在读取肉身状态……" />;
   }
 
   if (!cultivator || !preview) {
@@ -772,12 +775,12 @@ export default function BodyCultivationBreakthroughPage() {
               <InkButton
                 type="button"
                 variant="primary"
-                disabled={
-                  !allCostsMet || submitting || result?.success === true
-                }
+                disabled={!allCostsMet || result?.success === true}
+                pending={submitting}
+                pendingLabel="破限中……"
                 onClick={submitBreakthrough}
               >
-                {submitting ? '破限中' : '确认突破'}
+                确认突破
               </InkButton>
               <InkButton href="/game/body-cultivation" variant="secondary">
                 返回详情

@@ -121,10 +121,11 @@ export default function ForgotPasswordRoute() {
         <InkButton
           type="submit"
           variant="primary"
-          disabled={loading}
+          pending={loading}
+          pendingLabel="发送中……"
           className="w-full text-center"
         >
-          {loading ? '发送中…' : '发送重设链接'}
+          发送重设链接
         </InkButton>
       </form>
     </AuthPageShell>

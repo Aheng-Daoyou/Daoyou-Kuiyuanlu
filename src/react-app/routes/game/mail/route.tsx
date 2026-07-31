@@ -1,4 +1,5 @@
 import {
+  GameLoadingState,
   GameSceneAsideSection,
   GameSceneFrame,
 } from '@app/components/game-shell';
@@ -11,13 +12,13 @@ import { InkButton } from '@app/components/ui/InkButton';
 import { InkInput } from '@app/components/ui/InkInput';
 import { InkNotice } from '@app/components/ui/InkNotice';
 import { InkSelect } from '@app/components/ui/InkSelect';
-import { usePlayerSession } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   useArtifactInventoryResource,
   useConsumableInventoryResource,
   useMaterialInventoryResource,
 } from '@app/lib/resources/inventory';
+import { useResourceMutation } from '@app/lib/resources/mutations';
+import { usePlayerSession } from '@app/lib/resources/player';
 import { isPillConsumable } from '@shared/lib/consumables';
 import { QUALITY_ORDER, type Quality } from '@shared/types/constants';
 import type { Artifact, Consumable, Material } from '@shared/types/cultivator';
@@ -151,21 +152,18 @@ export default function MailPage() {
   const [attachmentQuantity, setAttachmentQuantity] = useState('1');
   const materialInventory = useMaterialInventoryResource({
     pageSize: PAGE_SIZE,
-    enabled:
-      showAttachmentPicker && activeAttachmentType === 'material',
+    enabled: showAttachmentPicker && activeAttachmentType === 'material',
     materialRanks: TRANSFER_ALLOWED_QUALITIES,
     materialSortBy: 'rank',
     materialSortOrder: 'desc',
   });
   const artifactInventory = useArtifactInventoryResource({
     pageSize: PAGE_SIZE,
-    enabled:
-      showAttachmentPicker && activeAttachmentType === 'artifact',
+    enabled: showAttachmentPicker && activeAttachmentType === 'artifact',
   });
   const consumableInventory = useConsumableInventoryResource({
     pageSize: PAGE_SIZE,
-    enabled:
-      showAttachmentPicker && activeAttachmentType === 'consumable',
+    enabled: showAttachmentPicker && activeAttachmentType === 'consumable',
   });
   const activeAttachmentInventory =
     activeAttachmentType === 'material'
@@ -599,11 +597,10 @@ export default function MailPage() {
     consumableInventory.items,
     materialInventory.items,
   ]);
-  const currentAttachmentPagination =
-    activeAttachmentInventory.pagination ?? {
-      ...defaultAttachmentPagination,
-      page: activeAttachmentInventory.page,
-    };
+  const currentAttachmentPagination = activeAttachmentInventory.pagination ?? {
+    ...defaultAttachmentPagination,
+    page: activeAttachmentInventory.page,
+  };
   const attachmentLoading = activeAttachmentInventory.loading;
   const attachmentError = activeAttachmentInventory.error;
 
@@ -638,7 +635,11 @@ export default function MailPage() {
                 </InkButton>
               </div>
               {friendsLoading ? (
-                <p className="opacity-60">正在翻检名录...</p>
+                <GameLoadingState
+                  message="正在翻检名录……"
+                  variant="inline"
+                  className="min-h-0 py-2"
+                />
               ) : friends.length === 0 ? (
                 <p className="opacity-60">尚未收录道友。</p>
               ) : (
@@ -694,28 +695,34 @@ export default function MailPage() {
           </InkButton>
           <InkButton
             onClick={handleClaimAll}
-            disabled={batchClaiming || batchReading || mails.length === 0}
+            disabled={batchReading || mails.length === 0}
+            pending={batchClaiming}
+            pendingLabel="领取中……"
           >
-            {batchClaiming ? '领取中...' : '一键领取'}
+            一键领取
           </InkButton>
           <InkButton
             onClick={handleReadAll}
-            disabled={batchReading || batchClaiming || mails.length === 0}
+            disabled={batchClaiming || mails.length === 0}
+            pending={batchReading}
+            pendingLabel="处理中……"
           >
-            {batchReading ? '处理中...' : '全部已读'}
+            全部已读
           </InkButton>
         </div>
         {loading ? (
-          <div className="py-8 text-center text-sm opacity-50">
-            正在接收灵讯...
-          </div>
+          <GameLoadingState message="正在接收灵讯……" variant="inline" />
         ) : (
           <div className="space-y-4">
             <MailList mails={mails} onSelect={handleSelectMail} />
             {hasMore ? (
               <div className="flex justify-center pt-2">
-                <InkButton onClick={handleLoadMore} disabled={loadingMore}>
-                  {loadingMore ? '接收中...' : '加载更多'}
+                <InkButton
+                  onClick={handleLoadMore}
+                  pending={loadingMore}
+                  pendingLabel="接收中……"
+                >
+                  加载更多
                 </InkButton>
               </div>
             ) : null}
@@ -813,9 +820,11 @@ export default function MailPage() {
             <InkButton
               variant="primary"
               onClick={handleSendMail}
-              disabled={sending || friends.length === 0}
+              disabled={friends.length === 0}
+              pending={sending}
+              pendingLabel="发送中……"
             >
-              {sending ? '发送中...' : '发出'}
+              发出
             </InkButton>
           </div>
         </div>
@@ -839,9 +848,7 @@ export default function MailPage() {
             <InkNotice tone="danger">{attachmentError}</InkNotice>
           ) : null}
           {attachmentLoading ? (
-            <div className="py-8 text-center text-sm opacity-60">
-              正在翻检储物袋...
-            </div>
+            <GameLoadingState message="正在翻检储物袋……" variant="inline" />
           ) : currentAttachmentItems.length > 0 ? (
             <InkList>
               {currentAttachmentItems.map((item) => (
@@ -918,9 +925,7 @@ export default function MailPage() {
         title="收录道友"
       >
         {inviteLoading ? (
-          <div className="py-6 text-center text-sm opacity-60">
-            正在辨认玉简气息...
-          </div>
+          <GameLoadingState message="正在辨认玉简气息……" variant="inline" />
         ) : inviteTarget ? (
           <div className="space-y-4">
             <InkNotice tone="muted">

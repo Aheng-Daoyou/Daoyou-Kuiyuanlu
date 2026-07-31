@@ -1,5 +1,6 @@
 import Zhanji from '@app/components/func/Zhanji';
 import {
+  GameLoadingState,
   GameSceneAsideSection,
   GameSceneFrame,
   GameSceneTabs,
@@ -133,7 +134,7 @@ export default function BattleHistoryPage() {
         ]}
       />
       {loading ? (
-        <InkNotice>战绩加载中……</InkNotice>
+        <GameLoadingState message="战绩加载中……" variant="inline" />
       ) : !records.length ? (
         <InkNotice>暂无战斗记录。</InkNotice>
       ) : (

@@ -1,5 +1,6 @@
 import {
   GameSceneFrame,
+  GameSceneLoading,
   GameSceneNote,
   GameSceneSection,
   GameSceneTabs,
@@ -303,10 +304,11 @@ function RetreatCultivationPanel({
       <div className="flex flex-wrap gap-2">
         <InkButton
           onClick={onRetreat}
-          disabled={retreatLoading}
+          pending={retreatLoading}
+          pendingLabel="修炼中……"
           variant="primary"
         >
-          {retreatLoading ? '修炼中……' : '闭关修炼'}
+          闭关修炼
         </InkButton>
       </div>
     </div>
@@ -404,8 +406,12 @@ function BreakthroughPanel({
 
       <div className="flex flex-wrap gap-2">
         {canAttemptBreakthrough ? (
-          <InkButton onClick={onBreakthroughClick} disabled={retreatLoading}>
-            {retreatLoading ? '冲关中……' : '尝试突破'}
+          <InkButton
+            onClick={onBreakthroughClick}
+            pending={retreatLoading}
+            pendingLabel="冲关中……"
+          >
+            尝试突破
           </InkButton>
         ) : null}
       </div>
@@ -478,11 +484,7 @@ export function RetreatView({ sectContext }: RetreatViewProps) {
     ) : undefined;
 
   if (isLoading && !cultivator && !shouldHoldResultShell) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">洞府封闭中，稍候片刻……</p>
-      </div>
-    );
+    return <GameSceneLoading message="洞府封闭中，稍候片刻……" />;
   }
 
   if (!cultivator) {

@@ -9,8 +9,10 @@ import {
   WealthRankingCard,
 } from '@app/components/feature/ranking/RankingListItem';
 import {
+  GameLoadingState,
   GameSceneAsideSection,
   GameSceneFrame,
+  GameSceneLoading,
   GameSceneNote,
   GameSceneSection,
   GameSceneTabs,
@@ -185,9 +187,10 @@ function RankingEmptyState({
           <InkButton
             onClick={onDirectEntry}
             variant="primary"
-            disabled={challenging}
+            pending={challenging}
+            pendingLabel="登榜中……"
           >
-            {challenging ? '登榜中' : '登榜留名'}
+            登榜留名
           </InkButton>
         </div>
       </div>
@@ -527,11 +530,7 @@ export default function RankingsPage() {
   };
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">万界金榜刷新中……</p>
-      </div>
-    );
+    return <GameSceneLoading message="万界金榜刷新中……" />;
   }
 
   const myRank = myRankInfo?.rank;
@@ -699,9 +698,7 @@ export default function RankingsPage() {
         {!cultivator ? (
           <InkNotice>请先觉醒角色再来挑战万界金榜。</InkNotice>
         ) : loadingRankings ? (
-          <div className="text-muted animate-pulse py-12 text-center opacity-80">
-            <div>正在推演金榜天机...</div>
-          </div>
+          <GameLoadingState message="正在推演金榜天机……" variant="inline" />
         ) : isEmpty ? (
           <RankingEmptyState
             activeTab={activeTab}

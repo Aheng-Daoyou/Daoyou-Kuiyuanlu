@@ -10,8 +10,10 @@ import {
 } from '@app/components/feature/creation';
 import { useQiActionConfirm } from '@app/components/feature/cultivator/useQiActionConfirm';
 import {
+  GameLoadingState,
   GameSceneAsideSection,
   GameSceneFrame,
+  GameSceneLoading,
   GameSceneNote,
   GameSceneSection,
   GameSceneTabs,
@@ -32,12 +34,12 @@ import {
 } from '@app/components/ui';
 import { STARTER_ALCHEMY_PROMPT } from '@app/lib/alchemy/starterAlchemy';
 import { useTaskList } from '@app/lib/hooks/useTaskList';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   useCultivatorCurrency,
   useCultivatorIdentity,
   usePlayerSession,
 } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
 import { findNextTutorialTask } from '@app/lib/tasks/taskClient';
 import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
 import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
@@ -406,8 +408,13 @@ export function AlchemyFormulaAnalysisModal({
           <InkButton onClick={onClose} disabled={isCrafting}>
             稍后开炉
           </InkButton>
-          <InkButton variant="primary" onClick={onCraft} disabled={isCrafting}>
-            {isCrafting ? '丹火炼中……' : '确认开炉'}
+          <InkButton
+            variant="primary"
+            onClick={onCraft}
+            pending={isCrafting}
+            pendingLabel="丹火炼中……"
+          >
+            确认开炉
           </InkButton>
         </InkActionGroup>
       }
@@ -554,10 +561,11 @@ export function AlchemyFormulaListItem({
           <InkButton
             variant="ghost"
             onClick={onDelete}
-            disabled={isDeleting}
+            pending={isDeleting}
+            pendingLabel="删除中……"
             className="text-crimson hover:text-crimson/80 w-[6em] justify-center"
           >
-            {isDeleting ? '删除中……' : '删除'}
+            删除
           </InkButton>
         </div>
       </div>
@@ -664,7 +672,9 @@ export function AlchemyFormulaSelectionModal({
         </div>
 
         {error ? <InkNotice tone="warning">{error}</InkNotice> : null}
-        {isLoading ? <InkNotice>正在整理你的丹方笔录……</InkNotice> : null}
+        {isLoading ? (
+          <GameLoadingState message="正在整理你的丹方笔录……" variant="inline" />
+        ) : null}
         {!isLoading && formulas.length === 0 ? (
           <InkNotice tone="info">
             {search || familyFilter !== 'all'
@@ -836,9 +846,10 @@ export function AlchemyFormulaDiscoveryModal({
           <InkButton
             variant="primary"
             onClick={onAcceptDiscovery}
-            disabled={isHandlingDiscovery}
+            pending={isHandlingDiscovery}
+            pendingLabel="留方中……"
           >
-            {isHandlingDiscovery ? '留方中……' : '保存丹方'}
+            保存丹方
           </InkButton>
         </InkActionGroup>
       }
@@ -1699,11 +1710,7 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
   };
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">丹火温养中……</p>
-      </div>
-    );
+    return <GameSceneLoading message="丹火温养中……" />;
   }
 
   const headerStatus =
@@ -2050,12 +2057,10 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
                 !displayCanAfford ||
                 displayValidation?.valid === false
           }
+          pending={isSubmitting || isAnalyzingFormula}
+          pendingLabel={isSubmitting ? '丹火炼中……' : '推演中……'}
         >
-          {isFormulaMode
-            ? formulaPrimaryButtonLabel
-            : isSubmitting
-              ? '丹火炼中……'
-              : '开炉炼丹'}
+          {isFormulaMode ? formulaPrimaryButtonLabel : '开炉炼丹'}
         </InkButton>
       </InkActionGroup>
 

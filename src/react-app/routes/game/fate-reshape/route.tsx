@@ -1,9 +1,10 @@
 import { FateDetailModal } from '@app/components/feature/fates/FateDetailModal';
-import { FateEffectInlineList } from '@app/components/feature/fates/FateEffectInlineList';
 import { toFateDisplayModel } from '@app/components/feature/fates/FateDisplayAdapter';
+import { FateEffectInlineList } from '@app/components/feature/fates/FateEffectInlineList';
 import {
   GameSceneAsideSection,
   GameSceneFrame,
+  GameSceneLoading,
   GameSceneNote,
   GameSceneSection,
 } from '@app/components/game-shell';
@@ -17,11 +18,11 @@ import {
   InkTag,
   ItemCard,
 } from '@app/components/ui';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   useCultivatorIdentity,
   usePlayerSession,
 } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
 import type { PreHeavenFate } from '@shared/types/cultivator';
 import type { FateReshapeSessionDTO } from '@shared/types/fateReshape';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -76,36 +77,39 @@ export default function FateReshapePage() {
   >(null);
   const [isBooting, setIsBooting] = useState(true);
 
-  const loadSession = useCallback(async (showErrorToast = true) => {
-    if (!cultivator) {
-      setIsBooting(false);
-      return;
-    }
-
-    setIsBooting(true);
-    try {
-      const response = await fetch('/api/fate-reshape/session');
-      const result = (await response.json()) as SessionResponse;
-
-      if (!response.ok || !result.success || !result.data) {
-        throw new Error(result.error || '获取命格重塑状态失败');
+  const loadSession = useCallback(
+    async (showErrorToast = true) => {
+      if (!cultivator) {
+        setIsBooting(false);
+        return;
       }
 
-      setSession(result.data.session);
-      setTalismanCount(result.data.talismanCount);
-      setSelectedIndices([]);
-    } catch (error) {
-      if (showErrorToast) {
-        pushToast({
-          message:
-            error instanceof Error ? error.message : '获取命格重塑状态失败',
-          tone: 'danger',
-        });
+      setIsBooting(true);
+      try {
+        const response = await fetch('/api/fate-reshape/session');
+        const result = (await response.json()) as SessionResponse;
+
+        if (!response.ok || !result.success || !result.data) {
+          throw new Error(result.error || '获取命格重塑状态失败');
+        }
+
+        setSession(result.data.session);
+        setTalismanCount(result.data.talismanCount);
+        setSelectedIndices([]);
+      } catch (error) {
+        if (showErrorToast) {
+          pushToast({
+            message:
+              error instanceof Error ? error.message : '获取命格重塑状态失败',
+            tone: 'danger',
+          });
+        }
+      } finally {
+        setIsBooting(false);
       }
-    } finally {
-      setIsBooting(false);
-    }
-  }, [cultivator, pushToast]);
+    },
+    [cultivator, pushToast],
+  );
 
   useEffect(() => {
     if (!cultivator) {
@@ -245,8 +249,7 @@ export default function FateReshapePage() {
       });
     } catch (error) {
       pushToast({
-        message:
-          error instanceof Error ? error.message : '确认命格重塑失败',
+        message: error instanceof Error ? error.message : '确认命格重塑失败',
         tone: 'danger',
       });
     } finally {
@@ -275,8 +278,7 @@ export default function FateReshapePage() {
       await loadSession(false);
     } catch (error) {
       pushToast({
-        message:
-          error instanceof Error ? error.message : '放弃命格重塑失败',
+        message: error instanceof Error ? error.message : '放弃命格重塑失败',
         tone: 'danger',
       });
     } finally {
@@ -285,11 +287,7 @@ export default function FateReshapePage() {
   };
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">命格天机推演中……</p>
-      </div>
-    );
+    return <GameSceneLoading message="命格天机推演中……" />;
   }
 
   if (!cultivator) {
@@ -377,7 +375,9 @@ export default function FateReshapePage() {
                   key={`${fate.name}-${idx}`}
                   name={fate.name}
                   quality={fate.quality}
-                  meta={<FateEffectInlineList lines={fateDisplay.previewLines} />}
+                  meta={
+                    <FateEffectInlineList lines={fateDisplay.previewLines} />
+                  }
                   description={fate.description}
                   actions={
                     <InkButton
@@ -413,7 +413,10 @@ export default function FateReshapePage() {
             <div className="space-y-2 text-sm leading-6">
               <p>点击下方按钮后，会立刻消耗 1 张天机逆命符。</p>
               <p>天道会为你重塑 8 个新命格，你要从里面选 3 个</p>
-              <p>确认后，你现在的 3 个命格会被这 3 个新命格直接替换，也可以直接放弃，消耗不会返还。</p>
+              <p>
+                确认后，你现在的 3 个命格会被这 3
+                个新命格直接替换，也可以直接放弃，消耗不会返还。
+              </p>
             </div>
             {talismanCount <= 0 && (
               <InkNotice tone="warning">
@@ -424,11 +427,14 @@ export default function FateReshapePage() {
               <InkButton
                 variant="primary"
                 onClick={handleStart}
-                disabled={pendingAction !== null || talismanCount <= 0}
+                disabled={
+                  (pendingAction !== null && pendingAction !== 'start') ||
+                  talismanCount <= 0
+                }
+                pending={pendingAction === 'start'}
+                pendingLabel="启封中……"
               >
-                {pendingAction === 'start'
-                  ? '启封中…'
-                  : '消耗 1 张天机逆命符，开启重塑'}
+                消耗 1 张天机逆命符，开启重塑
               </InkButton>
             </InkActionGroup>
           </InkCard>
@@ -445,7 +451,9 @@ export default function FateReshapePage() {
                   </div>
                 </div>
                 <div className="border-ink/10 border border-dashed px-3 py-2">
-                  <div className="text-ink-secondary text-xs">天机将于此失效</div>
+                  <div className="text-ink-secondary text-xs">
+                    天机将于此失效
+                  </div>
                   <div className="text-ink text-lg font-semibold">
                     {formatExpireTime(session.expiresAt)}
                   </div>
@@ -465,16 +473,25 @@ export default function FateReshapePage() {
                 <InkButton
                   variant="secondary"
                   onClick={handleReroll}
-                  disabled={pendingAction !== null || !session.canReroll}
+                  disabled={
+                    (pendingAction !== null && pendingAction !== 'reroll') ||
+                    !session.canReroll
+                  }
+                  pending={pendingAction === 'reroll'}
+                  pendingLabel="重塑中……"
                 >
-                  {pendingAction === 'reroll' ? '重塑中…' : '再次重塑'}
+                  再次重塑
                 </InkButton>
                 <InkButton
                   variant="secondary"
                   onClick={handleAbandon}
-                  disabled={pendingAction !== null}
+                  disabled={
+                    pendingAction !== null && pendingAction !== 'abandon'
+                  }
+                  pending={pendingAction === 'abandon'}
+                  pendingLabel="放弃中……"
                 >
-                  {pendingAction === 'abandon' ? '放弃中…' : '放弃重塑'}
+                  放弃重塑
                 </InkButton>
               </div>
             </div>
@@ -551,9 +568,14 @@ export default function FateReshapePage() {
             <InkButton
               variant="primary"
               onClick={handleConfirm}
-              disabled={pendingAction !== null || selectedIndices.length !== 3}
+              disabled={
+                (pendingAction !== null && pendingAction !== 'confirm') ||
+                selectedIndices.length !== 3
+              }
+              pending={pendingAction === 'confirm'}
+              pendingLabel="替换中……"
             >
-              {pendingAction === 'confirm' ? '替换中…' : '确认全量替换 3 个命格'}
+              确认全量替换 3 个命格
             </InkButton>
           </InkActionGroup>
         </>

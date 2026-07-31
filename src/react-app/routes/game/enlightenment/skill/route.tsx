@@ -1,17 +1,19 @@
 import {
   CreationIntentPanel,
-  PendingCreationNotice,
   CreationProductResultModal,
   MaterialSelectionModal,
+  PendingCreationNotice,
   SelectedMaterialsWithDose,
   getPendingCreationReplaceHref,
-  type CreationProductResultRecord,
   usePendingCreationDialog,
   usePendingCreations,
+  type CreationProductResultRecord,
 } from '@app/components/feature/creation';
+import { useQiActionConfirm } from '@app/components/feature/cultivator/useQiActionConfirm';
 import {
   GameSceneAsideSection,
   GameSceneFrame,
+  GameSceneLoading,
   GameSceneNote,
   GameSceneSection,
 } from '@app/components/game-shell';
@@ -23,26 +25,24 @@ import {
   InkIdentifyCelebration,
   InkNotice,
 } from '@app/components/ui';
-import {
-  useQiActionConfirm,
-} from '@app/components/feature/cultivator/useQiActionConfirm';
-import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
-import { SELF_CREATED_SKILL_FREEZE_MESSAGE } from '@shared/config/selfCreatedSkillFreeze';
-import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
-import { getAllowedMaterialTypesForCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   useCultivatorIdentity,
   usePlayerSession,
 } from '@app/lib/resources/player';
+import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
+import { SELF_CREATED_SKILL_FREEZE_MESSAGE } from '@shared/config/selfCreatedSkillFreeze';
+import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
+import { getAllowedMaterialTypesForCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
 import { getGameConceptLabel } from '@shared/lib/gameConceptDisplay';
-import { useResourceMutation } from '@app/lib/resources/mutations';
 import type { Material } from '@shared/types/cultivator';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 
-
 const CRAFT_TYPE = 'create_skill' as const;
-const ALLOWED_MATERIAL_TYPES = [...getAllowedMaterialTypesForCraftType(CRAFT_TYPE)];
+const ALLOWED_MATERIAL_TYPES = [
+  ...getAllowedMaterialTypesForCraftType(CRAFT_TYPE),
+];
 const MAX_MATERIALS = CREATION_INPUT_CONSTRAINTS.maxMaterialKinds;
 const MIN_DOSE = CREATION_INPUT_CONSTRAINTS.minQuantityPerMaterial;
 const MAX_DOSE = CREATION_INPUT_CONSTRAINTS.maxQuantityPerMaterial;
@@ -75,13 +75,19 @@ type TargetPolicySelection = {
   maxTargets?: number;
 } | null;
 
-const TARGET_TEAM_OPTIONS: { value: 'enemy' | 'ally' | 'self' | 'any'; label: string }[] = [
+const TARGET_TEAM_OPTIONS: {
+  value: 'enemy' | 'ally' | 'self' | 'any';
+  label: string;
+}[] = [
   { value: 'enemy', label: '敌方' },
   { value: 'self', label: '自身' },
   { value: 'ally', label: '友方' },
 ];
 
-const TARGET_SCOPE_OPTIONS: { value: 'single' | 'aoe' | 'random'; label: string }[] = [
+const TARGET_SCOPE_OPTIONS: {
+  value: 'single' | 'aoe' | 'random';
+  label: string;
+}[] = [
   { value: 'single', label: '单体' },
   { value: 'aoe', label: '范围（AOE）' },
   { value: 'random', label: '随机' },
@@ -108,7 +114,8 @@ export default function SkillCreationPage() {
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
   const [celebrationTick, setCelebrationTick] = useState(0);
-  const [hasCreatedPendingReplace, setHasCreatedPendingReplace] = useState(false);
+  const [hasCreatedPendingReplace, setHasCreatedPendingReplace] =
+    useState(false);
   const [estimatedCost, setEstimatedCost] = useState<CostEstimate | null>(null);
   const [validation, setValidation] = useState<PreviewValidation | null>(null);
   const [canAfford, setCanAfford] = useState(true);
@@ -255,7 +262,10 @@ export default function SkillCreationPage() {
     }
 
     if (!targetPolicy) {
-      pushToast({ message: '请选择目标策略以确定神通施法方向。', tone: 'warning' });
+      pushToast({
+        message: '请选择目标策略以确定神通施法方向。',
+        tone: 'warning',
+      });
       return;
     }
 
@@ -316,20 +326,18 @@ export default function SkillCreationPage() {
   };
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">入定冥想中……</p>
-      </div>
-    );
+    return <GameSceneLoading message="入定冥想中……" />;
   }
 
   const targetPolicySummary = targetPolicy
     ? [
-        TARGET_TEAM_OPTIONS.find((option) => option.value === targetPolicy.team)?.label,
+        TARGET_TEAM_OPTIONS.find((option) => option.value === targetPolicy.team)
+          ?.label,
         targetPolicy.team === 'self'
           ? null
-          : TARGET_SCOPE_OPTIONS.find((option) => option.value === targetPolicy.scope)
-              ?.label,
+          : TARGET_SCOPE_OPTIONS.find(
+              (option) => option.value === targetPolicy.scope,
+            )?.label,
       ]
         .filter(Boolean)
         .join(' · ')
@@ -351,7 +359,9 @@ export default function SkillCreationPage() {
         <>
           <GameSceneAsideSection title="推演摘要">
             <div className="space-y-2 text-sm leading-7">
-              <p>已选材料：{selectedMaterialIds.length} / {MAX_MATERIALS}</p>
+              <p>
+                已选材料：{selectedMaterialIds.length} / {MAX_MATERIALS}
+              </p>
               <p>目标策略：{targetPolicySummary}</p>
               <p>预计感悟：{displayEstimatedCost?.comprehension ?? 0}</p>
             </div>
@@ -390,7 +400,10 @@ export default function SkillCreationPage() {
                   onClick={() =>
                     setTargetPolicy((prev) => ({
                       team: opt.value,
-                      scope: opt.value === 'self' ? 'single' : (prev?.scope ?? 'single'),
+                      scope:
+                        opt.value === 'self'
+                          ? 'single'
+                          : (prev?.scope ?? 'single'),
                     }))
                   }
                   selected={targetPolicy?.team === opt.value}
@@ -425,11 +438,18 @@ export default function SkillCreationPage() {
             <p className="text-ink-secondary text-xs">
               已指定：
               <span className="text-wood">
-                {TARGET_TEAM_OPTIONS.find((o) => o.value === targetPolicy.team)?.label}
+                {
+                  TARGET_TEAM_OPTIONS.find((o) => o.value === targetPolicy.team)
+                    ?.label
+                }
                 {targetPolicy.team !== 'self' && (
                   <>
                     ·
-                    {TARGET_SCOPE_OPTIONS.find((o) => o.value === targetPolicy.scope)?.label}
+                    {
+                      TARGET_SCOPE_OPTIONS.find(
+                        (o) => o.value === targetPolicy.scope,
+                      )?.label
+                    }
                   </>
                 )}
               </span>
@@ -493,13 +513,15 @@ export default function SkillCreationPage() {
         )}
 
         {displayValidation?.blockingReason && (
-          <InkNotice tone="warning">{displayValidation.blockingReason}</InkNotice>
+          <InkNotice tone="warning">
+            {displayValidation.blockingReason}
+          </InkNotice>
         )}
         {displayValidation &&
           displayValidation.valid &&
           displayValidation.warnings.length > 0 && (
-          <InkNotice tone="info">{displayValidation.warnings[0]}</InkNotice>
-        )}
+            <InkNotice tone="info">{displayValidation.warnings[0]}</InkNotice>
+          )}
       </GameSceneSection>
 
       <GameSceneSection title="开始推演">
@@ -511,15 +533,16 @@ export default function SkillCreationPage() {
             variant="primary"
             onClick={handleSubmit}
             disabled={
-              isSubmitting ||
               selectedMaterialIds.length === 0 ||
               !targetPolicy ||
               !!pendingReplaceHref ||
               !displayCanAfford ||
               displayValidation?.valid === false
             }
+            pending={isSubmitting}
+            pendingLabel="推演中……"
           >
-            {isSubmitting ? '推演中……' : '开始推演'}
+            开始推演
           </InkButton>
         </InkActionGroup>
       </GameSceneSection>

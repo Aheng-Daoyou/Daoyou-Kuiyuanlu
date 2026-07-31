@@ -1,4 +1,5 @@
 import {
+  GameLoadingState,
   GameSceneAsideSection,
   GameSceneFrame,
   GameSceneSection,
@@ -6,7 +7,6 @@ import {
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkCard } from '@app/components/ui/InkCard';
 import { InkList, InkListItem } from '@app/components/ui/InkList';
-import { InkNotice } from '@app/components/ui/InkNotice';
 import { getResourceTypeLabel } from '@shared/lib/gameConceptDisplay';
 import { useEffect, useState } from 'react';
 
@@ -126,7 +126,9 @@ export default function DungeonHistoryPage() {
 
   const fetchHistory = async (page: number) => {
     try {
-      const res = await fetch(`/api/dungeon/history?page=${page}&pageSize=${pagination.pageSize}`);
+      const res = await fetch(
+        `/api/dungeon/history?page=${page}&pageSize=${pagination.pageSize}`,
+      );
       const data = await res.json();
       if (data.success) {
         setRecords(data.data.records);
@@ -172,7 +174,7 @@ export default function DungeonHistoryPage() {
         title="探险札记"
         description="副本骨架仍保持沉浸式，这页则作为常规卷宗页，专门整理已经发生过的探险过程与收获。"
       >
-        <InkNotice>翻阅旧事…</InkNotice>
+        <GameLoadingState message="正在翻阅旧事……" variant="inline" />
       </GameSceneFrame>
     );
   }
@@ -200,7 +202,10 @@ export default function DungeonHistoryPage() {
           <GameSceneAsideSection title="札记摘要">
             <div className="space-y-2 text-sm leading-7">
               <p>累计探险：{pagination.total} 次</p>
-              <p>当前页次：{pagination.page} / {Math.max(pagination.totalPages, 1)}</p>
+              <p>
+                当前页次：{pagination.page} /{' '}
+                {Math.max(pagination.totalPages, 1)}
+              </p>
             </div>
           </GameSceneAsideSection>
           <GameSceneAsideSection
@@ -280,7 +285,7 @@ export default function DungeonHistoryPage() {
                         if (entries.length === 0) {
                           // 降级处理：解析失败时显示原始日志
                           return (
-                            <pre className="bg-paper-dark text-ink/70 border border-dashed border-ink/10 p-2 text-xs whitespace-pre-wrap">
+                            <pre className="bg-paper-dark text-ink/70 border-ink/10 border border-dashed p-2 text-xs whitespace-pre-wrap">
                               {record.log || '暂无详细记录'}
                             </pre>
                           );

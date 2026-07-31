@@ -10,11 +10,11 @@ import {
   type SectNpcConversationRendererProps,
 } from '@app/components/feature/sect/room';
 import {
+  getSectPresentationForContext,
   useSectContextQuery,
   useSectContributionRankingQuery,
   useSectMembersQuery,
   useSectStipendQuery,
-  getSectPresentationForContext,
 } from '@app/components/feature/sect/sectResources';
 import { InkBadge, InkButton, InkNotice } from '@app/components/ui';
 import { useResourceMutation } from '@app/lib/resources/mutations';
@@ -159,9 +159,7 @@ function HallRegistryConversation({
       messages={messages}
       options={options}
       busy={session.phase === 'loading'}
-      error={
-        session.error ?? current.error ?? members.error ?? ranking.error
-      }
+      error={session.error ?? current.error ?? members.error ?? ranking.error}
       onSelectOption={(optionId) => {
         if (optionId === 'leave') onExit();
         else if (
@@ -255,11 +253,7 @@ const ACTIVITY_LABELS = {
   inactive: '较久未现身',
 } as const;
 
-function ActivityBadge({
-  state,
-}: {
-  state: keyof typeof ACTIVITY_LABELS;
-}) {
+function ActivityBadge({ state }: { state: keyof typeof ACTIVITY_LABELS }) {
   return (
     <InkBadge tone={state === 'online' ? 'accent' : 'default'}>
       {ACTIVITY_LABELS[state]}
@@ -292,9 +286,10 @@ function ContributionRankingWorkspace({
           <InkButton
             variant="secondary"
             onClick={onRefresh}
-            disabled={refreshing}
+            pending={refreshing}
+            pendingLabel="更新中……"
           >
-            {refreshing ? '更新中…' : '刷新'}
+            刷新
           </InkButton>
           <InkButton onClick={onBack}>收起榜单</InkButton>
         </div>
@@ -315,10 +310,7 @@ function ContributionRankingWorkspace({
             </thead>
             <tbody>
               {ranking.entries.map((entry) => (
-                <tr
-                  key={entry.cultivatorId}
-                  className="border-ink/10 border-b"
-                >
+                <tr key={entry.cultivatorId} className="border-ink/10 border-b">
                   <td className="p-2">第 {entry.rank} 名</td>
                   <td className="p-2 font-semibold">{entry.name}</td>
                   <td className="p-2">

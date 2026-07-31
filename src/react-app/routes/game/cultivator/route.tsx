@@ -1,6 +1,7 @@
 import {
   CultivatorOverviewPanel,
   GameSceneFrame,
+  GameSceneLoading,
 } from '@app/components/game-shell';
 import { InkButton, InkNotice } from '@app/components/ui';
 import { useCultivatorIdentity } from '@app/lib/resources/player';
@@ -11,11 +12,7 @@ export default function CultivatorPage() {
   const isLoading = profile.loading;
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">道友真形尚在凝聚……</p>
-      </div>
-    );
+    return <GameSceneLoading message="道友真形尚在凝聚……" />;
   }
 
   if (!cultivator) {

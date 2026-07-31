@@ -1,4 +1,6 @@
+import { ArtifactListCard } from '@app/components/feature/products';
 import {
+  GameLoadingState,
   GameSceneAsideSection,
   GameSceneFrame,
   GameSceneTabs,
@@ -11,25 +13,27 @@ import {
   InkListItem,
   InkNotice,
 } from '@app/components/ui';
-import { ArtifactListCard } from '@app/components/feature/products';
 import { TypewriterText } from '@app/components/ui/TypewriterText';
-import {
-  useCultivatorCurrency,
-  usePlayerLoadout,
-  usePlayerSession,
-} from '@app/lib/resources/player';
 import {
   useArtifactInventoryResource,
   useMaterialInventoryResource,
 } from '@app/lib/resources/inventory';
 import { useResourceMutation } from '@app/lib/resources/mutations';
+import {
+  useCultivatorCurrency,
+  usePlayerLoadout,
+  usePlayerSession,
+} from '@app/lib/resources/player';
+import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
 import { QUALITY_ORDER } from '@shared/types/constants';
 import type { Artifact, Material } from '@shared/types/cultivator';
-import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
 import type {
-  HighTierAppraisal, SellConfirmResponse, SellItemType, SellPreviewResponse, } from '@shared/types/market';
+  HighTierAppraisal,
+  SellConfirmResponse,
+  SellItemType,
+  SellPreviewResponse,
+} from '@shared/types/market';
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-
 
 interface SellApiError {
   error?: string;
@@ -292,7 +296,7 @@ export default function MarketRecyclePage() {
         ),
         confirmLabel: '确认回收',
         cancelLabel: '再想想',
-        loadingLabel: '交易中...',
+        loadingLabel: '交易中……',
         onConfirm: async () => await handleSellConfirm(preview),
       });
     },
@@ -405,7 +409,9 @@ export default function MarketRecyclePage() {
   const isMaterialTab = activeTab === 'materials';
   const isLoading = isMaterialTab ? materialLoading : artifactLoading;
   const isRefreshing = isMaterialTab ? materialRefreshing : artifactRefreshing;
-  const isInitialized = isMaterialTab ? materialInitialized : artifactInitialized;
+  const isInitialized = isMaterialTab
+    ? materialInitialized
+    : artifactInitialized;
   const listError = isMaterialTab ? materialError : artifactError;
   const pagination = isMaterialTab ? materialPagination : artifactPagination;
 
@@ -424,7 +430,10 @@ export default function MarketRecyclePage() {
             <div className="space-y-2 text-sm leading-7">
               <p>灵石余额：{currency.data?.spiritStones ?? '读取中'}</p>
               <p>当前页签：{isMaterialTab ? '材料回收' : '法宝回收'}</p>
-              <p>当前页次：{pagination.page} / {Math.max(pagination.totalPages, 1)}</p>
+              <p>
+                当前页次：{pagination.page} /{' '}
+                {Math.max(pagination.totalPages, 1)}
+              </p>
               {!isMaterialTab ? <p>已装备法宝：{equippedIds.size} 件</p> : null}
             </div>
           </GameSceneAsideSection>
@@ -481,35 +490,37 @@ export default function MarketRecyclePage() {
           <InkButton
             variant="primary"
             onClick={() => void handleBulkRecycle()}
-            disabled={isLoading || isRefreshing || isProcessing || bulkLoading}
+            disabled={isLoading || isRefreshing || isProcessing}
+            pending={bulkLoading}
+            pendingLabel="清点中……"
           >
-            {bulkLoading
-              ? '清点中…'
-              : isMaterialTab
-                ? '一键出售低阶材料'
-                : '一键出售低阶法宝'}
+            {isMaterialTab ? '一键出售低阶材料' : '一键出售低阶法宝'}
           </InkButton>
           <InkButton
             variant="secondary"
             onClick={() => void refreshCurrentTab()}
-            disabled={isLoading || isRefreshing}
+            disabled={isLoading}
+            pending={isRefreshing}
+            pendingLabel="刷新中……"
           >
-            {isRefreshing
-              ? '刷新中…'
-              : isMaterialTab
-                ? '刷新材料'
-                : '刷新法宝'}
+            {isMaterialTab ? '刷新材料' : '刷新法宝'}
           </InkButton>
         </div>
       </div>
 
       <div className="space-y-4">
+        {isRefreshing && hasItems ? (
+          <GameLoadingState message="鉴宝师正在更新名录……" variant="inline" />
+        ) : null}
         {!isInitialized && isLoading ? (
-          <InkNotice>
-            {isMaterialTab
-              ? '鉴宝师正在清点货架，请稍候……'
-              : '鉴宝师正在核对法宝名录，请稍候……'}
-          </InkNotice>
+          <GameLoadingState
+            message={
+              isMaterialTab
+                ? '鉴宝师正在清点货架，请稍候……'
+                : '鉴宝师正在核对法宝名录，请稍候……'
+            }
+            variant="inline"
+          />
         ) : listError ? (
           <InkNotice>{listError}</InkNotice>
         ) : !hasItems ? (
@@ -550,20 +561,11 @@ export default function MarketRecyclePage() {
                     <InkButton
                       variant="primary"
                       onClick={() => void handleSingleMaterialRecycle(item)}
-                      disabled={
-                        isProcessing ||
-                        bulkLoading ||
-                        isMystery ||
-                        pendingItemId === item.id
-                      }
+                      disabled={isProcessing || bulkLoading || isMystery}
+                      pending={pendingItemId === item.id}
+                      pendingLabel="鉴定中……"
                     >
-                      {pendingItemId === item.id
-                        ? '鉴定中…'
-                        : isMystery
-                          ? '待鉴定'
-                          : isLow
-                            ? '回收'
-                            : '鉴定回收'}
+                      {isMystery ? '待鉴定' : isLow ? '回收' : '鉴定回收'}
                     </InkButton>
                   }
                 />
@@ -585,20 +587,11 @@ export default function MarketRecyclePage() {
                     <InkButton
                       variant="primary"
                       onClick={() => void handleSingleArtifactRecycle(item)}
-                      disabled={
-                        isProcessing ||
-                        bulkLoading ||
-                        isEquipped ||
-                        pendingItemId === item.id
-                      }
+                      disabled={isProcessing || bulkLoading || isEquipped}
+                      pending={pendingItemId === item.id}
+                      pendingLabel="鉴评中……"
                     >
-                      {pendingItemId === item.id
-                        ? '鉴评中…'
-                        : isEquipped
-                          ? '不可回收'
-                          : isLow
-                            ? '回收'
-                            : '鉴定回收'}
+                      {isEquipped ? '不可回收' : isLow ? '回收' : '鉴定回收'}
                     </InkButton>
                   }
                 />
@@ -612,7 +605,9 @@ export default function MarketRecyclePage() {
             <InkButton
               disabled={pagination.page <= 1 || isLoading || isRefreshing}
               onClick={() =>
-                void (isMaterialTab ? goPrevMaterialPage() : goPrevArtifactPage())
+                void (isMaterialTab
+                  ? goPrevMaterialPage()
+                  : goPrevArtifactPage())
               }
             >
               上一页
@@ -627,7 +622,9 @@ export default function MarketRecyclePage() {
                 isRefreshing
               }
               onClick={() =>
-                void (isMaterialTab ? goNextMaterialPage() : goNextArtifactPage())
+                void (isMaterialTab
+                  ? goNextMaterialPage()
+                  : goNextArtifactPage())
               }
             >
               下一页

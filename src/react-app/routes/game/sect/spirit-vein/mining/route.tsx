@@ -1,4 +1,12 @@
 import {
+  GameActivityFullscreenRetry,
+  GameActivityLaunchGate,
+  GameActivityLoadingOverlay,
+  GameActivityOverlay,
+  GameActivityRotationNotice,
+  useGameActivityViewport,
+} from '@app/components/feature/game-activity';
+import {
   getSectPresentationForContext,
   useSectContextQuery,
   useSectTasksQuery,
@@ -9,13 +17,6 @@ import {
   readMiningResultOutcome,
   readMiningSessionOutcome,
 } from '@app/components/feature/sect/sectTaskOutcomeRegistry';
-import {
-  GameActivityFullscreenRetry,
-  GameActivityLaunchGate,
-  GameActivityOverlay,
-  GameActivityRotationNotice,
-  useGameActivityViewport,
-} from '@app/components/feature/game-activity';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkNotice } from '@app/components/ui';
 import {
@@ -200,8 +201,7 @@ export default function SectSpiritVeinMiningPage() {
   );
 
   useEffect(() => {
-    if (launchBlocked || started || (!taskData && !taskError))
-      return;
+    if (launchBlocked || started || (!taskData && !taskError)) return;
     const timer = window.setTimeout(() => void beginSession(taskData), 0);
     return () => window.clearTimeout(timer);
   }, [beginSession, launchBlocked, started, taskData, taskError]);
@@ -271,11 +271,7 @@ export default function SectSpiritVeinMiningPage() {
       if (controllerRef.current === controller)
         controllerRef.current = undefined;
     };
-  }, [
-    complete,
-    presentation.facilityLabels.spirit_vein,
-    session,
-  ]);
+  }, [complete, presentation.facilityLabels.spirit_vein, session]);
 
   useEffect(
     () => () => {
@@ -327,8 +323,8 @@ export default function SectSpiritVeinMiningPage() {
             {viewport.coarsePointer ? '分' : '得分'} {progress?.score ?? 0}
           </span>
           <span className="ml-3">
-            {viewport.coarsePointer ? '矿' : '灵矿'}{' '}
-            {progress?.collected ?? 0}/16
+            {viewport.coarsePointer ? '矿' : '灵矿'} {progress?.collected ?? 0}
+            /16
           </span>
           {progress?.destroyed ? (
             <span className="ml-3 text-orange-200">
@@ -379,13 +375,9 @@ export default function SectSpiritVeinMiningPage() {
           onExit={() => void exit()}
         />
       ) : starting || (!session && !operationError) ? (
-        <GameActivityOverlay>
-          <p className="loading-tip">灵索与矿场封签正在校准……</p>
-        </GameActivityOverlay>
+        <GameActivityLoadingOverlay message="灵索与矿场封签正在校准……" />
       ) : submitting ? (
-        <GameActivityOverlay>
-          <p className="loading-tip">正在验收灵索轨迹与矿藏……</p>
-        </GameActivityOverlay>
+        <GameActivityLoadingOverlay message="正在验收灵索轨迹与矿藏……" />
       ) : operationError ? (
         <GameActivityOverlay>
           <InkNotice>{operationError}</InkNotice>

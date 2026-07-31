@@ -1,4 +1,5 @@
 import Zhanji from '@app/components/func/Zhanji';
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkList } from '@app/components/ui/InkList';
 import { InkNotice } from '@app/components/ui/InkNotice';
@@ -56,7 +57,7 @@ export function RecentBattles() {
   }, []);
 
   if (loading) {
-    return <InkNotice>近期战绩加载中……</InkNotice>;
+    return <GameLoadingState message="近期战绩加载中……" variant="inline" />;
   }
 
   if (!records.length) {

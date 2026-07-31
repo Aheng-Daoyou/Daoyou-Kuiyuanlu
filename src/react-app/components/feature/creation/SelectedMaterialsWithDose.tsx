@@ -1,6 +1,7 @@
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { InkBadge, InkButton } from '@app/components/ui';
-import type { FormulaMaterialJudgment } from '@shared/types/consumable';
 import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
+import type { FormulaMaterialJudgment } from '@shared/types/consumable';
 import type { Material } from '@shared/types/cultivator';
 
 export interface SelectedMaterialsWithDoseProps {
@@ -105,9 +106,11 @@ export function SelectedMaterialsWithDose({
               key={id}
               className="border-ink/10 bg-bgpaper/55 flex items-center justify-between border border-dashed p-2"
             >
-              <span className="text-ink-secondary text-xs">
-                材料信息加载中…
-              </span>
+              <GameLoadingState
+                message="材料信息加载中……"
+                variant="inline"
+                className="min-h-0 flex-1 py-0"
+              />
               <InkButton
                 variant="secondary"
                 onClick={() => onRemove(id)}
@@ -165,9 +168,7 @@ export function SelectedMaterialsWithDose({
             </div>
 
             <div className="mt-2 flex items-center justify-between gap-2">
-              <span className="text-ink-secondary text-xs">
-                本次投入数量
-              </span>
+              <span className="text-ink-secondary text-xs">本次投入数量</span>
               <div className="flex items-center gap-2">
                 <InkButton
                   variant="secondary"

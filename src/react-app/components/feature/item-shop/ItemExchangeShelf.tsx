@@ -5,7 +5,7 @@ import {
   type ItemDetailPayload,
 } from '@app/components/feature/items';
 import { ArtifactListCard } from '@app/components/feature/products';
-import { GameSceneTabs } from '@app/components/game-shell';
+import { GameLoadingState, GameSceneTabs } from '@app/components/game-shell';
 import { InkBadge, InkButton, InkList, InkNotice } from '@app/components/ui';
 import { ItemCard } from '@app/components/ui/ItemCard';
 import {
@@ -17,8 +17,8 @@ import {
   getGameConceptInfo,
   getMaterialTypeInfo,
 } from '@shared/lib/gameConceptDisplay';
-import type { Artifact, Consumable, Material } from '@shared/types/cultivator';
 import { QUALITY_VALUES, type Quality } from '@shared/types/constants';
+import type { Artifact, Consumable, Material } from '@shared/types/cultivator';
 import { useMemo, useState } from 'react';
 
 type ShopTabKey = 'artifact' | 'pill' | 'talisman' | 'material';
@@ -34,7 +34,9 @@ const SHOP_TABS: Array<{
   { key: 'material', title: '灵材', emptyText: '暂无可兑换灵材。' },
 ];
 
-function toQualityTier(quality: string | null | undefined): Quality | undefined {
+function toQualityTier(
+  quality: string | null | undefined,
+): Quality | undefined {
   return QUALITY_VALUES.includes(quality as Quality)
     ? (quality as Quality)
     : undefined;
@@ -140,8 +142,7 @@ export function ItemExchangeShelf({
     () => SHOP_TABS.filter((tab) => counts[tab.key] > 0),
     [counts],
   );
-  const selectedTab =
-    counts[activeTab] > 0 ? activeTab : visibleTabs[0]?.key;
+  const selectedTab = counts[activeTab] > 0 ? activeTab : visibleTabs[0]?.key;
   const activeItems = selectedTab
     ? items.filter((item) => getShopTabKey(item) === selectedTab)
     : [];
@@ -160,8 +161,7 @@ export function ItemExchangeShelf({
     const canBuy =
       item.remainingPurchases !== 0 &&
       balance !== undefined &&
-      balance >= item.price &&
-      buyingId !== item.id;
+      balance >= item.price;
     return (
       <div className="flex w-full flex-wrap justify-end gap-2">
         <InkButton
@@ -175,17 +175,17 @@ export function ItemExchangeShelf({
           type="button"
           onClick={() => onBuy(item)}
           disabled={!canBuy}
+          pending={buyingId === item.id}
+          pendingLabel="兑换中……"
           variant={canBuy ? 'primary' : 'secondary'}
         >
-          {buyingId === item.id
-            ? '兑换中'
-            : item.remainingPurchases === 0
-              ? '本周已罄'
-              : balance === undefined
-                ? `${currencyInfo.label}读取中`
-                : balance < item.price
-                  ? `${currencyInfo.label}不足`
-                  : '兑换'}
+          {item.remainingPurchases === 0
+            ? '本周已罄'
+            : balance === undefined
+              ? `${currencyInfo.label}读取中`
+              : balance < item.price
+                ? `${currencyInfo.label}不足`
+                : '兑换'}
         </InkButton>
       </div>
     );
@@ -235,7 +235,9 @@ export function ItemExchangeShelf({
               <InkBadge tone="default">{material.element}</InkBadge>
             ) : null}
             {item.quantity > 1 ? (
-              <span className="text-ink-secondary text-sm">x{item.quantity}</span>
+              <span className="text-ink-secondary text-sm">
+                x{item.quantity}
+              </span>
             ) : null}
           </>
         }
@@ -250,8 +252,11 @@ export function ItemExchangeShelf({
     );
   };
 
-  if (loading) return <InkNotice tone="muted">{loadingText}</InkNotice>;
-  if (items.length === 0) return <InkNotice tone="muted">{emptyText}</InkNotice>;
+  if (loading) {
+    return <GameLoadingState message={loadingText} variant="inline" />;
+  }
+  if (items.length === 0)
+    return <InkNotice tone="muted">{emptyText}</InkNotice>;
 
   return (
     <>

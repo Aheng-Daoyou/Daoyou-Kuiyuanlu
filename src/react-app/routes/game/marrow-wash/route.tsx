@@ -1,24 +1,25 @@
 import {
-  GameSceneFrame,
-  GameSceneSection,
-} from '@app/components/game-shell';
-import { useInkUI } from '@app/components/providers/InkUIProvider';
-import { InkBadge, InkButton, InkNotice } from '@app/components/ui';
-import {
   getQiErrorMessage,
   useQiActionConfirm,
 } from '@app/components/feature/cultivator/useQiActionConfirm';
 import {
+  GameSceneFrame,
+  GameSceneLoading,
+  GameSceneSection,
+} from '@app/components/game-shell';
+import { useInkUI } from '@app/components/providers/InkUIProvider';
+import { InkBadge, InkButton, InkNotice } from '@app/components/ui';
+import { useResourceMutation } from '@app/lib/resources/mutations';
+import {
   useCultivatorCondition,
   useCultivatorIdentity,
 } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
+import type { PlayerIdentityCultivator } from '@shared/contracts/player';
 import {
   MARROW_WASH_BREAKTHROUGH_QI_COST,
   getMarrowWashSummary,
 } from '@shared/lib/marrowWash';
 import { useState } from 'react';
-import type { PlayerIdentityCultivator } from '@shared/contracts/player';
 
 function RootStrengthList({
   roots,
@@ -65,8 +66,7 @@ export default function MarrowWashPage() {
           realm: identity.realm,
           condition: condition.data,
           spiritual_roots: identity.spiritual_roots,
-          unallocated_attribute_points:
-            identity.unallocated_attribute_points,
+          unallocated_attribute_points: identity.unallocated_attribute_points,
         }
       : null;
   const isLoading = profile.loading || condition.loading;
@@ -76,11 +76,7 @@ export default function MarrowWashPage() {
   const [isBreakingThrough, setIsBreakingThrough] = useState(false);
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">正在观照洗髓进度……</p>
-      </div>
-    );
+    return <GameSceneLoading message="正在观照洗髓进度……" />;
   }
 
   if (!cultivator) {

@@ -3,6 +3,7 @@ import { InkUIProvider } from '@app/components/providers/InkUIProvider';
 import { PwaInstallProvider } from '@app/components/providers/PwaInstallProvider';
 import Link from '@app/components/router/AppLink';
 import { RouteDocumentTitle } from '@app/components/router/RouteDocumentTitle';
+import { InkLoadingBar } from '@app/components/ui/InkLoadingBar';
 import {
   isDynamicImportError,
   reloadIntoLatestVersion,
@@ -12,6 +13,7 @@ import {
   Outlet,
   ScrollRestoration,
   isRouteErrorResponse,
+  useLocation,
   useNavigation,
   useRouteError,
 } from 'react-router';
@@ -19,14 +21,28 @@ import {
 function NavigationIndicator() {
   const navigation = useNavigation();
   const isNavigating = navigation.state !== 'idle';
+  const location = useLocation();
+  const targetPath = navigation.location?.pathname ?? location.pathname;
+  const isAdmin = targetPath.startsWith('/admin');
+
+  if (isAdmin) {
+    return (
+      <div
+        aria-hidden="true"
+        className={`bg-crimson pointer-events-none fixed top-[env(safe-area-inset-top)] right-0 left-0 z-200 h-0.5 transition-opacity duration-150 ${
+          isNavigating ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
+    );
+  }
 
   return (
     <div
       aria-hidden="true"
-      className={`bg-crimson pointer-events-none fixed top-[env(safe-area-inset-top)] right-0 left-0 z-200 h-0.5 transition-opacity duration-150 ${
-        isNavigating ? 'opacity-100' : 'opacity-0'
-      }`}
-    />
+      className="pointer-events-none fixed top-[env(safe-area-inset-top)] right-0 left-0 z-200 h-0.5"
+    >
+      {isNavigating ? <InkLoadingBar tone="accent" size="navigation" /> : null}
+    </div>
   );
 }
 

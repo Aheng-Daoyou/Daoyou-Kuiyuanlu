@@ -41,7 +41,8 @@ export function TutorialTaskCard({
     task.snapshot.stages.find((stage) => stage.current) ??
     task.snapshot.stages[0] ??
     null;
-  const rewardSummary = task.snapshot.rewardSummary ?? task.metadata.rewardSummary ?? [];
+  const rewardSummary =
+    task.snapshot.rewardSummary ?? task.metadata.rewardSummary ?? [];
   const rewardClaimedAt =
     task.snapshot.rewardClaimedAt ?? task.metadata.rewardClaimedAt;
   const canClaim = task.status === 'completed' && !rewardClaimedAt;
@@ -86,12 +87,12 @@ export function TutorialTaskCard({
     >
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-base font-semibold tracking-[0.04em] text-ink">
+          <p className="text-ink text-base font-semibold tracking-[0.04em]">
             {task.snapshot.title}
           </p>
           <StatusPill text={statusText} tone={statusTone} />
         </div>
-        <p className="text-sm leading-7 text-ink-secondary">
+        <p className="text-ink-secondary text-sm leading-7">
           {currentStage?.description ?? task.snapshot.summary}
         </p>
       </div>
@@ -99,17 +100,22 @@ export function TutorialTaskCard({
       {currentStage ? (
         <div className="space-y-2 text-sm leading-7">
           {currentStage.objectives.map((objective) => (
-            <div key={objective.id} className="flex items-start justify-between gap-3">
+            <div
+              key={objective.id}
+              className="flex items-start justify-between gap-3"
+            >
               <div className="min-w-0">
                 <p className="text-ink">{objective.title}</p>
-                <p className="text-xs leading-6 text-ink-secondary">
+                <p className="text-ink-secondary text-xs leading-6">
                   {objective.progressText}
                 </p>
               </div>
               <span
                 className={cn(
                   'shrink-0 text-xs',
-                  objective.completed ? 'text-emerald-700' : 'text-ink-secondary',
+                  objective.completed
+                    ? 'text-emerald-700'
+                    : 'text-ink-secondary',
                 )}
               >
                 {objective.completed ? '已成' : '待办'}
@@ -120,27 +126,38 @@ export function TutorialTaskCard({
       ) : null}
 
       {rewardSummary.length > 0 ? (
-        <p className="text-xs leading-6 text-ink-secondary">
+        <p className="text-ink-secondary text-xs leading-6">
           阶段奖励：{rewardSummary.join('，')}
         </p>
       ) : null}
 
       <div className="flex flex-wrap gap-2">
         {canClaim ? (
-          <InkButton variant="primary" onClick={handleClaim} disabled={claiming}>
-            {claiming ? '领取中...' : '领取奖励'}
+          <InkButton
+            variant="primary"
+            onClick={handleClaim}
+            pending={claiming}
+            pendingLabel="领取中……"
+          >
+            领取奖励
           </InkButton>
         ) : null}
         {task.status !== 'completed' && currentStage
           ? currentStage.links.map((link) => (
-              <InkButton key={`${task.id}:${link.href}:${link.label}`} href={link.href}>
+              <InkButton
+                key={`${task.id}:${link.href}:${link.label}`}
+                href={link.href}
+              >
                 {link.label}
               </InkButton>
             ))
           : null}
         {rewardClaimedAt && currentStage
           ? currentStage.links.slice(0, 2).map((link) => (
-              <InkButton key={`${task.id}:done:${link.href}:${link.label}`} href={link.href}>
+              <InkButton
+                key={`${task.id}:done:${link.href}:${link.label}`}
+                href={link.href}
+              >
                 {link.label}
               </InkButton>
             ))

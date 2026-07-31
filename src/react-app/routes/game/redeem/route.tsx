@@ -1,4 +1,7 @@
-import { GameSceneAsideSection, GameSceneFrame } from '@app/components/game-shell';
+import {
+  GameSceneAsideSection,
+  GameSceneFrame,
+} from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkIdentifyCelebration } from '@app/components/ui/InkIdentifyCelebration';
@@ -78,8 +81,13 @@ export default function RedeemCodePage() {
         />
 
         <div className="flex flex-wrap gap-3">
-          <InkButton variant="primary" onClick={submit} disabled={loading}>
-            {loading ? '兑换中...' : '立即兑换'}
+          <InkButton
+            variant="primary"
+            onClick={submit}
+            pending={loading}
+            pendingLabel="兑换中……"
+          >
+            立即兑换
           </InkButton>
         </div>
 

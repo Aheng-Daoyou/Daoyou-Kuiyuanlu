@@ -1,3 +1,4 @@
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton } from '@app/components/ui';
 import {
@@ -289,7 +290,11 @@ export default function IdentityReshapePage() {
   if (loading) {
     return (
       <StageShell eyebrow="太乙司命 · 玉牒未明" title="改天换地">
-        <p className="text-center text-[#d5cbb7]">正在照见旧日姓名……</p>
+        <GameLoadingState
+          message="正在照见旧日姓名……"
+          variant="immersive"
+          className="min-h-40"
+        />
       </StageShell>
     );
   }
@@ -310,11 +315,13 @@ export default function IdentityReshapePage() {
           <div className="flex flex-wrap justify-center gap-5">
             <InkButton
               variant="primary"
-              disabled={talismanCount < 1 || pending === 'start'}
+              disabled={talismanCount < 1}
+              pending={pending === 'start'}
+              pendingLabel="符火燃起中……"
               onClick={() => void start()}
               className="text-[#f0c77b]"
             >
-              {pending === 'start' ? '符火燃起中……' : '启封问命'}
+              启封问命
             </InkButton>
             <InkButton href="/game/inventory" className="text-[#d9cfba]">
               返回储物袋
@@ -374,11 +381,12 @@ export default function IdentityReshapePage() {
               <>
                 <InkButton
                   variant="primary"
-                  disabled={pending === 'confirm'}
+                  pending={pending === 'confirm'}
+                  pendingLabel="玉牒落印中……"
                   onClick={() => void confirm()}
                   className="text-[#ef9a86]"
                 >
-                  {pending === 'confirm' ? '玉牒落印中……' : '确认覆盖旧身份'}
+                  确认覆盖旧身份
                 </InkButton>
                 <InkButton onClick={() => setConfirmingAdoption(false)}>
                   再看一眼
@@ -395,7 +403,8 @@ export default function IdentityReshapePage() {
               <p>放弃后候选将消失，符箓不会返还。</p>
               <div className="mt-2 flex gap-4">
                 <InkButton
-                  disabled={pending === 'abandon'}
+                  pending={pending === 'abandon'}
+                  pendingLabel="放弃中……"
                   onClick={() => void abandon()}
                 >
                   确认放弃
@@ -477,14 +486,13 @@ export default function IdentityReshapePage() {
         <div className="mt-6 flex flex-wrap gap-5">
           <InkButton
             variant="primary"
-            disabled={
-              pending === 'generate' ||
-              answers.length !== session.questions.length
-            }
+            disabled={answers.length !== session.questions.length}
+            pending={pending === 'generate'}
+            pendingLabel="司命推演中……"
             onClick={() => void generate()}
             className="text-[#f0c77b]"
           >
-            {pending === 'generate' ? '司命推演中……' : '推演新身世'}
+            推演新身世
           </InkButton>
           <InkButton
             onClick={() => setQuestionIndex(session.questions.length - 1)}

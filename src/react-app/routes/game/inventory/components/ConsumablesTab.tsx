@@ -5,12 +5,16 @@ import {
   isAttributeResetTalisman,
   isQiRestoreTalisman,
 } from '@app/components/feature/consumables';
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { InkButton, InkList, InkNotice } from '@app/components/ui';
-import { isPillConsumable, isTalismanConsumable } from '@shared/lib/consumables';
+import {
+  isPillConsumable,
+  isTalismanConsumable,
+} from '@shared/lib/consumables';
+import { getResourceTypeLabel } from '@shared/lib/gameConceptDisplay';
 import type { CultivatorCondition } from '@shared/types/condition';
 import type { RealmType } from '@shared/types/constants';
 import type { Consumable } from '@shared/types/cultivator';
-import { getResourceTypeLabel } from '@shared/lib/gameConceptDisplay';
 
 interface ConsumablesTabProps {
   consumables: Consumable[];
@@ -38,9 +42,10 @@ export function ConsumablesTab({
 }: ConsumablesTabProps) {
   if (isLoading) {
     return (
-      <InkNotice>
-        正在检索{getResourceTypeLabel('consumable')}记录，请稍候……
-      </InkNotice>
+      <GameLoadingState
+        message={`正在检索${getResourceTypeLabel('consumable')}记录，请稍候……`}
+        variant="inline"
+      />
     );
   }
 
@@ -84,27 +89,25 @@ export function ConsumablesTab({
                 </InkButton>
                 <InkButton
                   disabled={
-                    !item.id ||
-                    pendingId === item.id ||
-                    (!isDirectlyUsable && !canNavigateToScenario)
+                    !item.id || (!isDirectlyUsable && !canNavigateToScenario)
                   }
+                  pending={pendingId === item.id}
+                  pendingLabel="使用中……"
                   onClick={
                     canNavigateToScenario ? undefined : () => onConsume(item)
                   }
                   href={canNavigateToScenario ? scenarioHref : undefined}
                   variant="primary"
                 >
-                  {pendingId === item.id
-                    ? '使用中…'
-                    : canNavigateToScenario
-                      ? scenarioActionLabel
-                      : isTalisman
-                        ? isDirectlyUsable
-                          ? '使用'
-                          : '需前往玩法'
-                        : isDirectlyUsable
-                          ? '服用'
-                          : '暂未开放'}
+                  {canNavigateToScenario
+                    ? scenarioActionLabel
+                    : isTalisman
+                      ? isDirectlyUsable
+                        ? '使用'
+                        : '需前往玩法'
+                      : isDirectlyUsable
+                        ? '服用'
+                        : '暂未开放'}
                 </InkButton>
                 <InkButton variant="primary" onClick={() => onDiscard(item)}>
                   销毁

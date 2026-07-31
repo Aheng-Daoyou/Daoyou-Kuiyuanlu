@@ -1,5 +1,5 @@
-import { cn } from '@shared/lib/cn';
 import { InkModal } from '@app/components/layout/InkModal';
+import { cn } from '@shared/lib/cn';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { InkButton } from './InkButton';
@@ -41,7 +41,7 @@ export function InkDialog({ dialog, onClose }: InkDialogProps) {
     confirmLabel,
     cancelLabel,
     loading = false,
-    loadingLabel = '稍待...',
+    loadingLabel = '稍待……',
     onConfirm,
     onCancel,
   } = dialog;
@@ -71,7 +71,8 @@ export function InkDialog({ dialog, onClose }: InkDialogProps) {
           {effectiveConfirmLabel !== null ? (
             <InkButton
               variant="primary"
-              disabled={isBusy}
+              pending={isBusy}
+              pendingLabel={loadingLabel}
               onClick={async () => {
                 if (isBusy) return;
                 setIsExecuting(true);
@@ -83,7 +84,7 @@ export function InkDialog({ dialog, onClose }: InkDialogProps) {
                 onClose();
               }}
             >
-              {isBusy ? loadingLabel : effectiveConfirmLabel}
+              {effectiveConfirmLabel}
             </InkButton>
           ) : null}
         </div>

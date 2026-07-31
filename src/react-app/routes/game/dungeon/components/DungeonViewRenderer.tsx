@@ -1,21 +1,24 @@
-import { GameSceneSection } from '@app/components/game-shell';
+import { GameSceneLoading, GameSceneSection } from '@app/components/game-shell';
 import { InkSection } from '@app/components/layout';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkCard } from '@app/components/ui/InkCard';
 import { InkNotice } from '@app/components/ui/InkNotice';
+import { DungeonViewState } from '@app/lib/hooks/dungeon/useDungeonViewModel';
+import { DungeonAbandonBattleResult } from '@app/lib/hooks/dungeon/useEnemyProbe';
+import type { CultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import { isConditionStatusActive } from '@shared/lib/condition';
+import { getConditionStatusTemplate } from '@shared/lib/conditionStatusRegistry';
 import type {
   DungeonOption,
   DungeonRecoverAction,
   DungeonState,
 } from '@shared/lib/dungeon/types';
-import { canChallengeDungeonRealm, getMapNode } from '@shared/lib/game/mapSystem';
-import { isConditionStatusActive } from '@shared/lib/condition';
-import { getConditionStatusTemplate } from '@shared/lib/conditionStatusRegistry';
-import { DungeonViewState } from '@app/lib/hooks/dungeon/useDungeonViewModel';
-import { DungeonAbandonBattleResult } from '@app/lib/hooks/dungeon/useEnemyProbe';
-import type { Cultivator } from '@shared/types/cultivator';
-import type { CultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import {
+  canChallengeDungeonRealm,
+  getMapNode,
+} from '@shared/lib/game/mapSystem';
 import { evaluateNoviceReadiness } from '@shared/lib/noviceGuidance';
+import type { Cultivator } from '@shared/types/cultivator';
 import type { TaskInstance } from '@shared/types/task';
 import { DungeonSceneScreen } from '../dungeonScene';
 import {
@@ -25,20 +28,20 @@ import {
 import { BattlePreparation } from './BattlePreparation';
 import { BattleCallbackData, DungeonBattle } from './DungeonBattle';
 import { DungeonExploring } from './DungeonExploring';
-import { DungeonMapSelector } from './DungeonMapSelector';
-import { DungeonSettlement } from './DungeonSettlement';
 import { DungeonLooting } from './DungeonLooting';
+import { DungeonMapSelector } from './DungeonMapSelector';
 import { DungeonRunPanel } from './DungeonRunPanel';
+import { DungeonSettlement } from './DungeonSettlement';
 
 interface DungeonViewRendererProps {
   viewState: DungeonViewState;
   cultivator:
-    | Pick<
+    | (Pick<
         Cultivator,
         'id' | 'realm' | 'attributes' | 'condition' | 'equipped'
       > & {
         inventory: Pick<Cultivator['inventory'], 'artifacts'>;
-      }
+      })
     | null;
   displayResources?: CultivatorDisplaySnapshot['resources'];
   tasks: TaskInstance[];
@@ -49,9 +52,7 @@ interface DungeonViewRendererProps {
     quitDungeon: () => Promise<boolean>;
     continueLooting: () => Promise<void>;
     escapeLooting: () => Promise<void>;
-    recoverDungeon: (
-      action: DungeonRecoverAction,
-    ) => Promise<void>;
+    recoverDungeon: (action: DungeonRecoverAction) => Promise<void>;
     startBattle: (enemyName: string) => void;
     abandonBattle: (result: DungeonAbandonBattleResult) => Promise<void>;
     completeBattle: (data: BattleCallbackData | null) => void;
@@ -100,16 +101,15 @@ function renderPreparationNotice(
       : nodeRealm === cultivator.realm
         ? 'warning'
         : 'info';
-  const reminder =
-    readiness?.shouldBlock
-      ? readiness.reasons[0]
-      : realmRisk === 'danger'
-        ? `秘境要求${nodeRealm}，高于当前${cultivator.realm}境界。`
-        : statusNames
-          ? `当前有${statusNames}状态，出行前可先调息。`
-          : hpPercent < 60 || mpPercent < 60
-            ? '气血或法力偏低，出行前可先补足。'
-            : '状态平稳，可以出行；遇险时优先查探再决断。';
+  const reminder = readiness?.shouldBlock
+    ? readiness.reasons[0]
+    : realmRisk === 'danger'
+      ? `秘境要求${nodeRealm}，高于当前${cultivator.realm}境界。`
+      : statusNames
+        ? `当前有${statusNames}状态，出行前可先调息。`
+        : hpPercent < 60 || mpPercent < 60
+          ? '气血或法力偏低，出行前可先补足。'
+          : '状态平稳，可以出行；遇险时优先查探再决断。';
 
   return (
     <GameSceneSection
@@ -119,8 +119,12 @@ function renderPreparationNotice(
         content: (
           <div className="space-y-3 text-sm leading-7">
             <p>秘境推进以当前轮次、选项代价、危险度和结算结果为准。</p>
-            <p>气血、法力、异常状态用于出行前判断，不作为探索选项的通过条件。</p>
-            <p>遭遇强敌时可先查探；撤退会进入结算或离开流程，继续深入会提高风险与收益预期。</p>
+            <p>
+              气血、法力、异常状态用于出行前判断，不作为探索选项的通过条件。
+            </p>
+            <p>
+              遭遇强敌时可先查探；撤退会进入结算或离开流程，继续深入会提高风险与收益预期。
+            </p>
             <p>丹药仍通过储物袋等通用入口使用，不写入当前副本进度。</p>
           </div>
         ),
@@ -151,7 +155,7 @@ function renderPreparationNotice(
             </div>
             <div className="bg-ink/10 h-1.5 overflow-hidden">
               <div
-                className="bg-[var(--color-tier-xuan)] h-full"
+                className="h-full bg-[var(--color-tier-xuan)]"
                 style={{ width: `${mpPercent}%` }}
               />
             </div>
@@ -172,7 +176,13 @@ function renderPreparationNotice(
           </p>
         </div>
 
-        <p className={realmRisk === 'danger' || readiness?.shouldBlock ? 'text-crimson' : 'text-ink-secondary'}>
+        <p
+          className={
+            realmRisk === 'danger' || readiness?.shouldBlock
+              ? 'text-crimson'
+              : 'text-ink-secondary'
+          }
+        >
           {reminder}
         </p>
 
@@ -209,9 +219,7 @@ export function DungeonViewRenderer({
 
     return (
       <DungeonSceneScreen descriptor={descriptor}>
-        <div className="text-center">
-          <p className="loading-tip">{descriptor.loadingMessage}</p>
-        </div>
+        <GameSceneLoading message={descriptor.loadingMessage} />
       </DungeonSceneScreen>
     );
   }
@@ -274,7 +282,9 @@ export function DungeonViewRenderer({
 
   if (viewState.type === 'settlement') {
     return (
-      <DungeonSceneScreen descriptor={resolveDungeonSceneDescriptor('settlement')}>
+      <DungeonSceneScreen
+        descriptor={resolveDungeonSceneDescriptor('settlement')}
+      >
         <DungeonSettlement
           settlement={viewState.settlement}
           realGains={viewState.realGains}
@@ -287,7 +297,10 @@ export function DungeonViewRenderer({
   if (viewState.type === 'looting') {
     return (
       <DungeonSceneScreen
-        descriptor={resolveDungeonRunSceneDescriptor('looting', viewState.state)}
+        descriptor={resolveDungeonRunSceneDescriptor(
+          'looting',
+          viewState.state,
+        )}
       >
         <DungeonLooting
           state={viewState.state}
@@ -303,10 +316,9 @@ export function DungeonViewRenderer({
   }
 
   if (viewState.type === 'recoverable_error') {
-    const actionsAvailable = viewState.state.recoverableActions ?? [
-      'safe_retreat',
-      'force_quit',
-    ] satisfies DungeonRecoverAction[];
+    const actionsAvailable =
+      viewState.state.recoverableActions ??
+      (['safe_retreat', 'force_quit'] satisfies DungeonRecoverAction[]);
     const recoverActionLabels: Record<DungeonRecoverAction, string> = {
       retry: '重新推演',
       retry_continue: '重试推进',
@@ -333,9 +345,12 @@ export function DungeonViewRenderer({
       >
         <InkCard className="space-y-4 p-6">
           <div>
-            <h2 className="text-crimson mb-2 text-xl font-bold">秘境推演中断</h2>
+            <h2 className="text-crimson mb-2 text-xl font-bold">
+              秘境推演中断
+            </h2>
             <p className="text-ink-secondary leading-7">
-              {viewState.state.statusReason || '当前副本状态可恢复，请选择后续处理方式。'}
+              {viewState.state.statusReason ||
+                '当前副本状态可恢复，请选择后续处理方式。'}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -408,7 +423,9 @@ export function DungeonViewRenderer({
         : null;
 
     return (
-      <DungeonSceneScreen descriptor={resolveDungeonSceneDescriptor('map_selection')}>
+      <DungeonSceneScreen
+        descriptor={resolveDungeonSceneDescriptor('map_selection')}
+      >
         <InkCard className="mb-6 p-6">
           <div className="space-y-4 text-center">
             <div className="my-4 text-6xl">🏔️</div>

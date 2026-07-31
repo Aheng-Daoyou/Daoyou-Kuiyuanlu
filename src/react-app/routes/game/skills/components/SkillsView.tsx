@@ -9,6 +9,7 @@ import {
 import {
   GameSceneAsideSection,
   GameSceneFrame,
+  GameSceneLoading,
   GameSceneNote,
 } from '@app/components/game-shell';
 import { InkButton, InkDialog, InkNotice } from '@app/components/ui';
@@ -47,11 +48,7 @@ export function SkillsView() {
   const sectSkillLocked = membership.data?.status === 'active';
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">神通卷轴徐徐展开……</p>
-      </div>
-    );
+    return <GameSceneLoading message="神通卷轴徐徐展开……" />;
   }
 
   return (
@@ -111,16 +108,12 @@ export function SkillsView() {
                         详情
                       </InkButton>
                       <InkButton
-                        disabled={
-                          pendingToggleId === skill.id || sectSkillLocked
-                        }
+                        disabled={sectSkillLocked}
+                        pending={pendingToggleId === skill.id}
+                        pendingLabel="处理中……"
                         onClick={() => toggleSkillEnabled(skill)}
                       >
-                        {pendingToggleId === skill.id
-                          ? '处理中…'
-                          : skill.isEquipped
-                            ? '停用'
-                            : '启用'}
+                        {skill.isEquipped ? '停用' : '启用'}
                       </InkButton>
                       <InkButton
                         className="text-crimson px-2"

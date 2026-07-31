@@ -1,5 +1,9 @@
 import { BodyCultivationDetailPanel } from '@app/components/feature/cultivator/BodyCultivationPanels';
-import { GameSceneFrame, GameSceneNote } from '@app/components/game-shell';
+import {
+  GameSceneFrame,
+  GameSceneLoading,
+  GameSceneNote,
+} from '@app/components/game-shell';
 import { InkButton, InkNotice } from '@app/components/ui';
 import {
   useCultivatorIdentity,
@@ -14,11 +18,7 @@ export default function BodyCultivationPage() {
   const note = session.data?.note;
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">正在读取炼体信息……</p>
-      </div>
-    );
+    return <GameSceneLoading message="正在读取炼体信息……" />;
   }
 
   if (!cultivator) {

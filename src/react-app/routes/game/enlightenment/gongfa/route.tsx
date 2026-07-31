@@ -1,17 +1,19 @@
 import {
   CreationIntentPanel,
-  PendingCreationNotice,
   CreationProductResultModal,
   MaterialSelectionModal,
+  PendingCreationNotice,
   SelectedMaterialsWithDose,
   getPendingCreationReplaceHref,
-  type CreationProductResultRecord,
   usePendingCreationDialog,
   usePendingCreations,
+  type CreationProductResultRecord,
 } from '@app/components/feature/creation';
+import { useQiActionConfirm } from '@app/components/feature/cultivator/useQiActionConfirm';
 import {
   GameSceneAsideSection,
   GameSceneFrame,
+  GameSceneLoading,
   GameSceneNote,
   GameSceneSection,
 } from '@app/components/game-shell';
@@ -22,25 +24,23 @@ import {
   InkIdentifyCelebration,
   InkNotice,
 } from '@app/components/ui';
-import {
-  useQiActionConfirm,
-} from '@app/components/feature/cultivator/useQiActionConfirm';
-import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
-import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
-import { getAllowedMaterialTypesForCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   useCultivatorIdentity,
   usePlayerSession,
 } from '@app/lib/resources/player';
+import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
+import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
+import { getAllowedMaterialTypesForCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
 import { getGameConceptLabel } from '@shared/lib/gameConceptDisplay';
-import { useResourceMutation } from '@app/lib/resources/mutations';
 import type { Material } from '@shared/types/cultivator';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 
-
 const CRAFT_TYPE = 'create_gongfa' as const;
-const ALLOWED_MATERIAL_TYPES = [...getAllowedMaterialTypesForCraftType(CRAFT_TYPE)];
+const ALLOWED_MATERIAL_TYPES = [
+  ...getAllowedMaterialTypesForCraftType(CRAFT_TYPE),
+];
 const MAX_MATERIALS = CREATION_INPUT_CONSTRAINTS.maxMaterialKinds;
 const MIN_DOSE = CREATION_INPUT_CONSTRAINTS.minQuantityPerMaterial;
 const MAX_DOSE = CREATION_INPUT_CONSTRAINTS.maxQuantityPerMaterial;
@@ -88,7 +88,8 @@ export default function GongfaCreationPage() {
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
   const [celebrationTick, setCelebrationTick] = useState(0);
-  const [hasCreatedPendingReplace, setHasCreatedPendingReplace] = useState(false);
+  const [hasCreatedPendingReplace, setHasCreatedPendingReplace] =
+    useState(false);
   const [estimatedCost, setEstimatedCost] = useState<CostEstimate | null>(null);
   const [validation, setValidation] = useState<PreviewValidation | null>(null);
   const [canAfford, setCanAfford] = useState(true);
@@ -288,11 +289,7 @@ export default function GongfaCreationPage() {
   };
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">布置静室中……</p>
-      </div>
-    );
+    return <GameSceneLoading message="布置静室中……" />;
   }
 
   return (
@@ -311,7 +308,9 @@ export default function GongfaCreationPage() {
         <>
           <GameSceneAsideSection title="参悟摘要">
             <div className="space-y-2 text-sm leading-7">
-              <p>已选材料：{selectedMaterialIds.length} / {MAX_MATERIALS}</p>
+              <p>
+                已选材料：{selectedMaterialIds.length} / {MAX_MATERIALS}
+              </p>
               <p>预计感悟：{displayEstimatedCost?.comprehension ?? 0}</p>
               <p>待处理新法：{pendingReplaceHref ? '有' : '无'}</p>
             </div>
@@ -387,13 +386,15 @@ export default function GongfaCreationPage() {
         )}
 
         {displayValidation?.blockingReason && (
-          <InkNotice tone="warning">{displayValidation.blockingReason}</InkNotice>
+          <InkNotice tone="warning">
+            {displayValidation.blockingReason}
+          </InkNotice>
         )}
         {displayValidation &&
           displayValidation.valid &&
           displayValidation.warnings.length > 0 && (
-          <InkNotice tone="info">{displayValidation.warnings[0]}</InkNotice>
-        )}
+            <InkNotice tone="info">{displayValidation.warnings[0]}</InkNotice>
+          )}
       </GameSceneSection>
 
       <GameSceneSection title="开始参悟">
@@ -405,14 +406,15 @@ export default function GongfaCreationPage() {
             variant="primary"
             onClick={handleSubmit}
             disabled={
-              isSubmitting ||
               selectedMaterialIds.length === 0 ||
               !!pendingReplaceHref ||
               !displayCanAfford ||
               displayValidation?.valid === false
             }
+            pending={isSubmitting}
+            pendingLabel="参悟中……"
           >
-            {isSubmitting ? '参悟中……' : '开始参悟'}
+            开始参悟
           </InkButton>
         </InkActionGroup>
       </GameSceneSection>

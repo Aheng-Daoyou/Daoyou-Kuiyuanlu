@@ -1,6 +1,11 @@
 import { BreakthroughTaskCard } from '@app/components/feature/tasks/BreakthroughTaskCard';
 import { TutorialTaskCard } from '@app/components/feature/tasks/TutorialTaskCard';
-import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
+import {
+  GameLoadingState,
+  GameSceneFrame,
+  GameSceneLoading,
+  GameSceneSection,
+} from '@app/components/game-shell';
 import { InkNotice } from '@app/components/ui';
 import { useTaskList } from '@app/lib/hooks/useTaskList';
 import { usePlayerSession } from '@app/lib/resources/player';
@@ -13,11 +18,7 @@ export function TasksView() {
   const { tasks, loading, error } = useTaskList(cultivator?.id);
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">卷宗尚在归档……</p>
-      </div>
-    );
+    return <GameSceneLoading message="卷宗尚在归档……" />;
   }
 
   if (!cultivator) {
@@ -40,7 +41,7 @@ export function TasksView() {
     >
       <GameSceneSection title="入门卷宗">
         {loading || !tasks ? (
-          <p className="text-ink-secondary text-sm">正在整理入门卷宗……</p>
+          <GameLoadingState message="正在整理入门卷宗……" variant="inline" />
         ) : error ? (
           <InkNotice>{error}</InkNotice>
         ) : (

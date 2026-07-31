@@ -35,8 +35,13 @@ export function TitleEditorModal({
         />
         <div className="mt-4 flex justify-end gap-2">
           <InkButton onClick={onClose}>取消</InkButton>
-          <InkButton variant="primary" onClick={onSave} disabled={isSaving}>
-            {isSaving ? '镌刻中...' : '确认修改'}
+          <InkButton
+            variant="primary"
+            onClick={onSave}
+            pending={isSaving}
+            pendingLabel="镌刻中……"
+          >
+            确认修改
           </InkButton>
         </div>
       </div>

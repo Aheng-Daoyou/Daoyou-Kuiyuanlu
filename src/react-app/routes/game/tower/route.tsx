@@ -1,4 +1,3 @@
-import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { CultivatorInspectionModal } from '@app/components/feature/cultivator-inspection';
 import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
 import {
@@ -7,12 +6,10 @@ import {
   GameSceneNote,
   GameSceneSection,
 } from '@app/components/game-shell';
-import {
-  mergeBattleUnitInitFragments,
-  prepareBattleContext,
-  projectBattleUnitEntryState,
-  type BattleEntryUnitState,
-} from '@shared/engine/battle-v5/setup/BattleStateStrategy';
+import { useInkUI } from '@app/components/providers/InkUIProvider';
+import { InkBadge } from '@app/components/ui/InkBadge';
+import { InkButton } from '@app/components/ui/InkButton';
+import { InkCard } from '@app/components/ui/InkCard';
 import {
   useTowerActions,
   type TowerProbeResponse,
@@ -20,15 +17,23 @@ import {
 import { useTowerLeaderboard } from '@app/lib/hooks/tower/useTowerLeaderboard';
 import { useTowerState } from '@app/lib/hooks/tower/useTowerState';
 import {
-  getTowerBlessingDefinition,
-  getTowerBlessingEffectPreview,
+  mergeBattleUnitInitFragments,
+  prepareBattleContext,
+  projectBattleUnitEntryState,
+  type BattleEntryUnitState,
+} from '@shared/engine/battle-v5/setup/BattleStateStrategy';
+import { buildConditionBattleUnitInitFragment } from '@shared/lib/conditionBattle';
+import { getConditionStatusTemplate } from '@shared/lib/conditionStatusRegistry';
+import {
   buildTowerBlessingAttributeModifiers,
   buildTowerEncounterAttributeModifiers,
+  getTowerBlessingDefinition,
+  getTowerBlessingEffectPreview,
+  isTowerRealmEligible,
   resolveTowerFloorKind,
   resolveTowerMilestoneTier,
-  isTowerRealmEligible,
-  TOWER_ELIGIBLE_REALMS,
   TOWER_DIFFICULTY_STEP,
+  TOWER_ELIGIBLE_REALMS,
   TOWER_MAX_FLOOR,
   TOWER_MIN_REALM,
   type TowerBlessingId,
@@ -36,12 +41,7 @@ import {
   type TowerSettlement,
   type TowerState,
 } from '@shared/lib/tower';
-import { buildConditionBattleUnitInitFragment } from '@shared/lib/conditionBattle';
-import { getConditionStatusTemplate } from '@shared/lib/conditionStatusRegistry';
 import type { RealmType } from '@shared/types/constants';
-import { InkButton } from '@app/components/ui/InkButton';
-import { InkBadge } from '@app/components/ui/InkBadge';
-import { InkCard } from '@app/components/ui/InkCard';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { TowerBlessingDetailModal } from './components/TowerBlessingDetailModal';
@@ -97,9 +97,10 @@ function formatFloorList(floors: number[]) {
 }
 
 function collectFloorsByKind(kind: 'elite' | 'boss') {
-  return Array.from({ length: TOWER_MAX_FLOOR }, (_, index) => index + 1).filter(
-    (floor) => resolveTowerFloorKind(floor) === kind,
-  );
+  return Array.from(
+    { length: TOWER_MAX_FLOOR },
+    (_, index) => index + 1,
+  ).filter((floor) => resolveTowerFloorKind(floor) === kind);
 }
 
 function getFloorSummaryCopy(args: {
@@ -284,10 +285,7 @@ function TowerRunStatusCard({
     : '暂无明显伤势，境中气息尚稳。';
 
   return (
-    <GameSceneSection
-      title="境内状态"
-      className="[&+&]:mt-4! [&+&]:pt-3"
-    >
+    <GameSceneSection title="境内状态" className="[&+&]:mt-4! [&+&]:pt-3">
       <InkCard className="space-y-3 p-4">
         <div className="space-y-2.5">
           <TowerRunResourceMeter
@@ -333,7 +331,8 @@ function TowerRunStatusCard({
                   className="border-ink/15 hover:border-crimson/35 hover:text-ink rounded-none border border-dashed px-2 py-0.5 text-left text-xs leading-6 transition-colors"
                   onClick={() => onOpenBlessing(item.id, item.stacks)}
                 >
-                  {item.definition.name} · {item.stacks}/{item.definition.maxStacks}
+                  {item.definition.name} · {item.stacks}/
+                  {item.definition.maxStacks}
                 </button>
               ))}
             </div>
@@ -369,7 +368,8 @@ function TowerReadyCard({
           <div className="flex justify-end">
             <InkButton
               variant="primary"
-              disabled={processing}
+              pending={processing}
+              pendingLabel="入境中……"
               onClick={() => void onStartRun()}
             >
               踏入本周幻境
@@ -384,7 +384,8 @@ function TowerReadyCard({
           <div className="flex justify-end">
             <InkButton
               variant="primary"
-              disabled={processing}
+              pending={processing}
+              pendingLabel="照见中……"
               onClick={() => void onProbeBattle()}
             >
               照见前路幻影
@@ -420,10 +421,11 @@ function TowerEncounterCard({
         <div className="flex justify-end">
           <InkButton
             variant="primary"
-            disabled={loading}
+            pending={loading}
+            pendingLabel="照见中……"
             onClick={onRetryProbe}
           >
-            {loading ? '照见中...' : '照见前路幻影'}
+            照见前路幻影
           </InkButton>
         </div>
       </InkCard>
@@ -508,9 +510,11 @@ function TowerBlessingChoices({
     );
   const focusedId =
     selectedBlessingId &&
-    state.pendingBlessingChoices.some((choice) => choice.id === selectedBlessingId)
+    state.pendingBlessingChoices.some(
+      (choice) => choice.id === selectedBlessingId,
+    )
       ? selectedBlessingId
-      : state.pendingBlessingChoices[0]?.id ?? null;
+      : (state.pendingBlessingChoices[0]?.id ?? null);
 
   return (
     <div className="grid gap-2.5 md:grid-cols-3">
@@ -557,7 +561,11 @@ function TowerBlessingChoices({
                   type="button"
                   className="text-ink-secondary hover:text-ink text-xs underline decoration-dotted underline-offset-4 transition-colors"
                   onClick={() =>
-                    onOpenDetail(choice.id, choice.currentStacks, choice.nextStacks)
+                    onOpenDetail(
+                      choice.id,
+                      choice.currentStacks,
+                      choice.nextStacks,
+                    )
                   }
                 >
                   查看详情
@@ -565,7 +573,8 @@ function TowerBlessingChoices({
                 {isFocused ? (
                   <InkButton
                     variant="primary"
-                    disabled={processing}
+                    pending={processing}
+                    pendingLabel="承接中……"
                     className="px-0 py-0 text-sm leading-6"
                     onClick={() => void onChoose(choice.id)}
                   >
@@ -666,14 +675,9 @@ export default function TowerPage() {
       },
       fragment: mergeBattleUnitInitFragments(
         {
-          modifiers: buildTowerBlessingAttributeModifiers(
-            towerState.blessings,
-          ),
+          modifiers: buildTowerBlessingAttributeModifiers(towerState.blessings),
         },
-        buildConditionBattleUnitInitFragment(
-          towerState.condition,
-          new Date(),
-        ),
+        buildConditionBattleUnitInitFragment(towerState.condition, new Date()),
       ),
     };
     if (!encounterProbe) {
@@ -719,7 +723,7 @@ export default function TowerPage() {
     const success = await resetRun();
     if (!success) return false;
     setPayload((current) =>
-      current?.season ?? leaderboardPayload?.season
+      (current?.season ?? leaderboardPayload?.season)
         ? {
             season: current?.season ?? leaderboardPayload!.season,
             state: null,
@@ -819,14 +823,17 @@ export default function TowerPage() {
           <div className="space-y-1.5">
             <div className="font-semibold">机缘与奖励</div>
             <p className="text-ink-secondary">
-              每次胜出后，都会从三道随机机缘里择一承接，只在本轮幻境内生效，不会带出境外。每逢第 5、10、15、20 层胜出时，会依次发放 C、B、A、S 级固定机缘；当前已实现的掉落池为灵石与修为，奖励强弱按你当时的大境界与该层凶险一并结算。
+              每次胜出后，都会从三道随机机缘里择一承接，只在本轮幻境内生效，不会带出境外。每逢第
+              5、10、15、20 层胜出时，会依次发放 C、B、A、S
+              级固定机缘；当前已实现的掉落池为灵石与修为，奖励强弱按你当时的大境界与该层凶险一并结算。
             </p>
           </div>
 
           <div className="space-y-1.5">
             <div className="font-semibold">本周重置</div>
             <p className="text-ink-secondary">
-              幻境按 Asia/Shanghai 自然周轮转，每周一 00:00 改换境门。你也可以手动重开当前进度，但本周已留在榜上的最高层不会因此抹去。
+              幻境按 Asia/Shanghai 自然周轮转，每周一 00:00
+              改换境门。你也可以手动重开当前进度，但本周已留在榜上的最高层不会因此抹去。
             </p>
           </div>
         </div>
@@ -899,16 +906,19 @@ export default function TowerPage() {
         title={TOWER_SCENE_NAME}
         variant="workflow"
         contentClassName="min-w-0 [&>*+*]:mt-3"
-        headerMeta={scenePulse ? (
-          <GameSceneNote>
-            <p className="text-sm leading-6">{scenePulse}</p>
-          </GameSceneNote>
-        ) : undefined}
+        headerMeta={
+          scenePulse ? (
+            <GameSceneNote>
+              <p className="text-sm leading-6">{scenePulse}</p>
+            </GameSceneNote>
+          ) : undefined
+        }
       >
         <GameSceneSection title="当前事件">
           <InkCard className="mb-0 p-4">
             <p className="text-ink-secondary text-sm leading-6">
-              蜃楼幻境仅向{minRealm}及以上境界开放。待道行稳固后，此境门自会显现。
+              蜃楼幻境仅向{minRealm}
+              及以上境界开放。待道行稳固后，此境门自会显现。
             </p>
           </InkCard>
         </GameSceneSection>
@@ -929,11 +939,13 @@ export default function TowerPage() {
         title={TOWER_SCENE_NAME}
         variant="workflow"
         contentClassName="min-w-0 [&>*+*]:mt-3"
-        headerMeta={scenePulse ? (
-          <GameSceneNote>
-            <p className="text-sm leading-6">{scenePulse}</p>
-          </GameSceneNote>
-        ) : undefined}
+        headerMeta={
+          scenePulse ? (
+            <GameSceneNote>
+              <p className="text-sm leading-6">{scenePulse}</p>
+            </GameSceneNote>
+          ) : undefined
+        }
       >
         <TowerFloorSummaryCard
           state={towerState}
@@ -941,10 +953,7 @@ export default function TowerPage() {
           onOpenGuide={handleOpenTowerGuide}
         />
 
-        <GameSceneSection
-          title="当前事件"
-          className="[&+&]:mt-4! [&+&]:pt-3"
-        >
+        <GameSceneSection title="当前事件" className="[&+&]:mt-4! [&+&]:pt-3">
           {!towerState || towerState.status === 'READY' ? (
             <TowerReadyCard
               state={towerState}

@@ -3,19 +3,23 @@ import { useCultivatorDisplayProjection } from '@app/components/feature/cultivat
 import { CaveQuickGrid } from '@app/components/feature/home/CaveQuickGrid';
 import { HomeAside } from '@app/components/feature/home/HomeAside';
 import { HomeUrgentRow } from '@app/components/feature/home/HomeUrgentRow';
-import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
+import {
+  GameSceneFrame,
+  GameSceneLoading,
+  GameSceneSection,
+} from '@app/components/game-shell';
 import { InkButton, InkNotice } from '@app/components/ui';
-import { useCultivatorProgress } from '@app/lib/resources/player';
 import { useTaskList } from '@app/lib/hooks/useTaskList';
-import { findCurrentMajorBreakthroughTask } from '@app/lib/tasks/taskClient';
+import { useCultivatorProgress } from '@app/lib/resources/player';
 import { getNextNoviceHomeAction } from '@app/lib/tasks/noviceHomeAction';
+import { findCurrentMajorBreakthroughTask } from '@app/lib/tasks/taskClient';
+import { getBodyCultivationSummary } from '@shared/lib/bodyCultivation/summary';
 import { getNextMajorRealm } from '@shared/lib/breakthroughPill';
 import {
   getPillToxicityStage,
   isConditionStatusActive,
 } from '@shared/lib/condition';
 import { getConditionStatusTemplate } from '@shared/lib/conditionStatusRegistry';
-import { getBodyCultivationSummary } from '@shared/lib/bodyCultivation/summary';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 function calculateYieldHours(lastYieldAt: Date | string | undefined) {
@@ -72,10 +76,7 @@ export function HomeView() {
     const currentMp = Math.max(0, Math.floor(mp?.current ?? maxMp));
     const activeStatuses = (cultivator.condition?.statuses ?? []).filter(
       (status) =>
-        isConditionStatusActive(
-          status,
-          projection.data?.now ?? new Date(),
-        ),
+        isConditionStatusActive(status, projection.data?.now ?? new Date()),
     );
     const pillToxicityStage = getPillToxicityStage(cultivator.condition);
     const cultivationProgress = cultivator.cultivation_progress;
@@ -113,17 +114,12 @@ export function HomeView() {
   }, [cultivator, display, projection.data?.now]);
 
   const currentMajorTask = useMemo(
-    () =>
-      tasks ? findCurrentMajorBreakthroughTask(cultivator, tasks) : null,
+    () => (tasks ? findCurrentMajorBreakthroughTask(cultivator, tasks) : null),
     [cultivator, tasks],
   );
 
   if (isLoading || tasksLoading || !tasks) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">正在推演天机……</p>
-      </div>
-    );
+    return <GameSceneLoading message="正在推演天机……" />;
   }
 
   if (!cultivator) {
@@ -203,7 +199,7 @@ export function HomeView() {
     const summary =
       currentMajorTask.status === 'completed'
         ? '准备充分，可冲关'
-        : '需准备充分，方可冲关'
+        : '需准备充分，方可冲关';
     urgentItems.push(
       <HomeUrgentRow
         key="major-breakthrough-task"

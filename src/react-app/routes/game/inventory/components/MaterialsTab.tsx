@@ -1,4 +1,4 @@
-import { GameSceneInset } from '@app/components/game-shell';
+import { GameLoadingState, GameSceneInset } from '@app/components/game-shell';
 import {
   InkBadge,
   InkButton,
@@ -8,6 +8,7 @@ import {
   inkFieldVariants,
 } from '@app/components/ui';
 import { cn } from '@shared/lib/cn';
+import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
 import {
   ELEMENT_VALUES,
   MATERIAL_TYPE_VALUES,
@@ -17,7 +18,6 @@ import {
   type Quality,
 } from '@shared/types/constants';
 import type { Material } from '@shared/types/cultivator';
-import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
 import { useState } from 'react';
 import type { MaterialFilters } from '../hooks/useInventoryViewModel';
 
@@ -171,7 +171,10 @@ export function MaterialsTab({
       </GameSceneInset>
 
       {isLoading ? (
-        <InkNotice>正在检索材料记录，请稍候……</InkNotice>
+        <GameLoadingState
+          message="正在检索材料记录，请稍候……"
+          variant="inline"
+        />
       ) : !materials || materials.length === 0 ? (
         <InkNotice>暂无符合筛选条件的修炼材料。</InkNotice>
       ) : (
@@ -223,10 +226,11 @@ export function MaterialsTab({
                     {isMystery && (
                       <InkButton
                         variant="primary"
-                        disabled={pendingId === item.id}
+                        pending={pendingId === item.id}
+                        pendingLabel="鉴定中……"
                         onClick={() => onIdentify(item)}
                       >
-                        {pendingId === item.id ? '鉴定中…' : '鉴定'}
+                        鉴定
                       </InkButton>
                     )}
                     <InkButton

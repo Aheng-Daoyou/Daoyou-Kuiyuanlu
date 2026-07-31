@@ -3,6 +3,12 @@ import {
   toPillDisplayModel,
 } from '@app/components/feature/consumables';
 import { CultivatorInspectionModal } from '@app/components/feature/cultivator-inspection';
+import {
+  ItemDetailModal,
+  toInventoryItemDetail,
+  type ItemDetailPayload,
+} from '@app/components/feature/items';
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { InkSection } from '@app/components/layout';
 import { InkModal } from '@app/components/layout/InkModal';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
@@ -19,22 +25,17 @@ import {
 import { tierColorMap, type Tier } from '@app/components/ui/InkBadge';
 import { ItemCard } from '@app/components/ui/ItemCard';
 import {
+  useArtifactInventoryResource,
+  useConsumableInventoryResource,
+  useMaterialInventoryResource,
+} from '@app/lib/resources/inventory';
+import { useResourceMutation } from '@app/lib/resources/mutations';
+import {
   useCultivatorCondition,
   useCultivatorCurrency,
   useCultivatorIdentity,
   usePlayerSession,
 } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
-import {
-  useArtifactInventoryResource,
-  useConsumableInventoryResource,
-  useMaterialInventoryResource,
-} from '@app/lib/resources/inventory';
-import {
-  ItemDetailModal,
-  toInventoryItemDetail,
-  type ItemDetailPayload,
-} from '@app/components/feature/items';
 import {
   TEMP_DISABLED_MESSAGES,
   temporaryRestrictions,
@@ -357,9 +358,7 @@ function useInventorySelector() {
     listError: activeInventory.error ?? listError,
     setListError,
     items,
-    pagination: activeInventory.pagination as
-      | InventoryPagination
-      | undefined,
+    pagination: activeInventory.pagination as InventoryPagination | undefined,
     fetchItemPage,
   };
 }
@@ -594,9 +593,10 @@ export default function BetBattlePage() {
               <InkButton
                 variant="secondary"
                 onClick={() => void handleProbe(item.creatorId)}
-                disabled={probingId === item.creatorId}
+                pending={probingId === item.creatorId}
+                pendingLabel="查探中……"
               >
-                {probingId === item.creatorId ? '查探中…' : '神识查探'}
+                神识查探
               </InkButton>
             )}
             {canChallenge && (
@@ -622,9 +622,10 @@ export default function BetBattlePage() {
                 <InkButton
                   variant="secondary"
                   onClick={() => void handleCancel(item.id)}
-                  disabled={pendingActionId === item.id}
+                  pending={pendingActionId === item.id}
+                  pendingLabel="处理中……"
                 >
-                  {pendingActionId === item.id ? '处理中' : '取消'}
+                  取消
                 </InkButton>
               )}
           </div>
@@ -690,9 +691,10 @@ export default function BetBattlePage() {
           {activeTab === 'hall' ? (
             <InkSection title="">
               {loadingHall ? (
-                <div className="border-battle-rule-strong border border-dashed bg-[rgba(248,243,230,0.88)] px-4 py-10 text-center">
-                  正在加载赌战列表...
-                </div>
+                <GameLoadingState
+                  message="正在加载赌战列表……"
+                  variant="inline"
+                />
               ) : hallListings.length === 0 ? (
                 <InkNotice>暂无进行中的赌战</InkNotice>
               ) : (
@@ -704,9 +706,10 @@ export default function BetBattlePage() {
           ) : (
             <InkSection title="">
               {loadingMine ? (
-                <div className="border-battle-rule-strong border border-dashed bg-[rgba(248,243,230,0.88)] px-4 py-10 text-center">
-                  正在加载我的赌战...
-                </div>
+                <GameLoadingState
+                  message="正在加载我的赌战……"
+                  variant="inline"
+                />
               ) : myListings.length === 0 ? (
                 <InkNotice>你还没有参与过赌战</InkNotice>
               ) : (
@@ -719,24 +722,24 @@ export default function BetBattlePage() {
         </div>
 
         {showCreateModal && cultivatorId && (
-              <BetBattleCreateModal
-                onClose={() => setShowCreateModal(false)}
-                onSuccess={(listing) => {
-                  setShowCreateModal(false);
-                  setHallListings((current) =>
-                    [
-                      listing,
-                      ...current.filter((item) => item.id !== listing.id),
-                    ].slice(0, PAGE_LIMIT),
-                  );
-                  setMyListings((current) =>
-                    [
-                      listing,
-                      ...current.filter((item) => item.id !== listing.id),
-                    ].slice(0, PAGE_LIMIT),
-                  );
-                }}
-              />
+          <BetBattleCreateModal
+            onClose={() => setShowCreateModal(false)}
+            onSuccess={(listing) => {
+              setShowCreateModal(false);
+              setHallListings((current) =>
+                [
+                  listing,
+                  ...current.filter((item) => item.id !== listing.id),
+                ].slice(0, PAGE_LIMIT),
+              );
+              setMyListings((current) =>
+                [
+                  listing,
+                  ...current.filter((item) => item.id !== listing.id),
+                ].slice(0, PAGE_LIMIT),
+              );
+            }}
+          />
         )}
 
         {challengeTarget && cultivatorId && (
@@ -916,9 +919,10 @@ function BetBattleCreateModal({
             <InkButton
               variant="primary"
               onClick={() => void handleSubmit()}
-              disabled={submitting}
+              pending={submitting}
+              pendingLabel="提交中……"
             >
-              {submitting ? '提交中' : '确认发起'}
+              确认发起
             </InkButton>
           )}
           <InkButton variant="ghost" onClick={onClose}>
@@ -931,7 +935,10 @@ function BetBattleCreateModal({
         <div className="space-y-3">
           <InkTabs
             items={[
-              { label: getResourceTypeLabel('spirit_stones'), value: 'spirit_stones' },
+              {
+                label: getResourceTypeLabel('spirit_stones'),
+                value: 'spirit_stones',
+              },
               { label: getResourceTypeLabel('material'), value: 'material' },
               { label: getResourceTypeLabel('artifact'), value: 'artifact' },
             ]}
@@ -960,7 +967,10 @@ function BetBattleCreateModal({
               {listError ? (
                 <InkNotice>{listError}</InkNotice>
               ) : currentItems === undefined ? (
-                <div className="py-8 text-center">正在读取背包物品...</div>
+                <GameLoadingState
+                  message="正在读取背包物品……"
+                  variant="inline"
+                />
               ) : currentItems.length === 0 ? (
                 <InkNotice>该分类暂无可押注物品</InkNotice>
               ) : (
@@ -1242,9 +1252,11 @@ function BetBattleChallengeModal({
           <InkButton
             variant="primary"
             onClick={() => void handleSubmit()}
-            disabled={submitting || isConsumableStakeDisabled}
+            disabled={isConsumableStakeDisabled}
+            pending={submitting}
+            pendingLabel="应战中……"
           >
-            {submitting ? '应战中' : '确认应战'}
+            确认应战
           </InkButton>
           <InkButton variant="ghost" onClick={onClose}>
             关闭
@@ -1286,7 +1298,7 @@ function BetBattleChallengeModal({
             {listError ? (
               <InkNotice>{listError}</InkNotice>
             ) : availableCandidates === undefined ? (
-              <div className="py-8 text-center">正在读取背包物品...</div>
+              <GameLoadingState message="正在读取背包物品……" variant="inline" />
             ) : (
               <InkList>
                 {availableCandidates.length === 0 ? (

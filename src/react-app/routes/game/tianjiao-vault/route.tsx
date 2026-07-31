@@ -4,8 +4,8 @@ import {
   GameSceneFrame,
 } from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
-import { useCultivatorCurrency } from '@app/lib/resources/player';
 import { useResourceMutation } from '@app/lib/resources/mutations';
+import { useCultivatorCurrency } from '@app/lib/resources/player';
 import type {
   ReputationShopBuyResponse,
   ReputationShopItemView,
@@ -114,7 +114,7 @@ export default function TianjiaoVaultPage() {
         buyingId={buyingId}
         onBuy={(item) => void handleBuy(item)}
         loading={loading}
-        loadingText="宝阁执事正在核验名册..."
+        loadingText="宝阁执事正在核验名册……"
         emptyText="宝阁今日暂未陈列可兑换之物。"
       />
     </GameSceneFrame>

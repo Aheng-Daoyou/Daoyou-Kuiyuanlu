@@ -1,11 +1,15 @@
 import { AttributeAllocationControl } from '@app/components/feature/cultivator/AttributeAllocationControl';
-import { CultivatorAttributeOverview } from '@app/components/feature/cultivator/CultivatorAttributeOverview';
-import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
 import {
   canSubmitAttributeAllocation,
   createEmptyAttributeDraft,
 } from '@app/components/feature/cultivator/attributeAllocationControlLogic';
-import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
+import { CultivatorAttributeOverview } from '@app/components/feature/cultivator/CultivatorAttributeOverview';
+import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
+import {
+  GameSceneFrame,
+  GameSceneLoading,
+  GameSceneSection,
+} from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkNotice } from '@app/components/ui';
 import { useResourceMutation } from '@app/lib/resources/mutations';
@@ -26,11 +30,7 @@ export default function CultivatorAttributesPage() {
   const [isResettingAttributes, setIsResettingAttributes] = useState(false);
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">正在读取根基属性……</p>
-      </div>
-    );
+    return <GameSceneLoading message="正在读取根基属性……" />;
   }
 
   if (!cultivator) {
@@ -125,7 +125,7 @@ export default function CultivatorAttributesPage() {
       ),
       confirmLabel: '确认重置',
       cancelLabel: '再想想',
-      loadingLabel: '重置中...',
+      loadingLabel: '重置中……',
       onConfirm: handleResetAttributes,
     });
   };

@@ -1,3 +1,4 @@
+import { GameSceneLoading } from '@app/components/game-shell';
 import { Suspense } from 'react';
 import { InventoryView } from './components/InventoryView';
 
@@ -7,13 +8,7 @@ import { InventoryView } from './components/InventoryView';
  */
 export default function InventoryPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex h-full items-center justify-center">
-          <div className="animate-pulse p-8 text-center">储物袋开启中……</div>
-        </div>
-      }
-    >
+    <Suspense fallback={<GameSceneLoading message="储物袋开启中……" />}>
       <InventoryView />
     </Suspense>
   );

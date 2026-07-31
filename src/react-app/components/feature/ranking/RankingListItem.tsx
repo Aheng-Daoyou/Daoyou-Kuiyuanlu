@@ -6,13 +6,13 @@ import { InkBadge, InkButton, type Tier } from '@app/components/ui';
 import { cn } from '@shared/lib/cn';
 import { isPillSpec } from '@shared/lib/consumables';
 import {
-  formatCompactGameNumber,
-  formatFullGameNumber,
-} from '@shared/lib/numberFormat';
-import {
   CONSUMABLE_TYPE_DISPLAY_MAP,
   getEquipmentSlotInfo,
 } from '@shared/lib/gameConceptDisplay';
+import {
+  formatCompactGameNumber,
+  formatFullGameNumber,
+} from '@shared/lib/numberFormat';
 import type { RealmType } from '@shared/types/constants';
 import type { PillSpec } from '@shared/types/consumable';
 import type { Consumable } from '@shared/types/cultivator';
@@ -204,19 +204,21 @@ function BattleRankingCardComponent({
                 <InkButton
                   onClick={() => onProbe(item.id)}
                   variant="secondary"
-                  disabled={isProbing}
+                  pending={isProbing}
+                  pendingLabel="查探中……"
                   className="text-sm"
                 >
-                  {isProbing ? '查探中' : '查探'}
+                  查探
                 </InkButton>
                 {canChallenge ? (
                   <InkButton
                     onClick={() => onChallenge(item.id)}
                     variant="primary"
-                    disabled={isChallenging}
+                    pending={isChallenging}
+                    pendingLabel="挑战中……"
                     className="text-sm"
                   >
-                    {isChallenging ? '挑战中' : '挑战'}
+                    挑战
                   </InkButton>
                 ) : null}
               </>
@@ -398,7 +400,9 @@ function RankingListItemComponent({
   }
 
   if ('rankingType' in item && item.rankingType === 'wealth') {
-    return <WealthRankingCard item={item as WealthRankingEntry} isSelf={isSelf} />;
+    return (
+      <WealthRankingCard item={item as WealthRankingEntry} isSelf={isSelf} />
+    );
   }
 
   return (

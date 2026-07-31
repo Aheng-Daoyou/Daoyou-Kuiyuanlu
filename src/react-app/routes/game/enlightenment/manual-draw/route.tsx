@@ -1,6 +1,8 @@
 import {
+  GameLoadingState,
   GameSceneAsideSection,
   GameSceneFrame,
+  GameSceneLoading,
   GameSceneNote,
   GameSceneTabs,
 } from '@app/components/game-shell';
@@ -12,19 +14,27 @@ import {
   InkNotice,
   InkTag,
 } from '@app/components/ui';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   useCultivatorIdentity,
   usePlayerSession,
 } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
+import {
+  getElementInfo,
+  getMaterialTypeInfo,
+} from '@shared/lib/gameConceptDisplay';
 import { QUALITY_ORDER, type Quality } from '@shared/types/constants';
 import type { Material } from '@shared/types/cultivator';
-import { getElementInfo, getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
 import {
-  buildManualDrawHref, MANUAL_DRAW_CONFIG, normalizeManualDrawKind, type ManualDrawKind, type ManualDrawResultDTO, type ManualDrawStatusDTO, } from '@shared/types/manualDraw';
+  buildManualDrawHref,
+  MANUAL_DRAW_CONFIG,
+  normalizeManualDrawKind,
+  type ManualDrawKind,
+  type ManualDrawResultDTO,
+  type ManualDrawStatusDTO,
+} from '@shared/types/manualDraw';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-
 
 type StatusResponse = {
   success: boolean;
@@ -161,9 +171,7 @@ function ResultHeroCard({
   const typeInfo = getMaterialTypeInfo(material.type);
 
   return (
-    <div
-      className={`border p-5 transition-colors ${style.cardClass}`}
-    >
+    <div className={`border p-5 transition-colors ${style.cardClass}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-ink-secondary text-xs tracking-[0.2em] uppercase">
@@ -203,9 +211,7 @@ function ResultMiniCard({ material }: { material: Material }) {
   const style = QUALITY_STYLE_MAP[material.rank];
 
   return (
-    <div
-      className={`border p-3 transition-colors ${style.cardClass}`}
-    >
+    <div className={`border p-3 transition-colors ${style.cardClass}`}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-ink-primary truncate text-sm font-medium">
@@ -362,11 +368,7 @@ export default function ManualDrawPage() {
   };
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">正在推演卷中气机……</p>
-      </div>
-    );
+    return <GameSceneLoading message="正在推演卷中气机……" />;
   }
 
   if (!cultivator) {
@@ -426,7 +428,7 @@ export default function ManualDrawPage() {
         />
 
         {isBooting ? (
-          <InkNotice>正在读取符箓数量……</InkNotice>
+          <GameLoadingState message="正在读取符箓数量……" variant="inline" />
         ) : (
           <InkCard className="overflow-hidden p-0">
             <div className="bg-bgpaper p-5">
@@ -458,17 +460,27 @@ export default function ManualDrawPage() {
               </div>
               <div className="mt-5 flex flex-wrap gap-3">
                 <InkButton
-                  disabled={pendingDrawCount !== null || currentCount < 1}
+                  disabled={
+                    (pendingDrawCount !== null && pendingDrawCount !== 1) ||
+                    currentCount < 1
+                  }
+                  pending={pendingDrawCount === 1}
+                  pendingLabel="抽取中……"
                   onClick={() => void handleDraw(1)}
                 >
-                  {pendingDrawCount === 1 ? '抽取中…' : '抽 1 次'}
+                  抽 1 次
                 </InkButton>
                 <InkButton
                   variant="secondary"
-                  disabled={pendingDrawCount !== null || currentCount < 5}
+                  disabled={
+                    (pendingDrawCount !== null && pendingDrawCount !== 5) ||
+                    currentCount < 5
+                  }
+                  pending={pendingDrawCount === 5}
+                  pendingLabel="抽取中……"
                   onClick={() => void handleDraw(5)}
                 >
-                  {pendingDrawCount === 5 ? '抽取中…' : '5 连抽'}
+                  5 连抽
                 </InkButton>
               </div>
 

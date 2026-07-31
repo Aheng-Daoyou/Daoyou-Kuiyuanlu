@@ -1,18 +1,25 @@
-import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
 import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
+import {
+  GameSceneFrame,
+  GameSceneLoading,
+  GameSceneSection,
+} from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkCard, InkNotice } from '@app/components/ui';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   useCultivatorCurrency,
   useCultivatorProgress,
 } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
-  calculateInnRecoverySpiritStoneCost,
   calculateInnRecoveryLossRange,
+  calculateInnRecoverySpiritStoneCost,
 } from '@shared/config/innRecovery';
 import { isConditionStatusActive } from '@shared/lib/condition';
-import { evaluateFateContext, getInnSpiritStoneMultiplier } from '@shared/lib/fates';
+import {
+  evaluateFateContext,
+  getInnSpiritStoneMultiplier,
+} from '@shared/lib/fates';
 import { useState } from 'react';
 
 type InnRecoveryResponse = {
@@ -39,17 +46,16 @@ export default function InnRecoveryPage() {
         }
       : null;
   const display = projection.data?.display ?? null;
-  const isLoading =
-    projection.loading ||
-    progress.loading ||
-    currency.loading;
+  const isLoading = projection.loading || progress.loading || currency.loading;
   const { mutate } = useResourceMutation();
   const { openDialog, pushToast } = useInkUI();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const state = cultivator
     ? (() => {
-        const fateContext = evaluateFateContext(cultivator.pre_heaven_fates ?? []);
+        const fateContext = evaluateFateContext(
+          cultivator.pre_heaven_fates ?? [],
+        );
         const spiritStoneCost = calculateInnRecoverySpiritStoneCost(
           cultivator.realm,
           getInnSpiritStoneMultiplier(fateContext),
@@ -63,10 +69,7 @@ export default function InnRecoveryPage() {
         const currentMp = Math.max(0, Math.floor(mp?.current ?? maxMp));
         const activeStatusCount = (cultivator.condition?.statuses ?? []).filter(
           (status) =>
-            isConditionStatusActive(
-              status,
-              projection.data?.now ?? new Date(),
-            ),
+            isConditionStatusActive(status, projection.data?.now ?? new Date()),
         ).length;
         const cultivationLossRange = calculateInnRecoveryLossRange(
           cultivator.cultivation_progress?.cultivation_exp ?? 0,
@@ -86,11 +89,7 @@ export default function InnRecoveryPage() {
     : null;
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">灵眼之泉雾气未散……</p>
-      </div>
-    );
+    return <GameSceneLoading message="灵眼之泉雾气未散……" />;
   }
 
   if (!cultivator || !state) {
@@ -158,11 +157,10 @@ export default function InnRecoveryPage() {
       title: '要引泉疗伤吗？',
       content: (
         <div className="space-y-2 text-sm leading-7">
+          <p>洞府法阵会消耗 {state.spiritStoneCost} 灵石，引灵眼泉息入体。</p>
           <p>
-            洞府法阵会消耗 {state.spiritStoneCost}{' '}
-            灵石，引灵眼泉息入体。
+            泉息周转之后，你的气血与法力都会恢复，身上所有状态也会一并散去。
           </p>
-          <p>泉息周转之后，你的气血与法力都会恢复，身上所有状态也会一并散去。</p>
           {cultivationLossHint ? <p>{cultivationLossHint}</p> : null}
           <p>丹毒不会被灵泉化开，若有余毒，仍需另寻办法。</p>
         </div>
@@ -207,8 +205,10 @@ export default function InnRecoveryPage() {
               variant="primary"
               onClick={openRecoveryConfirm}
               disabled={!canConfirmRecovery}
+              pending={isSubmitting}
+              pendingLabel="调息中……"
             >
-              {isSubmitting ? '调息中...' : '引泉疗伤'}
+              引泉疗伤
             </InkButton>
             <span className="text-ink-secondary text-sm">
               若要静养伤势，向阵槽投入灵石即可。

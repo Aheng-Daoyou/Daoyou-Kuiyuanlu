@@ -76,7 +76,7 @@ function LoginChoicePage() {
         <AuthChoiceCard
           onClick={handleGitHubSignIn}
           disabled={loading}
-          title={loading ? 'GitHub 登录中…' : 'GitHub 登录'}
+          title={loading ? 'GitHub 登录中……' : 'GitHub 登录'}
           description="已有 GitHub 账号时可直接登录。"
         />
       </div>

@@ -1,15 +1,18 @@
-import { toErrorMessage, validatePasswordConfirmation } from '@app/components/auth';
+import {
+  toErrorMessage,
+  validatePasswordConfirmation,
+} from '@app/components/auth';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkInput } from '@app/components/ui/InkInput';
-import type { AuthActionError } from '@app/lib/auth/authState';
-import { authClient } from '@app/lib/auth/client';
-import { toAuthActionError } from '@app/lib/auth/authState';
 import {
   ACCOUNT_DELETION_CONFIRMATION,
   clearAccountDeletionBrowserData,
   isAccountDeletionConfirmation,
 } from '@app/lib/auth/accountDeletion';
+import type { AuthActionError } from '@app/lib/auth/authState';
+import { toAuthActionError } from '@app/lib/auth/authState';
+import { authClient } from '@app/lib/auth/client';
 import type { AccountSetPasswordResponse } from '@shared/contracts/account';
 import type { ApiFailure } from '@shared/contracts/http';
 import { useEffect, useMemo, useState } from 'react';
@@ -147,8 +150,7 @@ export function AccountSettingsTab() {
           body: JSON.stringify({ newPassword }),
         });
         const result = (await response.json()) as
-          | AccountSetPasswordResponse
-          | ApiFailure;
+          AccountSetPasswordResponse | ApiFailure;
 
         if (!response.ok || !result.success) {
           throw {
@@ -237,7 +239,7 @@ export function AccountSettingsTab() {
       content: '确定要退出当前账号吗？退出后需要重新登录才能继续游历。',
       confirmLabel: '确认退出',
       cancelLabel: '取消',
-      loadingLabel: '退出中...',
+      loadingLabel: '退出中……',
       onConfirm: handleSignOut,
     });
   };
@@ -356,12 +358,10 @@ export function AccountSettingsTab() {
               variant="primary"
               onClick={handlePasswordSubmit}
               disabled={!canSubmitPassword}
+              pending={passwordSubmitting}
+              pendingLabel="处理中……"
             >
-              {passwordSubmitting
-                ? '处理中...'
-                : passwordMode === 'change'
-                  ? '修改密码'
-                  : '设置密码'}
+              {passwordMode === 'change' ? '修改密码' : '设置密码'}
             </InkButton>
             {passwordMessage ? (
               <SettingsMessage type={passwordMessage.type}>
@@ -376,7 +376,7 @@ export function AccountSettingsTab() {
         title="GitHub 绑定"
         description={
           accountsLoading
-            ? '正在读取绑定状态...'
+            ? '正在读取绑定状态……'
             : hasGithub
               ? '当前账号已绑定 GitHub。'
               : '绑定后可使用 GitHub 登录当前账号。'
@@ -386,9 +386,11 @@ export function AccountSettingsTab() {
           <InkButton
             variant={hasGithub ? 'secondary' : 'primary'}
             onClick={handleBindGithub}
-            disabled={accountsLoading || hasGithub || githubBinding}
+            disabled={accountsLoading || hasGithub}
+            pending={githubBinding}
+            pendingLabel="跳转中……"
           >
-            {hasGithub ? '已绑定' : githubBinding ? '跳转中...' : '绑定 GitHub'}
+            {hasGithub ? '已绑定' : '绑定 GitHub'}
           </InkButton>
         </div>
 
@@ -412,9 +414,11 @@ export function AccountSettingsTab() {
           <InkButton
             variant="primary"
             onClick={openLogoutConfirm}
-            disabled={logoutSubmitting || deletionSubmitting}
+            disabled={deletionSubmitting}
+            pending={logoutSubmitting}
+            pendingLabel="退出中……"
           >
-            {logoutSubmitting ? '退出中...' : '退出登录'}
+            退出登录
           </InkButton>
           {logoutMessage ? (
             <SettingsMessage type="error">{logoutMessage}</SettingsMessage>
@@ -425,7 +429,7 @@ export function AccountSettingsTab() {
       <SettingsSection
         title="注销账号"
         description="此操作无法撤销，请确认已了解注销后的影响。"
-        className="border border-crimson/35 bg-crimson/8 px-4 pb-4"
+        className="border-crimson/35 bg-crimson/8 border px-4 pb-4"
       >
         {deletionExpanded ? (
           <div className="grid gap-4">
@@ -448,12 +452,11 @@ export function AccountSettingsTab() {
               <InkButton
                 variant="primary"
                 onClick={handleDeleteAccount}
-                disabled={
-                  deletionSubmitting ||
-                  !isAccountDeletionConfirmation(deletionConfirmation)
-                }
+                disabled={!isAccountDeletionConfirmation(deletionConfirmation)}
+                pending={deletionSubmitting}
+                pendingLabel="注销中……"
               >
-                {deletionSubmitting ? '注销中...' : '永久注销账号'}
+                永久注销账号
               </InkButton>
               <InkButton
                 variant="secondary"

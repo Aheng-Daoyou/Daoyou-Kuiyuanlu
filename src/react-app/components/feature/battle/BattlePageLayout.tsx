@@ -1,3 +1,4 @@
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { InkButton } from '@app/components/ui/InkButton';
 import type { BattleRecord } from '@shared/types/battle';
 import type { CSSProperties, ReactNode } from 'react';
@@ -61,9 +62,11 @@ export function BattlePageLayout({
           )}
 
           {loading && !battleResult ? (
-            <div className="flex flex-1 items-center justify-center py-16 text-center">
-              <p className="loading-tip">正在加载战斗...</p>
-            </div>
+            <GameLoadingState
+              message="正在加载战斗……"
+              variant="immersive"
+              className="flex-1"
+            />
           ) : (
             <div className="flex min-h-0 flex-1 flex-col">{children}</div>
           )}
@@ -122,9 +125,7 @@ export function BattlePageLayout({
         )}
 
         {loading && !battleResult && (
-          <div className="py-16 text-center">
-            <p className="loading-tip">正在加载战斗...</p>
-          </div>
+          <GameLoadingState message="正在加载战斗……" variant="inline" />
         )}
       </div>
     </div>

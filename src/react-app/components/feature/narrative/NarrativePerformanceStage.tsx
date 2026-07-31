@@ -120,7 +120,8 @@ function NarrativeActPanel({
         {!isFinal || !actRevealed ? (
           <InkButton
             onClick={continuePerformance}
-            disabled={busy}
+            pending={busy}
+            pendingLabel="演进中……"
             variant="primary"
             className="text-[#f0c77b] hover:text-[#ffe2a4]"
           >
@@ -130,11 +131,12 @@ function NarrativeActPanel({
           <>
             <InkButton
               onClick={onFinish}
-              disabled={busy}
+              pending={busy}
+              pendingLabel="玉牒落印中……"
               variant="primary"
               className="text-[#f0c77b] hover:text-[#ffe2a4]"
             >
-              {busy ? '玉牒落印中……' : finalLabel}
+              {finalLabel}
             </InkButton>
             <InkButton
               onClick={onBack}

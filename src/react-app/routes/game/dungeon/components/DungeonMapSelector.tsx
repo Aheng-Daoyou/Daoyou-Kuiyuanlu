@@ -2,9 +2,9 @@ import { InkButton } from '@app/components/ui/InkButton';
 import { InkCard } from '@app/components/ui/InkCard';
 import { InkNotice } from '@app/components/ui/InkNotice';
 import { MapNodeInfo } from '@shared/lib/game/mapSystem';
-import { MapNodeCard } from '../MapNodeCard';
 import type { NoviceDungeonReadiness } from '@shared/lib/noviceGuidance';
 import type { RealmType } from '@shared/types/constants';
+import { MapNodeCard } from '../MapNodeCard';
 
 interface DungeonMapSelectorProps {
   selectedNode: MapNodeInfo | null;
@@ -56,13 +56,13 @@ export function DungeonMapSelector({
         <InkButton
           variant="primary"
           onClick={() => onStart(selectedNode.id)}
-          disabled={isStarting || Boolean(realmBlockReason) || readiness?.shouldBlock}
+          disabled={Boolean(realmBlockReason) || readiness?.shouldBlock}
+          pending={isStarting}
+          pendingLabel="启动中……"
         >
-          {isStarting
-            ? '启动中...'
-            : realmBlockReason
-              ? '境界不足'
-              : readiness?.shouldBlock
+          {realmBlockReason
+            ? '境界不足'
+            : readiness?.shouldBlock
               ? '准备未足'
               : '开始探索'}
         </InkButton>

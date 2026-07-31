@@ -1,5 +1,6 @@
-import { InkButton, InkList, InkNotice } from '@app/components/ui';
 import { ArtifactListCard } from '@app/components/feature/products';
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
+import { InkButton, InkList, InkNotice } from '@app/components/ui';
 import type { Artifact } from '@shared/types/cultivator';
 
 interface ArtifactsTabProps {
@@ -29,7 +30,9 @@ export function ArtifactsTab({
   onDiscard,
 }: ArtifactsTabProps) {
   if (isLoading) {
-    return <InkNotice>正在检索法宝记录，请稍候……</InkNotice>;
+    return (
+      <GameLoadingState message="正在检索法宝记录，请稍候……" variant="inline" />
+    );
   }
 
   if (artifacts.length === 0) {
@@ -60,14 +63,11 @@ export function ArtifactsTab({
                   详情
                 </InkButton>
                 <InkButton
-                  disabled={pendingId === item.id}
+                  pending={pendingId === item.id}
+                  pendingLabel="操作中……"
                   onClick={() => onEquipToggle(item)}
                 >
-                  {pendingId === item.id
-                    ? '操作中…'
-                    : equippedNow
-                      ? '卸下'
-                      : '装备'}
+                  {equippedNow ? '卸下' : '装备'}
                 </InkButton>
                 {!equippedNow && (
                   <InkButton

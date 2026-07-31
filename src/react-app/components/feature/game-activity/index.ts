@@ -1,6 +1,7 @@
 export {
   GameActivityFullscreenRetry,
   GameActivityLaunchGate,
+  GameActivityLoadingOverlay,
   GameActivityOverlay,
   GameActivityRotationNotice,
 } from './GameActivityImmersiveGate';

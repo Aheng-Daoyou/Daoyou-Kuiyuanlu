@@ -1,3 +1,4 @@
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { InkButton, InkNotice } from '@app/components/ui';
 import type {
   SectContextData,
@@ -6,11 +7,11 @@ import type {
 import { SECT_RANK_LABELS } from '@shared/engine/sect';
 import { cn } from '@shared/lib/cn';
 import type { ReactNode } from 'react';
+import { getSectIdentityLabels } from './sectIdentityDisplay';
 import {
   useActiveSectContextQuery,
   useSectPromotionEvaluationQuery,
 } from './sectResources';
-import { getSectIdentityLabels } from './sectIdentityDisplay';
 
 function formatSectDate(value?: string): string {
   if (!value) return '未录';
@@ -27,13 +28,7 @@ function formatContribution(value: number): string {
   return new Intl.NumberFormat('zh-CN').format(value);
 }
 
-function IdentityRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: ReactNode;
-}) {
+function IdentityRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="border-ink/10 grid min-w-0 gap-1 border-b border-dashed py-2 last:border-b-0 sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-4">
       <span className="text-ink-secondary text-sm">{label}</span>
@@ -111,7 +106,10 @@ export function SectIdentityDetails({
         }
       />
       {showJoinedAt ? (
-        <IdentityRow label="入门时间" value={formatSectDate(context.joinedAt)} />
+        <IdentityRow
+          label="入门时间"
+          value={formatSectDate(context.joinedAt)}
+        />
       ) : null}
     </div>
   );
@@ -133,7 +131,7 @@ export function SectIdentityDialogContent() {
     );
   }
   if (!context.data) {
-    return <p className="loading-tip">身份玉牒正在显化……</p>;
+    return <GameLoadingState message="身份玉牒正在显化……" variant="inline" />;
   }
 
   return (

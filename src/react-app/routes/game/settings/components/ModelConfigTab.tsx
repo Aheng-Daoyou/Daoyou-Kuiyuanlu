@@ -41,10 +41,7 @@ export function ModelConfigTab() {
     setMessage(null);
 
     try {
-      localStorage.setItem(
-        DEEPSEEK_STORAGE_KEY,
-        JSON.stringify(parsed.data),
-      );
+      localStorage.setItem(DEEPSEEK_STORAGE_KEY, JSON.stringify(parsed.data));
       setHasConfig(true);
       setMessage({ type: 'success', text: '配置已保存到浏览器本地。' });
     } catch {
@@ -59,7 +56,10 @@ export function ModelConfigTab() {
     setApiKey('');
     setModel(DEEPSEEK_DEFAULT_MODEL);
     setHasConfig(false);
-    setMessage({ type: 'success', text: '已清除本地配置，恢复为服务器默认模型。' });
+    setMessage({
+      type: 'success',
+      text: '已清除本地配置，恢复为服务器默认模型。',
+    });
   };
 
   return (
@@ -88,8 +88,10 @@ export function ModelConfigTab() {
           variant="primary"
           onClick={handleSubmit}
           disabled={!canSubmit}
+          pending={loading}
+          pendingLabel="保存中……"
         >
-          {loading ? '保存中...' : '保存配置'}
+          保存配置
         </InkButton>
 
         {hasConfig ? (
@@ -103,17 +105,17 @@ export function ModelConfigTab() {
         ) : null}
 
         {message ? (
-          <SettingsMessage type={message.type}>
-            {message.text}
-          </SettingsMessage>
+          <SettingsMessage type={message.type}>{message.text}</SettingsMessage>
         ) : null}
       </div>
 
       <SettingsSection>
         <p className="text-ink-secondary text-sm leading-6">
-          仅支持 DeepSeek 官方服务。配置保存在浏览器 localStorage 中，仅当前设备生效，更换浏览器或清除缓存后需要重新配置。
+          仅支持 DeepSeek 官方服务。配置保存在浏览器 localStorage
+          中，仅当前设备生效，更换浏览器或清除缓存后需要重新配置。
           <br />
-          API Key 仅在前端本地存储，服务端通过请求头获取并调用，不会在服务器持久化保存。
+          API Key
+          仅在前端本地存储，服务端通过请求头获取并调用，不会在服务器持久化保存。
         </p>
       </SettingsSection>
     </div>

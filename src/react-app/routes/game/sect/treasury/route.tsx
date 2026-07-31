@@ -1,7 +1,5 @@
 import { ItemExchangeShelf } from '@app/components/feature/item-shop/ItemExchangeShelf';
-import {
-  NpcConversation,
-} from '@app/components/feature/room';
+import { NpcConversation } from '@app/components/feature/room';
 import {
   SectNpcConversationRegistry,
   SectRoutedRoom,
@@ -57,10 +55,7 @@ function TreasuryConversation({
     setBuyingId(item.id);
     try {
       const result = await mutate<SectShopBuyResponse>(
-        fetch(
-          `/api/sects/current/shop/${item.id}/buy`,
-          postJson(),
-        ),
+        fetch(`/api/sects/current/shop/${item.id}/buy`, postJson()),
       );
       pushToast({
         message: `已支取 ${result.purchasedItem.item.name}`,
@@ -181,7 +176,7 @@ function TreasuryShelfWorkspace({
           buyingId={buyingId}
           onBuy={(item) => void onBuy(item)}
           loading={loading}
-          loadingText="宝库执事正在核验封签..."
+          loadingText="宝库执事正在核验封签……"
           emptyText="宝库暂未陈列可兑换之物。"
         />
         {error ? (

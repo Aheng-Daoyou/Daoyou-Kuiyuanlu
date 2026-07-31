@@ -1,5 +1,5 @@
-import { InkModal } from '@app/components/layout';
 import { HomeUrgentRow } from '@app/components/feature/home/HomeUrgentRow';
+import { InkModal } from '@app/components/layout';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkBadge } from '@app/components/ui/InkBadge';
 import { InkButton } from '@app/components/ui/InkButton';
@@ -63,7 +63,7 @@ export function YieldCard({
       setYieldResult({
         amount: 0,
         hours: 0,
-        story: '天机推演中...',
+        story: '天机推演中……',
       });
 
       let currentStory = '';
@@ -157,11 +157,13 @@ export function YieldCard({
   const actionButton = (
     <InkButton
       variant={timeSinceYield >= 1 ? 'primary' : 'secondary'}
-      disabled={timeSinceYield < 1 || claiming}
+      disabled={timeSinceYield < 1}
+      pending={claiming}
+      pendingLabel="结算中……"
       onClick={handleClaimYield}
       className={variant === 'card' ? 'min-w-20' : undefined}
     >
-      {claiming ? '结算中' : timeSinceYield < 1 ? '历练中' : '领取'}
+      {timeSinceYield < 1 ? '历练中' : '领取'}
     </InkButton>
   );
   const spiritStonesInfo = getGameConceptInfo('spirit_stones');

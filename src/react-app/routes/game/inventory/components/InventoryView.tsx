@@ -1,6 +1,8 @@
 import {
+  GameLoadingState,
   GameSceneAsideSection,
   GameSceneFrame,
+  GameSceneLoading,
   GameSceneNote,
   GameSceneTabs,
 } from '@app/components/game-shell';
@@ -8,15 +10,15 @@ import { InkButton } from '@app/components/ui/InkButton';
 import { InkDialog } from '@app/components/ui/InkDialog';
 import { InkIdentifyCelebration } from '@app/components/ui/InkIdentifyCelebration';
 
+import { ItemDetailModal } from '@app/components/feature/items';
+import { getResourceTypeLabel } from '@shared/lib/gameConceptDisplay';
 import {
   useInventoryViewModel,
   type InventoryTab,
 } from '../hooks/useInventoryViewModel';
 import { ArtifactsTab } from './ArtifactsTab';
 import { ConsumablesTab } from './ConsumablesTab';
-import { ItemDetailModal } from '@app/components/feature/items';
 import { MaterialsTab } from './MaterialsTab';
-import { getResourceTypeLabel } from '@shared/lib/gameConceptDisplay';
 
 function getInventoryTabLabel(tab: InventoryTab): string {
   if (tab === 'artifacts') return getResourceTypeLabel('artifact');
@@ -37,6 +39,7 @@ export function InventoryView() {
     equipped,
     isLoading,
     isTabLoading,
+    isTabRefreshing,
     note,
     activeTab,
     setActiveTab,
@@ -73,14 +76,12 @@ export function InventoryView() {
 
   // 加载状态
   if (isLoading && (!cultivatorId || !activeResourceReady)) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">储物袋开启中……</p>
-      </div>
-    );
+    return <GameSceneLoading message="储物袋开启中……" />;
   }
   if (!cultivatorId || !activeResourceReady) {
-    return <GameSceneNote>当前分栏所需资源读取失败，请稍后重试。</GameSceneNote>;
+    return (
+      <GameSceneNote>当前分栏所需资源读取失败，请稍后重试。</GameSceneNote>
+    );
   }
 
   const aside = (
@@ -137,6 +138,10 @@ export function InventoryView() {
           ]}
         />
 
+        {isTabRefreshing ? (
+          <GameLoadingState message="正在刷新当前分栏……" variant="inline" />
+        ) : null}
+
         {activeTab === 'artifacts' && equipped && (
           <ArtifactsTab
             artifacts={inventory.artifacts}
@@ -182,7 +187,7 @@ export function InventoryView() {
         {pagination.totalPages > 1 ? (
           <div className="flex items-center justify-center gap-4">
             <InkButton
-              disabled={pagination.page <= 1 || isTabLoading}
+              disabled={pagination.page <= 1 || isTabLoading || isTabRefreshing}
               onClick={goPrevPage}
             >
               上一页
@@ -192,7 +197,9 @@ export function InventoryView() {
             </span>
             <InkButton
               disabled={
-                pagination.page >= pagination.totalPages || isTabLoading
+                pagination.page >= pagination.totalPages ||
+                isTabLoading ||
+                isTabRefreshing
               }
               onClick={goNextPage}
             >

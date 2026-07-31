@@ -1,27 +1,34 @@
-import { GameSceneTabs } from '@app/components/game-shell';
 import { ResourceCostCard } from '@app/components/dungeon/ResourceCostCard';
 import {
   PillKeywordLine,
   toPillDisplayModel,
 } from '@app/components/feature/consumables';
 import { ArtifactListCard } from '@app/components/feature/products';
+import { GameLoadingState, GameSceneTabs } from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkNotice } from '@app/components/ui';
 import { InkButton } from '@app/components/ui/InkButton';
-import { usePlayerLoadout } from '@app/lib/resources/player';
 import {
   useArtifactInventoryResource,
   useConsumableInventoryResource,
 } from '@app/lib/resources/inventory';
 import { useResourceMutation } from '@app/lib/resources/mutations';
-import type { CultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import { usePlayerLoadout } from '@app/lib/resources/player';
 import { isQiRestoreTalismanScenario } from '@shared/config/qiSystem';
+import type { CultivatorDisplaySnapshot } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { isConditionStatusActive } from '@shared/lib/condition';
 import { getConditionStatusTemplate } from '@shared/lib/conditionStatusRegistry';
-import { isPillConsumable, isTalismanConsumable } from '@shared/lib/consumables';
+import {
+  isPillConsumable,
+  isTalismanConsumable,
+} from '@shared/lib/consumables';
 import type { DungeonState } from '@shared/lib/dungeon/types';
-import type { Artifact, Consumable, Cultivator } from '@shared/types/cultivator';
 import { getResourceTypeLabel } from '@shared/lib/gameConceptDisplay';
+import type {
+  Artifact,
+  Consumable,
+  Cultivator,
+} from '@shared/types/cultivator';
 import { useCallback, useState } from 'react';
 
 interface DungeonRunPanelProps {
@@ -101,9 +108,9 @@ function isEquippedArtifact(
 ) {
   return Boolean(
     item.id &&
-      (equipped.weapon === item.id ||
-        equipped.armor === item.id ||
-        equipped.accessory === item.id),
+    (equipped.weapon === item.id ||
+      equipped.armor === item.id ||
+      equipped.accessory === item.id),
   );
 }
 
@@ -142,7 +149,9 @@ export function DungeonRunPanel({
   );
   const statusNames = activeStatuses
     .slice(0, 3)
-    .map((status) => getConditionStatusTemplate(status.key)?.name ?? status.key);
+    .map(
+      (status) => getConditionStatusTemplate(status.key)?.name ?? status.key,
+    );
   const rewardNames = (state.accumulatedRewards ?? [])
     .map((reward) => reward.name || '神秘机缘')
     .slice(-4);
@@ -172,7 +181,10 @@ export function DungeonRunPanel({
   const handleEquipToggle = useCallback(
     async (item: Artifact) => {
       if (!item.id) {
-        pushToast({ message: '此法宝暂无有效 ID，无法操作。', tone: 'warning' });
+        pushToast({
+          message: '此法宝暂无有效 ID，无法操作。',
+          tone: 'warning',
+        });
         return;
       }
 
@@ -205,7 +217,10 @@ export function DungeonRunPanel({
   const handleConsumeConsumable = useCallback(
     async (item: Consumable) => {
       if (!item.id) {
-        pushToast({ message: '此消耗品暂无有效 ID，无法使用。', tone: 'warning' });
+        pushToast({
+          message: '此消耗品暂无有效 ID，无法使用。',
+          tone: 'warning',
+        });
         return;
       }
 
@@ -229,7 +244,9 @@ export function DungeonRunPanel({
       } catch (error) {
         pushToast({
           message:
-            error instanceof Error ? `使用失败：${error.message}` : '使用失败。',
+            error instanceof Error
+              ? `使用失败：${error.message}`
+              : '使用失败。',
           tone: 'danger',
         });
       } finally {
@@ -240,8 +257,8 @@ export function DungeonRunPanel({
   );
 
   return (
-    <section className="pointer-events-none fixed inset-x-0 bottom-0 z-50 bg-bgpaper mb-0">
-      <div className="border-ink/10 pointer-events-auto relative w-full border-t border-dashed bg-bgpaper shadow pb-[calc(env(safe-area-inset-bottom)+0.7rem)] md:pb-[calc(env(safe-area-inset-bottom)+0.9rem)]">
+    <section className="bg-bgpaper pointer-events-none fixed inset-x-0 bottom-0 z-50 mb-0">
+      <div className="border-ink/10 bg-bgpaper pointer-events-auto relative w-full border-t border-dashed pb-[calc(env(safe-area-inset-bottom)+0.7rem)] shadow md:pb-[calc(env(safe-area-inset-bottom)+0.9rem)]">
         <button
           type="button"
           onClick={handleToggleExpanded}
@@ -249,14 +266,23 @@ export function DungeonRunPanel({
           aria-expanded={expanded}
         >
           <div className="min-w-0">
-            <ResourceLine label={getResourceTypeLabel('hp')} resource={hp} tone="hp" />
+            <ResourceLine
+              label={getResourceTypeLabel('hp')}
+              resource={hp}
+              tone="hp"
+            />
           </div>
           <div className="min-w-0">
-            <ResourceLine label={getResourceTypeLabel('mp')} resource={mp} tone="mp" />
+            <ResourceLine
+              label={getResourceTypeLabel('mp')}
+              resource={mp}
+              tone="mp"
+            />
           </div>
           <div className="col-span-2 flex items-center justify-between gap-3 text-xs md:col-span-1 md:min-w-60">
             <span className="text-ink-secondary">
-              {state.currentRound}/{state.maxRounds}轮 · 危险 {state.dangerScore}
+              {state.currentRound}/{state.maxRounds}轮 · 危险{' '}
+              {state.dangerScore}
             </span>
             <span className="text-crimson">
               异常 {activeStatuses.length}
@@ -318,27 +344,36 @@ export function DungeonRunPanel({
               </div>
             ) : (
               <div className="min-w-0 space-y-3 pt-3">
-                <div className="flex items-center justify-end gap-3">
-                  {isInventoryLoading ? (
-                    <span className="text-ink-secondary text-xs">检索中…</span>
-                  ) : null}
-                </div>
                 <GameSceneTabs
                   activeValue={activeInventoryTab}
                   onChange={handleInventoryTabChange}
                   items={[
-                    { label: getResourceTypeLabel('artifact'), value: 'artifacts' },
-                    { label: getResourceTypeLabel('consumable'), value: 'consumables' },
+                    {
+                      label: getResourceTypeLabel('artifact'),
+                      value: 'artifacts',
+                    },
+                    {
+                      label: getResourceTypeLabel('consumable'),
+                      value: 'consumables',
+                    },
                   ]}
                 />
                 {activeInventoryTab === 'artifacts' ? (
                   <div className="space-y-2">
                     {!equipped ? (
-                      <InkNotice className="my-2">
-                        {loadout.error ?? '正在读取装备状态。'}
-                      </InkNotice>
+                      loadout.error ? (
+                        <InkNotice className="my-2">{loadout.error}</InkNotice>
+                      ) : (
+                        <GameLoadingState
+                          message="正在读取装备状态……"
+                          variant="inline"
+                        />
+                      )
                     ) : !artifactInventory.data && isInventoryLoading ? (
-                      <InkNotice className="my-2">正在检索法宝。</InkNotice>
+                      <GameLoadingState
+                        message="正在检索法宝……"
+                        variant="inline"
+                      />
                     ) : artifacts.length === 0 ? (
                       <InkNotice className="my-2">暂无法宝。</InkNotice>
                     ) : (
@@ -351,14 +386,12 @@ export function DungeonRunPanel({
                             equipped={equippedNow}
                             actions={
                               <InkButton
-                                disabled={!item.id || pendingId === item.id}
+                                disabled={!item.id}
+                                pending={pendingId === item.id}
+                                pendingLabel="操作中……"
                                 onClick={() => handleEquipToggle(item)}
                               >
-                                {pendingId === item.id
-                                  ? '操作中…'
-                                  : equippedNow
-                                    ? '卸下'
-                                    : '装备'}
+                                {equippedNow ? '卸下' : '装备'}
                               </InkButton>
                             }
                           />
@@ -368,7 +401,9 @@ export function DungeonRunPanel({
                     {(artifactInventory.pagination?.totalPages ?? 1) > 1 ? (
                       <div className="flex items-center justify-center gap-3 pt-1 text-sm">
                         <InkButton
-                          disabled={artifactInventory.page <= 1 || isInventoryLoading}
+                          disabled={
+                            artifactInventory.page <= 1 || isInventoryLoading
+                          }
                           onClick={artifactInventory.goPrevPage}
                         >
                           上一页
@@ -393,7 +428,10 @@ export function DungeonRunPanel({
                 ) : (
                   <div className="space-y-2">
                     {!consumableInventory.data && isInventoryLoading ? (
-                      <InkNotice className="my-2">正在检索消耗品。</InkNotice>
+                      <GameLoadingState
+                        message="正在检索消耗品……"
+                        variant="inline"
+                      />
                     ) : directUseConsumables.length === 0 ? (
                       <InkNotice className="my-2">
                         暂无可直接使用的丹药或聚灵符。
@@ -431,10 +469,12 @@ export function DungeonRunPanel({
                             </div>
                             <InkButton
                               variant="primary"
-                              disabled={!item.id || pendingId === item.id}
+                              disabled={!item.id}
+                              pending={pendingId === item.id}
+                              pendingLabel="使用中……"
                               onClick={() => handleConsumeConsumable(item)}
                             >
-                              {pendingId === item.id ? '使用中…' : '使用'}
+                              使用
                             </InkButton>
                           </div>
                         );
@@ -443,7 +483,9 @@ export function DungeonRunPanel({
                     {(consumableInventory.pagination?.totalPages ?? 1) > 1 ? (
                       <div className="flex items-center justify-center gap-3 pt-1 text-sm">
                         <InkButton
-                          disabled={consumableInventory.page <= 1 || isInventoryLoading}
+                          disabled={
+                            consumableInventory.page <= 1 || isInventoryLoading
+                          }
                           onClick={consumableInventory.goPrevPage}
                         >
                           上一页
@@ -455,8 +497,8 @@ export function DungeonRunPanel({
                         <InkButton
                           disabled={
                             consumableInventory.page >=
-                              (consumableInventory.pagination?.totalPages ?? 1) ||
-                            isInventoryLoading
+                              (consumableInventory.pagination?.totalPages ??
+                                1) || isInventoryLoading
                           }
                           onClick={consumableInventory.goNextPage}
                         >

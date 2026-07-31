@@ -1,4 +1,7 @@
-import { GameSceneAsideSection, GameSceneFrame } from '@app/components/game-shell';
+import {
+  GameSceneAsideSection,
+  GameSceneFrame,
+} from '@app/components/game-shell';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkChoiceButton } from '@app/components/ui/InkChoiceButton';
 import { InkInput } from '@app/components/ui/InkInput';
@@ -132,8 +135,10 @@ export default function FeedbackPage() {
             variant="primary"
             onClick={handleSubmit}
             disabled={!canSubmit}
+            pending={submitting}
+            pendingLabel="提交中……"
           >
-            {submitting ? '提交中...' : '提交反馈'}
+            提交反馈
           </InkButton>
 
           {message && (

@@ -35,43 +35,48 @@ export function DungeonLooting({
       />
 
       <InkCard className="mb-6 p-6">
-        <h3 className="text-xl font-bold mb-4 text-center text-ink">战斗胜利</h3>
-        <p className="text-ink-secondary text-center mb-6 leading-relaxed">
+        <h3 className="text-ink mb-4 text-center text-xl font-bold">
+          战斗胜利
+        </h3>
+        <p className="text-ink-secondary mb-6 text-center leading-relaxed">
           你击退了强敌，有惊无险地度过了此轮。
           <br />
-          目前位于副本第 {state.currentRound} 轮。前方气息变幻，你可以选择继续深入，或就此离去。
+          目前位于副本第 {state.currentRound}{' '}
+          轮。前方气息变幻，你可以选择继续深入，或就此离去。
         </p>
       </InkCard>
 
       <InkSection title="下一步抉择">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="flex flex-col gap-2 border border-dashed border-ink/20 bg-paper p-4 text-center">
+          <div className="border-ink/20 bg-paper flex flex-col gap-2 border border-dashed p-4 text-center">
             <h4 className="font-bold">继续深入</h4>
-            <p className="text-xs text-ink-secondary mb-4">
+            <p className="text-ink-secondary mb-4 text-xs">
               向秘境更深处进发，寻找更大的机缘。
             </p>
             <InkButton
               variant="primary"
-              disabled={processing}
+              pending={processing}
+              pendingLabel="推演中……"
               onClick={onContinue}
               className="mt-auto"
             >
-              {processing ? '推演中...' : '继续深入'}
+              继续深入
             </InkButton>
           </div>
 
-          <div className="flex flex-col gap-2 border border-dashed border-ink/20 bg-paper p-4 text-center">
+          <div className="border-ink/20 bg-paper flex flex-col gap-2 border border-dashed p-4 text-center">
             <h4 className="font-bold">见好就收</h4>
-            <p className="text-xs text-ink-secondary mb-4">
+            <p className="text-ink-secondary mb-4 text-xs">
               带着当前的收获直接离开秘境。
             </p>
             <InkButton
               variant="outline"
-              disabled={processing}
+              pending={processing}
+              pendingLabel="结算中……"
               onClick={onEscape}
               className="mt-auto"
             >
-              {processing ? '结算中...' : '离开秘境'}
+              离开秘境
             </InkButton>
           </div>
         </div>

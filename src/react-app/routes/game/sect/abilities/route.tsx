@@ -398,10 +398,12 @@ function SectAbilitiesBody() {
                 </InkButton>
                 <InkButton
                   variant="primary"
-                  disabled={busy || !changed}
+                  disabled={!changed}
+                  pending={busy}
+                  pendingLabel="保存中……"
                   onClick={() => void save()}
                 >
-                  {busy ? '保存中' : '保存配置'}
+                  保存配置
                 </InkButton>
                 {loadoutConflict ? (
                   <>

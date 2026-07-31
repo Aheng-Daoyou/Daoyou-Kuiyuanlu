@@ -1,4 +1,8 @@
-import { GameSceneSection, GameSceneTabs } from '@app/components/game-shell';
+import {
+  GameLoadingState,
+  GameSceneSection,
+  GameSceneTabs,
+} from '@app/components/game-shell';
 import { InkCard } from '@app/components/ui/InkCard';
 import { InkSelect } from '@app/components/ui/InkSelect';
 import {
@@ -22,7 +26,7 @@ export function TowerLeaderboard({
 }: TowerLeaderboardProps) {
   return (
     <GameSceneSection title="留名榜">
-      <InkCard className="min-w-0 w-full space-y-4 overflow-hidden p-4">
+      <InkCard className="w-full min-w-0 space-y-4 overflow-hidden p-4">
         <div className="md:hidden">
           <InkSelect
             value={activeRealm}
@@ -48,7 +52,7 @@ export function TowerLeaderboard({
         />
 
         {loading ? (
-          <p className="loading-tip py-6 text-center">正在校准榜位……</p>
+          <GameLoadingState message="正在校准榜位……" variant="inline" />
         ) : entries.length === 0 ? (
           <p className="text-ink-secondary py-6 text-center text-sm">
             本周此境尚无人留名。

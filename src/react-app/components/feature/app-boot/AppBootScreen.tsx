@@ -1,10 +1,4 @@
-function BootLinearLoader() {
-  return (
-    <div className="app-boot-loader" aria-hidden="true">
-      <span />
-    </div>
-  );
-}
+import { InkLoadingBar } from '@app/components/ui/InkLoadingBar';
 
 export function AppBootScreen() {
   return (
@@ -39,7 +33,7 @@ export function AppBootScreen() {
             fetchPriority="high"
           />
         </div>
-        <BootLinearLoader />
+        <InkLoadingBar size="boot" immediate />
         <img
           aria-hidden="true"
           alt=""

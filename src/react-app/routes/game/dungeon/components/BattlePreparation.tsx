@@ -1,12 +1,13 @@
 import { CultivatorInspectionModal } from '@app/components/feature/cultivator-inspection';
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkCard } from '@app/components/ui/InkCard';
+import { evaluateBattlePreparationRisk } from '@app/lib/dungeon/battlePreparationRisk';
 import {
   DungeonAbandonBattleResult,
   useEnemyProbe,
 } from '@app/lib/hooks/dungeon/useEnemyProbe';
-import { evaluateBattlePreparationRisk } from '@app/lib/dungeon/battlePreparationRisk';
 import type { Cultivator } from '@shared/types/cultivator';
 import { useEffect, useState } from 'react';
 
@@ -95,9 +96,11 @@ export function BattlePreparation({
               </span>
             </p>
           ) : (
-            <p className="text-ink animate-pulse text-lg">
-              正在感知敌人气息...
-            </p>
+            <GameLoadingState
+              message="正在感知敌人气息……"
+              variant="inline"
+              className="min-h-0 py-0"
+            />
           )}
           <p className="text-ink-secondary mt-2 text-sm">
             此战避无可避，当速决断！
@@ -113,9 +116,10 @@ export function BattlePreparation({
           variant="secondary"
           className="w-full py-3"
           onClick={handleProbe}
-          disabled={!enemy}
+          pending={!enemy}
+          pendingLabel="查探中……"
         >
-          {enemy ? '👁️ 神识查探' : '查探中...'}
+          👁️ 神识查探
         </InkButton>
 
         <InkButton

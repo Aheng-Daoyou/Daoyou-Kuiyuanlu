@@ -4,16 +4,17 @@ import {
   type NpcConversationMessage,
 } from '@app/components/feature/room';
 import {
+  SectNpcConversationRegistry,
+  SectRoutedRoom,
+  type SectNpcConversationRendererProps,
+} from '@app/components/feature/sect/room';
+import {
   buildSectProgressionState,
   getSectDefinition,
   useSectContextQuery,
   useSectProgressionQuery,
 } from '@app/components/feature/sect/sectResources';
-import {
-  SectNpcConversationRegistry,
-  SectRoutedRoom,
-  type SectNpcConversationRendererProps,
-} from '@app/components/feature/sect/room';
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { InkButton } from '@app/components/ui';
 import { useCultivatorIdentity } from '@app/lib/resources/player';
 import { STANDARD_SECT_PRESENTATION } from '@shared/engine/sect';
@@ -83,9 +84,14 @@ function PathsConversation({
   if (workspace && data && !cultivator) {
     return (
       <div className="flex min-h-[34rem] items-center justify-center px-5 py-7">
-        <p className="loading-tip">
-          {profile.error ? '角色境界读取失败，请稍后重试。' : '正在读取角色境界……'}
-        </p>
+        <GameLoadingState
+          message={
+            profile.error
+              ? '角色境界读取失败，请稍后重试。'
+              : '正在读取角色境界……'
+          }
+          variant="inline"
+        />
       </div>
     );
   }

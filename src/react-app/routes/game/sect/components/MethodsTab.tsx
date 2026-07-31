@@ -1,5 +1,6 @@
 import { SectAbilityDetails } from '@app/components/feature/sect/SectAbilityDetails';
 import type { getSectDefinition } from '@app/components/feature/sect/sectResources';
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import {
   InkButton,
   InkCard,
@@ -73,10 +74,11 @@ export function MethodsTab({
   if (!data.sect || !data.definition)
     return <InkNotice>拜师后方可研习宗门心法。</InkNotice>;
   if (!currencyQuery.data || !progressQuery.data) {
-    return (
-      <InkNotice>
-        {currencyQuery.error ?? progressQuery.error ?? '正在读取修炼资源……'}
-      </InkNotice>
+    const error = currencyQuery.error ?? progressQuery.error;
+    return error ? (
+      <InkNotice>{error}</InkNotice>
+    ) : (
+      <GameLoadingState message="正在读取修炼资源……" variant="inline" />
     );
   }
   const sect = data.sect;
@@ -169,7 +171,9 @@ export function MethodsTab({
               </div>
               <InkButton
                 variant="primary"
-                disabled={busy || Boolean(selectedDisabledReason)}
+                disabled={Boolean(selectedDisabledReason)}
+                pending={busy}
+                pendingLabel="研习中……"
                 onClick={() =>
                   void action(
                     `/api/sects/current/methods/${selectedMethod.id}/train`,
@@ -177,7 +181,7 @@ export function MethodsTab({
                   )
                 }
               >
-                {busy ? '研习中' : '研习一级'}
+                研习一级
               </InkButton>
             </div>
           ) : undefined

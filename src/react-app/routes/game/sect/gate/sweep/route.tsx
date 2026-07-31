@@ -1,6 +1,7 @@
 import {
   GameActivityFullscreenRetry,
   GameActivityLaunchGate,
+  GameActivityLoadingOverlay,
   GameActivityOverlay,
   GameActivityRotationNotice,
   useGameActivityViewport,
@@ -354,13 +355,9 @@ export default function SectGateSweepPage() {
           onExit={() => void exit()}
         />
       ) : starting || (!session && !operationError) ? (
-        <GameActivityOverlay>
-          <p className="loading-tip">山门步道正在铺开……</p>
-        </GameActivityOverlay>
+        <GameActivityLoadingOverlay message="山门步道正在铺开……" />
       ) : submitting ? (
-        <GameActivityOverlay>
-          <p className="loading-tip">正在验收清扫轨迹……</p>
-        </GameActivityOverlay>
+        <GameActivityLoadingOverlay message="正在验收清扫轨迹……" />
       ) : operationError ? (
         <GameActivityOverlay>
           <InkNotice>{operationError}</InkNotice>
@@ -409,9 +406,7 @@ export default function SectGateSweepPage() {
           </div>
         </GameActivityOverlay>
       ) : !progress ? (
-        <GameActivityOverlay>
-          <p className="loading-tip">正在绘制山门格阵……</p>
-        </GameActivityOverlay>
+        <GameActivityLoadingOverlay message="正在绘制山门格阵……" />
       ) : null}
 
       {!portraitBlocked && session && progress?.phase === 'playing' ? (

@@ -175,10 +175,11 @@ function LoginVerifyPage({
         <InkButton
           type="submit"
           variant="primary"
-          disabled={loading}
+          pending={loading}
+          pendingLabel="验证中……"
           className="w-full text-center"
         >
-          {loading ? '验证中…' : '验证并继续'}
+          验证并继续
         </InkButton>
       </form>
     </AuthPageShell>

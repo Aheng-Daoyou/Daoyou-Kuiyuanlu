@@ -1,6 +1,7 @@
 import { WorldChatPreviewBar } from '@app/components/feature/world-chat/WorldChatPreviewBar';
 import { WorldChatFeedProvider } from '@app/components/feature/world-chat/useWorldChatFeedModel';
 import { GameBottomDock } from '@app/components/game-shell/GameBottomDock';
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import { GameTopHud } from '@app/components/game-shell/GameTopHud';
 import { RealtimeConnectionToasts } from '@app/components/game-shell/RealtimeConnectionToasts';
 import { useGameHudModel } from '@app/components/game-shell/useGameHudModel';
@@ -52,11 +53,7 @@ interface SpecialSceneDescriptor {
 }
 
 function LoadingScreen({ message }: { message: string }) {
-  return (
-    <div className="app-safe-area-page bg-paper flex min-h-[100svh] items-center justify-center">
-      <p className="loading-tip">{message}</p>
-    </div>
-  );
+  return <GameLoadingState message={message} variant="fullscreen" />;
 }
 
 function PlayerShell() {

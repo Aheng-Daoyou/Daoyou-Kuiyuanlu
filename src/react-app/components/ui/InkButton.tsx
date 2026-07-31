@@ -1,6 +1,6 @@
+import Link from '@app/components/router/AppLink';
 import { cn } from '@shared/lib/cn';
 import { cva, type VariantProps } from 'class-variance-authority';
-import Link from '@app/components/router/AppLink';
 import type { ReactNode } from 'react';
 
 /**
@@ -32,6 +32,8 @@ const inkButtonVariants = cva(
 
 export interface InkButtonProps extends VariantProps<typeof inkButtonVariants> {
   children: ReactNode;
+  pending?: boolean;
+  pendingLabel?: ReactNode;
   onClick?: () => void;
   href?: string;
   className?: string;
@@ -44,6 +46,8 @@ export interface InkButtonProps extends VariantProps<typeof inkButtonVariants> {
  */
 export function InkButton({
   children,
+  pending = false,
+  pendingLabel = '处理中……',
   onClick,
   href,
   disabled = false,
@@ -51,16 +55,18 @@ export function InkButton({
   className = '',
   type = 'button',
 }: InkButtonProps) {
+  const unavailable = Boolean(disabled || pending);
+  const content = pending ? pendingLabel : children;
   const combinedClass = cn(
-    inkButtonVariants({ variant, disabled: disabled ?? false }),
+    inkButtonVariants({ variant, disabled: unavailable }),
     className,
   );
 
   // 如果有 href 且未禁用，渲染为 Link
-  if (href && !disabled) {
+  if (href && !unavailable) {
     return (
       <Link href={href} className={combinedClass}>
-        [{children}]
+        [{content}]
       </Link>
     );
   }
@@ -70,10 +76,11 @@ export function InkButton({
     <button
       type={type}
       onClick={onClick}
-      disabled={disabled ?? false}
+      disabled={unavailable}
+      aria-busy={pending || undefined}
       className={combinedClass}
     >
-      [{children}]
+      [{content}]
     </button>
   );
 }

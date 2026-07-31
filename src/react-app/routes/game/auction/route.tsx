@@ -1,14 +1,13 @@
 import { ListItemModal } from '@app/components/auction/ListItemModal';
-import {
-  ConsumableListCard,
-} from '@app/components/feature/consumables';
-import { ArtifactListCard } from '@app/components/feature/products';
+import { ConsumableListCard } from '@app/components/feature/consumables';
 import {
   ItemDetailModal,
   toInventoryItemDetail,
   type ItemDetailPayload,
 } from '@app/components/feature/items';
+import { ArtifactListCard } from '@app/components/feature/products';
 import {
+  GameLoadingState,
   GameSceneAsideSection,
   GameSceneFrame,
   GameSceneTabs,
@@ -25,12 +24,12 @@ import {
   InkSelect,
 } from '@app/components/ui';
 import { ItemCard } from '@app/components/ui/ItemCard';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
-  useCultivatorCurrency,
   useCultivatorCondition,
+  useCultivatorCurrency,
   useCultivatorIdentity,
 } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   TEMP_DISABLED_MESSAGES,
   temporaryRestrictions,
@@ -167,7 +166,8 @@ function getCategoryOptions(itemType: AuctionTypeFilter) {
 }
 
 function getQualityLabel(value: string | null) {
-  return value && QUALITY_VALUES.includes(value as (typeof QUALITY_VALUES)[number])
+  return value &&
+    QUALITY_VALUES.includes(value as (typeof QUALITY_VALUES)[number])
     ? value
     : '全部品级';
 }
@@ -178,9 +178,7 @@ export default function AuctionPage() {
   const [showListModal, setShowListModal] = useState(false);
   const profile = useCultivatorIdentity();
   const condition = useCultivatorCondition(
-    activeType === 'all' ||
-      activeType === 'consumable' ||
-      showListModal,
+    activeType === 'all' || activeType === 'consumable' || showListModal,
   );
   const currency = useCultivatorCurrency();
   const identity = profile.data?.cultivator;
@@ -197,21 +195,34 @@ export default function AuctionPage() {
   const { pushToast } = useInkUI();
   const [browseListings, setBrowseListings] = useState<AuctionListing[]>([]);
   const [myListings, setMyListings] = useState<AuctionListing[]>([]);
-  const [pagination, setPagination] = useState<Record<AuctionScope, AuctionPagination>>({
-    browse: { page: 1, limit: PAGE_SIZE, total: 0, totalPages: 1, hasMore: false },
+  const [pagination, setPagination] = useState<
+    Record<AuctionScope, AuctionPagination>
+  >({
+    browse: {
+      page: 1,
+      limit: PAGE_SIZE,
+      total: 0,
+      totalPages: 1,
+      hasMore: false,
+    },
     my: { page: 1, limit: PAGE_SIZE, total: 0, totalPages: 1, hasMore: false },
   });
   const [isLoadingBrowse, setIsLoadingBrowse] = useState(true);
   const [isLoadingMy, setIsLoadingMy] = useState(false);
   const [buyingId, setBuyingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
-  const [selectedItem, setSelectedItem] = useState<ItemDetailPayload | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ItemDetailPayload | null>(
+    null,
+  );
   const [buyConfirmDialog, setBuyConfirmDialog] =
     useState<InkDialogState | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const activeTab = normalizeScope(searchParams.get('tab'));
-  const categoryOptions = useMemo(() => getCategoryOptions(activeType), [activeType]);
+  const categoryOptions = useMemo(
+    () => getCategoryOptions(activeType),
+    [activeType],
+  );
   const itemCategory = searchParams.get('itemCategory') || 'all';
   const itemQuality = searchParams.get('itemQuality') || 'all';
   const sortBy = normalizeSortBy(searchParams.get('sortBy'));
@@ -251,37 +262,40 @@ export default function AuctionPage() {
     [setSearchParams],
   );
 
-  const buildListUrl = useCallback((scope: AuctionScope, requestedPage: number) => {
-    const params = new URLSearchParams({
-      scope: scope === 'my' ? 'mine' : 'all',
-      page: String(requestedPage),
-      limit: String(PAGE_SIZE),
+  const buildListUrl = useCallback(
+    (scope: AuctionScope, requestedPage: number) => {
+      const params = new URLSearchParams({
+        scope: scope === 'my' ? 'mine' : 'all',
+        page: String(requestedPage),
+        limit: String(PAGE_SIZE),
+        sortBy,
+      });
+
+      if (activeType !== 'all') {
+        params.set('itemType', activeType);
+      }
+      if (activeType !== 'all' && itemCategory !== 'all') {
+        params.set('itemCategory', itemCategory);
+      }
+      if (itemQuality !== 'all') {
+        params.set('itemQuality', itemQuality);
+      }
+      const exactSearch = currentSearchValue.trim();
+      if (exactSearch) {
+        params.set(searchMode, exactSearch);
+      }
+
+      return `/api/auction/listings?${params.toString()}`;
+    },
+    [
+      activeType,
+      currentSearchValue,
+      itemCategory,
+      itemQuality,
+      searchMode,
       sortBy,
-    });
-
-    if (activeType !== 'all') {
-      params.set('itemType', activeType);
-    }
-    if (activeType !== 'all' && itemCategory !== 'all') {
-      params.set('itemCategory', itemCategory);
-    }
-    if (itemQuality !== 'all') {
-      params.set('itemQuality', itemQuality);
-    }
-    const exactSearch = currentSearchValue.trim();
-    if (exactSearch) {
-      params.set(searchMode, exactSearch);
-    }
-
-    return `/api/auction/listings?${params.toString()}`;
-  }, [
-    activeType,
-    currentSearchValue,
-    itemCategory,
-    itemQuality,
-    searchMode,
-    sortBy,
-  ]);
+    ],
+  );
 
   const fetchListings = useCallback(
     async (scope: AuctionScope = activeTab, requestedPage: number = page) => {
@@ -299,14 +313,13 @@ export default function AuctionPage() {
         }
 
         const nextListings = data.listings || [];
-        const nextPagination =
-          data.pagination || {
-            page: requestedPage,
-            limit: PAGE_SIZE,
-            total: nextListings.length,
-            totalPages: 1,
-            hasMore: false,
-          };
+        const nextPagination = data.pagination || {
+          page: requestedPage,
+          limit: PAGE_SIZE,
+          total: nextListings.length,
+          totalPages: 1,
+          hasMore: false,
+        };
 
         if (scope === 'browse') {
           setBrowseListings(nextListings);
@@ -349,14 +362,13 @@ export default function AuctionPage() {
         }
 
         const nextListings = data.listings || [];
-        const nextPagination =
-          data.pagination || {
-            page,
-            limit: PAGE_SIZE,
-            total: nextListings.length,
-            totalPages: 1,
-            hasMore: false,
-          };
+        const nextPagination = data.pagination || {
+          page,
+          limit: PAGE_SIZE,
+          total: nextListings.length,
+          totalPages: 1,
+          hasMore: false,
+        };
 
         if (activeTab === 'browse') {
           setBrowseListings(nextListings);
@@ -367,7 +379,8 @@ export default function AuctionPage() {
       } catch (error) {
         if (!cancelled) {
           pushToast({
-            message: error instanceof Error ? error.message : '获取拍卖列表失败',
+            message:
+              error instanceof Error ? error.message : '获取拍卖列表失败',
             tone: 'warning',
           });
         }
@@ -603,22 +616,25 @@ export default function AuctionPage() {
         {isMyListing ? (
           <InkButton
             onClick={() => handleCancel(listing)}
-            disabled={!!cancellingId}
+            disabled={!!cancellingId && cancellingId !== listing.id}
+            pending={cancellingId === listing.id}
+            pendingLabel="处理中……"
             variant="secondary"
           >
-            {cancellingId === listing.id ? '处理中' : '下架'}
+            下架
           </InkButton>
         ) : (
           <InkButton
             onClick={() => handleBuy(listing)}
-            disabled={!!buyingId || listing.sellerId === cultivator?.id}
+            disabled={
+              (!!buyingId && buyingId !== listing.id) ||
+              listing.sellerId === cultivator?.id
+            }
+            pending={buyingId === listing.id}
+            pendingLabel="交易中……"
             variant="primary"
           >
-            {buyingId === listing.id
-              ? '交易中'
-              : listing.sellerId === cultivator?.id
-                ? '自己的'
-                : '购买'}
+            {listing.sellerId === cultivator?.id ? '自己的' : '购买'}
           </InkButton>
         )}
       </div>
@@ -668,7 +684,9 @@ export default function AuctionPage() {
         <InkButton
           variant="secondary"
           disabled={pag.page <= 1}
-          onClick={() => updateQuery({ page: String(pag.page - 1) }, { resetPage: false })}
+          onClick={() =>
+            updateQuery({ page: String(pag.page - 1) }, { resetPage: false })
+          }
         >
           上一页
         </InkButton>
@@ -678,7 +696,9 @@ export default function AuctionPage() {
         <InkButton
           variant="secondary"
           disabled={pag.page >= pag.totalPages}
-          onClick={() => updateQuery({ page: String(pag.page + 1) }, { resetPage: false })}
+          onClick={() =>
+            updateQuery({ page: String(pag.page + 1) }, { resetPage: false })
+          }
         >
           下一页
         </InkButton>
@@ -784,12 +804,14 @@ export default function AuctionPage() {
         />
         <div
           className={
-            compact
-              ? 'col-span-2 flex justify-end gap-3'
-              : 'flex items-end'
+            compact ? 'col-span-2 flex justify-end gap-3' : 'flex items-end'
           }
         >
-          <InkButton type="submit" variant="primary" className={compact ? '' : 'w-full'}>
+          <InkButton
+            type="submit"
+            variant="primary"
+            className={compact ? '' : 'w-full'}
+          >
             搜索
           </InkButton>
           {compact && (
@@ -831,7 +853,9 @@ export default function AuctionPage() {
                 {SPIRIT_STONES_INFO.label}余额：
                 {cultivator ? cultivator.spirit_stones : '读取中…'}
               </p>
-              <p>当前页签：{activeTab === 'browse' ? '浏览拍卖' : '我的寄售'}</p>
+              <p>
+                当前页签：{activeTab === 'browse' ? '浏览拍卖' : '我的寄售'}
+              </p>
               <p>当前筛选：{filterSummaryText}</p>
               <p>我的寄售：{pagination.my.total} / 5</p>
             </div>
@@ -880,9 +904,7 @@ export default function AuctionPage() {
           <div className="mt-3">{renderFilterControls(true)}</div>
         </details>
 
-        <div className="hidden md:block">
-          {renderFilterControls()}
-        </div>
+        <div className="hidden md:block">{renderFilterControls()}</div>
 
         <div className="flex items-center justify-between gap-3">
           <p className="text-ink-secondary text-sm">
@@ -901,7 +923,7 @@ export default function AuctionPage() {
       )}
 
       {isLoading ? (
-        <div className="py-10 text-center">正在获取拍卖列表...</div>
+        <GameLoadingState message="正在获取拍卖列表……" variant="inline" />
       ) : activeListings.length > 0 ? (
         <>
           <InkList>

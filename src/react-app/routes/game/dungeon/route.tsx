@@ -1,13 +1,14 @@
 import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
-import { useTaskList } from '@app/lib/hooks/useTaskList';
+import { GameSceneLoading } from '@app/components/game-shell';
 import { useDungeonViewModel } from '@app/lib/hooks/dungeon/useDungeonViewModel';
+import { useTaskList } from '@app/lib/hooks/useTaskList';
 import { projectBattleUnitEntryState } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import { buildConditionBattleUnitInitFragment } from '@shared/lib/conditionBattle';
 import { Suspense, useCallback, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
+import { DungeonViewRenderer } from './components/DungeonViewRenderer';
 import { DungeonSceneScreen } from './dungeonScene';
 import { resolveDungeonSceneDescriptor } from './dungeonSceneRegistry';
-import { DungeonViewRenderer } from './components/DungeonViewRenderer';
-import { useNavigate, useSearchParams } from 'react-router';
 
 /**
  * 副本主页面内容组件
@@ -66,9 +67,7 @@ function DungeonContent() {
     const descriptor = resolveDungeonSceneDescriptor('loading');
     return (
       <DungeonSceneScreen descriptor={descriptor}>
-        <div className="text-center">
-          <p className="loading-tip">{descriptor.loadingMessage}</p>
-        </div>
+        <GameSceneLoading message={descriptor.loadingMessage} />
       </DungeonSceneScreen>
     );
   }
@@ -94,9 +93,7 @@ export default function DungeonPage() {
     <Suspense
       fallback={
         <DungeonSceneScreen descriptor={descriptor}>
-          <div className="text-center">
-            <p className="loading-tip">{descriptor.loadingMessage}</p>
-          </div>
+          <GameSceneLoading message={descriptor.loadingMessage} />
         </DungeonSceneScreen>
       }
     >

@@ -120,10 +120,11 @@ function ResetPasswordPage({ resetToken }: { resetToken: string }) {
         <InkButton
           type="submit"
           variant="primary"
-          disabled={loading}
+          pending={loading}
+          pendingLabel="重设中……"
           className="w-full text-center"
         >
-          {loading ? '重设中…' : '确认重设'}
+          确认重设
         </InkButton>
       </form>
     </AuthPageShell>

@@ -1,3 +1,4 @@
+import { GameLoadingState } from '@app/components/game-shell/GameLoadingState';
 import {
   InkBadge,
   InkButton,
@@ -6,6 +7,7 @@ import {
 } from '@app/components/ui';
 import { useMaterialInventoryResource } from '@app/lib/resources/inventory';
 import { cn } from '@shared/lib/cn';
+import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
 import {
   ELEMENT_VALUES,
   MATERIAL_TYPE_VALUES,
@@ -15,7 +17,6 @@ import {
   type Quality,
 } from '@shared/types/constants';
 import type { Material } from '@shared/types/cultivator';
-import { getMaterialTypeInfo } from '@shared/lib/gameConceptDisplay';
 import { useMemo, useState } from 'react';
 
 export interface MaterialSelectorProps {
@@ -125,15 +126,21 @@ export function MaterialSelector({
         <InkButton
           variant="secondary"
           className="text-sm"
-          disabled={isLoading || isRefreshing}
+          disabled={isLoading}
+          pending={isRefreshing}
+          pendingLabel="刷新中……"
           onClick={() => void refreshPage()}
         >
-          {isRefreshing ? '刷新中…' : '手动刷新'}
+          手动刷新
         </InkButton>
       </div>
 
+      {isRefreshing ? (
+        <GameLoadingState message="正在刷新材料名录……" variant="inline" />
+      ) : null}
+
       {enableFilterSort && (
-        <div className="px-2 py-1 bg-ink/5">
+        <div className="bg-ink/5 px-2 py-1">
           <div className="flex items-center justify-between">
             <span className="text-ink-secondary text-sm leading-6">
               筛选与排序
@@ -292,7 +299,8 @@ export function MaterialSelector({
                 className={cn(
                   'border-ink/10 hover:border-crimson flex w-full items-center justify-between gap-3 border px-3 py-2 text-left transition',
                   isSelected && 'border-crimson bg-crimson/5',
-                  isMystery && 'cursor-not-allowed opacity-70 hover:border-ink/10',
+                  isMystery &&
+                    'hover:border-ink/10 cursor-not-allowed opacity-70',
                 )}
                 onClick={() => {
                   if (materialId && !isMystery) {
@@ -304,9 +312,7 @@ export function MaterialSelector({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{`${typeInfo?.icon} ${material.name}`}</span>
-                    {isMystery ? (
-                      <InkBadge compact>待鉴定</InkBadge>
-                    ) : null}
+                    {isMystery ? <InkBadge compact>待鉴定</InkBadge> : null}
                     {material.rank ? (
                       <InkBadge tier={material.rank as Quality} compact>
                         {typeInfo?.label}

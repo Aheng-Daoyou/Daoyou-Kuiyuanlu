@@ -1,13 +1,12 @@
-import { getCreationProductTypeFromCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
 import {
   PENDING_CREATION_CRAFT_TYPES,
   getPendingCreationConfig,
   getPendingCreationReplaceHref,
   isPendingCreationCraftType,
   resolvePendingCreationRoute,
+  usePendingCreations,
   type CreationProductResultRecord,
   type PendingCreationCraftType,
-  usePendingCreations,
 } from '@app/components/feature/creation';
 import {
   AbilityDetailModal,
@@ -21,15 +20,12 @@ import {
   GameSceneLoading,
   GameSceneSection,
 } from '@app/components/game-shell';
-import {
-  InkActionGroup,
-  InkButton,
-  InkNotice,
-} from '@app/components/ui';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
-import { useCultivatorIdentity } from '@app/lib/resources/player';
-import { getCreationProductTypeLabel } from '@shared/lib/gameConceptDisplay';
+import { InkActionGroup, InkButton, InkNotice } from '@app/components/ui';
 import { useResourceMutation } from '@app/lib/resources/mutations';
+import { useCultivatorIdentity } from '@app/lib/resources/player';
+import { getCreationProductTypeFromCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
+import { getCreationProductTypeLabel } from '@shared/lib/gameConceptDisplay';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 
@@ -52,9 +48,8 @@ function ReplaceContent() {
   const [initializing, setInitializing] = useState(false);
   const [existingItems, setExistingItems] = useState<V2Product[]>([]);
   const [selectedOldId, setSelectedOldId] = useState<string | null>(null);
-  const [detailProduct, setDetailProduct] = useState<ProductDisplayModel | null>(
-    null,
-  );
+  const [detailProduct, setDetailProduct] =
+    useState<ProductDisplayModel | null>(null);
 
   const pendingCreations = usePendingCreations({
     craftTypes: PENDING_CREATION_CRAFT_TYPES,
@@ -77,7 +72,9 @@ function ReplaceContent() {
   const abilityLabel = productType
     ? getCreationProductTypeLabel(productType)
     : getCreationProductTypeLabel('gongfa');
-  const pendingDisplayModel = pendingItem ? toProductDisplayModel(pendingItem) : null;
+  const pendingDisplayModel = pendingItem
+    ? toProductDisplayModel(pendingItem)
+    : null;
 
   useEffect(() => {
     if (
@@ -167,14 +164,14 @@ function ReplaceContent() {
     setLoading(true);
     try {
       const request = fetch('/api/craft/confirm', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            craftType: activeCraftType,
-            replaceId: isAbandon ? null : selectedOldId,
-            abandon: isAbandon,
-          }),
-        });
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          craftType: activeCraftType,
+          replaceId: isAbandon ? null : selectedOldId,
+          abandon: isAbandon,
+        }),
+      });
       const data = isAbandon
         ? await (async () => {
             const res = await request;
@@ -206,7 +203,7 @@ function ReplaceContent() {
     cultivatorLoading ||
     (Boolean(cultivator) && (pendingCreations.isLoading || initializing))
   ) {
-    return <GameSceneLoading message="感知天机中..." />;
+    return <GameSceneLoading message="感知天机中……" />;
   }
 
   if (!cultivator) {
@@ -231,7 +228,7 @@ function ReplaceContent() {
   }
 
   if (routeResolution.mode === 'single') {
-    return <GameSceneLoading message="转入取舍流程中..." />;
+    return <GameSceneLoading message="转入取舍流程中……" />;
   }
 
   if (routeResolution.mode === 'multiple') {
@@ -280,7 +277,9 @@ function ReplaceContent() {
     return (
       <GameSceneFrame variant="lite">
         <div className="space-y-4">
-          <InkNotice>当前没有待处理的新{config.label}，可能已处理或已过期。</InkNotice>
+          <InkNotice>
+            当前没有待处理的新{config.label}，可能已处理或已过期。
+          </InkNotice>
           <InkActionGroup align="right">
             <InkButton href="/game/enlightenment" variant="secondary">
               返回悟道室
@@ -397,9 +396,11 @@ function ReplaceContent() {
           <InkButton
             variant="primary"
             onClick={() => handleConfirm(false)}
-            disabled={loading || !selectedOldId}
+            disabled={!selectedOldId}
+            pending={loading}
+            pendingLabel="演化中……"
           >
-            {loading ? '演化中...' : '确认替换'}
+            确认替换
           </InkButton>
         </InkActionGroup>
 
@@ -415,7 +416,7 @@ function ReplaceContent() {
 
 export default function ReplacePage() {
   return (
-    <Suspense fallback={<GameSceneLoading message="感知天机中..." />}>
+    <Suspense fallback={<GameSceneLoading message="感知天机中……" />}>
       <ReplaceContent />
     </Suspense>
   );

@@ -9,6 +9,7 @@ import { useQiActionConfirm } from '@app/components/feature/cultivator/useQiActi
 import {
   GameSceneAsideSection,
   GameSceneFrame,
+  GameSceneLoading,
   GameSceneNote,
   GameSceneSection,
 } from '@app/components/game-shell';
@@ -19,11 +20,11 @@ import {
   InkIdentifyCelebration,
   InkNotice,
 } from '@app/components/ui';
+import { useResourceMutation } from '@app/lib/resources/mutations';
 import {
   useCultivatorIdentity,
   usePlayerSession,
 } from '@app/lib/resources/player';
-import { useResourceMutation } from '@app/lib/resources/mutations';
 import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
 import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
 import { getAllowedMaterialTypesForCraftType } from '@shared/engine/creation-v2/config/CreationCraftPolicy';
@@ -266,11 +267,7 @@ export function RefineScene({ sectContext }: RefineSceneProps) {
   };
 
   if (isLoading && !cultivator) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="loading-tip">地火引动中……</p>
-      </div>
-    );
+    return <GameSceneLoading message="地火引动中……" />;
   }
 
   return (
@@ -417,14 +414,15 @@ export function RefineScene({ sectContext }: RefineSceneProps) {
             variant="primary"
             onClick={handleSubmit}
             disabled={
-              isSubmitting ||
               selectedMaterialIds.length === 0 ||
               !requestedSlot ||
               !displayCanAfford ||
               displayValidation?.valid === false
             }
+            pending={isSubmitting}
+            pendingLabel="真火炼中……"
           >
-            {isSubmitting ? '真火炼中……' : '开炉炼器'}
+            开炉炼器
           </InkButton>
         </InkActionGroup>
       </GameSceneSection>
