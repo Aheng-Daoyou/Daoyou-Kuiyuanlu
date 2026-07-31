@@ -201,3 +201,4 @@ dist
 .claude
 .vscode
 .antigravitycli
+output/
