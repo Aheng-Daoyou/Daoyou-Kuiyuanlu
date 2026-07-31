@@ -25,8 +25,8 @@ export function AdminShell({
 
   return (
     <div className="bg-paper relative min-h-screen overflow-hidden">
-      <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 lg:flex-row lg:px-8">
-        <aside className="border-ink/15 bg-bgpaper/90 w-full shrink-0 border border-dashed p-4 lg:sticky lg:top-6 lg:w-72 lg:self-start">
+      <div className="app-safe-area-page relative mx-auto flex w-full max-w-7xl flex-col gap-6 [--app-safe-area-block-space:1.5rem] lg:flex-row lg:[--app-safe-area-inline-space:2rem]">
+        <aside className="border-ink/15 bg-bgpaper/90 w-full shrink-0 border border-dashed p-4 lg:sticky lg:top-[calc(env(safe-area-inset-top)+1.5rem)] lg:w-72 lg:self-start">
           <div className="border-ink/10 mb-4 border-b pb-4">
             <p className="text-ink-secondary text-xs tracking-[0.2em]">
               OPS CONSOLE

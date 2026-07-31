@@ -66,15 +66,19 @@ export function InkDetailDrawer({
           className,
         )}
       >
-        <header className="border-ink/15 flex shrink-0 items-center justify-between gap-3 border-b border-dashed px-4 py-3 md:px-5">
-          <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
-          <InkButton onClick={onClose} variant="secondary">收起</InkButton>
+        <header className="border-ink/15 flex shrink-0 items-center justify-between gap-3 border-b border-dashed pt-3 pr-[max(env(safe-area-inset-right),1rem)] pb-3 pl-[max(env(safe-area-inset-left),1rem)] md:pt-[max(env(safe-area-inset-top),1.25rem)] md:pr-[max(env(safe-area-inset-right),1.25rem)] md:pl-5">
+          <h2 id={titleId} className="text-lg font-semibold">
+            {title}
+          </h2>
+          <InkButton onClick={onClose} variant="secondary">
+            收起
+          </InkButton>
         </header>
-        <div className="battle-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-5">
+        <div className="battle-scroll min-h-0 flex-1 overflow-y-auto pt-4 pr-[max(env(safe-area-inset-right),1rem)] pb-[max(env(safe-area-inset-bottom),1rem)] pl-[max(env(safe-area-inset-left),1rem)] md:pr-[max(env(safe-area-inset-right),1.25rem)] md:pb-[max(env(safe-area-inset-bottom),1.25rem)] md:pl-5">
           {children}
         </div>
         {footer ? (
-          <footer className="border-ink/15 bg-bgpaper shrink-0 border-t border-dashed px-4 py-3 md:px-5">
+          <footer className="border-ink/15 bg-bgpaper shrink-0 border-t border-dashed pt-3 pr-[max(env(safe-area-inset-right),1rem)] pb-[max(env(safe-area-inset-bottom),0.75rem)] pl-[max(env(safe-area-inset-left),1rem)] md:pr-[max(env(safe-area-inset-right),1.25rem)] md:pb-[max(env(safe-area-inset-bottom),1.25rem)] md:pl-5">
             {footer}
           </footer>
         ) : null}

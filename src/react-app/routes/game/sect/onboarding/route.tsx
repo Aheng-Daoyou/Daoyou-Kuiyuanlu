@@ -75,7 +75,7 @@ export default function SectOnboardingPage() {
 
   if (profile.error) {
     return (
-      <div className="flex min-h-[100svh] items-center justify-center bg-[#131713] px-6 text-[#f3ecdc]">
+      <div className="app-safe-area-page flex min-h-[100svh] items-center justify-center bg-[#131713] text-[#f3ecdc] [--app-safe-area-inline-space:1.5rem]">
         <div className="max-w-md text-center">
           <p className="leading-8">山门云路暂被雾气遮住了。</p>
           <p className="mt-2 text-sm leading-7 text-[#d7cbb3]">
@@ -101,7 +101,7 @@ export default function SectOnboardingPage() {
   );
   if (!sectId) {
     return (
-      <section className="min-h-[100svh] bg-[#e8e1d1] px-4 pt-[calc(env(safe-area-inset-top)+2rem)] pb-[calc(env(safe-area-inset-bottom)+2rem)] text-[#241d17] sm:px-7">
+      <section className="min-h-[100svh] bg-[#e8e1d1] pt-[calc(env(safe-area-inset-top)+2rem)] pr-[max(env(safe-area-inset-right),1rem)] pb-[calc(env(safe-area-inset-bottom)+2rem)] pl-[max(env(safe-area-inset-left),1rem)] text-[#241d17] sm:pr-[max(env(safe-area-inset-right),1.75rem)] sm:pl-[max(env(safe-area-inset-left),1.75rem)]">
         <div className="mx-auto max-w-6xl">
           <header className="max-w-2xl">
             <p className="text-xs tracking-[0.3em] text-[#765e49]">

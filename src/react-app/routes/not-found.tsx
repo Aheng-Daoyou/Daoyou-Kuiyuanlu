@@ -1,11 +1,13 @@
-import { InkButton } from '@app/components/ui/InkButton';
 import Link from '@app/components/router/AppLink';
+import { InkButton } from '@app/components/ui/InkButton';
 
 export default function NotFound() {
   return (
-    <div className="bg-paper relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4">
+    <div className="app-safe-area-page bg-paper relative flex min-h-[100svh] flex-col items-center justify-center overflow-hidden">
       <div className="pointer-events-none absolute inset-0 opacity-15">
-        <div className="text-ink/10 absolute top-16 left-8 text-7xl">「虚」</div>
+        <div className="text-ink/10 absolute top-16 left-8 text-7xl">
+          「虚」
+        </div>
         <div className="text-crimson/10 absolute right-8 bottom-20 text-8xl">
           「空」
         </div>

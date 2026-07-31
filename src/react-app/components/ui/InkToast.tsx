@@ -87,7 +87,7 @@ export function InkToastHost({ toasts, onDismiss }: InkToastHostProps) {
   return (
     <div
       className={cn(
-        'fixed inset-x-3 bottom-20 z-200 flex flex-col gap-2',
+        'fixed right-[max(env(safe-area-inset-right),0.75rem)] bottom-[calc(env(safe-area-inset-bottom)+5rem)] left-[max(env(safe-area-inset-left),0.75rem)] z-200 flex flex-col gap-2',
         'md:left-1/2 md:right-auto md:w-md md:-translate-x-1/2',
       )}
       aria-live="polite"

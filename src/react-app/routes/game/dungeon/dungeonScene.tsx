@@ -1,10 +1,5 @@
 import { cn } from '@shared/lib/cn';
-import {
-  useMemo,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from 'react';
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   DungeonSceneContext,
   useDungeonSceneDescriptor,
@@ -50,10 +45,10 @@ export function DungeonSceneScreen({
     descriptor.density === 'full'
       ? 'h-full'
       : descriptor.density === 'wide'
-        ? 'mx-auto w-full max-w-6xl px-3 md:px-6'
+        ? 'mx-auto w-full max-w-6xl pr-[max(env(safe-area-inset-right),0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:pr-[max(env(safe-area-inset-right),1.5rem)] md:pl-[max(env(safe-area-inset-left),1.5rem)]'
         : descriptor.density === 'centered'
-          ? 'mx-auto flex min-h-full w-full max-w-3xl items-center justify-center px-3 md:px-6'
-          : 'mx-auto w-full max-w-5xl px-3 md:px-6';
+          ? 'mx-auto flex min-h-full w-full max-w-3xl items-center justify-center pr-[max(env(safe-area-inset-right),0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:pr-[max(env(safe-area-inset-right),1.5rem)] md:pl-[max(env(safe-area-inset-left),1.5rem)]'
+          : 'mx-auto w-full max-w-5xl pr-[max(env(safe-area-inset-right),0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:pr-[max(env(safe-area-inset-right),1.5rem)] md:pl-[max(env(safe-area-inset-left),1.5rem)]';
 
   const containerStyle: CSSProperties | undefined =
     descriptor.density === 'full'
@@ -68,7 +63,7 @@ export function DungeonSceneScreen({
   return (
     <div className={cn(containerClassName, className)} style={containerStyle}>
       {showSceneTitle ? (
-        <header className="mb-5 border-battle-rule-strong border-b border-dashed pb-4 md:mb-6">
+        <header className="border-battle-rule-strong mb-5 border-b border-dashed pb-4 md:mb-6">
           <h1 className="font-heading text-ink text-3xl leading-tight md:text-4xl">
             {descriptor.sceneLabel}
           </h1>

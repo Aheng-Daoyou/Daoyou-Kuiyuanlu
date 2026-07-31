@@ -1,4 +1,5 @@
 import App, { RootRouteErrorBoundary } from '@app/App';
+import { AppBootScreen } from '@app/components/feature/app-boot/AppBootScreen';
 import { getGameSceneMeta } from '@app/components/game-shell/gameNavigation';
 import {
   GameActivityLayout,
@@ -68,7 +69,11 @@ const sectVisitTitle: RouteTitleResolver = ({ params }) => {
 
 export const router = createBrowserRouter(
   createRoutesFromElements(
-    <Route element={<App />} errorElement={<RootRouteErrorBoundary />}>
+    <Route
+      element={<App />}
+      errorElement={<RootRouteErrorBoundary />}
+      HydrateFallback={AppBootScreen}
+    >
       <Route index lazy={lazyRoute(() => import('@app/routes/index/route'))} />
       <Route
         id={AUTH_LAYOUT_ROUTE_ID}

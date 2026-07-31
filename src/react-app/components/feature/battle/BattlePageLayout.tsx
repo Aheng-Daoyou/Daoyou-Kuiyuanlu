@@ -51,7 +51,7 @@ export function BattlePageLayout({
         data-battle-layout-root="true"
       >
         <div
-          className="main-content mx-auto box-border flex h-full min-h-0 max-w-4xl flex-col overflow-hidden px-4 pt-[calc(env(safe-area-inset-top)+0.7rem)] md:px-6 md:pt-[calc(env(safe-area-inset-top)+0.95rem)]"
+          className="main-content mx-auto box-border flex h-full min-h-0 max-w-4xl flex-col overflow-hidden pt-[calc(env(safe-area-inset-top)+0.7rem)] pr-[max(env(safe-area-inset-right),1rem)] pl-[max(env(safe-area-inset-left),1rem)] md:pt-[calc(env(safe-area-inset-top)+0.95rem)] md:pr-[max(env(safe-area-inset-right),1.5rem)] md:pl-[max(env(safe-area-inset-left),1.5rem)]"
           style={immersiveLayoutStyle}
         >
           {error && (
@@ -74,7 +74,7 @@ export function BattlePageLayout({
 
   return (
     <div className="battle-scroll h-full overflow-y-auto">
-      <div className="main-content mx-auto flex min-h-full max-w-4xl flex-col px-4 pt-[calc(env(safe-area-inset-top)+4.25rem)] pb-64 md:px-6 md:pt-[calc(env(safe-area-inset-top)+4.6rem)] md:pb-68">
+      <div className="main-content mx-auto flex min-h-full max-w-4xl flex-col pt-[calc(env(safe-area-inset-top)+4.25rem)] pr-[max(env(safe-area-inset-right),1rem)] pb-64 pl-[max(env(safe-area-inset-left),1rem)] md:pt-[calc(env(safe-area-inset-top)+4.6rem)] md:pr-[max(env(safe-area-inset-right),1.5rem)] md:pb-68 md:pl-[max(env(safe-area-inset-left),1.5rem)]">
         <header className="mb-3">
           <div className="min-w-0">
             <h1 className="font-heading text-ink text-3xl leading-none md:text-4xl">

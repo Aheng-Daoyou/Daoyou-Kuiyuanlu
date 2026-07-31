@@ -24,8 +24,7 @@ export function AuthPageShell({
   children,
 }: AuthPageShellProps) {
   const authLoaderData = useRouteLoaderData(AUTH_LAYOUT_ROUTE_ID) as
-    | AuthLoaderData
-    | undefined;
+    AuthLoaderData | undefined;
   const announcement = authLoaderData?.announcement?.trim() || null;
 
   return (
@@ -40,7 +39,7 @@ export function AuthPageShell({
           backgroundSize: '420px',
         }}
       />
-      <div className="relative mx-auto flex min-h-screen w-full max-w-5xl flex-col justify-center px-4 py-4 sm:px-6">
+      <div className="app-safe-area-page relative mx-auto flex min-h-[100svh] w-full max-w-5xl flex-col justify-center">
         <div className="mx-auto w-full max-w-xl">
           {announcement ? (
             <div className="border-ink/15 bg-bgpaper/88 mb-4 flex items-center gap-3 overflow-hidden border border-dashed px-3 py-2 shadow-[0_8px_20px_rgba(44,24,16,0.05)]">

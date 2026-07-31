@@ -88,6 +88,25 @@
   --font-ma-shan-zheng: 'Ma Shan Zheng', cursive;
 }
 
+.app-safe-area-page {
+  --app-safe-area-inline-space: 1rem;
+  --app-safe-area-block-space: 1rem;
+
+  box-sizing: border-box;
+  padding-top: calc(
+    env(safe-area-inset-top, 0px) + var(--app-safe-area-block-space)
+  );
+  padding-right: calc(
+    env(safe-area-inset-right, 0px) + var(--app-safe-area-inline-space)
+  );
+  padding-bottom: calc(
+    env(safe-area-inset-bottom, 0px) + var(--app-safe-area-block-space)
+  );
+  padding-left: calc(
+    env(safe-area-inset-left, 0px) + var(--app-safe-area-inline-space)
+  );
+}
+
 body {
   background-color: var(--color-bgpaper);
   background-image: url('/assets/paper.png');

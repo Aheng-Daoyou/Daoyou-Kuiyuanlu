@@ -5,15 +5,13 @@ import { GameTopHud } from '@app/components/game-shell/GameTopHud';
 import { RealtimeConnectionToasts } from '@app/components/game-shell/RealtimeConnectionToasts';
 import { useGameHudModel } from '@app/components/game-shell/useGameHudModel';
 import { InkButton } from '@app/components/ui/InkButton';
-import {
-  usePlayerSession,
-} from '@app/lib/resources/player';
 import { PlayerProvider } from '@app/lib/player/PlayerProvider';
-import type { UserLoaderData } from '@app/lib/router/routeData';
+import { usePlayerSession } from '@app/lib/resources/player';
 import {
   resolveMapCloseNavigation,
   type SpecialBackNavigation,
 } from '@app/lib/router/mapCloseNavigation';
+import type { UserLoaderData } from '@app/lib/router/routeData';
 import {
   resolveGameScene,
   resolveRouteTitle,
@@ -34,8 +32,8 @@ import {
 import {
   Navigate,
   Outlet,
-  useLocation,
   useLoaderData,
+  useLocation,
   useMatches,
   useNavigate,
 } from 'react-router';
@@ -55,7 +53,7 @@ interface SpecialSceneDescriptor {
 
 function LoadingScreen({ message }: { message: string }) {
   return (
-    <div className="bg-paper flex min-h-screen items-center justify-center">
+    <div className="app-safe-area-page bg-paper flex min-h-[100svh] items-center justify-center">
       <p className="loading-tip">{message}</p>
     </div>
   );
@@ -65,8 +63,7 @@ function PlayerShell() {
   const session = usePlayerSession();
   const note = session.data?.note;
   const hasActiveCultivator = Boolean(session.data?.activeCultivator);
-  const isLoading =
-    session.status === 'idle' || session.status === 'loading';
+  const isLoading = session.status === 'idle' || session.status === 'loading';
   const location = useLocation();
 
   if (isLoading && !hasActiveCultivator) {
@@ -77,7 +74,7 @@ function PlayerShell() {
     const isDead = Boolean(note);
 
     return (
-      <div className="bg-paper flex min-h-screen items-center justify-center px-6">
+      <div className="app-safe-area-page bg-paper flex min-h-[100svh] items-center justify-center">
         <div className="w-full max-w-xl p-6">
           <h1 className="text-xl font-semibold tracking-wide">
             {isDead ? '前世道途已尽' : '尚未凝聚真身'}
@@ -100,9 +97,7 @@ function PlayerShell() {
     );
   }
 
-  const sectState = session.data?.activeCultivator?.sectId
-    ? 'joined'
-    : 'none';
+  const sectState = session.data?.activeCultivator?.sectId ? 'joined' : 'none';
   const redirect = resolveSectOnboardingRedirect(
     location.pathname,
     hasActiveCultivator,
@@ -275,7 +270,7 @@ function MapSceneChrome() {
     : `人界 · 全图 · ${intentLabel}`;
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between px-3 pt-[calc(env(safe-area-inset-top)+0.65rem)] md:px-5">
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between pt-[calc(env(safe-area-inset-top)+0.65rem)] pr-[max(env(safe-area-inset-right),0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:pr-[max(env(safe-area-inset-right),1.25rem)] md:pl-[max(env(safe-area-inset-left),1.25rem)]">
       <div className="pointer-events-auto">
         <button
           type="button"
@@ -350,6 +345,8 @@ export function GameViewportLayout() {
             className="min-h-0 flex-1"
             style={{
               paddingBottom: 'var(--game-bottom-offset)',
+              paddingLeft: 'env(safe-area-inset-left)',
+              paddingRight: 'env(safe-area-inset-right)',
               scrollPaddingBottom: 'var(--game-bottom-offset)',
             }}
           >
@@ -480,7 +477,7 @@ function GameGenesisLayoutBody() {
     <div className="bg-paper h-screen overflow-hidden">
       <div className="flex h-full flex-col overflow-hidden">
         <header className="border-battle-rule-strong border-b border-dashed bg-[rgba(248,243,230,0.92)]">
-          <div className="mx-auto flex max-w-6xl items-start justify-between gap-4 px-3 pt-[calc(env(safe-area-inset-top)+0.8rem)] pb-3 md:px-6">
+          <div className="mx-auto flex max-w-6xl items-start justify-between gap-4 pt-[calc(env(safe-area-inset-top)+0.8rem)] pr-[max(env(safe-area-inset-right),0.75rem)] pb-3 pl-[max(env(safe-area-inset-left),0.75rem)] md:pr-[max(env(safe-area-inset-right),1.5rem)] md:pl-[max(env(safe-area-inset-left),1.5rem)]">
             <InkButton href={descriptor.backAction.href}>
               {descriptor.backAction.label}
             </InkButton>
@@ -498,7 +495,7 @@ function GameGenesisLayoutBody() {
           </div>
         </header>
         <main className="battle-scroll min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-6xl px-3 py-4 md:px-6 md:py-5">
+          <div className="mx-auto w-full max-w-6xl py-4 pr-[max(env(safe-area-inset-right),0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:py-5 md:pr-[max(env(safe-area-inset-right),1.5rem)] md:pl-[max(env(safe-area-inset-left),1.5rem)]">
             <Outlet />
           </div>
         </main>
@@ -536,7 +533,7 @@ function DungeonSceneChrome({
             : 'pointer-events-auto'
         }
       >
-        <div className="mx-auto flex min-h-12 w-full max-w-5xl items-center gap-3 px-3 pt-[env(safe-area-inset-top)] md:px-6">
+        <div className="mx-auto flex min-h-12 w-full max-w-5xl items-center gap-3 pt-[env(safe-area-inset-top)] pr-[max(env(safe-area-inset-right),0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:pr-[max(env(safe-area-inset-right),1.5rem)] md:pl-[max(env(safe-area-inset-left),1.5rem)]">
           <button
             type="button"
             onClick={() => navigate(descriptor.backAction.href)}

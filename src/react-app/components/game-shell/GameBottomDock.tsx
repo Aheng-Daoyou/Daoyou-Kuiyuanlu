@@ -64,7 +64,7 @@ export function GameBottomDock({
 
   return (
     <footer className="battle-dock border-battle-rule-strong w-full border-t border-dashed">
-      <div className="mx-auto max-w-5xl px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.8rem)] md:px-6">
+      <div className="mx-auto max-w-5xl pt-2 pr-[max(env(safe-area-inset-right),0.75rem)] pb-[calc(env(safe-area-inset-bottom)+0.8rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:pr-[max(env(safe-area-inset-right),1.5rem)] md:pl-[max(env(safe-area-inset-left),1.5rem)]">
         <nav
           aria-label="核心场景"
           className="flex min-w-0 flex-wrap items-center justify-around text-sm"

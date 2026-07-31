@@ -23,7 +23,7 @@ function NavigationIndicator() {
   return (
     <div
       aria-hidden="true"
-      className={`bg-crimson pointer-events-none fixed top-0 right-0 left-0 z-200 h-0.5 transition-opacity duration-150 ${
+      className={`bg-crimson pointer-events-none fixed top-[env(safe-area-inset-top)] right-0 left-0 z-200 h-0.5 transition-opacity duration-150 ${
         isNavigating ? 'opacity-100' : 'opacity-0'
       }`}
     />
@@ -65,7 +65,7 @@ export function RootRouteErrorView({ error }: { error: unknown }) {
   const pageTitle = isVersionError ? '版本已更迭' : '道途异常';
 
   return (
-    <div className="bg-paper flex min-h-screen items-center justify-center px-6">
+    <div className="app-safe-area-page bg-paper flex min-h-[100svh] items-center justify-center">
       <title>{formatDocumentTitle(pageTitle)}</title>
       <div className="w-full max-w-xl p-6">
         <p className="text-ink-secondary text-xs tracking-[0.2em]">

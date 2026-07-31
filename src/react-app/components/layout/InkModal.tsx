@@ -58,14 +58,14 @@ export function InkModal({
   if (!mounted || !isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center pt-[max(env(safe-area-inset-top),0.75rem)] pr-[max(env(safe-area-inset-right),0.75rem)] pb-[max(env(safe-area-inset-bottom),0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:pt-[max(env(safe-area-inset-top),1rem)] md:pr-[max(env(safe-area-inset-right),1rem)] md:pb-[max(env(safe-area-inset-bottom),1rem)] md:pl-[max(env(safe-area-inset-left),1rem)]">
       {/* 遮罩层 */}
       <div className="ink-overlay absolute inset-0" onClick={onClose} />
 
       {/* 模态框内容 */}
       <div
         className={cn(
-          'relative z-10 w-full max-w-md p-4 md:p-5 bg-bgpaper border border-ink/20',
+          'bg-bgpaper border-ink/20 relative z-10 w-full max-w-md border p-4 md:p-5',
           className,
         )}
         role="dialog"
@@ -87,7 +87,7 @@ export function InkModal({
         </div>
 
         {footer && (
-          <div className="mt-4 border-t border-dashed border-ink/15 pt-3">
+          <div className="border-ink/15 mt-4 border-t border-dashed pt-3">
             {footer}
           </div>
         )}

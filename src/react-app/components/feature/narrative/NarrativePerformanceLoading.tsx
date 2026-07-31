@@ -1,6 +1,6 @@
 export function NarrativePerformanceLoading({ message }: { message: string }) {
   return (
-    <section className="flex min-h-[100svh] items-center justify-center bg-[#111713] px-6 text-[#f5efdf]">
+    <section className="app-safe-area-page flex min-h-[100svh] items-center justify-center bg-[#111713] text-[#f5efdf] [--app-safe-area-inline-space:1.5rem]">
       <div className="w-full max-w-sm text-center" role="status">
         <span
           aria-hidden="true"

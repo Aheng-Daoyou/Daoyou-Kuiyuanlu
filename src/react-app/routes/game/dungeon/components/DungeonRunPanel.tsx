@@ -245,7 +245,7 @@ export function DungeonRunPanel({
         <button
           type="button"
           onClick={handleToggleExpanded}
-          className="grid w-full grid-cols-2 items-center gap-3 px-3 py-3 text-left md:grid-cols-[1fr_1fr_auto] md:px-5"
+          className="grid w-full grid-cols-2 items-center gap-3 py-3 pr-[max(env(safe-area-inset-right),0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] text-left md:grid-cols-[1fr_1fr_auto] md:pr-[max(env(safe-area-inset-right),1.25rem)] md:pl-[max(env(safe-area-inset-left),1.25rem)]"
           aria-expanded={expanded}
         >
           <div className="min-w-0">
@@ -268,7 +268,7 @@ export function DungeonRunPanel({
         </button>
 
         {expanded ? (
-          <div className="border-ink/10 battle-scroll max-h-[70svh] overflow-y-auto border-t border-dashed px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:px-5 md:pt-4">
+          <div className="border-ink/10 battle-scroll max-h-[70svh] overflow-y-auto border-t border-dashed pt-3 pr-[max(env(safe-area-inset-right),0.75rem)] pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:pt-4 md:pr-[max(env(safe-area-inset-right),1.25rem)] md:pl-[max(env(safe-area-inset-left),1.25rem)]">
             <GameSceneTabs
               activeValue={activeMainTab}
               onChange={handleMainTabChange}

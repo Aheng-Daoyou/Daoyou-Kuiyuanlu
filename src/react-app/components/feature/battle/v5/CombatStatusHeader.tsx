@@ -361,7 +361,7 @@ export function CombatStatusHeader({
         ref={dockRef}
         className="battle-dock fixed inset-x-0 bottom-0 z-40 select-none"
       >
-        <div className="mx-auto max-w-4xl px-3 pt-1.5 pb-[calc(env(safe-area-inset-bottom)+0.7rem)] md:px-6 md:pt-2 md:pb-[calc(env(safe-area-inset-bottom)+0.9rem)]">
+        <div className="mx-auto max-w-4xl pt-1.5 pr-[max(env(safe-area-inset-right),0.75rem)] pb-[calc(env(safe-area-inset-bottom)+0.7rem)] pl-[max(env(safe-area-inset-left),0.75rem)] md:pt-2 md:pr-[max(env(safe-area-inset-right),1.5rem)] md:pb-[calc(env(safe-area-inset-bottom)+0.9rem)] md:pl-[max(env(safe-area-inset-left),1.5rem)]">
           {isDockCollapsed ? (
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">

@@ -709,7 +709,7 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
 
   return (
     <header className="border-ink/10 sticky top-0 z-30 border-b border-dashed backdrop-blur-sm">
-      <div className="mx-auto block w-full max-w-5xl px-2.5 py-2 text-left sm:px-3 md:px-6">
+      <div className="mx-auto block w-full max-w-5xl pt-[calc(env(safe-area-inset-top)+0.5rem)] pr-[max(env(safe-area-inset-right),0.625rem)] pb-2 pl-[max(env(safe-area-inset-left),0.625rem)] text-left sm:pr-[max(env(safe-area-inset-right),0.75rem)] sm:pl-[max(env(safe-area-inset-left),0.75rem)] md:pr-[max(env(safe-area-inset-right),1.5rem)] md:pl-[max(env(safe-area-inset-left),1.5rem)]">
         <div className="grid min-w-0 grid-cols-[auto_minmax(3.75rem,0.55fr)_minmax(0,1fr)] items-center gap-2 md:grid-cols-[auto_minmax(8rem,0.44fr)_minmax(0,1fr)] md:gap-4">
           <Link
             href="/game/cultivator"
