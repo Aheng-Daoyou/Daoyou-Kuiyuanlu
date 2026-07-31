@@ -12,6 +12,10 @@ import {
 } from '@shared/engine/sect';
 import * as Phaser from 'phaser';
 import {
+  attachSweepVirtualJoystick,
+  type SweepVirtualJoystickController,
+} from './SweepVirtualJoystick';
+import {
   SWEEP_BOARD_LEFT,
   SWEEP_BOARD_TOP,
   SWEEP_BOARD_WIDTH,
@@ -46,6 +50,7 @@ const SWEEP_MARK_FRAMES = [
 
 export interface SweepPhaserController {
   move: (direction: SweepDirection) => boolean;
+  setTouchControlsEnabled: (enabled: boolean) => void;
   reset: () => void;
   destroy: () => void;
 }
@@ -54,6 +59,7 @@ interface SweepPhaserArguments {
   root: HTMLElement;
   seed: string;
   canvasLabel: string;
+  touchControlsEnabled: boolean;
   onState: (state: SweepGameProgress) => void;
   onSuccess: (moves: SweepDirection[]) => void;
   onError: (message: string) => void;
@@ -90,7 +96,9 @@ export function attachSweepPhaser(
   let state = createSweepGameState(args.seed);
   let queuedState = state;
   let moveScene: ((direction: SweepDirection) => boolean) | undefined;
+  let setTouchControlsScene: ((enabled: boolean) => void) | undefined;
   let resetScene: (() => void) | undefined;
+  let touchControlsEnabled = args.touchControlsEnabled;
   let destroyed = false;
 
   class SweepScene extends Phaser.Scene {
@@ -99,6 +107,7 @@ export function attachSweepPhaser(
     private leaves = new Map<string, Phaser.GameObjects.Container>();
     private visitedMarks = new Map<string, Phaser.GameObjects.Image>();
     private moveQueue: QueuedMove[] = [];
+    private virtualJoystick?: SweepVirtualJoystickController;
     private animating = false;
     private activePointerId?: number;
     private reportedSuccess = false;
@@ -119,10 +128,24 @@ export function attachSweepPhaser(
         'sweep-obstacles',
         '/assets/sect/sweep/sweep-obstacles.webp',
       );
+      this.load.svg(
+        'sweep-joystick-base',
+        '/assets/sect/sweep/sweep-joystick-base.svg',
+      );
+      this.load.svg(
+        'sweep-joystick-thumb',
+        '/assets/sect/sweep/sweep-joystick-thumb.svg',
+      );
     }
 
     create() {
       moveScene = (direction) => this.enqueueDirection(direction);
+      setTouchControlsScene = (enabled) => {
+        touchControlsEnabled = enabled;
+        this.virtualJoystick?.setEnabled(
+          enabled && queuedState.phase === 'playing',
+        );
+      };
       resetScene = () => this.resetGame();
       this.cameras.main
         .setZoom(renderScale)
@@ -139,12 +162,21 @@ export function attachSweepPhaser(
       this.drawBoard();
       this.createLeaves();
       this.createPlayer();
+      this.virtualJoystick = attachSweepVirtualJoystick(this, {
+        root: args.root,
+        enabled: touchControlsEnabled,
+        onMove: (direction) => this.enqueueDirection(direction),
+      });
       this.bindKeyboard();
       this.bindPointerRelease();
       this.renderVisited();
       args.onState(sweepGameProgress(state));
       const canvas = this.game.canvas;
       canvas.setAttribute('aria-label', args.canvasLabel);
+      canvas.setAttribute(
+        'aria-description',
+        '使用方向键、棋盘点击或左侧摇杆移动；摇杆每次推出只移动一格。',
+      );
       canvas.setAttribute('role', 'application');
     }
 
@@ -157,6 +189,8 @@ export function attachSweepPhaser(
         return false;
       }
       queuedState = result.state;
+      if (queuedState.phase !== 'playing')
+        this.virtualJoystick?.setEnabled(false);
       this.moveQueue.push({ direction, state: queuedState });
       this.pumpQueue();
       return true;
@@ -224,6 +258,7 @@ export function attachSweepPhaser(
         .setPosition(start.x, start.y - 4)
         .setFlipX(false)
         .setAlpha(1);
+      this.virtualJoystick?.setEnabled(touchControlsEnabled);
       this.renderVisited();
       args.onState(sweepGameProgress(state));
     }
@@ -476,11 +511,16 @@ export function attachSweepPhaser(
 
   return {
     move: (direction) => moveScene?.(direction) ?? false,
+    setTouchControlsEnabled: (enabled) => {
+      touchControlsEnabled = enabled;
+      setTouchControlsScene?.(enabled);
+    },
     reset: () => resetScene?.(),
     destroy: () => {
       if (destroyed) return;
       destroyed = true;
       moveScene = undefined;
+      setTouchControlsScene = undefined;
       resetScene = undefined;
       game.destroy(true);
     },

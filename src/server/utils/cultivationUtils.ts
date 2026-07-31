@@ -55,7 +55,10 @@ export function stripExpCapForStorage(
 ): CultivationProgress {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { exp_cap: _removed, ...rest } = progress;
-  return rest as CultivationProgress;
+  return {
+    ...rest,
+    bottleneck_state: isBottleneckReached(progress),
+  } as CultivationProgress;
 }
 
 export function getCultivationProgress(
@@ -79,6 +82,7 @@ export function getCultivationProgress(
     cultivator.realm,
     cultivator.realm_stage,
   );
+  syncBottleneckState(cultivator.cultivation_progress);
   return cultivator.cultivation_progress;
 }
 
@@ -93,6 +97,7 @@ export function getOrInitCultivationProgress(
       : createDefaultCultivationProgress(realm, realm_stage);
   // exp_cap 始终从代码配置表实时读取，不依赖数据库快照
   progress.exp_cap = resolveLiveExpCap(realm, realm_stage);
+  syncBottleneckState(progress);
   return progress;
 }
 
@@ -268,7 +273,7 @@ export function calculateCultivationExp(
 
   // 10. 如果处于瓶颈期，修为获取衰减
   const progress = cultivator.cultivation_progress;
-  if (progress?.bottleneck_state) {
+  if (progress && isBottleneckReached(progress)) {
     exp_gained *= BOTTLENECK_EXP_PENALTY;
   }
 
@@ -292,6 +297,17 @@ export function calculateExpProgress(progress: CultivationProgress): number {
  */
 export function isBottleneckReached(progress: CultivationProgress): boolean {
   return calculateExpProgress(progress) >= BOTTLENECK_THRESHOLD;
+}
+
+/**
+ * 根据当前修为进度同步兼容用的瓶颈状态字段。
+ *
+ * 瓶颈是否生效以当前修为与实时阶段上限为准，持久化字段不作为规则权威。
+ */
+export function syncBottleneckState(progress: CultivationProgress): boolean {
+  const active = isBottleneckReached(progress);
+  progress.bottleneck_state = active;
+  return active;
 }
 
 /**

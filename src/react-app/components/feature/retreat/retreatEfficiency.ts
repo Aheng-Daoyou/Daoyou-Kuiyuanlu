@@ -1,4 +1,5 @@
 import { getRetreatQiCost } from '@shared/config/qiSystem';
+import { BOTTLENECK_THRESHOLD } from '@shared/config/cultivationTuning';
 import {
   getActiveCultivationBoostStatus,
   getCultivationBoostPercent,
@@ -128,7 +129,12 @@ export function buildRetreatEfficiencyModel(input: {
     });
   }
 
-  if (cultivator.cultivation_progress?.bottleneck_state) {
+  const progress = cultivator.cultivation_progress;
+  const bottleneckActive =
+    Boolean(progress?.exp_cap) &&
+    ((progress?.cultivation_exp ?? 0) / (progress?.exp_cap ?? 1)) * 100 >=
+      BOTTLENECK_THRESHOLD;
+  if (bottleneckActive) {
     retreatTags.push({
       key: 'bottleneck',
       icon: '⛰️',

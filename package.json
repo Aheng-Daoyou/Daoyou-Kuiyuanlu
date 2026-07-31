@@ -37,6 +37,7 @@
     "nodemailer": "^9.0.3",
     "pg": "^8.22.0",
     "phaser": "^4.0.0",
+    "phaser4-rex-plugins": "4.2.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-router": "^8.3.0",

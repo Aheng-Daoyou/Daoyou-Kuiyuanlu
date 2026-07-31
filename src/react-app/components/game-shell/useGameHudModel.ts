@@ -13,6 +13,7 @@ import {
   type CultivatorDisplaySnapshot,
 } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import type { Cultivator } from '@shared/types/cultivator';
+import { BOTTLENECK_THRESHOLD } from '@shared/config/cultivationTuning';
 import {
   getBodyCultivationSummary,
   type BodyCultivationSummary,
@@ -263,7 +264,7 @@ export function buildGameHudSnapshot(input: {
       percent: cultivationPercent,
       insight,
       bottleneckState:
-        cultivator.cultivation_progress?.bottleneck_state ?? false,
+        (cultivationExp / cultivationCap) * 100 >= BOTTLENECK_THRESHOLD,
       innerDemon: cultivator.cultivation_progress?.inner_demon ?? false,
       deviationRisk: Math.round(
         clamp(cultivator.cultivation_progress?.deviation_risk ?? 0, 0, 100),

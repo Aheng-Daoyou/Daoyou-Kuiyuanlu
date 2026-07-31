@@ -39,7 +39,7 @@ import type {
   ConditionStatusKey,
 } from '@shared/types/condition';
 import { format } from 'd3-format';
-import { calculateExpProgress, getBreakthroughType } from './cultivationUtils';
+import { calculateExpProgress, getBreakthroughType, isBottleneckReached } from './cultivationUtils';
 
 const REALM_ORDER = [...REALM_VALUES];
 const STAGE_ORDER = [...REALM_STAGE_VALUES];
@@ -187,7 +187,7 @@ export function calculateBreakthroughChance(
     expProgress,
     progress.comprehension_insight,
     finalChance,
-    progress.bottleneck_state,
+    isBottleneckReached(progress),
   );
 
   return {

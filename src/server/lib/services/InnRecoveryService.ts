@@ -3,7 +3,10 @@ import {
   calculateInnRecoveryLossAmount,
   rollInnRecoveryLossPercent,
 } from '@shared/config/innRecovery';
-import { createDefaultCultivationProgress } from '@server/utils/cultivationUtils';
+import {
+  createDefaultCultivationProgress,
+  syncBottleneckState,
+} from '@server/utils/cultivationUtils';
 import { evaluateFateContext, getInnSpiritStoneMultiplier } from '@shared/lib/fates';
 import { ConditionService } from './ConditionService';
 import type { CultivatorCondition } from '@shared/types/condition';
@@ -69,16 +72,19 @@ export const InnRecoveryService = {
       now,
     );
 
+    const nextCultivationProgress: CultivationProgress = {
+      ...cultivationProgress,
+      cultivation_exp: Math.max(
+        0,
+        cultivationProgress.cultivation_exp - cultivationLossAmount,
+      ),
+    };
+    syncBottleneckState(nextCultivationProgress);
+
     return {
       spiritStoneCost,
       nextCondition,
-      nextCultivationProgress: {
-        ...cultivationProgress,
-        cultivation_exp: Math.max(
-          0,
-          cultivationProgress.cultivation_exp - cultivationLossAmount,
-        ),
-      },
+      nextCultivationProgress,
       cultivationLossPercent,
       cultivationLossAmount,
       clearedStatusCount: condition.statuses.length,

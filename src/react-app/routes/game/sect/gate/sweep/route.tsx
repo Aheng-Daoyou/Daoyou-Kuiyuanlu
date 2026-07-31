@@ -1,4 +1,11 @@
 import {
+  GameActivityFullscreenRetry,
+  GameActivityLaunchGate,
+  GameActivityOverlay,
+  GameActivityRotationNotice,
+  useGameActivityViewport,
+} from '@app/components/feature/game-activity';
+import {
   getSectPresentationForContext,
   useSectContextQuery,
   useSectTasksQuery,
@@ -8,13 +15,6 @@ import {
   decodeSectTaskOutcome,
   readSweepSessionOutcome,
 } from '@app/components/feature/sect/sectTaskOutcomeRegistry';
-import {
-  GameActivityFullscreenRetry,
-  GameActivityLaunchGate,
-  GameActivityOverlay,
-  GameActivityRotationNotice,
-  useGameActivityViewport,
-} from '@app/components/feature/game-activity';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkNotice } from '@app/components/ui';
 import {
@@ -38,7 +38,6 @@ import {
   attachSweepPhaser,
   type SweepPhaserController,
 } from './SweepPhaserRuntime';
-import { SweepDirectionPad } from './SweepDirectionPad';
 import {
   resolveSweepActivityMode,
   sweepActivityMessage,
@@ -158,8 +157,7 @@ export default function SectGateSweepPage() {
   );
 
   useEffect(() => {
-    if (launchBlocked || started || (!taskData && !taskError))
-      return;
+    if (launchBlocked || started || (!taskData && !taskError)) return;
     const timer = window.setTimeout(() => void beginSession(taskData), 0);
     return () => window.clearTimeout(timer);
   }, [beginSession, launchBlocked, started, taskData, taskError]);
@@ -210,6 +208,7 @@ export default function SectGateSweepPage() {
       root,
       seed: session.seed,
       canvasLabel: presentation.terms.sweepCanvasLabel,
+      touchControlsEnabled: false,
       onState: setProgress,
       onSuccess: (moves) => void complete(moves),
       onError: setOperationError,
@@ -221,6 +220,25 @@ export default function SectGateSweepPage() {
         controllerRef.current = undefined;
     };
   }, [complete, presentation.terms.sweepCanvasLabel, session]);
+
+  useEffect(() => {
+    controllerRef.current?.setTouchControlsEnabled(
+      viewport.coarsePointer &&
+        !submitting &&
+        !starting &&
+        !portraitBlocked &&
+        !settlement &&
+        progress?.phase === 'playing',
+    );
+  }, [
+    portraitBlocked,
+    progress?.phase,
+    session,
+    settlement,
+    starting,
+    submitting,
+    viewport.coarsePointer,
+  ]);
 
   useEffect(
     () => () => {
@@ -328,7 +346,7 @@ export default function SectGateSweepPage() {
           viewport={viewport}
           attempt={immersiveAttempt}
           instructions={
-            <p>方向盘每次前进一步；收齐落叶后再踏入终点。</p>
+            <p>向任一方向推动摇杆，每次前进一步；收齐落叶后再踏入终点。</p>
           }
           exitLabel="返回山门"
           onRetry={retryImmersive}
@@ -396,23 +414,11 @@ export default function SectGateSweepPage() {
         </GameActivityOverlay>
       ) : null}
 
-      {viewport.coarsePointer &&
-      session &&
-      progress?.phase === 'playing' &&
-      !settlement ? (
-        <SweepDirectionPad
-          disabled={submitting || starting || portraitBlocked}
-          onMove={(direction) =>
-            controllerRef.current?.move(direction) ?? false
-          }
-        />
-      ) : null}
-
       {!portraitBlocked && session && progress?.phase === 'playing' ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pb-[max(env(safe-area-inset-bottom),0.65rem)] text-center">
           <p className="inline-block rounded-full bg-black/45 px-4 py-2 text-xs text-stone-300 backdrop-blur-sm">
             {viewport.coarsePointer
-              ? '收齐落叶后前往终点 · 走过的格子不能返回'
+              ? '推动左侧摇杆 · 收齐落叶后前往终点 · 不可返回'
               : sweepActivityMessage(
                   session.kind === 'reward'
                     ? { kind: 'reward', task: session.task }

@@ -10,6 +10,7 @@ import {
   canAttemptBreakthrough,
   getCultivationProgress,
   isBottleneckReached,
+  syncBottleneckState,
 } from './cultivationUtils';
 
 /**
@@ -67,35 +68,14 @@ export function addCultivationExp(
   const progress = getCultivationProgress(cultivator);
   const exp_before = progress.cultivation_exp;
   const exp_cap = progress.exp_cap;
-
-  // 检查是否在瓶颈期
-  if (
-    progress.bottleneck_state &&
-    options.source === 'retreat' &&
-    !options.bypass_bottleneck
-  ) {
-    return {
-      result: {
-        success: false,
-        exp_gained: 0,
-        exp_before,
-        exp_after: exp_before,
-        progress: calculateExpProgress(progress),
-        capped: false,
-        bottleneck_entered: true,
-        can_breakthrough: canAttemptBreakthrough(progress),
-        message: '已入瓶颈，闭关效率大减。需通过副本、战斗等方式寻求突破。',
-      },
-      updated_progress: progress,
-    };
-  }
+  const wasBottleneckActive = isBottleneckReached(progress);
 
   // 计算实际获得修为
   let exp_gained = options.base_amount;
 
   // 瓶颈期衰减（仅闭关受影响）
   if (
-    progress.bottleneck_state &&
+    wasBottleneckActive &&
     options.source === 'retreat' &&
     !options.bypass_bottleneck
   ) {
@@ -121,10 +101,8 @@ export function addCultivationExp(
   }
 
   // 检查是否进入瓶颈期
-  const bottleneck_entered = isBottleneckReached(progress);
-  if (bottleneck_entered && !progress.bottleneck_state) {
-    progress.bottleneck_state = true;
-  }
+  const bottleneckActive = syncBottleneckState(progress);
+  const bottleneck_entered = !wasBottleneckActive && bottleneckActive;
 
   // 生成提示信息
   let message = '';

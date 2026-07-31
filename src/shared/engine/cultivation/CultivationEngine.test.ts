@@ -212,6 +212,52 @@ describe('CultivationEngine cultivation boost', () => {
     );
   });
 
+  it('ignores a stale bottleneck flag after cultivation exp falls below the threshold', () => {
+    const staleCultivator = createCultivator();
+    const currentCap = resolveLiveExpCap(
+      staleCultivator.realm,
+      staleCultivator.realm_stage,
+    );
+    staleCultivator.cultivation_progress!.cultivation_exp = Math.floor(
+      currentCap * 0.5,
+    );
+    staleCultivator.cultivation_progress!.bottleneck_state = true;
+    const controlCultivator = structuredClone(staleCultivator);
+    controlCultivator.cultivation_progress!.bottleneck_state = false;
+
+    const staleResult = performCultivation(staleCultivator, 1, () => 0.5);
+    const controlResult = performCultivation(controlCultivator, 1, () => 0.5);
+
+    expect(staleResult.summary.exp_gained).toBe(
+      controlResult.summary.exp_gained,
+    );
+    expect(staleResult.cultivator.cultivation_progress?.bottleneck_state).toBe(
+      false,
+    );
+  });
+
+  it('leaves bottleneck state after a failed breakthrough drops exp below the threshold', () => {
+    const cultivator = createCultivator();
+    const currentCap = resolveLiveExpCap(
+      cultivator.realm,
+      cultivator.realm_stage,
+    );
+    cultivator.cultivation_progress!.cultivation_exp = Math.ceil(
+      currentCap * 0.8,
+    );
+    cultivator.cultivation_progress!.bottleneck_state = true;
+
+    const result = attemptBreakthrough(cultivator, () => 0.99);
+
+    expect(result.summary.success).toBe(false);
+    expect(
+      result.cultivator.cultivation_progress!.cultivation_exp / currentCap,
+    ).toBeLessThan(0.7);
+    expect(result.cultivator.cultivation_progress?.bottleneck_state).toBe(
+      false,
+    );
+  });
+
   it('carries overflow cultivation exp into the next stage after successful breakthrough', () => {
     const cultivator = createCultivator();
     const currentCap = resolveLiveExpCap(

@@ -143,6 +143,29 @@ describe('CultivatorDisplayAdapter', () => {
     );
   });
 
+  it('projects level 45 Tianyan magic penetration onto the display unit', () => {
+    const cultivator = createCultivatorFixture();
+    cultivator.sect = {
+      membershipId: 'member-tianyan',
+      sectId: 'tianyan',
+      status: 'active',
+      contribution: 0,
+      configVersion: 1,
+      methods: {
+        'tianyan-canon': 45,
+        'metal-severing': 45,
+      },
+      paths: [],
+      abilityLoadout: [null, null, null, null],
+    };
+
+    const unit = createDisplayUnitFromCultivator(cultivator);
+
+    expect(
+      unit.attributes.getValue(AttributeType.MAGIC_PENETRATION),
+    ).toBeCloseTo(0.0045);
+  });
+
   it('maps Unit values back to cultivator display attributes', () => {
     const { finalAttributes } = getCultivatorDisplayAttributes(
       createCultivatorFixture(),

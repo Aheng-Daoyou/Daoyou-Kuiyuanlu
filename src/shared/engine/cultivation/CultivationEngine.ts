@@ -39,6 +39,7 @@ import {
   getCultivationProgress,
   isBottleneckReached,
   resolveLiveExpCap,
+  syncBottleneckState,
 } from '@server/utils/cultivationUtils';
 
 function clamp(value: number, min: number, max: number): number {
@@ -181,6 +182,7 @@ export function performCultivation(
 
   // 记录闭关前修为
   const exp_before = progress.cultivation_exp;
+  const wasBottleneckActive = isBottleneckReached(progress);
   const fateContext = evaluateFateContext(
     cultivator.pre_heaven_fates ?? [],
   );
@@ -219,11 +221,9 @@ export function performCultivation(
     cultivator.condition = consumeCultivationBoostStatus(cultivator.condition);
   }
 
-  // 检查是否进入瓶颈期
-  const bottleneck_entered = isBottleneckReached(progress);
-  if (bottleneck_entered && !progress.bottleneck_state) {
-    progress.bottleneck_state = true;
-  }
+  // 瓶颈由当前修为动态决定；兼容字段仅同步结果。
+  const bottleneckActive = syncBottleneckState(progress);
+  const bottleneck_entered = !wasBottleneckActive && bottleneckActive;
 
   // 更新年龄
   cultivator.age += years;
@@ -359,7 +359,7 @@ export function attemptBreakthrough(
     progress.cultivation_exp = carriedExpAfterBreakthrough;
     progress.exp_cap = resolveLiveExpCap(nextStage.realm, nextStage.stage);
     progress.breakthrough_failures = 0;
-    progress.bottleneck_state = false;
+    syncBottleneckState(progress);
     progress.inner_demon = false;
     progress.deviation_risk = 0;
 
@@ -401,6 +401,7 @@ export function attemptBreakthrough(
       );
     }
     progress.cultivation_exp = Math.max(0, progress.cultivation_exp - exp_lost);
+    syncBottleneckState(progress);
 
     // 感悟值降低
     const insightLoss = Math.floor(10 + rng() * 10); // 10-20

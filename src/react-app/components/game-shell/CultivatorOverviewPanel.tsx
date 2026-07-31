@@ -6,6 +6,7 @@ import {
 import { CultivatorAttributeOverview } from '@app/components/feature/cultivator/CultivatorAttributeOverview';
 import { CultivatorCurrentStatusSection } from '@app/components/feature/cultivator/PersistentStatusesCard';
 import { TitleEditorModal } from '@app/components/feature/cultivator/TitleEditorModal';
+import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
 import { FateDetailModal } from '@app/components/feature/fates/FateDetailModal';
 import { toFateDisplayModel } from '@app/components/feature/fates/FateDisplayAdapter';
 import { FateEffectInlineList } from '@app/components/feature/fates/FateEffectInlineList';
@@ -30,11 +31,6 @@ import {
 } from '@app/components/ui';
 import { ItemCard } from '@app/components/ui/ItemCard';
 import { useResourceMutation } from '@app/lib/resources/mutations';
-import {
-  useCultivatorCondition,
-  useCultivatorIdentity,
-  usePlayerLoadout,
-} from '@app/lib/resources/player';
 import { AttributeType } from '@shared/engine/battle-v5/core/types';
 import { attrLabel } from '@shared/engine/battle-v5/effects/affixText/attributes';
 import { cn } from '@shared/lib/cn';
@@ -126,23 +122,10 @@ function OverviewDetailItem({
 }
 
 export function CultivatorOverviewPanel() {
-  const profile = useCultivatorIdentity();
-  const condition = useCultivatorCondition();
-  const loadout = usePlayerLoadout();
+  const projection = useCultivatorDisplayProjection();
   const sectContext = useActiveSectContextQuery();
   const openSectIdentityDialog = useSectIdentityDialog();
-  const identity = profile.data?.cultivator;
-  const cultivator =
-    identity && condition.data && loadout.data
-      ? {
-          ...identity,
-          condition: condition.data,
-          skills: loadout.data.skills,
-          cultivations: loadout.data.cultivations,
-          equipped: loadout.data.equipped,
-          inventory: { artifacts: loadout.data.artifacts },
-        }
-      : null;
+  const cultivator = projection.data?.cultivator ?? null;
   const navigate = useNavigate();
   const { pushToast } = useInkUI();
   const { mutate } = useResourceMutation();

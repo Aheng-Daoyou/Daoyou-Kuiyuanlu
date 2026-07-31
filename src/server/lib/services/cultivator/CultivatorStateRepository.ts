@@ -4,6 +4,7 @@ hasCultivatorOwnership
 import {
 getOrInitCultivationProgress,
 stripExpCapForStorage,
+syncBottleneckState,
 } from '@server/utils/cultivationUtils';
 import type { CultivatorCondition } from '@shared/types/condition';
 import {
@@ -426,6 +427,7 @@ export async function updateCultivationExp(
     cultivation_exp: newCultivationExp,
     comprehension_insight: newComprehensionInsight,
   };
+  syncBottleneckState(updatedProgress);
 
   await dbInstance
     .update(schema.cultivators)
@@ -470,4 +472,3 @@ export async function updateLastYieldAt(
     .set({ last_yield_at: new Date() })
     .where(eq(schema.cultivators.id, cultivatorId));
 }
-

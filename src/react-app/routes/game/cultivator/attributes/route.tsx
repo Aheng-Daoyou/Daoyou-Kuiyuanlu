@@ -1,5 +1,6 @@
 import { AttributeAllocationControl } from '@app/components/feature/cultivator/AttributeAllocationControl';
 import { CultivatorAttributeOverview } from '@app/components/feature/cultivator/CultivatorAttributeOverview';
+import { useCultivatorDisplayProjection } from '@app/components/feature/cultivator/useCultivatorDisplayProjection';
 import {
   canSubmitAttributeAllocation,
   createEmptyAttributeDraft,
@@ -7,32 +8,15 @@ import {
 import { GameSceneFrame, GameSceneSection } from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton, InkNotice } from '@app/components/ui';
-import {
-  useCultivatorCondition,
-  useCultivatorIdentity,
-  usePlayerLoadout,
-} from '@app/lib/resources/player';
 import { useResourceMutation } from '@app/lib/resources/mutations';
 import { ATTRIBUTE_RESET_TALISMAN_NAME } from '@shared/config/attributeResetTalisman';
 import type { Attributes } from '@shared/types/cultivator';
 import { useState } from 'react';
 
 export default function CultivatorAttributesPage() {
-  const profile = useCultivatorIdentity();
-  const condition = useCultivatorCondition();
-  const loadout = usePlayerLoadout();
-  const identity = profile.data?.cultivator;
-  const cultivator =
-    identity && condition.data && loadout.data
-      ? {
-          ...identity,
-          condition: condition.data,
-          cultivations: loadout.data.cultivations,
-          equipped: loadout.data.equipped,
-          inventory: { artifacts: loadout.data.artifacts },
-        }
-      : null;
-  const isLoading = profile.loading || condition.loading || loadout.loading;
+  const projection = useCultivatorDisplayProjection();
+  const cultivator = projection.data?.cultivator ?? null;
+  const isLoading = projection.loading;
   const { mutate } = useResourceMutation();
   const { pushToast, openDialog } = useInkUI();
   const [attributeDraft, setAttributeDraft] = useState<Attributes>(
