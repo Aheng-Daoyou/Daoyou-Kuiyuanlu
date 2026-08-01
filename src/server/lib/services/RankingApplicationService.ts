@@ -1,4 +1,6 @@
 import type { DbTransaction } from '@server/lib/drizzle/db';
+import { publishLocalTransactionMessageBestEffort } from '@server/lib/mq/localTransactionMessagePublisher';
+import { createTaskProgressMessage } from '@server/lib/mq/task-progress/message';
 import {
   acquireChallengeLock,
   addToRanking,
@@ -12,7 +14,6 @@ import {
 } from '@server/lib/redis/rankings';
 import { createBattleRecordV2 } from '@server/lib/repositories/battleRecordV2Repository';
 import { createMessage } from '@server/lib/repositories/worldChatRepository';
-import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
 import { prepareStandardFullBattle } from '@shared/engine/battle-v5/setup/BattleStateStrategy';
 import type { RealmType } from '@shared/types/constants';
 import { playerCommandExecutor } from './CommandExecutors';
@@ -20,25 +21,9 @@ import {
   loadCultivatorCombatInput,
 } from '@server/lib/services/cultivator/CultivatorCombatProjectionReader';
 import { MailService, type MailAttachment } from './MailService';
-import {
-  readPlayerMailSummary,
-  readPlayerTaskSummary,
-} from './PlayerResourceReaderService';
+import { readPlayerMailSummary } from './PlayerResourceReaderService';
 import { simulateBattleV5 } from './simulateBattleV5';
-import { TaskService } from './TaskService';
 import { readCultivatorPublicIdentity } from './cultivator/CultivatorFactsReader';
-
-const rankingTaskChange = (
-  eventType: string,
-  taskSummary: Awaited<ReturnType<typeof readPlayerTaskSummary>>,
-): ResourceChangeDescriptor[] => [
-  {
-    resourceTopic: 'player.task-summary',
-    eventType,
-    operation: 'replace',
-    payload: taskSummary,
-  },
-];
 
 export function settleRankingDirectEntry<T>(result: T) {
   return {
@@ -55,7 +40,7 @@ export async function executeRankingBattleCommand<T>(args: {
   battleResult: Parameters<typeof createBattleRecordV2>[0]['battleResult'];
   tx: DbTransaction;
 }) {
-  await createBattleRecordV2(
+  const battleRecord = await createBattleRecordV2(
     {
       userId: args.userId,
       cultivatorId: args.cultivatorId,
@@ -65,21 +50,21 @@ export async function executeRankingBattleCommand<T>(args: {
     },
     args.tx,
   );
-  await TaskService.recordTaskEvent(
-    args.cultivatorId,
-    'ranking_challenge_battled',
-    { tx: args.tx },
-  );
-  const taskSummary = await readPlayerTaskSummary(
-    args.cultivatorId,
+  const taskMessage = await createTaskProgressMessage(
+    {
+      payload: {
+        kind: 'activity_event',
+        cultivatorId: args.cultivatorId,
+        event: 'ranking_challenge_battled',
+      },
+      deduplicationKey: `${args.cultivatorId}:ranking:${battleRecord.id}`,
+    },
     args.tx,
   );
   return {
     result: args.result,
-    resourceChanges: rankingTaskChange(
-      'tasks.ranking.challenge_battled',
-      taskSummary,
-    ),
+    resourceChanges: [],
+    taskMessageId: taskMessage.id,
   };
 }
 
@@ -227,12 +212,14 @@ export async function runRankingBattleCommand(args: {
     const remainingChallenges = await incrementDailyChallenges(
       args.cultivatorId,
     );
+    let taskMessageId: string | undefined;
     const committed = await playerCommandExecutor.executeWithLock({
       userId: args.userId,
       cultivatorId: args.cultivatorId,
       source: 'ranking_challenge_battle',
-      command: (tx) =>
-        executeRankingBattleCommand({
+      allowEmpty: true,
+      command: async (tx) => {
+        const command = await executeRankingBattleCommand({
           result: {
             type: 'battle_result' as const,
             battleResult,
@@ -251,7 +238,14 @@ export async function runRankingBattleCommand(args: {
           opponentCultivatorId: targetId,
           battleResult,
           tx,
-        }),
+        });
+        taskMessageId = command.taskMessageId;
+        return command;
+      },
+    });
+    publishLocalTransactionMessageBestEffort(taskMessageId, {
+      source: 'ranking_challenge_battle',
+      cultivatorId: args.cultivatorId,
     });
     if (rankChangeType && newChallengerRank !== null) {
       await broadcastRankingChange({

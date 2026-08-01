@@ -17,6 +17,11 @@ const MESSAGE_ROUTES: readonly LocalTransactionMessageRoute[] = [
     queueKey: MQ_KEYS.queues.sectFacilityConstruction,
     jobKey: MQ_KEYS.jobs.applySectFacilityConstruction,
   },
+  {
+    messageKey: MQ_KEYS.messages.taskProgress,
+    queueKey: MQ_KEYS.queues.taskProgress,
+    jobKey: MQ_KEYS.jobs.applyTaskProgress,
+  },
 ];
 
 export function requireLocalTransactionMessageRoute(

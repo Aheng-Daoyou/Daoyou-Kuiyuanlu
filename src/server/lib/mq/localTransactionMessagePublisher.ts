@@ -18,3 +18,17 @@ export async function publishLocalTransactionMessage(
     await job.retry();
   }
 }
+
+export function publishLocalTransactionMessageBestEffort(
+  messageId: string | undefined,
+  context: Record<string, unknown>,
+): void {
+  if (!messageId) return;
+  void publishLocalTransactionMessage(messageId).catch((error) => {
+    console.error('[local-transaction-outbox] immediate publish failed', {
+      messageId,
+      ...context,
+      error,
+    });
+  });
+}

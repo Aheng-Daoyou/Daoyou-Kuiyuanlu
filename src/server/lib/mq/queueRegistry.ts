@@ -16,6 +16,14 @@ const QUEUE_CONFIGS: Readonly<Record<MqQueueKey, MqQueueConfig>> = {
       removeOnFail: { age: 7 * 24 * 60 * 60, count: 10_000 },
     },
   },
+  [MQ_KEYS.queues.taskProgress]: {
+    defaultJobOptions: {
+      attempts: 10,
+      backoff: { type: 'exponential', delay: 1_000 },
+      removeOnComplete: { age: 24 * 60 * 60, count: 10_000 },
+      removeOnFail: { age: 7 * 24 * 60 * 60, count: 10_000 },
+    },
+  },
 };
 
 const queues = new Map<MqQueueKey, Queue<LocalTransactionMessageJobData>>();

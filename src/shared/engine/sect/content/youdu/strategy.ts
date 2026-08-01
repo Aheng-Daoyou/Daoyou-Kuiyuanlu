@@ -1,12 +1,10 @@
 import type {
   AbilitySelectionContext,
   AbilitySelectionResult,
-  AbilitySelectionStrategy,
 } from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
-import { DefaultAbilitySelectionStrategy } from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
 import { ActiveSkill } from '@shared/engine/battle-v5/abilities/ActiveSkill';
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
-import { SectStrategyCandidates, type SectTacticId } from '../../core';
+import { SectTacticalSelectionStrategy, type SectTacticId } from '../../core';
 import {
   YOUDU_FORGETFUL_RIVER,
   YOUDU_SECT_ID,
@@ -57,26 +55,22 @@ function hasImminentControlOrHealing(
   );
 }
 
-abstract class YouduSelectionStrategy implements AbilitySelectionStrategy {
-  protected readonly fallback = new DefaultAbilitySelectionStrategy();
-
-  constructor(protected readonly tacticId: SectTacticId) {}
-  abstract select(
-    context: AbilitySelectionContext,
-  ): AbilitySelectionResult | null;
+abstract class YouduSelectionStrategy extends SectTacticalSelectionStrategy {
+  constructor(protected readonly tacticId: SectTacticId) {
+    super(YOUDU_SECT_ID);
+  }
 
   protected pick(
     context: AbilitySelectionContext,
     priorities: readonly string[],
     score = 600,
-  ): AbilitySelectionResult | null {
-    const index = new SectStrategyCandidates(YOUDU_SECT_ID, context.candidates);
+  ) {
     for (const id of priorities) {
-      if (id === 'one-sigh') return null;
-      const result = index.result(id, score);
-      if (result) return result;
+      if (id === 'one-sigh') return this.defaultAttack();
+      const result = this.result(context, id, score);
+      if (result) return this.cast(result);
     }
-    return this.fallback.select(context);
+    return this.fallback();
   }
 
   protected pickOnly(
@@ -84,12 +78,7 @@ abstract class YouduSelectionStrategy implements AbilitySelectionStrategy {
     priorities: readonly string[],
     score = 600,
   ): AbilitySelectionResult | null {
-    const index = new SectStrategyCandidates(YOUDU_SECT_ID, context.candidates);
-    for (const id of priorities) {
-      const result = index.result(id, score);
-      if (result) return result;
-    }
-    return null;
+    return this.firstAvailable(context, priorities, score);
   }
 }
 
@@ -98,22 +87,22 @@ export class YouduBaseSelectionStrategy extends YouduSelectionStrategy {
     super('base');
   }
 
-  select(context: AbilitySelectionContext): AbilitySelectionResult | null {
+  protected decide(context: AbilitySelectionContext) {
     const erosion = layer(context);
 
     if (erosion >= 4) {
       const finisher = this.pickOnly(context, ['soul-shall-not-return'], 850);
-      if (finisher) return finisher;
+      if (finisher) return this.cast(finisher);
     }
 
     if (!hasBuff(context, YOUDU_FORGETFUL_RIVER)) {
       const forget = this.pickOnly(context, ['forgetful-river-tide'], 780);
-      if (forget) return forget;
+      if (forget) return this.cast(forget);
     }
 
     if (erosion >= 2 && !hasBuff(context, YOUDU_SHADOW_REVEALED)) {
       const reveal = this.pickOnly(context, ['reveal-shadow'], 760);
-      if (reveal) return reveal;
+      if (reveal) return this.cast(reveal);
     }
 
     if (
@@ -121,7 +110,7 @@ export class YouduBaseSelectionStrategy extends YouduSelectionStrategy {
       !context.opponent?.tags.hasTag(GameplayTags.STATUS.IMMUNE.CONTROL)
     ) {
       const pin = this.pickOnly(context, ['pin-soul'], 740);
-      if (pin) return pin;
+      if (pin) return this.cast(pin);
     }
 
     const generator = this.pickOnly(
@@ -129,12 +118,12 @@ export class YouduBaseSelectionStrategy extends YouduSelectionStrategy {
       ['soul-severing-call', 'seize-soul'],
       600,
     );
-    return generator ?? this.fallback.select(context);
+    return generator ? this.cast(generator) : this.fallback();
   }
 }
 
 export class YouduTideSelectionStrategy extends YouduSelectionStrategy {
-  select(context: AbilitySelectionContext): AbilitySelectionResult | null {
+  protected decide(context: AbilitySelectionContext) {
     const erosion = layer(context);
     const hasForget = hasBuff(context, YOUDU_FORGETFUL_RIVER);
     const fire = context.caster.combatResources.getCurrent(YOUDU_SOUL_FIRE);
@@ -142,7 +131,7 @@ export class YouduTideSelectionStrategy extends YouduSelectionStrategy {
 
     if (!hasForget) {
       const forget = this.pickOnly(context, ['forgetful-river-tide'], 780);
-      if (forget) return forget;
+      if (forget) return this.cast(forget);
     }
     if (erosion < 3) {
       return this.pick(
@@ -163,7 +152,8 @@ export class YouduTideSelectionStrategy extends YouduSelectionStrategy {
         return this.pick(context, ['soul-shall-not-return', 'pin-soul'], 790);
       }
       if (erosion >= 4) {
-        return this.pickOnly(context, ['reveal-shadow'], 720);
+        const reveal = this.pickOnly(context, ['reveal-shadow'], 720);
+        return reveal ? this.cast(reveal) : this.defaultAttack();
       }
       return this.pick(context, ['pin-soul', 'one-sigh', 'seize-soul'], 710);
     }
@@ -175,7 +165,7 @@ export class YouduTideSelectionStrategy extends YouduSelectionStrategy {
 }
 
 export class YouduDecreeSelectionStrategy extends YouduSelectionStrategy {
-  select(context: AbilitySelectionContext): AbilitySelectionResult | null {
+  protected decide(context: AbilitySelectionContext) {
     const erosion = layer(context);
     const hasShadow = hasBuff(context, YOUDU_SHADOW_REVEALED);
     const fire = context.caster.combatResources.getCurrent(YOUDU_SOUL_FIRE);

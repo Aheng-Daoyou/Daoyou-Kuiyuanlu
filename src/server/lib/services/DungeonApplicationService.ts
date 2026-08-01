@@ -27,7 +27,6 @@ import {
 } from '@shared/lib/noviceGuidance';
 import { playerCommandExecutor } from './CommandExecutors';
 import { resolvePersistentWorldPlayerState } from './BattleStateCoordinator';
-import { readPlayerTaskSummary } from './PlayerResourceReaderService';
 import { toPlayerStateMutationResponse } from './ResourceMutationResponse';
 import { TaskService } from './TaskService';
 
@@ -124,7 +123,6 @@ export async function executeDungeonCommand(args: {
             cultivatorId: args.cultivatorId,
             result,
             persist,
-            includeTasks: dungeonCommandIncludesTasks(args.command, result),
             tx,
           }),
       });
@@ -196,7 +194,6 @@ export async function executeDungeonPersistenceCommand<T>(args: {
   cultivatorId: string;
   result: T;
   persist?: (tx: DbTransaction) => Promise<DungeonPersistenceSettlement | void>;
-  includeTasks?: boolean;
   tx: DbTransaction;
 }): Promise<{ result: T; resourceChanges: ResourceChangeDescriptor[] }> {
   const settlement = await args.persist?.(args.tx);
@@ -254,15 +251,6 @@ export async function executeDungeonPersistenceCommand<T>(args: {
             payload: { idKey: 'id', ids: [inventoryChange.id] },
           } as ResourceChangeDescriptor),
     );
-  }
-  if (args.includeTasks) {
-    const taskSummary = await readPlayerTaskSummary(args.cultivatorId, args.tx);
-    resourceChanges.push({
-      resourceTopic: 'player.task-summary',
-      eventType: 'tasks.changed',
-      operation: 'replace',
-      payload: taskSummary,
-    });
   }
   return { result: args.result, resourceChanges };
 }
@@ -347,35 +335,6 @@ async function prepareDungeonCommand(
       };
     }
   }
-}
-
-function dungeonCommandIncludesTasks(
-  command: DungeonCommand,
-  result: unknown,
-): boolean {
-  if (
-    command.kind === 'action' ||
-    command.kind === 'recover' ||
-    command.kind === 'looting-continue' ||
-    command.kind === 'looting-escape' ||
-    command.kind === 'battle-abandon'
-  ) {
-    return Boolean(readBoolean(result, 'isFinished'));
-  }
-  if (command.kind === 'battle-execute') {
-    const callbackData =
-      result && typeof result === 'object'
-        ? (result as Record<string, unknown>).callbackData
-        : undefined;
-    return Boolean(readBoolean(callbackData, 'isFinished'));
-  }
-  return false;
-}
-
-function readBoolean(value: unknown, key: string): boolean | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const selected = (value as Record<string, unknown>)[key];
-  return typeof selected === 'boolean' ? selected : undefined;
 }
 
 function asDeferredResult(value: unknown): DungeonDeferredResult | null {

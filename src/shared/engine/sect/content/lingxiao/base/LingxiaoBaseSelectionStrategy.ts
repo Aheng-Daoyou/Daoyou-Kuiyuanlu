@@ -1,11 +1,6 @@
-import {
-  DefaultAbilitySelectionStrategy,
-  type AbilitySelectionContext,
-  type AbilitySelectionResult,
-  type AbilitySelectionStrategy,
-} from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
+import { type AbilitySelectionContext } from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
 import { AttributeType, BuffType } from '@shared/engine/battle-v5/core/types';
-import { SectStrategyCandidates } from '../../../core';
+import { SectTacticalSelectionStrategy } from '../../../core';
 import { LINGXIAO_SECT_ID } from '../ids';
 import { LINGXIAO_SWORD_MOMENTUM } from '../shared/LingxiaoMechanics';
 
@@ -15,34 +10,35 @@ const BUFF_IDS = {
   tracelessStep: 'sect.lingxiao.traceless-step',
 } as const;
 
-export class LingxiaoBaseSelectionStrategy implements AbilitySelectionStrategy {
-  private readonly fallback = new DefaultAbilitySelectionStrategy();
+export class LingxiaoBaseSelectionStrategy extends SectTacticalSelectionStrategy {
+  constructor() {
+    super(LINGXIAO_SECT_ID);
+  }
 
-  select(context: AbilitySelectionContext): AbilitySelectionResult | null {
+  protected decide(context: AbilitySelectionContext) {
     const { caster, opponent, candidates } = context;
-    if (!opponent || candidates.length === 0) return null;
+    if (!opponent || candidates.length === 0) return this.defaultAttack();
 
-    const index = new SectStrategyCandidates(LINGXIAO_SECT_ID, candidates);
     const momentum = caster.combatResources.getCurrent(LINGXIAO_SWORD_MOMENTUM);
     const buffs = new Set(caster.buffs.getAllBuffIds());
     const result = (abilityId: string, score: number) =>
-      index.result(abilityId, score);
+      this.result(context, abilityId, score);
 
     if (momentum >= 3 && opponent.getHpPercent() < 0.25) {
       const execute = result('sect-ultimate', 900);
-      if (execute) return execute;
+      if (execute) return this.cast(execute);
     }
 
     if (caster.getHpPercent() < 0.6) {
       const guard =
         result('turning-body', 850) ??
         (!buffs.has(BUFF_IDS.clearHeart) ? result('sword-aegis', 840) : null);
-      if (guard) return guard;
+      if (guard) return this.cast(guard);
     }
 
     if (momentum >= 6) {
       const finisher = result('sect-ultimate', 800);
-      if (finisher) return finisher;
+      if (finisher) return this.cast(finisher);
     }
 
     if (
@@ -56,12 +52,12 @@ export class LingxiaoBaseSelectionStrategy implements AbilitySelectionStrategy {
         )
     ) {
       const dispel = result('breaking-edge', 700);
-      if (dispel) return dispel;
+      if (dispel) return this.cast(dispel);
     }
 
     if (!buffs.has(BUFF_IDS.swordIntent)) {
       const nurture = result('nurturing-sword', 600);
-      if (nurture) return nurture;
+      if (nurture) return this.cast(nurture);
     }
 
     if (
@@ -70,10 +66,10 @@ export class LingxiaoBaseSelectionStrategy implements AbilitySelectionStrategy {
         opponent.attributes.getValue(AttributeType.SPEED)
     ) {
       const step = result('shadow-step', 550);
-      if (step) return step;
+      if (step) return this.cast(step);
     }
 
     const standard = result('linked-edge', 450) ?? result('guiding-sword', 400);
-    return standard ?? this.fallback.select(context);
+    return standard ? this.cast(standard) : this.fallback();
   }
 }

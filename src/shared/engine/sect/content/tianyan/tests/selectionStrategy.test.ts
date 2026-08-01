@@ -201,10 +201,7 @@ describe('天衍六套自动战术', () => {
   });
 
   it('不绝在无合法反应且没有移宫时使用太初玄光保留法印', () => {
-    const battle = context(TIANYAN_HETU_PATH_ID, [
-      'metal-cloud-cutter',
-      'primordial-ray',
-    ]);
+    const battle = context(TIANYAN_HETU_PATH_ID, ['metal-cloud-cutter']);
     battle.opponent.buffs.addBuff(
       BuffFactory.create(createElementSeal('water', 2)),
       battle.caster,
@@ -215,7 +212,48 @@ describe('天衍六套自动战术', () => {
         battle,
       );
 
-    expect(selectedId(result)).toBe('primordial-ray');
+    expect(result).toBeNull();
+  });
+
+  it.each([
+    ['小周天', TIANYAN_HETU_PATH_MODULE, 'small-cycle'],
+    ['破阵', TIANYAN_LUOSHU_PATH_MODULE, 'break-pattern'],
+  ] as const)(
+    '%s在自身存在可净化减益时优先火里种莲',
+    (_label, module, tacticId) => {
+      const pathId =
+        module === TIANYAN_HETU_PATH_MODULE
+          ? TIANYAN_HETU_PATH_ID
+          : TIANYAN_LUOSHU_PATH_ID;
+      const battle = context(pathId, ['verdant-pulse', 'lotus-in-fire']);
+      battle.caster.buffs.addBuff(
+        BuffFactory.create({
+          id: 'test.cleanseable',
+          name: '可净化减益',
+          type: BuffType.DEBUFF,
+          duration: 2,
+        }),
+        battle.opponent,
+      );
+
+      const result = module.createSelectionStrategy(tacticId).select(battle);
+
+      expect(selectedId(result)).toBe('lotus-in-fire');
+    },
+  );
+
+  it('没有战术命中时使用通用评分，槽位顺序只作为同分决胜', () => {
+    const strategy =
+      TIANYAN_HETU_PATH_MODULE.createSelectionStrategy('small-cycle');
+    const first = strategy.select(
+      context(TIANYAN_HETU_PATH_ID, ['myriad-wood-renewal', 'lotus-in-fire']),
+    );
+    const second = strategy.select(
+      context(TIANYAN_HETU_PATH_ID, ['lotus-in-fire', 'myriad-wood-renewal']),
+    );
+
+    expect(selectedId(first)).toBe('lotus-in-fire');
+    expect(selectedId(second)).toBe(selectedId(first));
   });
 
   it('养元在低血时优先已装配且可用的治疗内景法', () => {

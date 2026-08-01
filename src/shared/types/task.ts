@@ -11,10 +11,13 @@ export type TaskRepeat = 'daily';
 
 export type TaskDailyKind = 'alchemy' | 'dungeon' | 'ranking';
 
-export type TaskEvent =
-  | 'alchemy_crafted'
-  | 'dungeon_completed'
-  | 'ranking_challenge_battled';
+export const TASK_EVENT_VALUES = [
+  'alchemy_crafted',
+  'dungeon_completed',
+  'ranking_challenge_battled',
+] as const;
+
+export type TaskEvent = (typeof TASK_EVENT_VALUES)[number];
 
 export type TaskObjectiveKind =
   | 'auto_complete'

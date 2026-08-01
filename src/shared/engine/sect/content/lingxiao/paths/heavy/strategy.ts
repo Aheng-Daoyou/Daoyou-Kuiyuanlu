@@ -1,21 +1,24 @@
-import type {
-  AbilitySelectionContext,
-  AbilitySelectionResult,
-  AbilitySelectionStrategy,
-} from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
-import { SectStrategyCandidates, type SectTacticId } from '../../../../core';
+import type { AbilitySelectionContext } from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
+import { BuffType } from '@shared/engine/battle-v5/core/types';
+import {
+  SectStrategyCandidates,
+  SectTacticalSelectionStrategy,
+  type SectTacticId,
+} from '../../../../core';
 import { LINGXIAO_SECT_ID } from '../../ids';
 import {
   LINGXIAO_ARMOR_REND_BUFF,
   LINGXIAO_SWORD_MOMENTUM,
 } from '../../shared/LingxiaoMechanics';
 
-export class LingxiaoHeavySelectionStrategy implements AbilitySelectionStrategy {
-  constructor(private readonly tacticId: SectTacticId) {}
+export class LingxiaoHeavySelectionStrategy extends SectTacticalSelectionStrategy {
+  constructor(private readonly tacticId: SectTacticId) {
+    super(LINGXIAO_SECT_ID);
+  }
 
-  select(context: AbilitySelectionContext): AbilitySelectionResult | null {
+  protected decide(context: AbilitySelectionContext) {
     const { caster, opponent, candidates } = context;
-    if (!opponent || candidates.length === 0) return null;
+    if (!opponent || candidates.length === 0) return this.defaultAttack();
     const index = new SectStrategyCandidates(LINGXIAO_SECT_ID, candidates);
     const momentum = caster.combatResources.getCurrent(LINGXIAO_SWORD_MOMENTUM);
     const buffs = new Set(caster.buffs.getAllBuffIds());
@@ -37,7 +40,7 @@ export class LingxiaoHeavySelectionStrategy implements AbilitySelectionStrategy 
       mountainStep &&
       caster.getCurrentShield() <= 0
     ) {
-      return index.resultForCandidate(mountainStep, 650);
+      return this.castCandidate(mountainStep, 650);
     }
     const sinking = index.find('linked-edge');
     if (
@@ -46,7 +49,7 @@ export class LingxiaoHeavySelectionStrategy implements AbilitySelectionStrategy 
       armorRend < 2 &&
       sinking
     ) {
-      return index.resultForCandidate(sinking, 660);
+      return this.castCandidate(sinking, 660);
     }
     const hidden = index.find('turning-body');
     if (
@@ -56,7 +59,7 @@ export class LingxiaoHeavySelectionStrategy implements AbilitySelectionStrategy 
       hidden &&
       !buffs.has('sect.lingxiao.heavy.hidden-edge')
     ) {
-      return index.resultForCandidate(hidden, 650);
+      return this.castCandidate(hidden, 650);
     }
     const heart = index.find('sword-aegis');
     if (
@@ -64,14 +67,14 @@ export class LingxiaoHeavySelectionStrategy implements AbilitySelectionStrategy 
       !buffs.has('sect.lingxiao.heavy.mountain-heart') &&
       caster.getHpPercent() < 0.65
     ) {
-      return index.resultForCandidate(heart, 620);
+      return this.castCandidate(heart, 620);
     }
     if (
       hidden &&
       this.tacticId === 'heavy-break' &&
       !buffs.has('sect.lingxiao.heavy.hidden-edge')
     ) {
-      return index.resultForCandidate(hidden, 590);
+      return this.castCandidate(hidden, 590);
     }
     const finisher = index.find('sect-ultimate');
     if (
@@ -79,19 +82,30 @@ export class LingxiaoHeavySelectionStrategy implements AbilitySelectionStrategy 
       momentum >= finisherThreshold &&
       (this.tacticId !== 'heavy-full' || armorRend >= 2)
     ) {
-      return index.resultForCandidate(
+      return this.castCandidate(
         finisher,
         opponent.getHpPercent() < 0.25 ? 570 : 520,
       );
     }
+    if (
+      opponent.buffs
+        .getAllBuffs()
+        .some(
+          (buff) =>
+            buff.type === BuffType.BUFF &&
+            buff.countsAsStatus &&
+            buff.dispelPolicy === 'normal',
+        )
+    ) {
+      const dispel = index.result('breaking-edge', 480);
+      if (dispel) return this.cast(dispel);
+    }
     const heavyIntent = index.find('nurturing-sword');
     if (heavyIntent && !buffs.has('sect.lingxiao.heavy.weightless-edge')) {
-      return index.resultForCandidate(heavyIntent, 400);
+      return this.castCandidate(heavyIntent, 400);
     }
-    if (sinking) return index.resultForCandidate(sinking, 360);
-    return index.resultForCandidate(
-      index.find('guiding-sword') ?? candidates[0],
-      100,
-    );
+    if (sinking) return this.castCandidate(sinking, 360);
+    const guiding = index.result('guiding-sword', 100);
+    return guiding ? this.cast(guiding) : this.fallback();
   }
 }

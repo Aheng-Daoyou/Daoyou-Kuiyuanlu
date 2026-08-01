@@ -42,6 +42,11 @@ export function conditionChangesAfterConsumable(args: {
 }): ResourceChangeDescriptor[] {
   const changes: ResourceChangeDescriptor[] = [
     {
+      resourceTopic: 'player.tasks',
+      eventType: 'tasks.maybe_changed',
+      operation: 'invalidate',
+    },
+    {
       resourceTopic: 'player.task-summary',
       eventType: 'tasks.maybe_changed',
       operation: 'replace',

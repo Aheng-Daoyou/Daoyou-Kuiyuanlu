@@ -1,4 +1,4 @@
-import { publishLocalTransactionMessage } from '@server/lib/mq/localTransactionMessagePublisher';
+import { publishLocalTransactionMessageBestEffort } from '@server/lib/mq/localTransactionMessagePublisher';
 import {
   releaseSectConstructionDaily,
   reserveSectConstructionDaily,
@@ -83,13 +83,8 @@ export async function executeSectConstructionDonationCommand(
     throw error;
   }
 
-  void publishLocalTransactionMessage(committed.result.messageId).catch(
-    (error) => {
-      console.error('[sect-construction] failed to publish durable message', {
-        messageId: committed.result.messageId,
-        error,
-      });
-    },
-  );
+  publishLocalTransactionMessageBestEffort(committed.result.messageId, {
+    source: 'sect_construction',
+  });
   return committed;
 }

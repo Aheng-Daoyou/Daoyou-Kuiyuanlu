@@ -1,6 +1,6 @@
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
-import type { AbilitySelectionIntent } from '../core/configs';
 import { checkConditions } from '../core/conditionEvaluator';
+import type { AbilitySelectionIntent } from '../core/configs';
 import { BuffType } from '../core/types';
 import { Unit } from '../units/Unit';
 import { ActiveSkill } from './ActiveSkill';
@@ -27,6 +27,11 @@ export interface AbilitySelectionStrategy {
   select(context: AbilitySelectionContext): AbilitySelectionResult | null;
 }
 
+export type AbilitySelectionScoreModifier = (
+  candidate: AbilitySelectionCandidate,
+  context: AbilitySelectionContext,
+) => number;
+
 const DEFAULT_THRESHOLDS = {
   healHpSkip: 0.85,
   emergencyHealHp: 0.35,
@@ -48,9 +53,20 @@ const DEFAULT_WEIGHTS = {
 };
 
 export class DefaultAbilitySelectionStrategy implements AbilitySelectionStrategy {
-  select(context: AbilitySelectionContext): AbilitySelectionResult | null {
+  select(
+    context: AbilitySelectionContext,
+    scoreModifier?: AbilitySelectionScoreModifier,
+  ): AbilitySelectionResult | null {
     const scored = context.candidates
-      .map((candidate) => this.scoreCandidate(candidate, context))
+      .map((candidate) => {
+        const result = this.scoreCandidate(candidate, context);
+        return result && scoreModifier
+          ? {
+              ...result,
+              score: result.score + scoreModifier(candidate, context),
+            }
+          : result;
+      })
       .filter(
         (result): result is AbilitySelectionResult & { order: number } =>
           result !== null,

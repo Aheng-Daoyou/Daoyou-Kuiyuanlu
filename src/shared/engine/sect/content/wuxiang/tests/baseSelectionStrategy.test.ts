@@ -9,6 +9,7 @@ import {
   WUXIANG_FORM_MODE,
   WUXIANG_WAR_INTENT,
   WuxiangBaseSelectionStrategy,
+  WuxiangDemonSelectionStrategy,
 } from '..';
 import { projectSectCombat, resolveSectAbility } from '../..';
 import type { CultivatorSectState } from '../../../core';
@@ -130,5 +131,14 @@ describe('无相基础施法策略', () => {
     expect(strategy.select(defensive)?.ability.id).toBe(
       'sect.wuxiang.blood-tide',
     );
+  });
+
+  it('流派普通回退使用通用评分，不因槽位顺序改变结果', () => {
+    const strategy = new WuxiangDemonSelectionStrategy('sink-boat');
+    const first = strategy.select(context(['reed-crossing', 'five-skandhas']));
+    const second = strategy.select(context(['five-skandhas', 'reed-crossing']));
+
+    expect(first?.ability.id).toBe('sect.wuxiang.five-skandhas');
+    expect(second?.ability.id).toBe(first?.ability.id);
   });
 });

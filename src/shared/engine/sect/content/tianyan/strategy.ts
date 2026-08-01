@@ -2,12 +2,14 @@ import type {
   AbilitySelectionCandidate,
   AbilitySelectionContext,
   AbilitySelectionResult,
-  AbilitySelectionStrategy,
 } from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
-import { DefaultAbilitySelectionStrategy } from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
 import { BuffType } from '@shared/engine/battle-v5/core/types';
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
-import { SectStrategyCandidates, type SectTacticId } from '../../core';
+import {
+  SectStrategyCandidates,
+  SectTacticalSelectionStrategy,
+  type SectTacticId,
+} from '../../core';
 import { TIANYAN_SECT_ID } from './ids';
 import {
   TIANYAN_ELEMENTS,
@@ -45,6 +47,17 @@ function hasDispellableBuff(context: AbilitySelectionContext): boolean {
           buff.dispelPolicy === 'normal',
       ) ?? false
   );
+}
+
+function hasCleanseableDebuff(context: AbilitySelectionContext): boolean {
+  return context.caster.buffs
+    .getAllBuffs()
+    .some(
+      (buff) =>
+        buff.type !== BuffType.BUFF &&
+        buff.countsAsStatus &&
+        buff.dispelPolicy === 'normal',
+    );
 }
 
 function currentSeal(
@@ -109,24 +122,18 @@ function expectedReactionDamage(
   return base * (1 + (reaction.mainDamageBonus ?? reaction.followUpRatio ?? 0));
 }
 
-abstract class TianyanSelectionStrategy implements AbilitySelectionStrategy {
-  constructor(protected readonly tacticId: SectTacticId) {}
-
-  abstract select(
-    context: AbilitySelectionContext,
-  ): AbilitySelectionResult | null;
+abstract class TianyanSelectionStrategy extends SectTacticalSelectionStrategy {
+  constructor(protected readonly tacticId: SectTacticId) {
+    super(TIANYAN_SECT_ID);
+  }
 
   protected pick(
     context: AbilitySelectionContext,
     priorities: readonly string[],
     score = 600,
-  ): AbilitySelectionResult | null {
+  ) {
     const prioritized = this.pickAvailable(context, priorities, score);
-    if (prioritized) return prioritized;
-    const fallback = context.candidates[0];
-    return fallback
-      ? { ability: fallback.ability, target: fallback.target, score: 100 }
-      : null;
+    return prioritized ? this.cast(prioritized) : this.fallback();
   }
 
   protected pickAvailable(
@@ -170,19 +177,25 @@ abstract class TianyanSelectionStrategy implements AbilitySelectionStrategy {
   ): string[] {
     return abilityIdsByReaction(context, kind);
   }
+
+  protected cleanse(context: AbilitySelectionContext) {
+    return hasCleanseableDebuff(context)
+      ? this.pickAvailable(context, ['lotus-in-fire'], 820)
+      : null;
+  }
 }
 
 export class TianyanBaseSelectionStrategy extends TianyanSelectionStrategy {
-  private readonly fallback = new DefaultAbilitySelectionStrategy();
-
   constructor() {
     super('base');
   }
 
-  select(context: AbilitySelectionContext): AbilitySelectionResult | null {
+  protected decide(context: AbilitySelectionContext) {
     const hp = context.caster.getHpPercent();
     const mp = context.caster.getMpPercent();
     const seal = currentSeal(context);
+    const cleanse = this.cleanse(context);
+    if (cleanse) return this.cast(cleanse);
 
     if (hp < 0.6) {
       const recovery = this.pickAvailable(
@@ -195,7 +208,7 @@ export class TianyanBaseSelectionStrategy extends TianyanSelectionStrategy {
         ],
         800,
       );
-      if (recovery) return recovery;
+      if (recovery) return this.cast(recovery);
     }
 
     if (mp < 0.35) {
@@ -207,7 +220,7 @@ export class TianyanBaseSelectionStrategy extends TianyanSelectionStrategy {
         ],
         780,
       );
-      if (recovery) return recovery;
+      if (recovery) return this.cast(recovery);
     }
 
     if (seal) {
@@ -227,27 +240,29 @@ export class TianyanBaseSelectionStrategy extends TianyanSelectionStrategy {
       });
       const reaction = reactions[0];
       if (reaction) {
-        return {
+        return this.cast({
           ability: reaction.ability,
           target: reaction.target,
           score: 760,
-        };
+        });
       }
 
-      return this.pickAvailable(context, ['shift-palace'], 700);
+      const shift = this.pickAvailable(context, ['shift-palace'], 700);
+      return shift ? this.cast(shift) : this.defaultAttack();
     }
 
-    return (
-      this.lowestCostLanding(context, 700) ?? this.fallback.select(context)
-    );
+    const landing = this.lowestCostLanding(context, 700);
+    return landing ? this.cast(landing) : this.fallback();
   }
 }
 
 export class HetuSelectionStrategy extends TianyanSelectionStrategy {
-  select(context: AbilitySelectionContext): AbilitySelectionResult | null {
+  protected decide(context: AbilitySelectionContext) {
     const hp = context.caster.getHpPercent();
     const mp = context.caster.getMpPercent();
     const reactions = this.reactionPriorities(context, 'any');
+    const cleanse = this.cleanse(context);
+    if (cleanse) return this.cast(cleanse);
     if (this.tacticId === 'nourish-origin') {
       if (hp < 0.6) {
         const recovery = this.pickAvailable(
@@ -255,7 +270,7 @@ export class HetuSelectionStrategy extends TianyanSelectionStrategy {
           ['myriad-wood-renewal', 'boundless-earth'],
           760,
         );
-        if (recovery) return recovery;
+        if (recovery) return this.cast(recovery);
       }
       if (mp < 0.35) {
         const recovery = this.pickAvailable(
@@ -266,7 +281,7 @@ export class HetuSelectionStrategy extends TianyanSelectionStrategy {
           ],
           750,
         );
-        if (recovery) return recovery;
+        if (recovery) return this.cast(recovery);
       }
     }
     if (this.tacticId === 'small-cycle') {
@@ -285,7 +300,7 @@ export class HetuSelectionStrategy extends TianyanSelectionStrategy {
       }
       if (!currentSeal(context)) {
         const landing = this.lowestCostLanding(context, 700);
-        if (landing) return landing;
+        if (landing) return this.cast(landing);
       }
     }
     if (
@@ -293,7 +308,8 @@ export class HetuSelectionStrategy extends TianyanSelectionStrategy {
       currentSeal(context) &&
       reactions.length === 0
     ) {
-      return this.pick(context, ['shift-palace', 'primordial-ray'], 740);
+      const shift = this.pickAvailable(context, ['shift-palace'], 740);
+      return shift ? this.cast(shift) : this.defaultAttack();
     }
     if (reactions.length > 0) return this.pick(context, reactions, 720);
     return this.pick(context, [
@@ -306,9 +322,11 @@ export class HetuSelectionStrategy extends TianyanSelectionStrategy {
 }
 
 export class LuoshuSelectionStrategy extends TianyanSelectionStrategy {
-  select(context: AbilitySelectionContext): AbilitySelectionResult | null {
+  protected decide(context: AbilitySelectionContext) {
     const overcoming = this.reactionPriorities(context, 'overcoming');
     const anyReaction = this.reactionPriorities(context, 'any');
+    const cleanse = this.cleanse(context);
+    if (cleanse) return this.cast(cleanse);
     if (this.tacticId === 'lock-meridian') {
       const controlImmune =
         context.opponent?.tags.hasTag(GameplayTags.STATUS.IMMUNE.CONTROL) ??
@@ -367,13 +385,14 @@ export class LuoshuSelectionStrategy extends TianyanSelectionStrategy {
         const repositoryFirst =
           (seal === 'water' && context.caster.getMpPercent() < 0.35) ||
           (seal === 'wood' && context.caster.getHpPercent() < 0.6);
-        return this.pick(
+        const recovery = this.pickAvailable(
           context,
           repositoryFirst
-            ? ['five-qi-repository', 'shift-palace', 'primordial-ray']
-            : ['shift-palace', 'five-qi-repository', 'primordial-ray'],
+            ? ['five-qi-repository', 'shift-palace']
+            : ['shift-palace', 'five-qi-repository'],
           700,
         );
+        return recovery ? this.cast(recovery) : this.defaultAttack();
       }
     }
     return this.pick(context, [

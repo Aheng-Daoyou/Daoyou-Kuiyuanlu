@@ -1,10 +1,10 @@
-import type {
-  AbilitySelectionContext,
-  AbilitySelectionResult,
-  AbilitySelectionStrategy,
-} from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
-import { AttributeType } from '@shared/engine/battle-v5/core/types';
-import { SectStrategyCandidates, type SectTacticId } from '../../../../core';
+import type { AbilitySelectionContext } from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
+import { AttributeType, BuffType } from '@shared/engine/battle-v5/core/types';
+import {
+  SectStrategyCandidates,
+  SectTacticalSelectionStrategy,
+  type SectTacticId,
+} from '../../../../core';
 import { LINGXIAO_SECT_ID } from '../../ids';
 import {
   LINGXIAO_RETURNING_SWALLOW_BUFF,
@@ -12,12 +12,14 @@ import {
   LINGXIAO_SWORD_MOMENTUM,
 } from '../../shared/LingxiaoMechanics';
 
-export class LingxiaoSwiftSelectionStrategy implements AbilitySelectionStrategy {
-  constructor(private readonly tacticId: SectTacticId) {}
+export class LingxiaoSwiftSelectionStrategy extends SectTacticalSelectionStrategy {
+  constructor(private readonly tacticId: SectTacticId) {
+    super(LINGXIAO_SECT_ID);
+  }
 
-  select(context: AbilitySelectionContext): AbilitySelectionResult | null {
+  protected decide(context: AbilitySelectionContext) {
     const { caster, opponent, candidates } = context;
-    if (!opponent || candidates.length === 0) return null;
+    if (!opponent || candidates.length === 0) return this.defaultAttack();
     const index = new SectStrategyCandidates(LINGXIAO_SECT_ID, candidates);
     const momentum = caster.combatResources.getCurrent(LINGXIAO_SWORD_MOMENTUM);
     const finisherThreshold =
@@ -34,7 +36,7 @@ export class LingxiaoSwiftSelectionStrategy implements AbilitySelectionStrategy 
       turning &&
       !buffs.has(LINGXIAO_RETURNING_SWALLOW_BUFF)
     ) {
-      return index.resultForCandidate(turning, 620);
+      return this.castCandidate(turning, 620);
     }
     const step = index.find('shadow-step');
     if (
@@ -44,11 +46,11 @@ export class LingxiaoSwiftSelectionStrategy implements AbilitySelectionStrategy 
       caster.attributes.getValue(AttributeType.SPEED) <=
         opponent.attributes.getValue(AttributeType.SPEED)
     ) {
-      return index.resultForCandidate(step, 610);
+      return this.castCandidate(step, 610);
     }
     const linked = index.find('linked-edge');
     if (this.tacticId === 'steady' && linked && swordMarks < 2) {
-      return index.resultForCandidate(linked, 640);
+      return this.castCandidate(linked, 640);
     }
     const heart = index.find('sword-aegis');
     if (
@@ -56,7 +58,7 @@ export class LingxiaoSwiftSelectionStrategy implements AbilitySelectionStrategy 
       !buffs.has('sect.lingxiao.swift.wind-heart') &&
       caster.getHpPercent() < 0.6
     ) {
-      return index.resultForCandidate(heart, 580);
+      return this.castCandidate(heart, 580);
     }
     const finisher = index.find('sect-ultimate');
     if (
@@ -64,16 +66,29 @@ export class LingxiaoSwiftSelectionStrategy implements AbilitySelectionStrategy 
       momentum >= finisherThreshold &&
       (this.tacticId !== 'steady' || swordMarks >= 2)
     ) {
-      return index.resultForCandidate(
+      return this.castCandidate(
         finisher,
         opponent.getHpPercent() < 0.25 ? 560 : 500,
       );
     }
-    if (linked) return index.resultForCandidate(linked, 400);
+    if (
+      opponent.buffs
+        .getAllBuffs()
+        .some(
+          (buff) =>
+            buff.type === BuffType.BUFF &&
+            buff.countsAsStatus &&
+            buff.dispelPolicy === 'normal',
+        )
+    ) {
+      const dispel = index.result('breaking-edge', 480);
+      if (dispel) return this.cast(dispel);
+    }
+    if (linked) return this.castCandidate(linked, 400);
 
     const lightBuff = index.find('nurturing-sword');
     if (lightBuff && !buffs.has('sect.lingxiao.swift.light-sword')) {
-      return index.resultForCandidate(lightBuff, 340);
+      return this.castCandidate(lightBuff, 340);
     }
     if (
       step &&
@@ -81,11 +96,9 @@ export class LingxiaoSwiftSelectionStrategy implements AbilitySelectionStrategy 
       caster.attributes.getValue(AttributeType.SPEED) <=
         opponent.attributes.getValue(AttributeType.SPEED)
     ) {
-      return index.resultForCandidate(step, 320);
+      return this.castCandidate(step, 320);
     }
-    return index.resultForCandidate(
-      index.find('guiding-sword') ?? candidates[0],
-      100,
-    );
+    const guiding = index.result('guiding-sword', 100);
+    return guiding ? this.cast(guiding) : this.fallback();
   }
 }

@@ -11,16 +11,22 @@ export const MQ_KEYS = {
   queues: {
     /** 宗门设施建设进度异步结算队列。 */
     sectFacilityConstruction: 'sect-facility-construction',
+    /** 通用任务进度异步结算队列。 */
+    taskProgress: 'task-progress',
   },
   /** 作业名称：用于区分同一队列中的不同消息处理类型。 */
   jobs: {
     /** 将一条已完成玩家结算的建设事件应用到宗门设施。 */
     applySectFacilityConstruction: 'apply-construction',
+    /** 将一条玩家行为事件应用到任务进度。 */
+    applyTaskProgress: 'apply-task-progress',
   },
   /** 本地事务消息类型：作为数据库消息与 MQ 路由之间的稳定标识。 */
   messages: {
     /** 宗门设施建设进度结算消息。 */
     sectFacilityConstruction: 'sect.facility-construction.apply',
+    /** 玩家任务进度结算消息。 */
+    taskProgress: 'task.progress.apply',
   },
 } as const;
 

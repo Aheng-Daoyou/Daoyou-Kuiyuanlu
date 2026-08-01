@@ -3,6 +3,7 @@ import type { Worker } from 'bullmq';
 import { MQ_KEYS } from './mqKeys';
 import { startLocalTransactionOutboxRelay } from './outboxRelay';
 import { createSectConstructionWorker } from './sect-construction/worker';
+import { createTaskProgressWorker } from './task-progress/worker';
 
 interface MqWorkerRegistration {
   queueKey: string;
@@ -22,6 +23,10 @@ const WORKER_REGISTRATIONS: readonly MqWorkerRegistration[] = [
   {
     queueKey: MQ_KEYS.queues.sectFacilityConstruction,
     createWorker: createSectConstructionWorker,
+  },
+  {
+    queueKey: MQ_KEYS.queues.taskProgress,
+    createWorker: createTaskProgressWorker,
   },
 ];
 

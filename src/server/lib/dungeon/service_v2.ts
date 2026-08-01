@@ -1,4 +1,6 @@
 import { renderPrompt } from '@server/lib/prompts';
+import { publishLocalTransactionMessageBestEffort } from '@server/lib/mq/localTransactionMessagePublisher';
+import { createTaskProgressMessage } from '@server/lib/mq/task-progress/message';
 import { findActiveCultivatorOwnerId } from '@server/lib/repositories/cultivatorRepository';
 import type { BattleRecord } from '@server/lib/services/battleResult';
 import {
@@ -52,7 +54,6 @@ import { executePersistentWorldBattle } from '../services/BattleStateCoordinator
 import { ConditionService } from '../services/ConditionService';
 import { QiService } from '../services/QiService';
 import { ServerEnemyCopyProvider } from '../services/ServerEnemyCopyProvider';
-import { TaskService } from '../services/TaskService';
 import {
   buildDungeonRoundLlmContext,
   buildDungeonSettlementLlmContext,
@@ -2134,31 +2135,38 @@ export class DungeonService {
       }
     }
 
-    if (!deferPersistence) {
-      await this.archiveDungeon(state, settlement, realGains);
-    }
-    const syncTasks = async (tx?: DbTransaction) => {
-      if (options?.abandonedBattle) {
-        return;
-      }
-      await TaskService.recordDungeonCompletion(
-        state.cultivatorId,
-        state.mapNodeId,
-        tx ? { tx } : undefined,
+    let taskMessageId: string | undefined;
+    const enqueueTaskProgress = async (tx: DbTransaction) => {
+      if (!state.runId) throw new Error('副本结算缺少运行编号');
+      const message = await createTaskProgressMessage(
+        {
+          payload: {
+            kind: 'dungeon_settlement',
+            cultivatorId: state.cultivatorId,
+            mapNodeId: state.mapNodeId,
+            outcome: endDisposition,
+          },
+          deduplicationKey: `${state.cultivatorId}:dungeon:${state.runId}`,
+        },
+        tx,
       );
-      await TaskService.recordTaskEvent(
-        state.cultivatorId,
-        'dungeon_completed',
-        tx ? { tx } : undefined,
-      );
+      taskMessageId = message.id;
     };
 
     if (!deferPersistence) {
-      try {
-        await syncTasks();
-      } catch (taskError) {
-        console.error('[DungeonSettlement] 同步任务进度失败:', taskError);
-      }
+      await getExecutor().transaction(async (tx) => {
+        await this.archiveDungeon(state, settlement, realGains, {
+          tx,
+          clearRedis: false,
+        });
+        await enqueueTaskProgress(tx);
+      });
+      await redis.del(getDungeonKey(state.cultivatorId));
+      publishLocalTransactionMessageBestEffort(taskMessageId, {
+        source: 'dungeon_settlement',
+        cultivatorId: state.cultivatorId,
+        runId: state.runId,
+      });
     }
 
     if (!deferPersistence) {
@@ -2225,7 +2233,7 @@ export class DungeonService {
           tx,
           clearRedis: false,
         });
-        await syncTasks(tx);
+        await enqueueTaskProgress(tx);
         return mergeDungeonPersistenceSettlements(
           consumedSettlement,
           gainedSettlement,
@@ -2234,6 +2242,11 @@ export class DungeonService {
       },
       afterCommit: async () => {
         await redis.del(getDungeonKey(state.cultivatorId));
+        publishLocalTransactionMessageBestEffort(taskMessageId, {
+          source: 'dungeon_settlement',
+          cultivatorId: state.cultivatorId,
+          runId: state.runId,
+        });
       },
     };
   }

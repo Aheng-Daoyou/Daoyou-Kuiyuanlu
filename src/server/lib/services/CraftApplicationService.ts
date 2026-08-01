@@ -1,4 +1,6 @@
 import type { DbTransaction } from '@server/lib/drizzle/db';
+import { publishLocalTransactionMessageBestEffort } from '@server/lib/mq/localTransactionMessagePublisher';
+import { createTaskProgressMessage } from '@server/lib/mq/task-progress/message';
 import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import { createMessage } from '@server/lib/repositories/worldChatRepository';
 import { getPlayerLoadoutByCultivatorId } from '@server/lib/services/cultivator/CultivatorLoadoutReader';
@@ -30,16 +32,12 @@ import {
   prepareCreationConfirmation,
 } from './creationServiceV2';
 import { readCultivatorName } from './cultivator/CultivatorFactsReader';
-import {
-  readPlayerProgress,
-  readPlayerTaskSummary,
-} from './PlayerResourceReaderService';
+import { readPlayerProgress } from './PlayerResourceReaderService';
 import {
   qiCurrencyChange,
   type QiSettlementBaseline,
 } from './QiResourceChanges';
 import { QiService } from './QiService';
-import { TaskService } from './TaskService';
 
 const WORLD_CHAT_BROADCAST_QUALITY_FLOOR: Quality = '天品';
 
@@ -112,6 +110,7 @@ export async function executeCraftCommand(args: {
             input.analysisId,
           );
     let afterCommit: (() => Promise<void>) | undefined;
+    let taskMessageId: string | undefined;
     const actionInstanceId = randomUUID();
     const committed = await playerCommandExecutor.executeWithLock({
       userId: args.userId,
@@ -141,24 +140,33 @@ export async function executeCraftCommand(args: {
           metadata: { committedAt: new Date().toISOString() },
           tx,
         });
-        await TaskService.recordTaskEvent(
-          args.cultivatorId,
-          'alchemy_crafted',
-          { tx },
-        );
+        taskMessageId = (
+          await createTaskProgressMessage(
+            {
+              payload: {
+                kind: 'activity_event',
+                cultivatorId: args.cultivatorId,
+                event: 'alchemy_crafted',
+              },
+              deduplicationKey: `${args.cultivatorId}:alchemy:${actionInstanceId}`,
+            },
+            tx,
+          )
+        ).id;
         return {
           result: preparedCommit.result,
-          resourceChanges: await settleAlchemyCraft({
-            cultivatorId: args.cultivatorId,
-            tx,
+          resourceChanges: settleAlchemyCraft({
             qi: qiReservation,
-            taskSynced: true,
             inventoryChanges: preparedCommit.inventoryChanges,
           }),
         };
       },
     });
     await runAfterCommit(afterCommit, args.cultivatorId, `alchemy_${mode}`);
+    publishLocalTransactionMessageBestEffort(taskMessageId, {
+      source: `alchemy_${mode}`,
+      cultivatorId: args.cultivatorId,
+    });
     await broadcastAlchemyRumor({
       userId: args.userId,
       cultivatorName: cultivatorName,
@@ -308,13 +316,10 @@ export class CraftCommandError extends Error {
   readonly status = 400;
 }
 
-export async function settleAlchemyCraft(args: {
-  cultivatorId: string;
-  tx: DbTransaction;
+export function settleAlchemyCraft(args: {
   qi: QiSettlementBaseline;
-  taskSynced: boolean;
   inventoryChanges: ResourceOperationSettlement['inventoryChanges'];
-}): Promise<ResourceChangeDescriptor[]> {
+}): ResourceChangeDescriptor[] {
   const changes: ResourceChangeDescriptor[] = [
     qiCurrencyChange('currency.changed', args.qi),
   ];
@@ -334,15 +339,6 @@ export async function settleAlchemyCraft(args: {
             payload: { idKey: 'id', ids: [change.id] },
           } as ResourceChangeDescriptor),
     );
-  }
-  if (args.taskSynced) {
-    const taskSummary = await readPlayerTaskSummary(args.cultivatorId, args.tx);
-    changes.push({
-      resourceTopic: 'player.task-summary',
-      eventType: 'tasks.changed',
-      operation: 'replace',
-      payload: taskSummary,
-    });
   }
   return changes;
 }
