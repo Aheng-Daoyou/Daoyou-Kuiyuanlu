@@ -1,3 +1,4 @@
+import { GAME_VIRTUAL_JOYSTICK_ASSETS } from '@app/components/feature/game-activity/virtualJoystickAssets';
 import { SWEEP_CANVAS, type SweepDirection } from '@shared/engine/sect';
 import * as Phaser from 'phaser';
 import VirtualJoystick from 'phaser4-rex-plugins/plugins/virtualjoystick.js';
@@ -74,12 +75,12 @@ export function attachSweepVirtualJoystick(
   options: SweepVirtualJoystickOptions,
 ): SweepVirtualJoystickController {
   const base = scene.add
-    .image(0, 0, 'sweep-joystick-base')
+    .image(0, 0, GAME_VIRTUAL_JOYSTICK_ASSETS.base.key)
     .setDisplaySize(BASE_SIZE, BASE_SIZE)
     .setAlpha(IDLE_ALPHA)
     .setDepth(CONTROL_DEPTH);
   const thumb = scene.add
-    .image(0, 0, 'sweep-joystick-thumb')
+    .image(0, 0, GAME_VIRTUAL_JOYSTICK_ASSETS.thumb.key)
     .setDisplaySize(THUMB_SIZE, THUMB_SIZE)
     .setAlpha(IDLE_ALPHA)
     .setDepth(CONTROL_DEPTH + 1);
@@ -91,7 +92,9 @@ export function attachSweepVirtualJoystick(
     thumb,
     dir: '4dir',
     forceMin: 24,
-    fixed: true,
+    // The scene camera is static. Fixed mode forces scrollFactor(0), which
+    // shifts the control off-screen when the camera is zoomed for DPR.
+    fixed: false,
     enable: options.enabled,
   });
   const safeAreaProbe = createSafeAreaProbe(options.root);

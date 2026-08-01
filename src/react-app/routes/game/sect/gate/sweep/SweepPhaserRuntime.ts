@@ -1,3 +1,4 @@
+import { GAME_VIRTUAL_JOYSTICK_ASSETS } from '@app/components/feature/game-activity/virtualJoystickAssets';
 import {
   createSweepGameState,
   stepSweepGame,
@@ -128,13 +129,13 @@ export function attachSweepPhaser(
         'sweep-obstacles',
         '/assets/sect/sweep/sweep-obstacles.webp',
       );
-      this.load.svg(
-        'sweep-joystick-base',
-        '/assets/sect/sweep/sweep-joystick-base.svg',
+      this.load.image(
+        GAME_VIRTUAL_JOYSTICK_ASSETS.base.key,
+        GAME_VIRTUAL_JOYSTICK_ASSETS.base.url,
       );
-      this.load.svg(
-        'sweep-joystick-thumb',
-        '/assets/sect/sweep/sweep-joystick-thumb.svg',
+      this.load.image(
+        GAME_VIRTUAL_JOYSTICK_ASSETS.thumb.key,
+        GAME_VIRTUAL_JOYSTICK_ASSETS.thumb.url,
       );
     }
 
