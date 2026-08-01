@@ -109,7 +109,7 @@
 
 body {
   background-color: var(--color-bgpaper);
-  background-image: url('/assets/paper.png');
+  background-image: url('/assets/paper.webp');
   background-size: 300px;
   color: var(--color-ink);
   font-family: var(--font-lxgwwenkai), serif;
@@ -123,7 +123,7 @@ body {
 /* 宣纸背景 */
 .bg-paper {
   background-color: var(--color-bgpaper);
-  background-image: url('/assets/paper.png');
+  background-image: url('/assets/paper.webp');
   background-size: 300px;
 }
 

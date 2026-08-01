@@ -1,7 +1,7 @@
 # 万界道友
 
 <p align="center">
-  <img src="public/assets/daoyou_logo.png" alt="万界道友 Logo" width="200" />
+  <img src="public/assets/daoyou_logo.webp" alt="万界道友 Logo" width="200" />
 </p>
 
 <p align="center">

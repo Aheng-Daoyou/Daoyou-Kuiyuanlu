@@ -717,7 +717,7 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
             className="border-ink/12 bg-bgpaper/85 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-dashed md:h-16 md:w-16"
           >
             <img
-              src="/assets/daoyou_logo.png"
+              src="/assets/daoyou_logo.webp"
               alt=""
               className="-mt-0.5 h-9 w-9 object-contain md:h-12 md:w-12"
             />
