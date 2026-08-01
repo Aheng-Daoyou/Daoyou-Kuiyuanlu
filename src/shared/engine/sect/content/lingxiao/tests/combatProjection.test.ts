@@ -97,7 +97,7 @@ describe('宗门注册投影', () => {
       ['breaking-edge', 160],
       ['sword-aegis', 180],
       ['nurturing-sword', 180],
-      ['sect-ultimate', 240],
+      ['sect-ultimate', 200],
     ]);
     for (const realm of ['炼气', '化神', '渡劫'] as const) {
       for (const [abilityId, mpCost] of expected) {

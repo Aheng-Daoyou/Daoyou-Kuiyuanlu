@@ -109,7 +109,7 @@ export const LINGXIAO_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       description: '剑意至极，平生所见皆归于一锋。此剑不借天威，只决眼前之局。',
       unlock: { type: 'method', methodId: 'lingxiao-canon', level: 10 },
       role: 'finisher',
-      mpCost: 240,
+      mpCost: 200,
       cooldown: 4,
     },
     {

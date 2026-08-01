@@ -133,7 +133,7 @@ export const YOUDU_BASE_DEFINITION: SectDefinitionWithoutPaths = {
       id: 'soul-shall-not-return', kind: 'active', baseName: '魂兮不归',
       description: '归来的呼声止于黑水，此后魂行千里，再无归路。', role: 'finisher',
       unlock: { type: 'method', methodId: 'youdu-canon', level: 10 },
-      mpCost: 240, cooldown: 5,
+      mpCost: 200, cooldown: 5,
     },
     {
       id: 'youdu-runtime', kind: 'passive', baseName: '心死神活',
