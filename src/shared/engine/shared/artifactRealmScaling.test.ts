@@ -13,7 +13,7 @@ describe('artifactRealmScaling', () => {
   it('uses the shared realm growth exponent for anchor scaling', () => {
     expect(getArtifactRealmGrowthFactor('渡劫', '圆满')).toBeCloseTo(
       Math.pow(
-        getRealmStageAttributeBudget('渡劫', '圆满') / 50,
+        getRealmStageAttributeBudget('渡劫', '圆满') / 60,
         ARTIFACT_REALM_SCALING_EXPONENT,
       ),
       10,

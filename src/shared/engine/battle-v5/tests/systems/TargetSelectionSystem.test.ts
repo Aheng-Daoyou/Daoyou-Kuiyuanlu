@@ -21,7 +21,7 @@ describe('TargetSelectionSystem action speed filters', () => {
       caster,
       { team: 'any', scope: 'single', filters: ['fastest'], maxTargets: 1 },
       units,
-    )).toEqual([perceptive]);
+    )).toEqual([agile]);
     expect(system.selectTargets(
       caster,
       { team: 'any', scope: 'single', filters: ['slowest'], maxTargets: 1 },
@@ -40,7 +40,7 @@ describe('TargetSelectionSystem action speed filters', () => {
       id: 'haste',
       attrType: AttributeType.ACTION_SPEED,
       type: ModifierType.ADD,
-      value: 1,
+      value: 1.1,
       source: 'test',
     });
 

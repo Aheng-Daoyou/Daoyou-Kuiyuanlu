@@ -176,7 +176,7 @@ describe('DamageSystem hit check', () => {
   it('caps final dodge chance at 45%', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const caster = new Unit('caster', '施法者', {
-      [AttributeType.WISDOM]: 0,
+      [AttributeType.ENDURANCE]: 0,
       [AttributeType.WILLPOWER]: 0,
     });
     const target = new Unit('target', '目标', {
@@ -199,7 +199,7 @@ describe('DamageSystem hit check', () => {
   it('keeps a 3% minimum dodge chance when accuracy exceeds evasion', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.02);
     const caster = new Unit('caster', '施法者', {
-      [AttributeType.WISDOM]: 3000,
+      [AttributeType.ENDURANCE]: 3000,
       [AttributeType.WILLPOWER]: 3000,
     });
     const target = new Unit('target', '目标', {
@@ -237,7 +237,7 @@ describe('DamageSystem hit check', () => {
     const damageSystem = new DamageSystem();
     const caster = new Unit('caster', '施法者', {
       [AttributeType.WILLPOWER]: 0,
-      [AttributeType.WISDOM]: 0,
+      [AttributeType.ENDURANCE]: 0,
     });
     const target = new Unit('target', '目标', {
       [AttributeType.WILLPOWER]: 3000,
@@ -303,7 +303,7 @@ describe('DamageSystem hit check', () => {
     const actionExecutionSystem = new ActionExecutionSystem();
     const caster = new Unit('caster', '施法者', {
       [AttributeType.WILLPOWER]: 0,
-      [AttributeType.WISDOM]: 0,
+      [AttributeType.ENDURANCE]: 0,
     });
     const target = new Unit('target', '目标', {
       [AttributeType.WILLPOWER]: 3000,
@@ -363,7 +363,7 @@ describe('DamageSystem hit check', () => {
 
     const caster = new Unit('caster', '施法者', {
       [AttributeType.WILLPOWER]: 0,
-      [AttributeType.WISDOM]: 0,
+      [AttributeType.ENDURANCE]: 0,
     });
     const target = new Unit('target', '目标', {
       [AttributeType.WILLPOWER]: 3000,
@@ -482,7 +482,7 @@ describe('DamageSystem direct mitigation', () => {
     damageSystem.destroy();
   });
 
-  it('target max hp damage bypasses subtractive defense as a separate component', () => {
+  it('target max hp damage bypasses smooth defense as a separate component', () => {
     const damageSystem = new DamageSystem();
     const attacker = new Unit('attacker', '攻击者', {});
     const defender = new Unit('defender', '防御者', {});
@@ -522,7 +522,9 @@ describe('DamageSystem direct mitigation', () => {
 
     EventBus.instance.publish(event);
 
-    expect(event.finalDamage).toBe(10 + hpRatioDamage);
+    const defense = defender.attributes.getValue(AttributeType.DEF);
+    const mitigatedBase = (100 * 100) / (100 + defense);
+    expect(event.finalDamage).toBe(Math.round(mitigatedBase + hpRatioDamage));
 
     damageSystem.destroy();
   });

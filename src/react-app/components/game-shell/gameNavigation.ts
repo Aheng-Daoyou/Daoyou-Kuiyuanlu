@@ -223,9 +223,9 @@ export const gameDockGroups: GameNavGroup[] = [
       },
       {
         id: 'market-recycle',
-        sceneLabel: '坊市鉴宝',
+        sceneLabel: '鉴宝回收',
         href: '/game/market/recycle',
-        expandedDockLabel: '🧾 坊市鉴宝',
+        expandedDockLabel: '⚖️ 鉴宝回收',
       },
       {
         id: 'tianjiao-vault',
@@ -237,7 +237,7 @@ export const gameDockGroups: GameNavGroup[] = [
         id: 'auction',
         sceneLabel: '拍卖行',
         href: '/game/auction',
-        expandedDockLabel: '🔨 拍卖行',
+        expandedDockLabel: '⚖️ 拍卖行',
       },
     ],
   },

@@ -33,11 +33,12 @@ const SELECT_CLASSNAME = inkFieldVariants({ size: 'sm' });
 const INPUT_CLASSNAME = inkFieldVariants({ size: 'sm' });
 
 const PRIMARY_ATTRIBUTE_FIELDS = [
-  { key: AttributeType.SPIRIT, label: ATTR_LABELS[AttributeType.SPIRIT] },
   { key: AttributeType.VITALITY, label: ATTR_LABELS[AttributeType.VITALITY] },
+  { key: AttributeType.STRENGTH, label: ATTR_LABELS[AttributeType.STRENGTH] },
+  { key: AttributeType.SPIRIT, label: ATTR_LABELS[AttributeType.SPIRIT] },
+  { key: AttributeType.ENDURANCE, label: ATTR_LABELS[AttributeType.ENDURANCE] },
   { key: AttributeType.SPEED, label: ATTR_LABELS[AttributeType.SPEED] },
   { key: AttributeType.WILLPOWER, label: ATTR_LABELS[AttributeType.WILLPOWER] },
-  { key: AttributeType.WISDOM, label: ATTR_LABELS[AttributeType.WISDOM] },
 ] as const;
 
 const MODIFIER_TYPE_LABELS: Record<(typeof MODIFIER_TYPE_OPTIONS)[number], string> = {
@@ -259,8 +260,9 @@ export default function TrainingRoomPage() {
         name: '木桩',
         attributes: {
           vitality: 10,
+          strength: 10,
           spirit: 10,
-          wisdom: 10,
+          endurance: 10,
           speed: 10,
           willpower: 10,
         },
@@ -495,7 +497,7 @@ export default function TrainingRoomPage() {
                       />
                     </div>
 
-                    <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-3">
                       {PRIMARY_ATTRIBUTE_FIELDS.map((field) => (
                         <NumberField
                           key={field.key}

@@ -56,8 +56,9 @@ function createPlayerFixture(): Cultivator {
     lifespan: 260,
     attributes: {
       vitality: 52,
+      strength: 46,
       spirit: 58,
-      wisdom: 50,
+      endurance: 50,
       speed: 48,
       willpower: 44,
     },
@@ -285,7 +286,7 @@ describe('EnemyGenerator', () => {
     expect(draft.balance.difficultyFactor).toBeCloseTo(factor, 6);
     expect(draft.balance.totalAttributeBudget).toBe(
       Math.max(
-        getRealmStageNaturalAttributeValue('筑基', '中期') * 5,
+        getRealmStageNaturalAttributeValue('筑基', '中期') * 6,
         Math.round(getRealmStageAttributeBudget('筑基', '中期') * factor),
       ),
     );
@@ -553,12 +554,12 @@ describe('EnemyGenerator', () => {
         second?: string | string[];
       }
     > = {
-      人族: { top: 'wisdom', second: 'spirit' },
-      妖族: { top: 'vitality', second: 'speed' },
+      人族: { top: 'spirit', second: 'willpower' },
+      妖族: { top: 'vitality', second: 'strength' },
       鬼魂: { top: 'spirit', second: 'willpower' },
-      魔族: { top: ['vitality', 'spirit'], second: ['vitality', 'spirit'] },
-      古兽: { top: 'vitality', second: ['spirit', 'speed'] },
-      灵族: { top: 'spirit', second: 'wisdom' },
+      魔族: { top: ['vitality', 'strength'], second: ['vitality', 'strength'] },
+      古兽: { top: ['vitality', 'strength'], second: ['vitality', 'strength'] },
+      灵族: { top: 'spirit', second: 'willpower' },
     };
 
     for (const [race, expected] of Object.entries(expectations) as Array<

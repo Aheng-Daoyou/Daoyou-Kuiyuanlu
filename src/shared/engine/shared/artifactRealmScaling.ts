@@ -15,8 +15,9 @@ const ARTIFACT_MAIN_PANEL_ATTRS = new Set<AttributeType>([
   AttributeType.MAGIC_DEF,
   AttributeType.SPIRIT,
   AttributeType.VITALITY,
+  AttributeType.STRENGTH,
+  AttributeType.ENDURANCE,
   AttributeType.SPEED,
-  AttributeType.WISDOM,
   AttributeType.WILLPOWER,
 ]);
 

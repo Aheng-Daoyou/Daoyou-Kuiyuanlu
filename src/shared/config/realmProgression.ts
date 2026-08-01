@@ -6,7 +6,7 @@ import {
 } from '@shared/types/constants';
 
 export const BASE_ATTRIBUTE_VALUE = 10;
-export const ATTRIBUTE_KEY_COUNT = 5;
+export const ATTRIBUTE_KEY_COUNT = 6;
 export const BASE_ATTRIBUTE_TOTAL =
   BASE_ATTRIBUTE_VALUE * ATTRIBUTE_KEY_COUNT;
 export const MINOR_STAGE_NATURAL_ATTRIBUTE_GAIN = 2;

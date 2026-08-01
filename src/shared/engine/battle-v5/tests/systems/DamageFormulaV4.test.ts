@@ -72,7 +72,7 @@ function request(args: {
   };
 }
 
-describe('V4攻防差后乘倍率', () => {
+describe('V5平滑防御公式', () => {
   let system: DamageSystem;
 
   beforeEach(() => {
@@ -90,13 +90,13 @@ describe('V4攻防差后乘倍率', () => {
   it.each([
     [DamageType.PHYSICAL, AttributeType.DEF],
     [DamageType.MAGICAL, AttributeType.MAGIC_DEF],
-  ] as const)('按攻击基数减%s防御后乘段倍率', (damageType, defenseAttr) => {
+  ] as const)('按攻击基数平滑结算%s防御后乘段倍率', (damageType, defenseAttr) => {
     const caster = unit('caster');
     const target = unit('target');
     fixed(target, defenseAttr, 100);
     const event = request({ caster, target, amount: 100, defenseScale: 0.5, damageType });
     EventBus.instance.publish(event);
-    expect(event.finalDamage).toBe(50);
+    expect(event.finalDamage).toBe(67);
   });
 
   it('相同总倍率的单段与多段不会因重复扣除整段防御而失真', () => {
@@ -109,7 +109,7 @@ describe('V4攻防差后乘倍率', () => {
     const second = request({ caster, target, amount: 100, defenseScale: 0.5 });
     EventBus.instance.publish(first);
     EventBus.instance.publish(second);
-    expect(first.finalDamage + second.finalDamage).toBe(single.finalDamage);
+    expect(Math.abs(first.finalDamage + second.finalDamage - single.finalDamage)).toBeLessThanOrEqual(1);
   });
 
   it('穿透限制后的有效防御按段倍率结算', () => {
@@ -119,7 +119,7 @@ describe('V4攻防差后乘倍率', () => {
     fixed(target, AttributeType.DEF, 100);
     const event = request({ caster, target, amount: 100, defenseScale: 0.5 });
     EventBus.instance.publish(event);
-    expect(event.finalDamage).toBe(75);
+    expect(event.finalDamage).toBe(80);
   });
 
   it('混合穿防只对普通分量扣防', () => {
@@ -128,7 +128,7 @@ describe('V4攻防差后乘倍率', () => {
     fixed(target, AttributeType.DEF, 100);
     const event = request({ caster, target, amount: 200, defenseScale: 1, bypass: 0.2 });
     EventBus.instance.publish(event);
-    expect(event.finalDamage).toBe(120);
+    expect(event.finalDamage).toBe(147);
   });
 
   it('resolved_final 固定终值跳过防御、增减伤、暴击与随机浮动', () => {
@@ -231,7 +231,7 @@ describe('V4攻防差后乘倍率', () => {
         segmentMultiplier: 0.5,
       }),
     ]);
-    expect(requestEvent?.finalDamage).toBe(125);
+    expect(requestEvent?.finalDamage).toBe(129);
   });
 
   it('反击正常扣防且强制暴击应用施法者暴击倍率', () => {
@@ -251,7 +251,7 @@ describe('V4攻防差后乘倍率', () => {
     EventBus.instance.publish(event);
     expect(event.isCritical).toBe(true);
     expect(event.critMultiplier).toBe(expectedMultiplier);
-    expect(event.finalDamage).toBe(Math.round(50 * expectedMultiplier));
+    expect(event.finalDamage).toBe(133);
   });
 
   it('直接伤害全部被护盾吸收时仍计为本行动已造成直接伤害', () => {

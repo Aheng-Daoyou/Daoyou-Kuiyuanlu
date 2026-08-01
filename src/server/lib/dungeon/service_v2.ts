@@ -14,6 +14,7 @@ import { generateAiObject } from '@server/utils/aiClient';
 import { stableCompactStringify } from '@server/utils/llmPayload';
 import type { CultivatorDisplayInput } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { getCultivatorDisplayAttributes } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
+import { getRealmStageNaturalAttributeValue } from '@shared/config/realmProgression';
 import { EnemyGenerator } from '@shared/engine/enemyGenerator';
 import { TYPE_DESCRIPTIONS } from '@shared/engine/material/creation/config';
 import type {
@@ -35,7 +36,9 @@ import {
   Quality,
   QUALITY_VALUES,
   REALM_VALUES,
+  REALM_STAGE_VALUES,
   RealmType,
+  type RealmStage,
 } from '@shared/types/constants';
 import type { Cultivator } from '@shared/types/cultivator';
 import { randomUUID } from 'crypto';
@@ -304,6 +307,31 @@ const ACTION_RECOVERABLE_ACTIONS: DungeonRecoverAction[] = [
   'force_quit',
 ];
 
+function normalizeLegacySixAttributes(
+  attributes: Record<string, unknown>,
+  realm: string,
+  stage: string,
+) {
+  const realmValue = REALM_VALUES.includes(realm as RealmType)
+    ? (realm as RealmType)
+    : REALM_VALUES[0];
+  const stageValue = REALM_STAGE_VALUES.includes(stage as RealmStage)
+    ? (stage as RealmStage)
+    : REALM_STAGE_VALUES[0];
+  const naturalValue = getRealmStageNaturalAttributeValue(
+    realmValue,
+    stageValue,
+  );
+
+  if (typeof attributes.strength !== 'number') {
+    attributes.strength = naturalValue;
+  }
+  if (typeof attributes.endurance !== 'number') {
+    attributes.endurance =
+      typeof attributes.wisdom === 'number' ? attributes.wisdom : naturalValue;
+  }
+}
+
 const COST_LIMITS: Partial<Record<DungeonOptionCost['type'], number>> = {
   spirit_stones: 10_000_000,
   lifespan: 10_000,
@@ -424,6 +452,13 @@ export class DungeonService {
   }
 
   private normalizeState(state: DungeonState): DungeonState {
+    const [realm = REALM_VALUES[0], stage = REALM_STAGE_VALUES[0]] =
+      state.playerInfo.realm.trim().split(/\s+/);
+    normalizeLegacySixAttributes(
+      state.playerInfo.attributes as unknown as Record<string, unknown>,
+      realm,
+      stage,
+    );
     state.costLedger ??= [];
     state.gainLedger ??= [];
     state.summary_of_sacrifice = state.costLedger.flatMap((entry) =>
@@ -734,6 +769,15 @@ export class DungeonService {
     if (battlePayload.session.cultivatorId !== cultivatorId) {
       throw new Error('无权访问该遭遇战');
     }
+
+    normalizeLegacySixAttributes(
+      battlePayload.enemyObject.attributes as unknown as Record<
+        string,
+        unknown
+      >,
+      battlePayload.enemyObject.realm,
+      battlePayload.enemyObject.realm_stage,
+    );
 
     return {
       state,

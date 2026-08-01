@@ -12,26 +12,29 @@ import {
 } from './attributeAllocationControlLogic';
 
 type PrimaryAttributeType =
+  | AttributeType.STRENGTH
   | AttributeType.SPIRIT
   | AttributeType.VITALITY
   | AttributeType.SPEED
   | AttributeType.WILLPOWER
-  | AttributeType.WISDOM;
+  | AttributeType.ENDURANCE;
 
 const ATTRIBUTE_ORDER: PrimaryAttributeType[] = [
-  AttributeType.SPIRIT,
   AttributeType.VITALITY,
+  AttributeType.STRENGTH,
+  AttributeType.SPIRIT,
+  AttributeType.ENDURANCE,
   AttributeType.SPEED,
   AttributeType.WILLPOWER,
-  AttributeType.WISDOM,
 ];
 
 const ATTRIBUTE_KEY_BY_TYPE: Record<PrimaryAttributeType, keyof Attributes> = {
   [AttributeType.SPIRIT]: 'spirit',
   [AttributeType.VITALITY]: 'vitality',
+  [AttributeType.STRENGTH]: 'strength',
   [AttributeType.SPEED]: 'speed',
   [AttributeType.WILLPOWER]: 'willpower',
-  [AttributeType.WISDOM]: 'wisdom',
+  [AttributeType.ENDURANCE]: 'endurance',
 };
 
 export function AttributeAllocationControl({
@@ -72,7 +75,7 @@ export function AttributeAllocationControl({
         </span>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {ATTRIBUTE_ORDER.map((attrType) => {
           const key = ATTRIBUTE_KEY_BY_TYPE[attrType];
           const draftValue = draft[key];

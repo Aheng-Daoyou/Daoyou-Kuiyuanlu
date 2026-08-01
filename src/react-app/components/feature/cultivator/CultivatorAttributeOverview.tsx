@@ -9,18 +9,20 @@ import { cn } from '@shared/lib/cn';
 import { useState, type ReactNode } from 'react';
 
 type PrimaryAttributeType =
-  | AttributeType.SPIRIT
   | AttributeType.VITALITY
+  | AttributeType.STRENGTH
+  | AttributeType.SPIRIT
+  | AttributeType.ENDURANCE
   | AttributeType.SPEED
-  | AttributeType.WILLPOWER
-  | AttributeType.WISDOM;
+  | AttributeType.WILLPOWER;
 
 const PRIMARY_ATTR_ORDER: PrimaryAttributeType[] = [
-  AttributeType.SPIRIT,
   AttributeType.VITALITY,
+  AttributeType.STRENGTH,
+  AttributeType.SPIRIT,
+  AttributeType.ENDURANCE,
   AttributeType.SPEED,
   AttributeType.WILLPOWER,
-  AttributeType.WISDOM,
 ];
 
 const SECONDARY_ATTR_ORDER: AttributeType[] = [

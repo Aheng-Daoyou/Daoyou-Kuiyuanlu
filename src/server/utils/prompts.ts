@@ -29,6 +29,7 @@ export type RetreatStoryCultivator = Pick<
   | 'age'
   | 'lifespan'
   | 'attributes'
+  | 'cultivation_progress'
   | 'spiritual_roots'
   | 'pre_heaven_fates'
   | 'cultivations'
@@ -85,7 +86,7 @@ function summarizeCultivator(cultivator: CultivatorCombatInput): string {
   return `姓名：${cultivator.name}
 境界：${cultivator.realm}${cultivator.realm_stage}
 灵根/属性：${roots}
-属性：体魄${attrs.vitality} 灵力${attrs.spirit} 悟性${attrs.wisdom} 速度${attrs.speed} 神识${attrs.willpower}
+属性：体魄${attrs.vitality} 力道${attrs.strength} 灵力${attrs.spirit} 根骨${attrs.endurance} 身法${attrs.speed} 神识${attrs.willpower}
 神通：${skills}
 功法：${cultivations}
 先天气运/体质：${fates}`;
@@ -145,7 +146,7 @@ export function getBreakthroughStoryPrompt({
   const attributeGainParts: string[] = [];
   if (summary.naturalAttributeGrowth && summary.naturalAttributeGrowth > 0) {
     attributeGainParts.push(
-      `五维各自然成长 ${summary.naturalAttributeGrowth} 点`,
+      `六维各自然成长 ${summary.naturalAttributeGrowth} 点`,
     );
   }
   if (summary.attributePointReward !== undefined) {
@@ -161,7 +162,7 @@ export function getBreakthroughStoryPrompt({
     name: cultivator.name,
     realm: cultivator.realm,
     realmStage: cultivator.realm_stage,
-    wisdom: cultivator.attributes.wisdom,
+    insight: cultivator.cultivation_progress?.comprehension_insight ?? 0,
     roots,
     cultivations,
     fates,
@@ -211,7 +212,7 @@ export function getLifespanExhaustedStoryPrompt({
     name: cultivator.name,
     realm: cultivator.realm,
     realmStage: cultivator.realm_stage,
-    wisdom: cultivator.attributes.wisdom,
+    insight: cultivator.cultivation_progress?.comprehension_insight ?? 0,
     roots,
     cultivations:
       cultivator.cultivations?.map((c) => c.name).join('，') || '无',
@@ -232,10 +233,11 @@ function formatAttributeGrowth(growth: Partial<Attributes>): string {
   if (!growth) return '';
   const mapping: Array<{ key: keyof Attributes; label: string }> = [
     { key: 'vitality', label: getAttributeInfo('vitality').label },
+    { key: 'strength', label: getAttributeInfo('strength').label },
     { key: 'spirit', label: getAttributeInfo('spirit').label },
+    { key: 'endurance', label: getAttributeInfo('endurance').label },
     { key: 'speed', label: getAttributeInfo('speed').label },
     { key: 'willpower', label: getAttributeInfo('willpower').label },
-    { key: 'wisdom', label: getAttributeInfo('wisdom').label },
   ];
   return mapping
     .map(({ key, label }) => {

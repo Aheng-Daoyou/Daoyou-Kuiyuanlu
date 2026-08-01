@@ -82,8 +82,9 @@ describe('CharacterGenerator', () => {
 
     expect(cultivator.attributes).toEqual({
       vitality: 10,
+      strength: 10,
       spirit: 10,
-      wisdom: 10,
+      endurance: 10,
       speed: 10,
       willpower: 10,
     });

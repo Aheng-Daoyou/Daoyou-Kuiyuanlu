@@ -23,7 +23,7 @@ const SPARRING_BASE_ATTRIBUTES: Partial<Record<AttributeType, number>> = {
   [AttributeType.VITALITY]: 320,
   [AttributeType.SPEED]: 110,
   [AttributeType.WILLPOWER]: 125,
-  [AttributeType.WISDOM]: 115,
+  [AttributeType.ENDURANCE]: 115,
 };
 
 const STABILITY_MODIFIERS = [

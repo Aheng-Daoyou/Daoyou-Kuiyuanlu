@@ -19,8 +19,9 @@ function createCultivatorFixture(): Cultivator {
     lifespan: 120,
     attributes: {
       vitality: 10,
+      strength: 10,
       spirit: 10,
-      wisdom: 10,
+      endurance: 10,
       speed: 10,
       willpower: 10,
     },
@@ -88,8 +89,8 @@ describe('CultivatorDisplayAdapter', () => {
     expect(unit.attributes.getValue(AttributeType.VITALITY)).toBe(15);
     expect(unit.attributes.getValue(AttributeType.SPIRIT)).toBe(12);
     expect(unit.attributes.getValue(AttributeType.SPEED)).toBe(10);
-    expect(unit.getMaxHp()).toBe(583);
-    expect(unit.getMaxMp()).toBe(383);
+    expect(unit.getMaxHp()).toBe(730);
+    expect(unit.getMaxMp()).toBe(348);
   });
 
   it('mounts sect method modifiers with the same final values used in combat', () => {
@@ -223,8 +224,8 @@ describe('CultivatorDisplayAdapter', () => {
       getCultivatorDisplayAttributes(cultivator);
 
     expect(finalAttributes.vitality).toBe(15);
-    expect(attrs.maxHp).toBe(652);
-    expect(attrs.def).toBeCloseTo(33.99, 6);
+    expect(attrs.maxHp).toBe(817);
+    expect(attrs.def).toBeCloseTo(27.81, 6);
   });
 
   it('builds a serializable display snapshot from battle-v5 attrs and resources', () => {
@@ -261,17 +262,17 @@ describe('CultivatorDisplayAdapter', () => {
 
     expect(snapshot.attrs.vitality).toBe(15);
     expect(snapshot.attrs.spirit).toBe(12);
-    expect(snapshot.attrs.maxHp).toBe(583);
-    expect(snapshot.attrs.maxMp).toBe(383);
+    expect(snapshot.attrs.maxHp).toBe(730);
+    expect(snapshot.attrs.maxMp).toBe(348);
     expect(snapshot.resources.hp).toEqual({
       current: 320,
-      max: 583,
-      percent: 54.89,
+      max: 730,
+      percent: 43.84,
     });
     expect(snapshot.resources.mp).toEqual({
       current: 180,
-      max: 383,
-      percent: 47,
+      max: 348,
+      percent: 51.72,
     });
   });
 
@@ -303,7 +304,7 @@ describe('CultivatorDisplayAdapter', () => {
     );
     // 功能属性不衰减
     expect(unit.attributes.getValue(AttributeType.CRIT_RATE)).toBeCloseTo(
-      0.144884,
+      0.15,
       6,
     );
   });

@@ -130,13 +130,13 @@ export const BASIC_TECHNIQUES: Record<ElementType, () => CultivationTechnique> =
   {
     金: () =>
       buildTechnique('金锐功', '金', [
-        modifier(AttributeType.VITALITY, 5),
-        modifier(AttributeType.SPIRIT, 5),
+        modifier(AttributeType.STRENGTH, 5),
+        modifier(AttributeType.ENDURANCE, 5),
       ]),
     木: () =>
       buildTechnique('长春功', '木', [
         modifier(AttributeType.VITALITY, 5),
-        modifier(AttributeType.WISDOM, 5),
+        modifier(AttributeType.ENDURANCE, 5),
       ]),
     水: () =>
       buildTechnique('玄水诀', '水', [
@@ -150,13 +150,13 @@ export const BASIC_TECHNIQUES: Record<ElementType, () => CultivationTechnique> =
       ]),
     土: () =>
       buildTechnique('厚土经', '土', [
-        modifier(AttributeType.VITALITY, 8),
-        modifier(AttributeType.WILLPOWER, 2),
+        modifier(AttributeType.ENDURANCE, 8),
+        modifier(AttributeType.VITALITY, 2),
       ]),
     风: () =>
       buildTechnique('御风诀', '风', [
         modifier(AttributeType.SPEED, 8),
-        modifier(AttributeType.WISDOM, 2),
+        modifier(AttributeType.STRENGTH, 2),
       ]),
     雷: () =>
       buildTechnique('紫雷诀', '雷', [

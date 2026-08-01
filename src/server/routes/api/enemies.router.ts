@@ -28,8 +28,9 @@ router.get('/:id', requireUser(), async (c) => {
         realmStage: cultivators.realm_stage,
         background: cultivators.background,
         vitality: cultivators.vitality,
+        strength: cultivators.strength,
         spirit: cultivators.spirit,
-        wisdom: cultivators.wisdom,
+        endurance: cultivators.endurance,
         speed: cultivators.speed,
         willpower: cultivators.willpower,
       })
@@ -69,11 +70,12 @@ router.get('/:id', requireUser(), async (c) => {
         background: enemy.background,
         combatRating: Math.round(
           (enemy.vitality +
+            enemy.strength +
             enemy.spirit +
-            enemy.wisdom +
+            enemy.endurance +
             enemy.speed +
             enemy.willpower) /
-            5,
+            6,
         ),
       },
     });

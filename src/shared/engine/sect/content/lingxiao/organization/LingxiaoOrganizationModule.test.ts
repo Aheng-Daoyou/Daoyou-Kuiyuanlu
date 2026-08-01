@@ -19,8 +19,9 @@ function playerFixture(overrides: Partial<Cultivator> = {}): Cultivator {
     lifespan: 300,
     attributes: {
       vitality: 99,
+      strength: 35,
       spirit: 12,
-      wisdom: 43,
+      endurance: 43,
       speed: 71,
       willpower: 26,
     },
@@ -175,9 +176,9 @@ describe('LingxiaoOrganizationModule', () => {
           opponentId: `mine-${realm}-${realmStage}`,
         });
         const budget = getRealmStageAttributeBudget(realm, realmStage);
-        const base = Math.floor(budget / 5);
-        const remainder = budget % 5;
-        const expected = ['vitality', 'spirit', 'wisdom', 'speed', 'willpower']
+        const base = Math.floor(budget / 6);
+        const remainder = budget % 6;
+        const expected = ['vitality', 'strength', 'spirit', 'endurance', 'speed', 'willpower']
           .map((key, index) => [
             key,
             Math.max(1, Math.floor((base + (index < remainder ? 1 : 0)) * 0.75)),

@@ -152,11 +152,13 @@ export class BattleStateRecorder {
       useBase ? a.getBaseValue(t) : a.getValue(t);
 
     return {
-      spirit: getVal(AttributeType.SPIRIT),
+      attributeModelVersion: 2,
       vitality: getVal(AttributeType.VITALITY),
+      strength: getVal(AttributeType.STRENGTH),
+      spirit: getVal(AttributeType.SPIRIT),
+      endurance: getVal(AttributeType.ENDURANCE),
       speed: getVal(AttributeType.SPEED),
       willpower: getVal(AttributeType.WILLPOWER),
-      wisdom: getVal(AttributeType.WISDOM),
       atk: getVal(AttributeType.ATK),
       def: getVal(AttributeType.DEF),
       magicAtk: getVal(AttributeType.MAGIC_ATK),
@@ -265,8 +267,12 @@ export class BattleStateRecorder {
       Record<keyof AttrsStateView, { from: number; to: number }>
     > = {};
     for (const key of Object.keys(prev.attrs) as Array<keyof AttrsStateView>) {
+      if (key === 'attributeModelVersion') continue;
       if (prev.attrs[key] !== curr.attrs[key]) {
-        changedAttrs[key] = { from: prev.attrs[key], to: curr.attrs[key] };
+        changedAttrs[key] = {
+          from: prev.attrs[key] as number,
+          to: curr.attrs[key] as number,
+        };
       }
     }
     if (Object.keys(changedAttrs).length > 0) {
@@ -279,10 +285,11 @@ export class BattleStateRecorder {
     for (const key of Object.keys(prev.baseAttrs) as Array<
       keyof AttrsStateView
     >) {
+      if (key === 'attributeModelVersion') continue;
       if (prev.baseAttrs[key] !== curr.baseAttrs[key]) {
         changedBaseAttrs[key] = {
-          from: prev.baseAttrs[key],
-          to: curr.baseAttrs[key],
+          from: prev.baseAttrs[key] as number,
+          to: curr.baseAttrs[key] as number,
         };
       }
     }

@@ -19,7 +19,7 @@ import type {
 } from './constants';
 
 /**
- * 基础属性（仅 5 维）。
+ * 基础属性（仅六维）。
  *
  * 所有派生属性（暴击率、闪避率、气血上限 等）都由 battle-v5
  * 的 AttributeSystem/AttrsStateView 动态计算，不再写入 DB 与实体。
@@ -29,11 +29,12 @@ import type {
  *   `getCultivatorDisplayAttributes(cultivator)` 取 AttrsStateView。
  */
 export interface Attributes {
-  vitality: number; // 体魄：伤害减免、气血上限
-  spirit: number; // 灵力：法术伤害、蓝量上限
-  wisdom: number; // 悟性：暴击率、命中率、效果命中
+  vitality: number; // 体魄：气血上限、少量法术防御
+  strength: number; // 力道：物理攻击
+  spirit: number; // 灵力：法术攻击、少量法力
+  endurance: number; // 根骨：物理防御、少量气血上限
   speed: number; // 身法：行动速度、闪避率、命中
-  willpower: number; // 神识：暴击抗性、暴击伤害、状态抗性
+  willpower: number; // 神识：法防、法力、控制命中与抗性
 }
 
 // 灵根

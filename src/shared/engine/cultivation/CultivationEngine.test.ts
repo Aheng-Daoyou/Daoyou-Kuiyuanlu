@@ -15,8 +15,9 @@ function createCultivator(): Cultivator {
     status: 'active',
     attributes: {
       vitality: 40,
+      strength: 34,
       spirit: 36,
-      wisdom: 30,
+      endurance: 30,
       speed: 28,
       willpower: 32,
     },
@@ -290,8 +291,9 @@ describe('CultivationEngine cultivation boost', () => {
     expect(minorResult.cultivator.unallocated_attribute_points).toBe(10);
     expect(minorResult.cultivator.attributes).toEqual({
       vitality: minorAttributesBefore.vitality + 2,
+      strength: minorAttributesBefore.strength + 2,
       spirit: minorAttributesBefore.spirit + 2,
-      wisdom: minorAttributesBefore.wisdom + 2,
+      endurance: minorAttributesBefore.endurance + 2,
       speed: minorAttributesBefore.speed + 2,
       willpower: minorAttributesBefore.willpower + 2,
     });
@@ -308,8 +310,9 @@ describe('CultivationEngine cultivation boost', () => {
     expect(majorResult.cultivator.unallocated_attribute_points).toBe(20);
     expect(majorResult.cultivator.attributes).toEqual({
       vitality: majorAttributesBefore.vitality + 4,
+      strength: majorAttributesBefore.strength + 4,
       spirit: majorAttributesBefore.spirit + 4,
-      wisdom: majorAttributesBefore.wisdom + 4,
+      endurance: majorAttributesBefore.endurance + 4,
       speed: majorAttributesBefore.speed + 4,
       willpower: majorAttributesBefore.willpower + 4,
     });

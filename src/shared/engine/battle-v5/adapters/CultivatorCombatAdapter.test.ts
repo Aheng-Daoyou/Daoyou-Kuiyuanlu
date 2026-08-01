@@ -20,8 +20,9 @@ function createCultivatorFixture(): Cultivator {
     lifespan: 120,
     attributes: {
       vitality: 10,
+      strength: 10,
       spirit: 10,
-      wisdom: 10,
+      endurance: 10,
       speed: 10,
       willpower: 10,
     },
@@ -82,12 +83,12 @@ describe('CultivatorCombatAdapter', () => {
 
     // 金丹圆满->炼气初期 uses inverse anchor/wearer factor.
     expect(unit.attributes.getValue(AttributeType.ATK)).toBeCloseTo(
-      70 + 100 * factor,
+      75 + 100 * factor,
       6,
     );
     // CRIT_RATE is functional attribute and should not be decayed
     expect(unit.attributes.getValue(AttributeType.CRIT_RATE)).toBeCloseTo(
-      0.144884,
+      0.15,
       6,
     );
   });
@@ -252,10 +253,10 @@ describe('CultivatorCombatAdapter', () => {
     const unit = createCombatUnitFromCultivator(cultivator);
 
     expect(unit.attributes.getValue(AttributeType.VITALITY)).toBe(10);
-    expect(unit.attributes.getValue(AttributeType.MAX_HP)).toBe(562);
+    expect(unit.attributes.getValue(AttributeType.MAX_HP)).toBe(705);
     expect(
       unit.attributes.getValue(AttributeType.CONTROL_RESISTANCE),
-    ).toBeCloseTo(0.0848, 6);
+    ).toBeCloseTo(0.0936, 6);
   });
 
   it('keeps wuxiang ability projection identical with or without body cultivation', () => {

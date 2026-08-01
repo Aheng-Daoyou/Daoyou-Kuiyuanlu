@@ -207,7 +207,7 @@ export const router = createBrowserRouter(
                 {
                   id: 'cultivator-attributes',
                   presentation: 'archive',
-                  summary: '五维根基、次级属性与可分配点在此处归档。',
+                  summary: '六维根基、次级属性与可分配点在此处归档。',
                 },
                 '根基属性',
               )}

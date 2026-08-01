@@ -7,11 +7,12 @@ import type { CultivatorInspectionData } from '@shared/contracts/player';
 import { useMemo, useState } from 'react';
 
 const PRIMARY_ATTR_ORDER: AttributeType[] = [
-  AttributeType.SPIRIT,
   AttributeType.VITALITY,
+  AttributeType.STRENGTH,
+  AttributeType.SPIRIT,
+  AttributeType.ENDURANCE,
   AttributeType.SPEED,
   AttributeType.WILLPOWER,
-  AttributeType.WISDOM,
 ];
 
 const SECONDARY_ATTR_ORDER: AttributeType[] = [

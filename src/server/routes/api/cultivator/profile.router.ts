@@ -43,12 +43,14 @@ const ClaimRedeemCodeSchema = z.object({
 });
 
 const AttributeAllocationSchema = z.object({
+  attribute_model_version: z.literal(2),
   vitality: z.number().int().min(0).default(0),
+  strength: z.number().int().min(0).default(0),
   spirit: z.number().int().min(0).default(0),
-  wisdom: z.number().int().min(0).default(0),
+  endurance: z.number().int().min(0).default(0),
   speed: z.number().int().min(0).default(0),
   willpower: z.number().int().min(0).default(0),
-});
+}).strict();
 
 function isUniqueViolation(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
@@ -148,12 +150,20 @@ router.post('/attributes/allocate', requireActiveCultivatorRef(), async (c) => {
   }
 
   try {
+    const delta = {
+      vitality: parsed.data.vitality,
+      strength: parsed.data.strength,
+      spirit: parsed.data.spirit,
+      endurance: parsed.data.endurance,
+      speed: parsed.data.speed,
+      willpower: parsed.data.willpower,
+    };
     const committed = await allocateCultivatorAttributes({
       actor: {
         userId: user.id,
         cultivatorId: cultivator.cultivatorId,
       },
-      delta: parsed.data,
+      delta,
     });
     return c.json(toPlayerStateMutationResponse(committed));
   } catch (error) {

@@ -322,7 +322,7 @@ const tasks: readonly SectTaskDefinition[] = [
     fulfillment: [],
     presentation: taskPresentation(
       '宗门小比',
-      '与本周演武名册中同境界的同门切磋。',
+      '与本周演武名册中同境或低一境的同门切磋。',
       '参加宗门小比',
       {
         offeredReply: '本周小比，我来应战',
@@ -493,8 +493,9 @@ class StandardSectConstructionPolicy implements SectConstructionPolicy {
 
 const ATTRIBUTE_KEYS = [
   'vitality',
+  'strength',
   'spirit',
-  'wisdom',
+  'endurance',
   'speed',
   'willpower',
 ] as const;
@@ -722,7 +723,7 @@ class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
             return {
               opponent: createLockedCultivatorOpponent(target, opponentId),
               title: '宗门小比',
-              description: '本周演武名册中与你境界相当的同门。',
+              description: '本周演武名册中与你同境或低一境的同门。',
             };
           },
         },

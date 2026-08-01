@@ -154,8 +154,9 @@ export function updateCultivatorTitle(args: Actor & { title: string | null }) {
 
 type AttributeDelta = {
   vitality: number;
+  strength: number;
   spirit: number;
-  wisdom: number;
+  endurance: number;
   speed: number;
   willpower: number;
 };
@@ -188,8 +189,9 @@ export async function allocateCultivatorAttributes(args: {
               realm: cultivators.realm,
               realmStage: cultivators.realm_stage,
               vitality: cultivators.vitality,
+              strength: cultivators.strength,
               spirit: cultivators.spirit,
-              wisdom: cultivators.wisdom,
+              endurance: cultivators.endurance,
               speed: cultivators.speed,
               willpower: cultivators.willpower,
               unallocatedAttributePoints:
@@ -203,8 +205,9 @@ export async function allocateCultivatorAttributes(args: {
           }
           const nextAttributes = {
             vitality: current.vitality + args.delta.vitality,
+            strength: current.strength + args.delta.strength,
             spirit: current.spirit + args.delta.spirit,
-            wisdom: current.wisdom + args.delta.wisdom,
+            endurance: current.endurance + args.delta.endurance,
             speed: current.speed + args.delta.speed,
             willpower: current.willpower + args.delta.willpower,
           };
@@ -223,14 +226,15 @@ export async function allocateCultivatorAttributes(args: {
             );
           const allocatedPoints =
             values.reduce((sum, value) => sum + value, 0) -
-            naturalAttributeValue * 5;
+            naturalAttributeValue * 6;
           const currentAllocatedPoints =
             current.vitality +
+            current.strength +
             current.spirit +
-            current.wisdom +
+            current.endurance +
             current.speed +
             current.willpower -
-            naturalAttributeValue * 5;
+            naturalAttributeValue * 6;
           const earnedAttributeBudget = Math.max(
             freeAttributeBudget,
             currentAllocatedPoints + current.unallocatedAttributePoints,
@@ -248,8 +252,9 @@ export async function allocateCultivatorAttributes(args: {
             .where(eq(cultivators.id, args.actor.cultivatorId))
             .returning({
               vitality: cultivators.vitality,
+              strength: cultivators.strength,
               spirit: cultivators.spirit,
-              wisdom: cultivators.wisdom,
+              endurance: cultivators.endurance,
               speed: cultivators.speed,
               willpower: cultivators.willpower,
               unallocated_attribute_points:
@@ -258,8 +263,9 @@ export async function allocateCultivatorAttributes(args: {
           const result = {
             attributes: {
               vitality: updated.vitality,
+              strength: updated.strength,
               spirit: updated.spirit,
-              wisdom: updated.wisdom,
+              endurance: updated.endurance,
               speed: updated.speed,
               willpower: updated.willpower,
             },

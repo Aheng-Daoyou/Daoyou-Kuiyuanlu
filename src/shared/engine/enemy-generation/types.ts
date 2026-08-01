@@ -26,8 +26,9 @@ import type {
 
 export const ATTRIBUTE_KEYS = [
   'vitality',
+  'strength',
   'spirit',
-  'wisdom',
+  'endurance',
   'speed',
   'willpower',
 ] as const satisfies ReadonlyArray<keyof Attributes>;

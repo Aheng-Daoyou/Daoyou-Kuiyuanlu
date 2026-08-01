@@ -82,7 +82,7 @@ bun run auth:migrate
 - Battle records use `wanjiedaoyou_battle_records_v2`.
 - Character persistent state is `cultivators.condition`; do not restore old `persistent_state` or `persistent_statuses`.
 - Consumables use `consumables.spec`; do not restore old `effects`, `use_spec`, or `details`.
-- Character base attributes are only vitality, spirit, wisdom, speed, willpower. Derived combat/display attributes come from battle-v5 adapters.
+- Character base attributes are only vitality, strength, spirit, endurance, speed, willpower. Derived combat/display attributes come from battle-v5 adapters.
 - Runtime battle tags come from `GameplayTags`; creation/process tags come from `CreationTags`. Do not handwrite runtime tag strings.
 
 ## High-Risk Areas

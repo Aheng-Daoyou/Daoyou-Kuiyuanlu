@@ -54,7 +54,7 @@ function createUnit(id: string): Unit {
     [AttributeType.VITALITY]: 100,
     [AttributeType.SPEED]: 100,
     [AttributeType.WILLPOWER]: 100,
-    [AttributeType.WISDOM]: 100,
+    [AttributeType.ENDURANCE]: 100,
   });
 }
 

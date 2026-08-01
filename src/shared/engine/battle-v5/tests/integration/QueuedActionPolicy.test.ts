@@ -35,7 +35,7 @@ function combatant(id: string, speed: number): Unit {
   return new Unit(id, id, {
     [AttributeType.VITALITY]: 10,
     [AttributeType.SPIRIT]: 10,
-    [AttributeType.WISDOM]: 10,
+    [AttributeType.ENDURANCE]: 10,
     [AttributeType.SPEED]: speed,
     [AttributeType.WILLPOWER]: 10,
   });

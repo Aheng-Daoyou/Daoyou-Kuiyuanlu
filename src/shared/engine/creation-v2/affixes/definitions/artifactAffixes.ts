@@ -166,7 +166,7 @@ export const ARTIFACT_AFFIXES: AffixDefinition[] = [
     },
   },
 
-  // --- 通用固定值面板（20 种） ---
+  // --- 通用固定值面板 ---
   {
     id: 'artifact-panel-atk',
     displayName: '锋锐',
@@ -429,6 +429,32 @@ export const ARTIFACT_AFFIXES: AffixDefinition[] = [
     },
   },
   {
+    id: 'artifact-panel-strength',
+    displayName: '聚力',
+    displayDescription: '提升力道属性',
+    slot: 'identity',
+    rarity: 'common',
+    match: {
+      all: [CreationTags.MATERIAL.SEMANTIC_BLADE],
+      any: [
+        CreationTags.MATERIAL.SEMANTIC_METAL,
+        CreationTags.MATERIAL.SEMANTIC_BEAST,
+      ],
+    },
+    weight: 55,
+    energyCost: 10,
+    applicableTo: ['artifact'],
+    applicableArtifactSlots: ['weapon', 'accessory'],
+    effectTemplate: {
+      type: 'attribute_modifier',
+      params: {
+        attrType: AttributeType.STRENGTH,
+        modType: ModifierType.FIXED,
+        value: { base: 2, scale: 'quality', coefficient: 0.6 },
+      },
+    },
+  },
+  {
     id: 'artifact-panel-spirit',
     displayName: '蕴灵',
     displayDescription: '提升灵力属性',
@@ -481,35 +507,63 @@ export const ARTIFACT_AFFIXES: AffixDefinition[] = [
     },
   },
   {
-    id: 'artifact-panel-wisdom',
-    displayName: '开智',
-    displayDescription: '提升悟性属性',
+    id: 'artifact-panel-endurance',
+    displayName: '固骨',
+    displayDescription: '提升根骨属性',
     slot: 'identity',
     rarity: 'common',
     match: {
-      all: [CreationTags.MATERIAL.SEMANTIC_MANUAL],
+      all: [CreationTags.MATERIAL.SEMANTIC_GUARD],
       any: [
-        CreationTags.MATERIAL.SEMANTIC_DIVINE,
-        CreationTags.MATERIAL.SEMANTIC_FORMATION,
+        CreationTags.MATERIAL.SEMANTIC_BONE,
+        CreationTags.MATERIAL.SEMANTIC_EARTH,
+        CreationTags.MATERIAL.SEMANTIC_METAL,
       ],
     },
-    weight: 45,
+    weight: 55,
     energyCost: 10,
     applicableTo: ['artifact'],
-    applicableArtifactSlots: ['weapon', 'armor', 'accessory'],
+    applicableArtifactSlots: ['armor', 'accessory'],
     effectTemplate: {
       type: 'attribute_modifier',
       params: {
-        attrType: AttributeType.WISDOM,
+        attrType: AttributeType.ENDURANCE,
         modType: ModifierType.FIXED,
         value: { base: 2, scale: 'quality', coefficient: 0.6 },
       },
     },
   },
   {
+    id: 'artifact-panel-wisdom',
+    displayName: '慧心',
+    displayDescription: '洞察破绽，提升暴击几率',
+    slot: 'identity',
+    rarity: 'uncommon',
+    match: {
+      all: [CreationTags.MATERIAL.SEMANTIC_MANUAL],
+      any: [
+        CreationTags.MATERIAL.SEMANTIC_DIVINE,
+        CreationTags.MATERIAL.SEMANTIC_FORMATION,
+        CreationTags.MATERIAL.SEMANTIC_ILLUSION,
+      ],
+    },
+    weight: 45,
+    energyCost: 16,
+    applicableTo: ['artifact'],
+    applicableArtifactSlots: ['weapon', 'accessory'],
+    effectTemplate: {
+      type: 'attribute_modifier',
+      params: {
+        attrType: AttributeType.CRIT_RATE,
+        modType: ModifierType.FIXED,
+        value: { base: 0.01, scale: 'quality', coefficient: 0.008 },
+      },
+    },
+  },
+  {
     id: 'artifact-panel-willpower',
     displayName: '凝神',
-    displayDescription: '提升意志属性',
+    displayDescription: '提升神识属性',
     slot: 'identity',
     rarity: 'common',
     match: {

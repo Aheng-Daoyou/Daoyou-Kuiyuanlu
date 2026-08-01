@@ -8,10 +8,11 @@ export interface CultivatorData {
   id: string;
   name: string;
   attributes: {
-    spirit: number;
     vitality: number;
+    strength: number;
+    spirit: number;
+    endurance: number;
     speed: number;
-    wisdom: number;
     willpower: number;
   };
 }
@@ -25,10 +26,11 @@ export class CultivatorAdapter {
    * 属性映射表
    */
   private static readonly ATTRIBUTE_MAP = {
-    spirit: AttributeType.SPIRIT,
     vitality: AttributeType.VITALITY,
+    strength: AttributeType.STRENGTH,
+    spirit: AttributeType.SPIRIT,
+    endurance: AttributeType.ENDURANCE,
     speed: AttributeType.SPEED,
-    wisdom: AttributeType.WISDOM,
     willpower: AttributeType.WILLPOWER,
   } as const;
 

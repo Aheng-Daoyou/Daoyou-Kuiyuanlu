@@ -11,7 +11,7 @@ function unit(id: string): Unit {
   return new Unit(id, id, {
     [AttributeType.VITALITY]: 100,
     [AttributeType.SPIRIT]: 100,
-    [AttributeType.WISDOM]: 100,
+    [AttributeType.ENDURANCE]: 100,
     [AttributeType.SPEED]: 100,
     [AttributeType.WILLPOWER]: 100,
   });

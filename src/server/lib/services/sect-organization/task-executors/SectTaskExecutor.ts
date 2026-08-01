@@ -529,7 +529,7 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
       if (!source)
         invalid(
           factory.acquisition === 'same-sect'
-            ? '本周演武名册尚未排到与你同境的同门，不妨过些时候再来问问。'
+            ? '本周演武名册尚未排到与你同境或低一境的同门，不妨过些时候再来问问。'
             : '近日悬赏册上没有与你同境或低一境的外宗目标，这份令暂时不能揭。',
           409,
         );
@@ -537,7 +537,7 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
       if (!target)
         invalid(
           factory.acquisition === 'same-sect'
-            ? '本周演武名册尚未排到与你同境的同门，不妨过些时候再来问问。'
+            ? '本周演武名册尚未排到与你同境或低一境的同门，不妨过些时候再来问问。'
             : '近日悬赏册上没有与你同境或低一境的外宗目标，这份令暂时不能揭。',
           409,
         );

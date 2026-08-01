@@ -28,9 +28,10 @@ export interface BattleUnitInitSpec {
     Record<
       | AttributeType.SPIRIT
       | AttributeType.VITALITY
+      | AttributeType.STRENGTH
+      | AttributeType.ENDURANCE
       | AttributeType.SPEED
-      | AttributeType.WILLPOWER
-      | AttributeType.WISDOM,
+      | AttributeType.WILLPOWER,
       number
     >
   >;

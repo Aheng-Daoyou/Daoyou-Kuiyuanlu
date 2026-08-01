@@ -18,7 +18,7 @@ describe('免疫效果集成测试', () => {
       [AttributeType.VITALITY]: 100,
       [AttributeType.SPEED]: 100,
       [AttributeType.WILLPOWER]: 200,
-      [AttributeType.WISDOM]: 300,
+      [AttributeType.ENDURANCE]: 300,
     });
   }
 

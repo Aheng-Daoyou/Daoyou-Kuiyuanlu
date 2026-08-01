@@ -66,8 +66,9 @@ export async function updateCultivator(
   if (updates.lifespan !== undefined) updateData.lifespan = updates.lifespan;
   if (updates.attributes !== undefined) {
     updateData.vitality = Math.round(updates.attributes.vitality);
+    updateData.strength = Math.round(updates.attributes.strength);
     updateData.spirit = Math.round(updates.attributes.spirit);
-    updateData.wisdom = Math.round(updates.attributes.wisdom);
+    updateData.endurance = Math.round(updates.attributes.endurance);
     updateData.speed = Math.round(updates.attributes.speed);
     updateData.willpower = Math.round(updates.attributes.willpower);
   }

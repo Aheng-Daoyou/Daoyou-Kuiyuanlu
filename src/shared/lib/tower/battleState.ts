@@ -8,10 +8,11 @@ import type { TowerFloorKind } from './types';
 
 const PRIMARY_ATTRIBUTES = [
   AttributeType.VITALITY,
+  AttributeType.STRENGTH,
   AttributeType.SPIRIT,
+  AttributeType.ENDURANCE,
   AttributeType.SPEED,
   AttributeType.WILLPOWER,
-  AttributeType.WISDOM,
 ] as const;
 
 function createModifier(
@@ -50,9 +51,21 @@ export function buildTowerBlessingAttributeModifiers(
   );
   appendRepeatedModifiers(
     modifiers,
+    [AttributeType.STRENGTH],
+    1.08,
+    blessings.strength_surge ?? 0,
+  );
+  appendRepeatedModifiers(
+    modifiers,
     [AttributeType.SPIRIT],
     1.08,
     blessings.spirit_surge ?? 0,
+  );
+  appendRepeatedModifiers(
+    modifiers,
+    [AttributeType.ENDURANCE],
+    1.08,
+    blessings.endurance_surge ?? 0,
   );
   appendRepeatedModifiers(
     modifiers,
@@ -62,8 +75,8 @@ export function buildTowerBlessingAttributeModifiers(
   );
   appendRepeatedModifiers(
     modifiers,
-    [AttributeType.WISDOM, AttributeType.WILLPOWER],
-    1.06,
+    [AttributeType.WILLPOWER],
+    1.08,
     blessings.mind_focus ?? 0,
   );
   appendRepeatedModifiers(

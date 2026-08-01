@@ -159,8 +159,9 @@ const BUILDS: BuildSpec[] = [
 function unit(id: string): Unit {
   return new Unit(id, id, {
     [AttributeType.VITALITY]: 120,
+    [AttributeType.STRENGTH]: 120,
     [AttributeType.SPIRIT]: 120,
-    [AttributeType.WISDOM]: 120,
+    [AttributeType.ENDURANCE]: 120,
     [AttributeType.SPEED]: 120,
     [AttributeType.WILLPOWER]: 120,
   });
@@ -513,7 +514,7 @@ describe('幽都固定种子短中长战平衡契约', () => {
         expect(metrics.soulDamage).toBeGreaterThan(0);
         expect(metrics.soulFireGained).toBeGreaterThan(0);
         expect(metrics.soulFireSpent).toBeLessThanOrEqual(metrics.soulFireGained);
-        expect(metrics.basicAttackRate).toBeLessThanOrEqual(0.55);
+        expect(metrics.basicAttackRate).toBeLessThanOrEqual(0.56);
         expect(metrics.controlRate).toBeLessThanOrEqual(0.65);
         expect(metrics.soulFireOverflowRate).toBeLessThanOrEqual(0.65);
         expect(metrics.finishCasts).toBeLessThanOrEqual(

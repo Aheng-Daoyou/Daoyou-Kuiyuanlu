@@ -98,9 +98,9 @@ describe('tower helpers', () => {
         nextStacks: 2,
       }),
     ).toEqual({
-      currentLabel: '五维主属性 +5%',
-      nextLabel: '五维主属性 +10%',
-      formulaLabel: '公式：每层五维主属性同步 +5%。 上限 3 层。',
+      currentLabel: '六维主属性 +5%',
+      nextLabel: '六维主属性 +10%',
+      formulaLabel: '公式：每层六维主属性同步 +5%。 上限 3 层。',
     });
   });
 

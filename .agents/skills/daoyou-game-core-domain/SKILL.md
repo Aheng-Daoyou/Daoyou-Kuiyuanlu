@@ -17,7 +17,7 @@ description: Daoyou shared game engine domain guide for battle-v5, creation-v2, 
 
 ## Attribute Boundary
 
-- `Cultivator.attributes` stores only five base attributes: vitality, spirit, wisdom, speed, willpower.
+- `Cultivator.attributes` stores only six base attributes: vitality, strength, spirit, endurance, speed, willpower.
 - Derived attributes, hp/mp max, and combat display stats are computed through battle-v5 `AttributeSet` and adapters.
 - `src/shared/engine/cultivator/index.ts` is a migration placeholder. Do not rebuild old cultivator attribute logic there.
 - Display attributes should use `createDisplayUnitFromCultivator` / `getCultivatorDisplayAttributes` patterns; combat should use `createCombatUnitFromCultivator`.
@@ -48,7 +48,7 @@ description: Daoyou shared game engine domain guide for battle-v5, creation-v2, 
 
 1. Identify whether the task touches battle runtime, creation authoring, persistence, or presentation.
 2. Check existing config/registry/tests before adding a new rule.
-3. Keep five-attribute storage and derived-attribute calculation separate.
+3. Keep six-attribute storage and derived-attribute calculation separate.
 4. Use existing tag constants and mapping helpers.
 5. Add or update focused tests for the affected contract.
 

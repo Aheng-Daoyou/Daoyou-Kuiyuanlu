@@ -145,7 +145,7 @@ function unit(id: string, values: Partial<Record<AttributeType, number>>): Unit 
   const result = new Unit(id, id, {
     [AttributeType.VITALITY]: values[AttributeType.VITALITY] ?? 120,
     [AttributeType.SPIRIT]: values[AttributeType.SPIRIT] ?? 120,
-    [AttributeType.WISDOM]: values[AttributeType.WISDOM] ?? 120,
+    [AttributeType.ENDURANCE]: values[AttributeType.ENDURANCE] ?? 120,
     [AttributeType.SPEED]: values[AttributeType.SPEED] ?? 120,
     [AttributeType.WILLPOWER]: values[AttributeType.WILLPOWER] ?? 120,
   });
@@ -168,7 +168,7 @@ function simulate(
   const opponent = unit('training-puppet', {
     [AttributeType.VITALITY]: 60,
     [AttributeType.SPIRIT]: 70,
-    [AttributeType.WISDOM]: 60,
+    [AttributeType.ENDURANCE]: 60,
     [AttributeType.SPEED]: 70,
     [AttributeType.WILLPOWER]: 70,
   });

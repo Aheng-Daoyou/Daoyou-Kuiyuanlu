@@ -63,8 +63,10 @@ export const cultivators = pgTable(
 
     // 基础属性
     vitality: integer('vitality').notNull(),
+    strength: integer('strength').notNull().default(10),
     spirit: integer('spirit').notNull(),
-    wisdom: integer('wisdom').notNull(),
+    endurance: integer('endurance').notNull().default(10),
+    legacyWisdom: integer('wisdom').notNull(),
     speed: integer('speed').notNull(),
     willpower: integer('willpower').notNull(),
     unallocatedAttributePoints: integer('unallocated_attribute_points')

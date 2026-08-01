@@ -322,8 +322,9 @@ export class EnemyGenerationOrchestrator {
     const valueMap = new Map(base.map((entry) => [entry.key, entry.value]));
     const attributes: Attributes = {
       vitality: naturalAttributeValue + (valueMap.get('vitality') ?? 0),
+      strength: naturalAttributeValue + (valueMap.get('strength') ?? 0),
       spirit: naturalAttributeValue + (valueMap.get('spirit') ?? 0),
-      wisdom: naturalAttributeValue + (valueMap.get('wisdom') ?? 0),
+      endurance: naturalAttributeValue + (valueMap.get('endurance') ?? 0),
       speed: naturalAttributeValue + (valueMap.get('speed') ?? 0),
       willpower: naturalAttributeValue + (valueMap.get('willpower') ?? 0),
     };

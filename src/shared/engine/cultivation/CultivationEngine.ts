@@ -48,8 +48,9 @@ function clamp(value: number, min: number, max: number): number {
 
 const PRIMARY_ATTRIBUTE_KEYS = [
   'vitality',
+  'strength',
   'spirit',
-  'wisdom',
+  'endurance',
   'speed',
   'willpower',
 ] as const satisfies ReadonlyArray<keyof Attributes>;

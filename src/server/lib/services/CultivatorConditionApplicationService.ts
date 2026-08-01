@@ -70,8 +70,9 @@ export function consumeCultivatorConsumable(args: {
               qiLastRefreshedAt: cultivators.qiLastRefreshedAt,
               lifespan: cultivators.lifespan,
               vitality: cultivators.vitality,
+              strength: cultivators.strength,
               spirit: cultivators.spirit,
-              wisdom: cultivators.wisdom,
+              endurance: cultivators.endurance,
               speed: cultivators.speed,
               willpower: cultivators.willpower,
               unallocatedAttributePoints:

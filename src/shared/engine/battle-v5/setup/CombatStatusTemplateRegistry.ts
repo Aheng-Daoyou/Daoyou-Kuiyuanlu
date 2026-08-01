@@ -80,11 +80,12 @@ combatStatusTemplateRegistry.register({
   toBattleInit(status) {
     const multiplier = buildWeaknessMultiplier(status);
     const primaryAttrs = [
-      AttributeType.SPIRIT,
       AttributeType.VITALITY,
+      AttributeType.STRENGTH,
+      AttributeType.SPIRIT,
+      AttributeType.ENDURANCE,
       AttributeType.SPEED,
       AttributeType.WILLPOWER,
-      AttributeType.WISDOM,
     ];
     return {
       modifiers: primaryAttrs.map((attrType) => ({

@@ -13,7 +13,7 @@ id: lifespan-exhausted
 
 ## user
 
-【角色】{{name}}｜{{realm}}{{realmStage}}｜悟性 {{wisdom}} 灵根：{{roots}} 功法：{{cultivations}} 气运：{{fates}} 年龄：{{age}}，寿元上限：{{lifespan}}
+【角色】{{name}}｜{{realm}}{{realmStage}}｜感悟 {{insight}} 灵根：{{roots}} 功法：{{cultivations}} 气运：{{fates}} 年龄：{{age}}，寿元上限：{{lifespan}}
 
 【闭关】本次闭关 {{yearsSpent}} 年，突破方向：{{fromRealm}}{{fromStage}} → {{toRealm}}{{toStage}}。寿元耗尽，突破失败。
 

@@ -106,8 +106,9 @@ export const AttributeResetService = {
         realm: schema.cultivators.realm,
         realmStage: schema.cultivators.realm_stage,
         vitality: schema.cultivators.vitality,
+        strength: schema.cultivators.strength,
         spirit: schema.cultivators.spirit,
-        wisdom: schema.cultivators.wisdom,
+        endurance: schema.cultivators.endurance,
         speed: schema.cultivators.speed,
         willpower: schema.cultivators.willpower,
         unallocatedAttributePoints:
@@ -139,13 +140,14 @@ export const AttributeResetService = {
     );
     const currentTotal =
       current.vitality +
+      current.strength +
       current.spirit +
-      current.wisdom +
+      current.endurance +
       current.speed +
       current.willpower;
     const refundedAttributePoints = Math.max(
       0,
-      currentTotal - naturalAttributeValue * 5,
+      currentTotal - naturalAttributeValue * 6,
     );
 
     if (refundedAttributePoints <= 0) {
@@ -157,8 +159,9 @@ export const AttributeResetService = {
 
     const nextAttributes = {
       vitality: naturalAttributeValue,
+      strength: naturalAttributeValue,
       spirit: naturalAttributeValue,
-      wisdom: naturalAttributeValue,
+      endurance: naturalAttributeValue,
       speed: naturalAttributeValue,
       willpower: naturalAttributeValue,
     };
@@ -172,8 +175,9 @@ export const AttributeResetService = {
       .where(eq(schema.cultivators.id, args.cultivatorId))
       .returning({
         vitality: schema.cultivators.vitality,
+        strength: schema.cultivators.strength,
         spirit: schema.cultivators.spirit,
-        wisdom: schema.cultivators.wisdom,
+        endurance: schema.cultivators.endurance,
         speed: schema.cultivators.speed,
         willpower: schema.cultivators.willpower,
         unallocatedAttributePoints:
@@ -191,8 +195,9 @@ export const AttributeResetService = {
     return {
       attributes: {
         vitality: updated.vitality,
+        strength: updated.strength,
         spirit: updated.spirit,
-        wisdom: updated.wisdom,
+        endurance: updated.endurance,
         speed: updated.speed,
         willpower: updated.willpower,
       },

@@ -32,9 +32,10 @@ const ATTR = {
   MAX_HP: 'maxHp' as AttributeType,
   SPIRIT: 'spirit' as AttributeType,
   VITALITY: 'vitality' as AttributeType,
+  STRENGTH: 'strength' as AttributeType,
+  ENDURANCE: 'endurance' as AttributeType,
   SPEED: 'speed' as AttributeType,
   WILLPOWER: 'willpower' as AttributeType,
-  WISDOM: 'wisdom' as AttributeType,
 };
 
 const MOD = {
@@ -118,7 +119,7 @@ registry.register({
     getGameConceptInfo('status_weakness').description ??
     '元气大伤，全属性随层数下降。',
   effectDetails: [
-    '战斗时体魄、灵力、悟性、身法、神识都会同步下降。',
+    '战斗时体魄、力道、灵力、根骨、身法、神识都会同步下降。',
     '每层额外降低 5%，最多衰减至原本的 50%。',
   ],
   display: {
@@ -132,9 +133,10 @@ registry.register({
         modifiers: [
           ATTR.SPIRIT,
           ATTR.VITALITY,
+          ATTR.STRENGTH,
+          ATTR.ENDURANCE,
           ATTR.SPEED,
           ATTR.WILLPOWER,
-          ATTR.WISDOM,
         ].map((attrType) => ({
           attrType,
           type: MOD.MULTIPLY,

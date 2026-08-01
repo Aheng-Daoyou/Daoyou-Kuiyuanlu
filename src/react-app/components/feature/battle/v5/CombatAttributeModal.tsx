@@ -23,11 +23,13 @@ const fmtInt = format(',d');
 const fmtPct = format('.1f');
 
 const ATTR_LABELS: Partial<Record<keyof AttrsStateView, string>> = {
-  spirit: getAttributeInfo('spirit').label,
   vitality: getAttributeInfo('vitality').label,
+  strength: getAttributeInfo('strength').label,
+  spirit: getAttributeInfo('spirit').label,
+  endurance: getAttributeInfo('endurance').label,
+  wisdom: '悟性',
   speed: getAttributeInfo('speed').label,
   willpower: getAttributeInfo('willpower').label,
-  wisdom: getAttributeInfo('wisdom').label,
   atk: getGameConceptLabel('attribute_atk'),
   def: getGameConceptLabel('attribute_def'),
   magicAtk: getGameConceptLabel('attribute_magic_atk'),
@@ -70,6 +72,7 @@ export function CombatAttributeModal({ unit, isOpen, onClose }: Props) {
   if (!unit) return null;
 
   const visibleBuffs = unit.buffs.filter(isPlayerVisibleBuff);
+  const usesSixAttributeModel = unit.attrs.attributeModelVersion === 2;
 
   const renderAttr = (key: keyof AttrsStateView, isPercentage = false) => {
     const finalVal = unit.attrs[key] || 0;
@@ -114,11 +117,14 @@ export function CombatAttributeModal({ unit, isOpen, onClose }: Props) {
           <section>
             <p className="battle-caption mb-2 text-xs">基础属性</p>
             <div className="py-1">
-              {renderAttr('spirit')}
               {renderAttr('vitality')}
+              {usesSixAttributeModel ? renderAttr('strength') : null}
+              {renderAttr('spirit')}
+              {usesSixAttributeModel
+                ? renderAttr('endurance')
+                : renderAttr('wisdom')}
               {renderAttr('speed')}
               {renderAttr('willpower')}
-              {renderAttr('wisdom')}
             </div>
           </section>
 

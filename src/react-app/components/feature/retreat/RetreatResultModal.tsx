@@ -198,7 +198,7 @@ function BreakthroughResultContent({
 
       {'naturalAttributeGrowth' in summary &&
       summary.naturalAttributeGrowth > 0 ? (
-        <p>自然成长：五维各 +{summary.naturalAttributeGrowth}</p>
+        <p>自然成长：六维各 +{summary.naturalAttributeGrowth}</p>
       ) : null}
 
       {summary.attributePointReward > 0 ? (

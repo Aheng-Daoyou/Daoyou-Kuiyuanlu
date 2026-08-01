@@ -80,7 +80,7 @@ export function resolveSectBattleTargetRealmCandidates(
   realm: RealmType,
   acquisition: SectBattleTargetAcquisition,
 ): readonly RealmType[] {
-  if (acquisition !== 'other-sect') return [realm];
+  if (acquisition === 'preset') return [realm];
 
   const realmIndex = REALM_VALUES.indexOf(realm);
   const previousRealm = REALM_VALUES[realmIndex - 1];

@@ -36,10 +36,11 @@ export type CultivatorCombatInput = Pick<
 };
 
 const ATTRIBUTE_MAP = {
-  spirit: AttributeType.SPIRIT,
   vitality: AttributeType.VITALITY,
+  strength: AttributeType.STRENGTH,
+  spirit: AttributeType.SPIRIT,
+  endurance: AttributeType.ENDURANCE,
   speed: AttributeType.SPEED,
-  wisdom: AttributeType.WISDOM,
   willpower: AttributeType.WILLPOWER,
 } as const;
 

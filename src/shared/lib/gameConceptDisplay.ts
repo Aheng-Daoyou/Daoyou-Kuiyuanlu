@@ -122,19 +122,25 @@ export const GAME_CONCEPT_DISPLAY_MAP = {
     label: '体魄',
     icon: '💪',
     shortLabel: '体',
-    description: '肉身强度与气血根基，影响伤害减免与生命上限',
+    description: '气血与生命根基，决定最大气血并提供少量法术防御',
+  },
+  strength: {
+    label: '力道',
+    icon: '⚔️',
+    shortLabel: '力',
+    description: '筋力与兵刃威势，决定物理攻击',
   },
   spirit: {
     label: '灵力',
     icon: '⚡',
     shortLabel: '灵',
-    description: '灵力浑厚程度，影响法术威力与法力上限',
+    description: '灵力浑厚程度，决定法术攻击并提供少量法力',
   },
-  wisdom: {
-    label: '悟性',
-    icon: '🧠',
-    shortLabel: '悟',
-    description: '领悟与推演之能，影响暴击、顿悟与突破',
+  endurance: {
+    label: '根骨',
+    icon: '🦴',
+    shortLabel: '骨',
+    description: '筋骨坚韧程度，决定物理防御并提供少量最大气血',
   },
   speed: {
     label: '身法',
@@ -146,7 +152,7 @@ export const GAME_CONCEPT_DISPLAY_MAP = {
     label: '神识',
     icon: '👁️',
     shortLabel: '识',
-    description: '感知与神魂坚韧程度，影响法术防御、控制与行动速度',
+    description: '神魂与意志强度，影响法术防御、法力和控制攻防',
   },
   gongfa: {
     label: '功法',
@@ -636,8 +642,7 @@ export function getElementInfo(key: ElementType): ElementDisplayInfo {
 }
 
 /**
- * 展示层用属性键：基础 5 维 + battle-v5 派生键。
- * Attributes 已被精简为仅保留基础 5 维，但 UI 显示仍需覆盖派生键。
+ * 展示层用属性键：基础六维 + battle-v5 派生键。
  */
 export type AttributeKey =
   | keyof Attributes
@@ -668,8 +673,9 @@ function getAttributeConceptInfo(key: GameConceptKey): AttributeDisplayInfo {
 export const ATTRIBUTE_DISPLAY_MAP: Record<AttributeKey, AttributeDisplayInfo> =
   {
     vitality: getAttributeConceptInfo('vitality'),
+    strength: getAttributeConceptInfo('strength'),
     spirit: getAttributeConceptInfo('spirit'),
-    wisdom: getAttributeConceptInfo('wisdom'),
+    endurance: getAttributeConceptInfo('endurance'),
     speed: getAttributeConceptInfo('speed'),
     willpower: getAttributeConceptInfo('willpower'),
     critRate: getAttributeConceptInfo('attribute_crit_rate'),

@@ -49,11 +49,12 @@ const MAX_PROMPT_LENGTH = 200;
 const countChars = (input: string): number => Array.from(input).length;
 
 const PRIMARY_ATTR_ORDER: AttributeType[] = [
-  AttributeType.SPIRIT,
   AttributeType.VITALITY,
+  AttributeType.STRENGTH,
+  AttributeType.SPIRIT,
+  AttributeType.ENDURANCE,
   AttributeType.SPEED,
   AttributeType.WILLPOWER,
-  AttributeType.WISDOM,
 ];
 
 const SECONDARY_ATTR_ORDER: AttributeType[] = [

@@ -3,8 +3,9 @@ import type { Attributes } from '@shared/types/cultivator';
 export function createEmptyAttributeDraft(): Attributes {
   return {
     vitality: 0,
+    strength: 0,
     spirit: 0,
-    wisdom: 0,
+    endurance: 0,
     speed: 0,
     willpower: 0,
   };

@@ -97,7 +97,7 @@ function unit(id: string): Unit {
   const result = new Unit(id, id, {
     [AttributeType.VITALITY]: value,
     [AttributeType.SPIRIT]: value,
-    [AttributeType.WISDOM]: value,
+    [AttributeType.ENDURANCE]: value,
     [AttributeType.SPEED]: value,
     [AttributeType.WILLPOWER]: value,
   });

@@ -40,12 +40,17 @@ export interface CooldownStateView {
 
 // ===== 属性状态视图 =====
 export interface AttrsStateView {
-  // 5 维主属性
-  spirit: number;
+  /** 新快照的属性模型版本；旧战斗记录可能缺失。 */
+  attributeModelVersion?: 2;
+  // 六维主属性。strength/endurance 对旧五维战斗记录可缺失。
   vitality: number;
+  strength?: number;
+  spirit: number;
+  endurance?: number;
+  /** 仅用于原样回放旧五维战斗记录，不参与新战斗结算。 */
+  wisdom?: number;
   speed: number;
   willpower: number;
-  wisdom: number;
   // 派生型二级属性（实际小数值，如 0.35 表示 35%）
   atk: number;
   def: number;

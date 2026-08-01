@@ -119,8 +119,9 @@ function playerFixture(): CultivatorCombatInput {
     realm_stage: '初期',
     attributes: {
       vitality: 1,
+      strength: 1,
       spirit: 1,
-      wisdom: 1,
+      endurance: 1,
       speed: 1,
       willpower: 1,
     },
@@ -136,7 +137,7 @@ function playerFixture(): CultivatorCombatInput {
 describe('production sect elder trial presets', () => {
   it('projects every fixed elder through creation-v2 and battle-v5', () => {
     const expectedAttribute = Math.floor(
-      getRealmStageAttributeBudget('元婴', '圆满') / 5,
+      getRealmStageAttributeBudget('元婴', '圆满') / 6,
     );
 
     for (const { module } of PRODUCTION_SECTS) {
@@ -164,8 +165,9 @@ describe('production sect elder trial presets', () => {
         realm_stage: '圆满',
         attributes: {
           vitality: expectedAttribute,
+          strength: expectedAttribute,
           spirit: expectedAttribute,
-          wisdom: expectedAttribute,
+          endurance: expectedAttribute,
           speed: expectedAttribute,
           willpower: expectedAttribute,
         },

@@ -54,18 +54,22 @@ function describeStackValue(
   switch (blessingId) {
     case 'vitality_surge':
       return `体魄 +${stacks * 8}%`;
+    case 'strength_surge':
+      return `力道 +${stacks * 8}%`;
     case 'spirit_surge':
       return `灵力 +${stacks * 8}%`;
+    case 'endurance_surge':
+      return `根骨 +${stacks * 8}%`;
     case 'swift_step':
       return `身法 +${stacks * 8}%`;
     case 'mind_focus':
-      return `悟性、神识 +${stacks * 6}%`;
+      return `神识 +${stacks * 8}%`;
     case 'jade_bones':
       return `最大气血 +${stacks * 10}%`;
     case 'sea_of_qi':
       return `最大法力 +${stacks * 12}%`;
     case 'balanced_dao':
-      return `五维主属性 +${stacks * 5}%`;
+      return `六维主属性 +${stacks * 5}%`;
     case 'breathing_technique': {
       const ratio = 0.1 * stacks;
       const recovered = formatRecoveryAmount({
@@ -95,12 +99,16 @@ function describeFormula(blessingId: TowerBlessingId) {
   switch (blessingId) {
     case 'vitality_surge':
       return '公式：每层体魄 +8%。';
+    case 'strength_surge':
+      return '公式：每层力道 +8%。';
     case 'spirit_surge':
       return '公式：每层灵力 +8%。';
+    case 'endurance_surge':
+      return '公式：每层根骨 +8%。';
     case 'swift_step':
       return '公式：每层身法 +8%。';
     case 'mind_focus':
-      return '公式：每层悟性、神识各 +6%。';
+      return '公式：每层神识 +8%。';
     case 'jade_bones':
       return '公式：每层最大气血 +10%。';
     case 'sea_of_qi':
@@ -110,7 +118,7 @@ function describeFormula(blessingId: TowerBlessingId) {
     case 'meridian_cycle':
       return '公式：每层战前回复 15% 缺失法力。';
     case 'balanced_dao':
-      return '公式：每层五维主属性同步 +5%。';
+      return '公式：每层六维主属性同步 +5%。';
   }
 }
 

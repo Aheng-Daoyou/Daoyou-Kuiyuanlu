@@ -11,11 +11,11 @@ import {
 
 describe('realmProgression', () => {
   it('calculates fixed attribute budgets by realm and stage', () => {
-    expect(getRealmStageAttributeBudget('炼气', '初期')).toBe(50);
-    expect(getRealmStageAttributeBudget('筑基', '初期')).toBe(150);
-    expect(getRealmStageAttributeBudget('金丹', '初期')).toBe(250);
-    expect(getRealmStageAttributeBudget('渡劫', '初期')).toBe(850);
-    expect(getRealmStageAttributeBudget('渡劫', '圆满')).toBe(910);
+    expect(getRealmStageAttributeBudget('炼气', '初期')).toBe(60);
+    expect(getRealmStageAttributeBudget('筑基', '初期')).toBe(170);
+    expect(getRealmStageAttributeBudget('金丹', '初期')).toBe(280);
+    expect(getRealmStageAttributeBudget('渡劫', '初期')).toBe(940);
+    expect(getRealmStageAttributeBudget('渡劫', '圆满')).toBe(1006);
   });
 
   it('splits attribute budget into natural values and allocatable points', () => {

@@ -5,8 +5,9 @@ import type { Attributes, SpiritualRoot } from '@shared/types/cultivator';
 export function generateAttributes(): Attributes {
   return {
     vitality: BASE_ATTRIBUTE_VALUE,
+    strength: BASE_ATTRIBUTE_VALUE,
     spirit: BASE_ATTRIBUTE_VALUE,
-    wisdom: BASE_ATTRIBUTE_VALUE,
+    endurance: BASE_ATTRIBUTE_VALUE,
     speed: BASE_ATTRIBUTE_VALUE,
     willpower: BASE_ATTRIBUTE_VALUE,
   };

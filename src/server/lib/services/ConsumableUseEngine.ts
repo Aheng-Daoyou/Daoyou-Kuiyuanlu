@@ -129,7 +129,7 @@ export const ConsumableUseEngine = {
         );
 
         return {
-          message: `已使用${consumable.name}，五维根基归于自然成长，可分配属性点已返还。`,
+          message: `已使用${consumable.name}，六维根基归于自然成长，可分配属性点已返还。`,
           consumable,
         };
       }
@@ -197,8 +197,9 @@ export const ConsumableUseEngine = {
         .set({
           lifespan: Math.round(nextCultivator.lifespan),
           vitality: Math.round(nextCultivator.attributes.vitality),
+          strength: Math.round(nextCultivator.attributes.strength),
           spirit: Math.round(nextCultivator.attributes.spirit),
-          wisdom: Math.round(nextCultivator.attributes.wisdom),
+          endurance: Math.round(nextCultivator.attributes.endurance),
           speed: Math.round(nextCultivator.attributes.speed),
           willpower: Math.round(nextCultivator.attributes.willpower),
           unallocatedAttributePoints:

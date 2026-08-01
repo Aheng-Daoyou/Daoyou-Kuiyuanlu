@@ -196,8 +196,8 @@ describe('通用分层状态与伤害行为原语', () => {
     ability.execute({ caster, target });
 
     expect(requests).toHaveLength(1);
-    expect(requests[0].baseDamage).toBeCloseTo(
-      caster.attributes.getValue(AttributeType.MAGIC_ATK) * 0.7,
+    expect(requests[0].baseDamage).toBe(
+      Math.round(caster.attributes.getValue(AttributeType.MAGIC_ATK) * 0.7),
     );
     expect(requests[0].isCritical).not.toBe(true);
     expect(requests[0].canLifesteal).toBe(false);

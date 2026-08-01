@@ -8,17 +8,18 @@ import type {
 } from '@shared/engine/battle-v5/setup/types';
 
 export const TRAINING_ROOM_STORAGE_KEY = 'training-room-config-v1';
-export const TRAINING_ROOM_STORAGE_VERSION = 2;
+export const TRAINING_ROOM_STORAGE_VERSION = 3;
 
 export interface TrainingRoomDummyDraft {
   maxHp: number;
   maxMp: number;
   baseAttributes: {
-    spirit: number;
     vitality: number;
+    strength: number;
+    spirit: number;
+    endurance: number;
     speed: number;
     willpower: number;
-    wisdom: number;
   };
   modifiers: TrainingRoomModifierDraft[];
 }
@@ -90,13 +91,17 @@ function sanitizeDraft(value: unknown): TrainingRoomDraft {
       maxHp: Math.max(0, toFiniteNumber(dummy.maxHp, fallback.dummy.maxHp)),
       maxMp: Math.max(0, toFiniteNumber(dummy.maxMp, fallback.dummy.maxMp)),
       baseAttributes: {
-        spirit: Math.max(
-          0,
-          toFiniteNumber(dummy.baseAttributes?.spirit, fallback.dummy.baseAttributes.spirit),
-        ),
         vitality: Math.max(
           0,
           toFiniteNumber(dummy.baseAttributes?.vitality, fallback.dummy.baseAttributes.vitality),
+        ),
+        strength: Math.max(
+          0,
+          toFiniteNumber(dummy.baseAttributes?.strength, fallback.dummy.baseAttributes.strength),
+        ),
+        spirit: Math.max(
+          0,
+          toFiniteNumber(dummy.baseAttributes?.spirit, fallback.dummy.baseAttributes.spirit),
         ),
         speed: Math.max(
           0,
@@ -109,9 +114,13 @@ function sanitizeDraft(value: unknown): TrainingRoomDraft {
             fallback.dummy.baseAttributes.willpower,
           ),
         ),
-        wisdom: Math.max(
+        endurance: Math.max(
           0,
-          toFiniteNumber(dummy.baseAttributes?.wisdom, fallback.dummy.baseAttributes.wisdom),
+          toFiniteNumber(
+            dummy.baseAttributes?.endurance ??
+              (dummy.baseAttributes as { wisdom?: number } | undefined)?.wisdom,
+            fallback.dummy.baseAttributes.endurance,
+          ),
         ),
       },
       modifiers: sanitizeModifierDrafts(dummy.modifiers),
@@ -146,11 +155,12 @@ export function createDefaultTrainingRoomDraft(): TrainingRoomDraft {
       maxHp: 100_000,
       maxMp: 0,
       baseAttributes: {
-        spirit: 10,
         vitality: 10,
+        strength: 10,
+        spirit: 10,
+        endurance: 10,
         speed: 10,
         willpower: 10,
-        wisdom: 10,
       },
       modifiers: [],
     },
@@ -170,7 +180,11 @@ export function parseTrainingRoomStorage(raw: string | null | undefined): Traini
 
   try {
     const parsed = JSON.parse(raw) as Partial<TrainingRoomStorage>;
-    if (parsed.version !== 1 && parsed.version !== TRAINING_ROOM_STORAGE_VERSION) {
+    if (
+      parsed.version !== 1 &&
+      parsed.version !== 2 &&
+      parsed.version !== TRAINING_ROOM_STORAGE_VERSION
+    ) {
       return createDefaultTrainingRoomStorage();
     }
 
@@ -218,11 +232,12 @@ export function buildTrainingBattleInitConfig(
     playerFragment: {},
     opponentFragment: {
       baseAttributeOverrides: {
-        [AttributeType.SPIRIT]: sanitized.dummy.baseAttributes.spirit,
         [AttributeType.VITALITY]: sanitized.dummy.baseAttributes.vitality,
+        [AttributeType.STRENGTH]: sanitized.dummy.baseAttributes.strength,
+        [AttributeType.SPIRIT]: sanitized.dummy.baseAttributes.spirit,
+        [AttributeType.ENDURANCE]: sanitized.dummy.baseAttributes.endurance,
         [AttributeType.SPEED]: sanitized.dummy.baseAttributes.speed,
         [AttributeType.WILLPOWER]: sanitized.dummy.baseAttributes.willpower,
-        [AttributeType.WISDOM]: sanitized.dummy.baseAttributes.wisdom,
       },
       modifiers: opponentModifiers,
     },

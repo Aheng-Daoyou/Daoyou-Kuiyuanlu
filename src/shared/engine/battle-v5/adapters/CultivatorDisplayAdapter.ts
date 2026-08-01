@@ -13,10 +13,11 @@ import type { AttrsStateView } from '../systems/state/types';
 import { Unit } from '../units/Unit';
 
 const ATTRIBUTE_MAP = {
-  spirit: AttributeType.SPIRIT,
   vitality: AttributeType.VITALITY,
+  strength: AttributeType.STRENGTH,
+  spirit: AttributeType.SPIRIT,
+  endurance: AttributeType.ENDURANCE,
   speed: AttributeType.SPEED,
-  wisdom: AttributeType.WISDOM,
   willpower: AttributeType.WILLPOWER,
 } as const;
 
@@ -133,11 +134,11 @@ export function createDisplayUnitFromCultivator(
 
 /**
  * 面向展示层的完整属性视图：直接返回 battle-v5 原生的 AttrsStateView
- * + 基础 5 维 finalBaseAttributes + 资源上限，供角色面板/排行榜/挑战信息展示使用。
+ * + 基础六维 finalBaseAttributes + 资源上限，供角色面板/排行榜/挑战信息展示使用。
  */
 export interface CultivatorDisplayAttributes {
   unit: Unit;
-  /** battle-v5 原生属性视图（5 维主属性 + 全部派生二级属性） */
+  /** battle-v5 原生属性视图（六维主属性 + 全部派生二级属性） */
   attrs: AttrsStateView;
   /** 最大气血 */
   maxHp: number;
@@ -149,8 +150,9 @@ export interface CultivatorDisplayAttributes {
    */
   finalAttributes: {
     vitality: number;
+    strength: number;
     spirit: number;
-    wisdom: number;
+    endurance: number;
     speed: number;
     willpower: number;
     critRate: number;
@@ -201,11 +203,12 @@ function buildResourceView(
 
 function buildAttrsView(unit: Unit): AttrsStateView {
   return {
-    spirit: unit.attributes.getValue(AttributeType.SPIRIT),
     vitality: unit.attributes.getValue(AttributeType.VITALITY),
+    strength: unit.attributes.getValue(AttributeType.STRENGTH),
+    spirit: unit.attributes.getValue(AttributeType.SPIRIT),
+    endurance: unit.attributes.getValue(AttributeType.ENDURANCE),
     speed: unit.attributes.getValue(AttributeType.SPEED),
     willpower: unit.attributes.getValue(AttributeType.WILLPOWER),
-    wisdom: unit.attributes.getValue(AttributeType.WISDOM),
     atk: unit.attributes.getValue(AttributeType.ATK),
     def: unit.attributes.getValue(AttributeType.DEF),
     magicAtk: unit.attributes.getValue(AttributeType.MAGIC_ATK),
@@ -248,8 +251,9 @@ export function getCultivatorDisplayAttributes(
     maxMp: attrs.maxMp,
     finalAttributes: {
       vitality: attrs.vitality,
+      strength: attrs.strength!,
       spirit: attrs.spirit,
-      wisdom: attrs.wisdom,
+      endurance: attrs.endurance!,
       speed: attrs.speed,
       willpower: attrs.willpower,
       critRate: attrs.critRate,

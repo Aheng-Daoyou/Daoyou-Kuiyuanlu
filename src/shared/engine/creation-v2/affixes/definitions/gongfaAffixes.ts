@@ -26,10 +26,37 @@ import { qualityScaledCoefficient } from './utils';
 
 export const GONGFA_AFFIXES: AffixDefinition[] = [
   // ================================================================
-  // ===== GONGFA_FOUNDATION 池 (14 种) — 百分比根骨属性 + 通用规则
+  // ===== GONGFA_FOUNDATION 池 — 百分比基础/战斗属性 + 通用规则
   // ================================================================
 
-  // --- 10 种百分比属性 ---
+  // --- 基础与派生属性 ---
+  {
+    id: 'gongfa-foundation-strength',
+    displayName: '炼力',
+    displayDescription: '劲贯周身，提升力道属性，使物理攻势更为雄浑',
+    slot: 'core',
+    rarity: 'common',
+    match: {
+      all: [CreationTags.MATERIAL.SEMANTIC_BLADE],
+      any: [
+        CreationTags.MATERIAL.SEMANTIC_METAL,
+        CreationTags.MATERIAL.SEMANTIC_BEAST,
+        CreationTags.MATERIAL.TYPE_MANUAL,
+      ],
+    },
+    exclusiveGroup: EXCLUSIVE_GROUP.GONGFA.FOUNDATION_STAT,
+    weight: 90,
+    energyCost: 10,
+    applicableTo: ['gongfa'],
+    effectTemplate: {
+      type: 'attribute_modifier',
+      params: {
+        attrType: AttributeType.STRENGTH,
+        modType: ModifierType.ADD,
+        value: { base: 0.015, scale: 'quality', coefficient: 0.012 },
+      },
+    },
+  },
   {
     id: 'gongfa-foundation-spirit',
     displayName: '灵力充沛',
@@ -59,7 +86,7 @@ export const GONGFA_AFFIXES: AffixDefinition[] = [
   {
     id: 'gongfa-foundation-vitality',
     displayName: '强壮',
-    displayDescription: '大脉强劲，提升气血属性，使肉身体魄更为强壮',
+    displayDescription: '大脉强劲，提升体魄属性，使生命根基更为浑厚',
     slot: 'core',
     rarity: 'common',
     match: {
@@ -84,16 +111,17 @@ export const GONGFA_AFFIXES: AffixDefinition[] = [
     },
   },
   {
-    id: 'gongfa-foundation-wisdom',
-    displayName: '慧根',
-    displayDescription: '心眼通明，提升悟性属性，使修行感悟更加敏锐',
+    id: 'gongfa-foundation-endurance',
+    displayName: '锻骨',
+    displayDescription: '淬炼筋骨，提升根骨属性，使护体根基更为坚实',
     slot: 'core',
     rarity: 'common',
     match: {
-      all: [CreationTags.MATERIAL.SEMANTIC_MANUAL],
+      all: [CreationTags.MATERIAL.SEMANTIC_GUARD],
       any: [
-        CreationTags.MATERIAL.SEMANTIC_SPIRIT,
-        CreationTags.MATERIAL.SEMANTIC_DIVINE,
+        CreationTags.MATERIAL.SEMANTIC_BONE,
+        CreationTags.MATERIAL.SEMANTIC_EARTH,
+        CreationTags.MATERIAL.SEMANTIC_METAL,
       ],
     },
     exclusiveGroup: EXCLUSIVE_GROUP.GONGFA.FOUNDATION_STAT,
@@ -103,16 +131,44 @@ export const GONGFA_AFFIXES: AffixDefinition[] = [
     effectTemplate: {
       type: 'attribute_modifier',
       params: {
-        attrType: AttributeType.WISDOM,
+        attrType: AttributeType.ENDURANCE,
         modType: ModifierType.ADD,
         value: { base: 0.015, scale: 'quality', coefficient: 0.012 },
       },
     },
   },
   {
+    id: 'gongfa-foundation-wisdom',
+    displayName: '慧心',
+    displayDescription: '灵台澄明，洞察敌手破绽，提升暴击几率',
+    slot: 'core',
+    rarity: 'uncommon',
+    match: {
+      all: [CreationTags.MATERIAL.SEMANTIC_MANUAL],
+      any: [
+        CreationTags.MATERIAL.SEMANTIC_BURST,
+        CreationTags.MATERIAL.SEMANTIC_DIVINE,
+        CreationTags.MATERIAL.SEMANTIC_ILLUSION,
+        CreationTags.MATERIAL.SEMANTIC_FORMATION,
+      ],
+    },
+    exclusiveGroup: EXCLUSIVE_GROUP.GONGFA.FOUNDATION_STAT,
+    weight: 50,
+    energyCost: 12,
+    applicableTo: ['gongfa'],
+    effectTemplate: {
+      type: 'attribute_modifier',
+      params: {
+        attrType: AttributeType.CRIT_RATE,
+        modType: ModifierType.ADD,
+        value: { base: 0.04, scale: 'quality', coefficient: 0.012 },
+      },
+    },
+  },
+  {
     id: 'gongfa-foundation-willpower',
     displayName: '固神',
-    displayDescription: '识海如固，提升意志属性，使神识更为稳固',
+    displayDescription: '识海如固，提升神识属性，使神魂根基更为稳固',
     slot: 'core',
     rarity: 'common',
     match: {
@@ -164,8 +220,8 @@ export const GONGFA_AFFIXES: AffixDefinition[] = [
   },
   {
     id: 'gongfa-foundation-atk',
-    displayName: '根骨',
-    displayDescription: '淬炼筋骨，提升攻击属性，增强物理杀伤',
+    displayName: '刚劲',
+    displayDescription: '劲力凝实，提升物理攻击，增强近身杀伤',
     slot: 'core',
     rarity: 'common',
     match: {
@@ -1532,7 +1588,12 @@ export const GONGFA_AFFIXES: AffixDefinition[] = [
             value: { base: 0.02, scale: 'quality', coefficient: 0.004 },
           },
           {
-            attrType: AttributeType.WISDOM,
+            attrType: AttributeType.STRENGTH,
+            modType: ModifierType.ADD,
+            value: { base: 0.02, scale: 'quality', coefficient: 0.004 },
+          },
+          {
+            attrType: AttributeType.ENDURANCE,
             modType: ModifierType.ADD,
             value: { base: 0.02, scale: 'quality', coefficient: 0.004 },
           },

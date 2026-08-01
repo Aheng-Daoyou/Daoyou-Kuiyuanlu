@@ -1,6 +1,8 @@
 export const TOWER_BLESSING_IDS = [
   'vitality_surge',
+  'strength_surge',
   'spirit_surge',
+  'endurance_surge',
   'swift_step',
   'mind_focus',
   'jade_bones',
@@ -29,10 +31,22 @@ export const TOWER_BLESSING_DEFINITIONS: Record<
     description: '战斗时体魄提升 8%，可叠加至 5 层。',
     maxStacks: 5,
   },
+  strength_surge: {
+    id: 'strength_surge',
+    name: '力贯千钧',
+    description: '战斗时力道提升 8%，可叠加至 5 层。',
+    maxStacks: 5,
+  },
   spirit_surge: {
     id: 'spirit_surge',
     name: '灵海翻涌',
     description: '战斗时灵力提升 8%，可叠加至 5 层。',
+    maxStacks: 5,
+  },
+  endurance_surge: {
+    id: 'endurance_surge',
+    name: '铁骨铮然',
+    description: '战斗时根骨提升 8%，可叠加至 5 层。',
     maxStacks: 5,
   },
   swift_step: {
@@ -44,7 +58,7 @@ export const TOWER_BLESSING_DEFINITIONS: Record<
   mind_focus: {
     id: 'mind_focus',
     name: '明心定神',
-    description: '战斗时悟性与神识各提升 6%，可叠加至 5 层。',
+    description: '战斗时神识提升 8%，可叠加至 5 层。',
     maxStacks: 5,
   },
   jade_bones: {
@@ -74,7 +88,7 @@ export const TOWER_BLESSING_DEFINITIONS: Record<
   balanced_dao: {
     id: 'balanced_dao',
     name: '大道均衡',
-    description: '战斗时五维主属性同步提升 5%，可叠加至 3 层。',
+    description: '战斗时六维主属性同步提升 5%，可叠加至 3 层。',
     maxStacks: 3,
   },
 };

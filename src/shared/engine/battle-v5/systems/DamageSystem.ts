@@ -147,7 +147,7 @@ export class DamageSystem {
    *
    * 统一结算管道顺序：
    * ① 按伤害类型计算有效防御（物理DEF/法术DEF/真伤）
-   * ② 应用减法防御（并保留10%保底穿透）
+   * ② 应用平滑防御 A²/(A+D)
    * ③ 应用现有增伤/减伤乘区
    * ④ 应用灵根共鸣/失配倍率
    * ⑤ 暴击判定（减伤后）
@@ -203,7 +203,7 @@ export class DamageSystem {
       }
     }
 
-    // ===== ② 应用减法防御（10%保底伤害） =====
+    // ===== ② 应用平滑防御 A²/(A+D) =====
     const preMitigationDamage = event.finalDamage;
     event.finalDamage = this._applyDefense(
       event,
@@ -212,7 +212,7 @@ export class DamageSystem {
     );
 
     // ===== ③ 同乘区加算（增伤/减伤）=====
-    // NOTE: 将百分比增减伤放在减防后、暴击判定前，保证增伤不会被减法防御无意削弱。
+    // NOTE: 将百分比增减伤放在防御结算后、暴击判定前，保持乘区职责清晰。
     const increasePct = Math.max(0, event.damageIncreasePctBucket ?? 0);
     const reductionPct = Math.min(
       0.7,
@@ -324,7 +324,7 @@ export class DamageSystem {
         Number.isFinite(component.amount) && component.amount > 0,
     );
     if (!components?.length) {
-      return Math.max(preMitigationDamage * 0.1, preMitigationDamage - effectiveDef);
+      return this._applySmoothDefense(preMitigationDamage, effectiveDef);
     }
 
     const componentTotal = components.reduce(
@@ -332,7 +332,7 @@ export class DamageSystem {
       0,
     );
     if (componentTotal <= 0) {
-      return Math.max(preMitigationDamage * 0.1, preMitigationDamage - effectiveDef);
+      return this._applySmoothDefense(preMitigationDamage, effectiveDef);
     }
 
     const scale = preMitigationDamage / componentTotal;
@@ -347,24 +347,25 @@ export class DamageSystem {
       ) {
         const attackBase = Math.max(0, component.attackBase);
         const multiplier = Math.max(0, component.segmentMultiplier) * scale;
-        const afterDefense = Math.max(
-          attackBase * 0.1,
-          attackBase - effectiveDef,
-        );
+        const afterDefense = this._applySmoothDefense(attackBase, effectiveDef);
         return sum + afterDefense * multiplier;
       }
 
       // 旧伤害事件兼容：历史生产方仍可读取 defenseScale，但新代码不得写入。
       const legacyAmount = component.amount * scale;
-      const legacyDefenseScale = Math.max(
-        0,
-        component.defenseScale ?? 1,
-      ) * scale;
-      return sum + Math.max(
-        legacyAmount * 0.1,
-        legacyAmount - effectiveDef * legacyDefenseScale,
+      const legacyDefenseScale = Math.max(0, component.defenseScale ?? 1);
+      return sum + this._applySmoothDefense(
+        legacyAmount,
+        effectiveDef * legacyDefenseScale,
       );
     }, 0);
+  }
+
+  private _applySmoothDefense(attackBase: number, effectiveDef: number): number {
+    const attack = Math.max(0, attackBase);
+    const defense = Math.max(0, effectiveDef);
+    if (attack <= 0) return 0;
+    return (attack * attack) / (attack + defense);
   }
 
   private _getRealmDamageMultiplier(event: DamageRequestEvent): number {

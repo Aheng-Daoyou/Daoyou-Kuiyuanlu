@@ -115,8 +115,9 @@ function cloneMirrorOpponent(
     name: options.name,
     attributes: {
       vitality: Math.max(1, Math.floor(cultivator.attributes.vitality * multiplier)),
+      strength: Math.max(1, Math.floor(cultivator.attributes.strength * multiplier)),
       spirit: Math.max(1, Math.floor(cultivator.attributes.spirit * multiplier)),
-      wisdom: Math.max(1, Math.floor(cultivator.attributes.wisdom * multiplier)),
+      endurance: Math.max(1, Math.floor(cultivator.attributes.endurance * multiplier)),
       speed: Math.max(
         1,
         Math.floor(cultivator.attributes.speed * multiplier) + (options.bonusSpeed ?? 0),

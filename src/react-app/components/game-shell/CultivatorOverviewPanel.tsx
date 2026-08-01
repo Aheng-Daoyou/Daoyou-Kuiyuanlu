@@ -43,12 +43,20 @@ import { GameSceneSection } from './GameSceneSection';
 
 const PRIMARY_ATTRIBUTE_HELP = [
   {
-    label: attrLabel(AttributeType.SPIRIT),
-    description: '滋养术法根基，主要增加法术攻击与法力。',
+    label: attrLabel(AttributeType.VITALITY),
+    description: '稳固生命根基，决定最大气血并提供少量法术防御。',
   },
   {
-    label: attrLabel(AttributeType.VITALITY),
-    description: '稳固血肉筋骨，主要增加气血、物理攻击与物理防御。',
+    label: attrLabel(AttributeType.STRENGTH),
+    description: '凝聚筋力与兵刃威势，决定物理攻击。',
+  },
+  {
+    label: attrLabel(AttributeType.SPIRIT),
+    description: '滋养术法根基，决定法术攻击并提供少量法力。',
+  },
+  {
+    label: attrLabel(AttributeType.ENDURANCE),
+    description: '锤炼筋骨韧性，决定物理防御并提供少量最大气血。',
   },
   {
     label: attrLabel(AttributeType.SPEED),
@@ -56,12 +64,7 @@ const PRIMARY_ATTRIBUTE_HELP = [
   },
   {
     label: attrLabel(AttributeType.WILLPOWER),
-    description:
-      '凝练感知与抗衡之力，增加法术防御、控制命中、控制抗性与法力，并影响行动速度和命中。',
-  },
-  {
-    label: attrLabel(AttributeType.WISDOM),
-    description: '提升临战洞察，增加暴击率、暴击伤害与命中。',
+    description: '凝练神魂，影响法术防御、法力以及控制命中与抗性。',
   },
 ];
 
@@ -70,7 +73,7 @@ const PRIMARY_ATTRIBUTE_HELP_DIALOG = {
   content: (
     <div className="space-y-3 text-sm leading-7">
       <p className="text-ink-secondary">
-        五维根基会在战斗中化为攻防、命中、闪避、暴击等次级属性；法宝、功法与状态仍会在此基础上继续增减。
+        六维各有明确的主要职责，体魄与根骨额外提供少量交叉生存收益；法宝、功法与状态仍会在此基础上继续增减。
       </p>
       <div className="border-ink/15 overflow-hidden border border-dashed">
         {PRIMARY_ATTRIBUTE_HELP.map((item) => (

@@ -36,11 +36,15 @@ describe('BattleEngineV5 action speed ordering', () => {
     EventBus.instance.reset();
   });
 
-  it('uses willpower to break equal speed primary attributes', () => {
+  it('does not let willpower alter equal action speed', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.1);
     const player = unit('player', 100, 10);
     const opponent = unit('opponent', 100, 100);
 
     expect(firstActorId(player, opponent)).toBe('opponent');
+    expect(player.attributes.getValue(AttributeType.ACTION_SPEED)).toBe(
+      opponent.attributes.getValue(AttributeType.ACTION_SPEED),
+    );
   });
 
   it('uses direct action speed modifiers without changing speed', () => {

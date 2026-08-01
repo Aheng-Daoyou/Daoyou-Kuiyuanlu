@@ -29,8 +29,9 @@ function createCultivator(id: string, name: string): Cultivator {
     lifespan: 120,
     attributes: {
       vitality: 10,
+      strength: 10,
       spirit: 10,
-      wisdom: 10,
+      endurance: 10,
       speed: 10,
       willpower: 10,
     },
@@ -219,8 +220,8 @@ describe('BattleInitApplier', () => {
       },
     });
 
-    expect(opponentUnit.getMaxHp()).toBe(541);
-    expect(opponentUnit.getCurrentHp()).toBe(270);
+    expect(opponentUnit.getMaxHp()).toBe(657);
+    expect(opponentUnit.getCurrentHp()).toBe(328);
   });
 
   test('百分比资源初始化按 modifier 后的最终上限结算', () => {
@@ -270,7 +271,7 @@ describe('BattleInitApplier', () => {
 
     const initFrame = result.stateTimeline.frames[0].units.dummy;
 
-    expect(initFrame.baseAttrs.maxHp).toBe(502);
+    expect(initFrame.baseAttrs.maxHp).toBe(630);
     expect(initFrame.attrs.maxHp).toBe(1_000);
     expect(initFrame.hp.current).toBe(1_000);
   });

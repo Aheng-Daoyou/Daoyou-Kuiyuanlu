@@ -11,11 +11,12 @@ import {
 import { AttributeType } from '../../core/types';
 
 export const ATTR_LABELS: Record<AttributeType, string> = {
-  [AttributeType.SPIRIT]: getGameConceptLabel('spirit'),
   [AttributeType.VITALITY]: getGameConceptLabel('vitality'),
+  [AttributeType.STRENGTH]: getGameConceptLabel('strength'),
+  [AttributeType.SPIRIT]: getGameConceptLabel('spirit'),
+  [AttributeType.ENDURANCE]: getGameConceptLabel('endurance'),
   [AttributeType.SPEED]: getGameConceptLabel('speed'),
   [AttributeType.WILLPOWER]: getGameConceptLabel('willpower'),
-  [AttributeType.WISDOM]: getGameConceptLabel('wisdom'),
   [AttributeType.ATK]: getGameConceptVariantLabel('attribute_atk', 'short'),
   [AttributeType.DEF]: getGameConceptVariantLabel('attribute_def', 'short'),
   [AttributeType.MAGIC_ATK]: getGameConceptVariantLabel(

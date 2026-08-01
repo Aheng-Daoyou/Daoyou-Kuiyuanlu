@@ -22,7 +22,7 @@ function unit(id: string, name: string): Unit {
   const result = new Unit(id, name, {
     [AttributeType.VITALITY]: 120,
     [AttributeType.SPIRIT]: 120,
-    [AttributeType.WISDOM]: 120,
+    [AttributeType.ENDURANCE]: 120,
     [AttributeType.SPEED]: 120,
     [AttributeType.WILLPOWER]: 120,
   });

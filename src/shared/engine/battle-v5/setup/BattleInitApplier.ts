@@ -18,11 +18,12 @@ import type {
 } from './types';
 
 const PRIMARY_ATTRIBUTE_TYPES = [
-  AttributeType.SPIRIT,
   AttributeType.VITALITY,
+  AttributeType.STRENGTH,
+  AttributeType.SPIRIT,
+  AttributeType.ENDURANCE,
   AttributeType.SPEED,
   AttributeType.WILLPOWER,
-  AttributeType.WISDOM,
 ] as const;
 
 function applyBaseAttributeOverrides(unit: Unit, spec?: BattleUnitInitSpec) {

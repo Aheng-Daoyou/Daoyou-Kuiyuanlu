@@ -9,8 +9,9 @@ interface MockCultivator {
   attributes: {
     spirit: number;
     vitality: number;
+    strength: number;
+    endurance: number;
     speed: number;
-    wisdom: number;
     willpower: number;
   };
 }
@@ -23,8 +24,9 @@ describe('CultivatorAdapter', () => {
       attributes: {
         spirit: 80,
         vitality: 60,
+        strength: 50,
+        endurance: 40,
         speed: 50,
-        wisdom: 40,
         willpower: 30,
       },
     };
@@ -42,8 +44,9 @@ describe('CultivatorAdapter', () => {
       attributes: {
         spirit: 50,
         vitality: 50,
+        strength: 50,
+        endurance: 50,
         speed: 50,
-        wisdom: 50,
         willpower: 50,
       },
     };
@@ -52,15 +55,16 @@ describe('CultivatorAdapter', () => {
     expect(unit.name).toBe('测试的镜像');
   });
 
-  it('应该正确映射所有5个属性', () => {
+  it('应该正确映射所有6个属性', () => {
     const cultivator: MockCultivator = {
       id: 'test',
       name: '测试',
       attributes: {
         spirit: 100,
         vitality: 80,
+        strength: 70,
+        endurance: 40,
         speed: 60,
-        wisdom: 40,
         willpower: 20,
       },
     };
@@ -69,8 +73,9 @@ describe('CultivatorAdapter', () => {
 
     expect(unit.attributes.getValue(AttributeType.SPIRIT)).toBe(100);
     expect(unit.attributes.getValue(AttributeType.VITALITY)).toBe(80);
+    expect(unit.attributes.getValue(AttributeType.STRENGTH)).toBe(70);
     expect(unit.attributes.getValue(AttributeType.SPEED)).toBe(60);
-    expect(unit.attributes.getValue(AttributeType.WISDOM)).toBe(40);
+    expect(unit.attributes.getValue(AttributeType.ENDURANCE)).toBe(40);
     expect(unit.attributes.getValue(AttributeType.WILLPOWER)).toBe(20);
   });
 
@@ -82,8 +87,9 @@ describe('CultivatorAdapter', () => {
         attributes: {
           spirit: 50,
           vitality: 50,
+          strength: 50,
+          endurance: 50,
           speed: 50,
-          wisdom: 50,
           willpower: 50,
         },
       },
@@ -93,8 +99,9 @@ describe('CultivatorAdapter', () => {
         attributes: {
           spirit: 60,
           vitality: 60,
+          strength: 60,
+          endurance: 60,
           speed: 60,
-          wisdom: 60,
           willpower: 60,
         },
       },
@@ -117,8 +124,9 @@ describe('CultivatorAdapter', () => {
         attributes: {
           spirit: 50,
           vitality: 50,
+          strength: 50,
+          endurance: 50,
           speed: 50,
-          wisdom: 50,
           willpower: 50,
         },
       },
@@ -138,8 +146,9 @@ describe('CultivatorAdapter', () => {
       attributes: {
         spirit: 50,
         vitality: 50,
+        strength: 50,
+        endurance: 50,
         speed: 50,
-        wisdom: 50,
         willpower: 50,
       },
     };

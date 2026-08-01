@@ -289,8 +289,9 @@ export const PlayerInfoSchema = z.object({
   personality: z.string(),
   attributes: z.object({
     vitality: z.number(),
+    strength: z.number(),
     spirit: z.number(),
-    wisdom: z.number(),
+    endurance: z.number(),
     speed: z.number(),
     willpower: z.number(),
   }),

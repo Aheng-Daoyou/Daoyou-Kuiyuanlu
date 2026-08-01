@@ -24,9 +24,10 @@ describe('战斗引擎 V5 原子效果全量回归验证 (最终回归版)', () 
     const unit = new Unit(id, name, {
       [AttributeType.SPIRIT]: 100,
       [AttributeType.VITALITY]: 100,
+      [AttributeType.STRENGTH]: 100,
       [AttributeType.SPEED]: 100,
       [AttributeType.WILLPOWER]: 100,
-      [AttributeType.WISDOM]: 100,
+      [AttributeType.ENDURANCE]: 100,
       ...attrs,
     });
     unit.restoreMp(1000);
@@ -314,7 +315,7 @@ describe('战斗引擎 V5 原子效果全量回归验证 (最终回归版)', () 
     });
 
     expect(damageRequests).toHaveLength(1);
-    expect(damageRequests[0].baseDamage).toBe(102);
+    expect(damageRequests[0].baseDamage).toBe(98);
     expect(damageRequests[0].buff?.id).toBe('stacking_poison');
     expect(damageRequests[0].caster?.id).toBe(source.id);
     expect(damageRequests[0].target.id).toBe(target.id);
@@ -394,7 +395,7 @@ describe('战斗引擎 V5 原子效果全量回归验证 (最终回归版)', () 
       [AttributeType.VITALITY]: 200,
     });
     const defender = createTestUnit('defender', '防御者', {
-      [AttributeType.WISDOM]: 300,
+      [AttributeType.ENDURANCE]: 300,
     });
 
     console.log('--- 测试【伤害免疫优先于魔法盾】：实际战斗场景 ---');

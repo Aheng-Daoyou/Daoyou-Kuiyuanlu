@@ -34,7 +34,7 @@ export function getStatusEffectDetails(
       (1 - Math.max(0.5, 1 - stacks * 0.05)) * 100,
     );
     return [
-      `当前 ${stacks} 层：体魄、灵力、悟性、身法、神识降低 ${penaltyPercent}%。`,
+      `当前 ${stacks} 层：体魄、力道、灵力、根骨、身法、神识降低 ${penaltyPercent}%。`,
       ...details,
     ];
   }

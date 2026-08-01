@@ -8,7 +8,9 @@ import {
 
 const BLESSING_ICONS: Record<TowerBlessingId, string> = {
   vitality_surge: '🩸',
+  strength_surge: '⚔️',
   spirit_surge: '🌊',
+  endurance_surge: '🦴',
   swift_step: '🪽',
   mind_focus: '🕯️',
   jade_bones: '🦴',

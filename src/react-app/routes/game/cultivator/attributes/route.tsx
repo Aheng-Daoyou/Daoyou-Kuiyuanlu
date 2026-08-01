@@ -66,7 +66,10 @@ export default function CultivatorAttributesPage() {
         fetch('/api/cultivator/attributes/allocate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(attributeDraft),
+          body: JSON.stringify({
+            attribute_model_version: 2,
+            ...attributeDraft,
+          }),
         }),
       );
       setAttributeDraft(createEmptyAttributeDraft());
@@ -116,7 +119,7 @@ export default function CultivatorAttributesPage() {
         <div className="space-y-2 py-2 text-center text-sm leading-7">
           <p>
             将消耗 1 张{ATTRIBUTE_RESET_TALISMAN_NAME}
-            ，五维回到当前境界自然成长值。
+            ，六维回到当前境界自然成长值。
           </p>
           <p className="text-ink-secondary">
             已投入的自由属性会返还为未分配属性点。
@@ -133,7 +136,7 @@ export default function CultivatorAttributesPage() {
   return (
     <GameSceneFrame
       title="根基属性"
-      description="五维根基会随境界自然增长，额外获得的可分配点可在此处落定。"
+      description="六维根基会随境界自然增长，额外获得的可分配点可在此处落定。"
     >
       <GameSceneSection title="分配根基">
         <AttributeAllocationControl

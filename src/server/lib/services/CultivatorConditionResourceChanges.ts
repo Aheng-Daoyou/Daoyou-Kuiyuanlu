@@ -32,8 +32,9 @@ export function conditionChangesAfterConsumable(args: {
     qi?: number;
     qiLastRefreshedAt?: Date | null;
     vitality?: number;
+    strength?: number;
     spirit?: number;
-    wisdom?: number;
+    endurance?: number;
     speed?: number;
     willpower?: number;
     unallocatedAttributePoints?: number;
@@ -75,8 +76,9 @@ export function conditionChangesAfterConsumable(args: {
   ) {
     const attributes = {
       vitality: args.state.vitality,
+      strength: args.state.strength,
       spirit: args.state.spirit,
-      wisdom: args.state.wisdom,
+      endurance: args.state.endurance,
       speed: args.state.speed,
       willpower: args.state.willpower,
     };
@@ -90,8 +92,9 @@ export function conditionChangesAfterConsumable(args: {
         cultivator: {
           attributes: {
             vitality: attributes.vitality!,
+            strength: attributes.strength!,
             spirit: attributes.spirit!,
-            wisdom: attributes.wisdom!,
+            endurance: attributes.endurance!,
             speed: attributes.speed!,
             willpower: attributes.willpower!,
           },

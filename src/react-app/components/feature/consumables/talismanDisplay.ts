@@ -46,7 +46,7 @@ const TALISMAN_SCENARIO_ACTION_LABELS: Record<string, string> = {
 };
 
 const TALISMAN_USAGE_HINTS: Record<string, string> = {
-  [ATTRIBUTE_RESET_TALISMAN_SCENARIO]: `【可在背包中直接使用，重置五维自由分配并返还属性点】`,
+  [ATTRIBUTE_RESET_TALISMAN_SCENARIO]: `【可在背包中直接使用，重置六维自由分配并返还属性点】`,
   fate_reshape: '【前往命格重塑功能页启封，开启时立即扣除】',
   [IDENTITY_RESHAPE_SCENARIO]: '【前往身份重塑文戏启封，开启时立即扣除】',
   draw_gongfa: '【前往问法寻卷，直接消耗符箓抽取功法秘籍】',
@@ -127,10 +127,10 @@ export function buildTalismanDetailText(consumable: Consumable): string {
   const restoreText = getQiRestoreEffectText(consumable.spec.scenario);
   const lines = isAttributeResetTalismanScenario(consumable.spec.scenario)
     ? [
-        `用途：重置五维自由分配，返还已投入的可分配属性点`,
+        `用途：重置六维自由分配，返还已投入的可分配属性点`,
         '使用方式：可在背包中直接使用，也可在根基属性页确认启封',
         consumable.spec.notes ??
-          `${ATTRIBUTE_RESET_TALISMAN_NAME}启封后，五维回到当前境界自然成长值。`,
+          `${ATTRIBUTE_RESET_TALISMAN_NAME}启封后，六维回到当前境界自然成长值。`,
         consumable.description,
       ]
     : restoreText
