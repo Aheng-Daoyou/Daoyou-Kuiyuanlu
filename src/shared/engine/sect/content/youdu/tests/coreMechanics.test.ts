@@ -21,7 +21,6 @@ import { AbilityFactory } from '@shared/engine/battle-v5/factories/AbilityFactor
 import { BuffFactory } from '@shared/engine/battle-v5/factories/BuffFactory';
 import { DamageSystem } from '@shared/engine/battle-v5/systems/DamageSystem';
 import { Unit } from '@shared/engine/battle-v5/units/Unit';
-import { executeTestEffect } from '@shared/engine/battle-v5/tests/setup/executeTestEffect';
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveSectAbility } from '../..';
@@ -197,13 +196,13 @@ describe('幽都核心机制实际结算', () => {
       target.buffs.getAllBuffs().find((buff) => buff.id === YOUDU_RETURNING_SOUL)!,
     )).toBe(false);
 
-    executeTestEffect(AbilityFactory.createEffect({
+    AbilityFactory.createEffect({
       type: 'buff_layer_modify',
       params: {
         match: { id: YOUDU_SOUL_EROSION },
         operation: 'clear',
       },
-    }), { caster, target });
+    })!.execute({ caster, target });
     const clampedHp = target.getCurrentHp();
     expect(erosion(target)).toBeUndefined();
     expect(target.getMaxHp()).toBe(baseMaxHp);
@@ -221,13 +220,13 @@ describe('幽都核心机制实际结算', () => {
     expect(target.getMaxHp()).toBe(reducedMaxHp);
     expect(target.getCurrentHp()).toBe(reducedMaxHp);
 
-    executeTestEffect(AbilityFactory.createEffect({
+    AbilityFactory.createEffect({
       type: 'buff_layer_modify',
       params: {
         match: { id: YOUDU_SOUL_EROSION },
         operation: 'clear',
       },
-    }), { caster, target });
+    })!.execute({ caster, target });
 
     expect(target.getMaxHp()).toBe(baseMaxHp);
     expect(target.getCurrentHp()).toBe(reducedMaxHp);
@@ -391,27 +390,27 @@ describe('幽都核心机制实际结算', () => {
 
     setOverride(enemy, AttributeType.CONTROL_HIT, 0);
     setOverride(youdu, AttributeType.CONTROL_RESISTANCE, 1);
-    executeTestEffect(controlEffect, { caster: enemy, target: youdu });
+    controlEffect.execute({ caster: enemy, target: youdu });
     expect(youdu.tags.hasTag(GameplayTags.STATUS.SECT.state('youdu', 'heart-dead-used')))
       .toBe(false);
 
     setOverride(enemy, AttributeType.CONTROL_HIT, 1);
     setOverride(youdu, AttributeType.CONTROL_RESISTANCE, 0);
-    executeTestEffect(controlEffect, { caster: enemy, target: youdu });
+    controlEffect.execute({ caster: enemy, target: youdu });
     expect(youdu.buffs.getAllBuffIds()).not.toContain('test.control.no-skill');
     expect(youdu.tags.hasTag(GameplayTags.STATUS.CONTROL.NO_SKILL)).toBe(false);
     expect(youdu.tags.hasTag(GameplayTags.STATUS.SECT.state('youdu', 'heart-dead-used'))).toBe(true);
     expect(youdu.buffs.getAllBuffs().find((entry) =>
       entry.id.startsWith('sect.youdu.heart-immunity.'))?.getDuration()).toBe(1);
 
-    executeTestEffect(controlEffect, { caster: enemy, target: youdu });
+    controlEffect.execute({ caster: enemy, target: youdu });
     expect(youdu.buffs.getAllBuffIds()).not.toContain('test.control.no-skill');
 
     for (const buff of youdu.buffs.getAllBuffs().filter((entry) =>
       entry.id.startsWith('sect.youdu.heart-immunity.'))) {
       youdu.buffs.removeBuffExpired(buff.id);
     }
-    executeTestEffect(controlEffect, { caster: enemy, target: youdu });
+    controlEffect.execute({ caster: enemy, target: youdu });
     expect(youdu.buffs.getAllBuffIds()).toContain('test.control.no-skill');
   });
 
@@ -606,13 +605,13 @@ describe('幽都核心机制实际结算', () => {
     expect(erosion(deadTarget)).toBeDefined();
     const system = new DamageSystem();
     deadTarget.setHp(1);
-    executeTestEffect(AbilityFactory.createEffect({
+    AbilityFactory.createEffect({
       type: 'damage',
       params: {
         value: { base: 100 },
         damageType: DamageType.TRUE,
       },
-    }), { caster, target: deadTarget });
+    })!.execute({ caster, target: deadTarget });
     expect(deadTarget.isAlive()).toBe(false);
     expect(erosion(deadTarget)).toBeUndefined();
     system.destroy();

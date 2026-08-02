@@ -11,11 +11,14 @@ import {
   useCultivatorCurrency,
   useCultivatorProgress,
 } from '@app/lib/resources/player';
+import { attrLabel } from '@shared/engine/battle-v5/effects/affixText/attributes';
 import {
   getSectMethodTrainingCost,
   isListedSectAbility,
+  projectSectMethodGrowthPresentation,
   type CultivatorSectState,
   type SectHeartMethodDefinition,
+  type SectMethodEffectGrowthValues,
 } from '@shared/engine/sect';
 import { resolveSectAbilities } from '@shared/engine/sect/content';
 import type { RealmType } from '@shared/types/constants';
@@ -27,6 +30,31 @@ export type SectProgressionWorkspaceData = {
   sect: CultivatorSectState;
   methodLevelCap: number;
 };
+
+function percent(value: number): string {
+  return `${Number((value * 100).toFixed(2))}%`;
+}
+
+function describePanel(
+  method: SectHeartMethodDefinition,
+  value: number | undefined,
+): string | undefined {
+  const panel = method.growthProfile.panelModifier;
+  if (!panel || value === undefined) return undefined;
+  return `${attrLabel(panel.attrType)} +${percent(value)}`;
+}
+
+function describeEffectGrowth(effects: SectMethodEffectGrowthValues): string {
+  const entries: Array<[string, number]> = [
+    ['伤害', effects.damage],
+    ['治疗', effects.heal],
+    ['护盾', effects.shield],
+    ['状态', effects.status],
+  ];
+  return entries
+    .map(([label, value]) => `${label} +${percent(value)}`)
+    .join(' · ');
+}
 
 function getMethodDisabledReason(args: {
   method: SectHeartMethodDefinition;
@@ -91,18 +119,25 @@ export function MethodsTab({
   const selectedLevel = selectedMethod
     ? (sect.methods[selectedMethod.id] ?? 0)
     : 0;
-  const selectedTarget = selectedLevel + 1;
-  const selectedCost = getSectMethodTrainingCost(selectedLevel, selectedTarget);
-  const selectedDisabledReason = selectedMethod
-    ? getMethodDisabledReason({
-        method: selectedMethod,
-        currentLevel: selectedLevel,
-        data,
-        spiritStones,
-        cultivationExp,
-        cost: selectedCost,
-      })
+  const selectedGrowth = selectedMethod
+    ? projectSectMethodGrowthPresentation(selectedMethod, selectedLevel)
     : undefined;
+  const selectedTarget = selectedGrowth?.next?.snapshot.level;
+  const selectedCost =
+    selectedTarget !== undefined
+      ? getSectMethodTrainingCost(selectedLevel, selectedTarget)
+      : undefined;
+  const selectedDisabledReason =
+    selectedMethod && selectedCost
+      ? getMethodDisabledReason({
+          method: selectedMethod,
+          currentLevel: selectedLevel,
+          data,
+          spiritStones,
+          cultivationExp,
+          cost: selectedCost,
+        })
+      : undefined;
   const resolvedAbilities = resolveSectAbilities({ sect, realm });
   const selectedAbilities = selectedMethod
     ? definition.abilities
@@ -155,39 +190,46 @@ export function MethodsTab({
         onClose={() => setSelectedMethodId(null)}
         title={selectedMethod?.name ?? '心法详情'}
         footer={
-          selectedMethod ? (
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          selectedMethod && selectedGrowth ? (
+            selectedGrowth.isMaxLevel ? (
               <div className="text-sm leading-6">
-                <p>
-                  本次：{selectedCost.cultivationExp}修为 ·{' '}
-                  {selectedCost.spiritStones}灵石
-                </p>
-                <p className="text-ink-secondary">
-                  持有：{cultivationExp}修为 · {spiritStones}灵石
-                </p>
-                {selectedDisabledReason ? (
-                  <p className="text-crimson">{selectedDisabledReason}</p>
-                ) : null}
+                <p className="font-medium">已达满级</p>
+                <p className="text-ink-secondary">180级心法收益已全部生效。</p>
               </div>
-              <InkButton
-                variant="primary"
-                disabled={Boolean(selectedDisabledReason)}
-                pending={busy}
-                pendingLabel="研习中……"
-                onClick={() =>
-                  void action(
-                    `/api/sects/current/methods/${selectedMethod.id}/train`,
-                    sectJsonRequest('POST', { targetLevel: selectedTarget }),
-                  )
-                }
-              >
-                研习一级
-              </InkButton>
-            </div>
+            ) : selectedCost && selectedTarget !== undefined ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-sm leading-6">
+                  <p>
+                    本次：{selectedCost.cultivationExp}修为 ·{' '}
+                    {selectedCost.spiritStones}灵石
+                  </p>
+                  <p className="text-ink-secondary">
+                    持有：{cultivationExp}修为 · {spiritStones}灵石
+                  </p>
+                  {selectedDisabledReason ? (
+                    <p className="text-crimson">{selectedDisabledReason}</p>
+                  ) : null}
+                </div>
+                <InkButton
+                  variant="primary"
+                  disabled={Boolean(selectedDisabledReason)}
+                  pending={busy}
+                  pendingLabel="研习中……"
+                  onClick={() =>
+                    void action(
+                      `/api/sects/current/methods/${selectedMethod.id}/train`,
+                      sectJsonRequest('POST', { targetLevel: selectedTarget }),
+                    )
+                  }
+                >
+                  研习一级
+                </InkButton>
+              </div>
+            ) : null
           ) : undefined
         }
       >
-        {selectedMethod ? (
+        {selectedMethod && selectedGrowth ? (
           <div className="space-y-4">
             <section>
               <p className="text-sm leading-7">{selectedMethod.description}</p>
@@ -195,11 +237,47 @@ export function MethodsTab({
                 <p>
                   当前等级：{selectedLevel} / {data.methodLevelCap}级
                 </p>
-                <p>
-                  每级收益：
-                  {selectedMethod.perLevelDescription ?? '提升宗门修习资格。'}
-                </p>
               </div>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-base font-semibold">心法加成</h3>
+              <dl className="grid gap-3 text-sm leading-6">
+                <div>
+                  <dt className="text-ink-secondary">当前加成</dt>
+                  {selectedGrowth.current.panelValue !== undefined ? (
+                    <dd>
+                      {describePanel(
+                        selectedMethod,
+                        selectedGrowth.current.panelValue,
+                      )}
+                    </dd>
+                  ) : null}
+                  <dd className="text-ink-secondary">
+                    本卷神通：
+                    {describeEffectGrowth(selectedGrowth.current.effects)}
+                  </dd>
+                </div>
+                {selectedGrowth.next ? (
+                  <div>
+                    <dt className="text-ink-secondary">
+                      研习至{selectedGrowth.next.snapshot.level}级可获得
+                    </dt>
+                    {selectedGrowth.next.delta.panelValue !== undefined ? (
+                      <dd className="text-crimson text-xs">
+                        {describePanel(
+                          selectedMethod,
+                          selectedGrowth.next.delta.panelValue,
+                        )}
+                      </dd>
+                    ) : null}
+                    <dd className="text-crimson text-xs">
+                      本卷神通：
+                      {describeEffectGrowth(selectedGrowth.next.delta.effects)}
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
             </section>
 
             <section>
