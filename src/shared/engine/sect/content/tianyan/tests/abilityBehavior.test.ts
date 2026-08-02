@@ -246,7 +246,7 @@ describe('天衍落印术与反应实际结算', () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0].baseDamage).toBe(Math.round(
-      owner.attributes.getValue(AttributeType.MAGIC_ATK) * coefficient,
+      owner.attributes.getValue(AttributeType.MAGIC_ATK) * coefficient * 1.0047,
     ));
     expect(enemy.buffs.getAllBuffIds()).not.toContain('sect.tianyan.burn');
   });
@@ -476,7 +476,7 @@ describe('天衍落印术与反应实际结算', () => {
     cast(skill('heavenly-river-cleansing'), owner, owner);
 
     expect(owner.getCurrentMp()).toBe(
-      before - 180 + Math.round(owner.getMaxMp() * 0.08),
+      before - 180 + Math.round(owner.getMaxMp() * 0.0804),
     );
     expect(owner.buffs.getAllBuffIds()).toContain('sect.tianyan.river-mind');
   });
