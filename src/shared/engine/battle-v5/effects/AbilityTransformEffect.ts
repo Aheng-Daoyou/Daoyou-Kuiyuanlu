@@ -1,15 +1,16 @@
 import { AbilityTransformParams } from '../core/configs';
 import { addAbilityTransform } from '../core/runtimeState';
 import { EffectRegistry } from '../factories/EffectRegistry';
-import { EffectContext, GameplayEffect } from './Effect';
-import { publishMechanicLog } from './advancedEffectUtils';
+import { CombatMechanicDisplayNameV3 } from '../v3/mechanics';
+import { EffectExecutionContextV3, GameplayEffect } from './Effect';
+import { commitMechanicResultV3 } from './advancedEffectUtils';
 
 export class AbilityTransformEffect extends GameplayEffect {
   constructor(private params: AbilityTransformParams) {
     super();
   }
 
-  execute(context: EffectContext): void {
+  execute(context: EffectExecutionContextV3): void {
     addAbilityTransform(context.caster, {
       id: this.params.id,
       remainingTriggers: Math.max(1, this.params.triggers ?? 1),
@@ -24,13 +25,11 @@ export class AbilityTransformEffect extends GameplayEffect {
       forceCritical: this.params.forceCritical,
       bonusDamageMemory: this.params.bonusDamageMemory,
     });
-    publishMechanicLog({
+    commitMechanicResultV3(context, {
       mechanic: 'ability_transform',
-      source: context.caster,
-      ability: context.ability,
-      sourceBuff: context.buff,
+      code: this.params.id,
       target: context.caster,
-      name: this.params.id,
+      displayName: CombatMechanicDisplayNameV3.ABILITY_TRANSFORM,
       value: this.params.triggers ?? 1,
     });
   }

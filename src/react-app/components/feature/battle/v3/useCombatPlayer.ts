@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { BattleRecord } from '@shared/types/battle';
 import type { UnitStateSnapshot } from '@shared/engine/battle-v5/systems/state/types';
+import type { BattleRecordV3 } from '@shared/types/battle';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export type PlaybackState = {
-  record: BattleRecord | undefined;
+  record: BattleRecordV3 | undefined;
   currentIndex: number;
   isPlaying: boolean;
 };
 
 export function resolvePlaybackStateForRecord(
   playbackState: PlaybackState,
-  record: BattleRecord | undefined,
+  record: BattleRecordV3 | undefined,
 ): PlaybackState {
   return playbackState.record === record
     ? playbackState
@@ -18,11 +18,11 @@ export function resolvePlaybackStateForRecord(
 }
 
 /**
- * useCombatPlayer
+ * useCombatPlayer V3
  *
  * 职责：管理战斗播放状态，并提供平滑的状态快照映射。
  */
-export function useCombatPlayer(record: BattleRecord | undefined) {
+export function useCombatPlayer(record: BattleRecordV3 | undefined) {
   const [playbackState, setPlaybackState] = useState<PlaybackState>({
     record,
     currentIndex: -1,
@@ -30,18 +30,22 @@ export function useCombatPlayer(record: BattleRecord | undefined) {
   });
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
 
-  const spans = useMemo(() => record?.logSpans || [], [record]);
-  const totalActions = spans.length;
-  const currentRecordState = resolvePlaybackStateForRecord(playbackState, record);
+  const sequences = useMemo(() => record?.sequences ?? [], [record]);
+  const totalActions = sequences.length;
+  const currentRecordState = resolvePlaybackStateForRecord(
+    playbackState,
+    record,
+  );
   const currentIndex = currentRecordState.currentIndex;
   const isEnded = currentIndex >= totalActions - 1 && totalActions > 0;
-  const isPlaying = currentRecordState.isPlaying && totalActions > 0 && !isEnded;
+  const isPlaying =
+    currentRecordState.isPlaying && totalActions > 0 && !isEnded;
 
-  const latestUnitsBySpanId = useMemo(() => {
+  const latestUnitsBySequenceId = useMemo(() => {
     const map = new Map<string, Record<string, UnitStateSnapshot>>();
     for (const frame of record?.stateTimeline.frames ?? []) {
-      if (frame.sourceSpanId) {
-        map.set(frame.sourceSpanId, frame.units);
+      if (frame.sourceSequenceId) {
+        map.set(frame.sourceSequenceId, frame.units);
       }
     }
     return map;
@@ -55,19 +59,19 @@ export function useCombatPlayer(record: BattleRecord | undefined) {
 
     let snapshots = initialUnits;
     for (let i = 0; i <= currentIndex; i++) {
-      const span = spans[i];
-      if (!span) {
+      const sequence = sequences[i];
+      if (!sequence) {
         continue;
       }
 
-      const latestUnits = latestUnitsBySpanId.get(span.id);
+      const latestUnits = latestUnitsBySequenceId.get(sequence.id);
       if (latestUnits) {
         snapshots = { ...snapshots, ...latestUnits };
       }
     }
 
     return snapshots;
-  }, [currentIndex, latestUnitsBySpanId, record, spans]);
+  }, [currentIndex, latestUnitsBySequenceId, record, sequences]);
 
   const next = useCallback(() => {
     if (totalActions <= 0) {
@@ -101,7 +105,9 @@ export function useCombatPlayer(record: BattleRecord | undefined) {
       return {
         record,
         currentIndex:
-          baseState.currentIndex >= totalActions - 1 ? -1 : baseState.currentIndex,
+          baseState.currentIndex >= totalActions - 1
+            ? -1
+            : baseState.currentIndex,
         isPlaying: true,
       };
     });

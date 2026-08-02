@@ -1,79 +1,78 @@
-import { LogPresenter } from '@shared/engine/battle-v5/systems/log/LogPresenter';
-import type {
-  LogSpan,
-  PresentedLogLine,
-} from '@shared/engine/battle-v5/systems/log/types';
+import {
+  CombatPresenterV3,
+  type CombatSequenceV3,
+  type PresentedLogLineV3,
+} from '@shared/engine/battle-v5/v3';
 import { cn } from '@shared/lib/cn';
 import { useEffect, useMemo, useRef } from 'react';
-import { getCombatLogPartClassName } from './combatLogPresentation';
+import { getCombatLogPartClassNameV3 } from './combatLogPresentation';
 
 interface CombatActionLogProps {
-  spans: LogSpan[];
+  sequences: CombatSequenceV3[];
   currentIndex: number;
 }
 
-export function CombatActionLog({ spans, currentIndex }: CombatActionLogProps) {
+export function CombatActionLogV3({
+  sequences,
+  currentIndex,
+}: CombatActionLogProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const presenter = useMemo(() => new LogPresenter(), []);
-
-  const formattedLogs = useMemo(() => {
-    return spans
-      .map((span, originalIdx) => ({
-        id: span.id,
-        originalIdx,
-        lines: presenter.presentSpan(span),
-      }))
-      .filter((item) => item.lines.length > 0);
-  }, [spans, presenter]);
-
-  const visibleLogs = useMemo(() => {
-    return formattedLogs.filter((item) => item.originalIdx <= currentIndex);
-  }, [formattedLogs, currentIndex]);
+  const presenter = useMemo(() => new CombatPresenterV3(), []);
+  const formattedLogs = useMemo(
+    () =>
+      sequences
+        .map((sequence, originalIdx) => ({
+          id: sequence.id,
+          originalIdx,
+          lines: presenter.present(sequence),
+        }))
+        .filter((item) => item.lines.length > 0),
+    [presenter, sequences],
+  );
+  const visibleLogs = useMemo(
+    () => formattedLogs.filter((item) => item.originalIdx <= currentIndex),
+    [currentIndex, formattedLogs],
+  );
 
   useEffect(() => {
-    if (visibleLogs.length === 0) return;
-
-    const lastId = visibleLogs[visibleLogs.length - 1].id;
+    const lastId = visibleLogs[visibleLogs.length - 1]?.id;
+    if (!lastId) return;
     const timer = setTimeout(() => {
       const activeElement = scrollRef.current?.querySelector(
-        `[data-span-id="${lastId}"]`,
+        `[data-sequence-id="${lastId}"]`,
       );
       const scrollContainer = scrollRef.current;
-      if (activeElement && scrollContainer) {
-        const activeRect = activeElement.getBoundingClientRect();
-        const containerRect = scrollContainer.getBoundingClientRect();
-        const nextTop =
+      if (!activeElement || !scrollContainer) return;
+      const activeRect = activeElement.getBoundingClientRect();
+      const containerRect = scrollContainer.getBoundingClientRect();
+      scrollContainer.scrollTo({
+        top: Math.max(
+          0,
           scrollContainer.scrollTop +
-          activeRect.top -
-          containerRect.top -
-          (containerRect.height - activeRect.height) / 2;
-
-        scrollContainer.scrollTo({
-          top: Math.max(0, nextTop),
-          behavior: 'smooth',
-        });
-      }
+            activeRect.top -
+            containerRect.top -
+            (containerRect.height - activeRect.height) / 2,
+        ),
+        behavior: 'smooth',
+      });
     }, 50);
-
     return () => clearTimeout(timer);
   }, [visibleLogs]);
 
   return (
     <section className="battle-divider mt-1 flex min-h-0 flex-1 flex-col pt-3">
       <p className="battle-caption mb-2 shrink-0 text-xs">战斗日志</p>
-
       <div
         ref={scrollRef}
         className="battle-report battle-scroll min-h-0 flex-1 overflow-y-auto pr-1"
       >
         <div className="space-y-2">
-          {visibleLogs.map((item, idx) => {
-            const isActive = idx === visibleLogs.length - 1;
-
+          {visibleLogs.map((item, index) => {
+            const isActive = index === visibleLogs.length - 1;
             return (
               <div
                 key={item.id}
-                data-span-id={item.id}
+                data-sequence-id={item.id}
                 className={cn(
                   'px-1 py-1',
                   isActive && 'bg-battle-crimson-soft',
@@ -88,7 +87,6 @@ export function CombatActionLog({ spans, currentIndex }: CombatActionLogProps) {
                   >
                     {isActive ? '▸' : '•'}
                   </span>
-
                   <div className="min-w-0 flex-1 space-y-1">
                     {item.lines.map((line, lineIndex) => (
                       <p
@@ -102,7 +100,7 @@ export function CombatActionLog({ spans, currentIndex }: CombatActionLogProps) {
                         {line.parts.map((part, partIndex) => (
                           <span
                             key={`${partIndex}-${part.text}`}
-                            className={getCombatLogPartClassName(part)}
+                            className={getCombatLogPartClassNameV3(part)}
                           >
                             {part.text}
                           </span>
@@ -114,13 +112,11 @@ export function CombatActionLog({ spans, currentIndex }: CombatActionLogProps) {
               </div>
             );
           })}
-
           {visibleLogs.length === 0 && (
             <div className="text-battle-muted flex min-h-full items-center justify-center py-12 text-sm italic">
               战斗即将开始...
             </div>
           )}
-
           <div className="h-12" />
         </div>
       </div>
@@ -128,14 +124,8 @@ export function CombatActionLog({ spans, currentIndex }: CombatActionLogProps) {
   );
 }
 
-function lineClassName(line: PresentedLogLine): string | undefined {
-  switch (line.role) {
-    case 'trigger':
-    case 'secondary':
-    case 'resource':
-    case 'state':
-      return 'pl-2';
-    default:
-      return undefined;
-  }
+function lineClassName(line: PresentedLogLineV3): string | undefined {
+  return ['trigger', 'secondary', 'resource', 'state'].includes(line.role)
+    ? 'pl-2'
+    : undefined;
 }
