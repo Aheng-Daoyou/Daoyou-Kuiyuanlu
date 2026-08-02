@@ -1,6 +1,6 @@
-import { Unit } from './Unit';
-import { BuffId } from '../core/types';
+import type { Ability } from '../abilities/Ability';
 import { Buff, StackRule } from '../buffs/Buff';
+import { EventBus } from '../core/EventBus';
 import {
   BuffAddEvent,
   BuffAppliedEvent,
@@ -8,9 +8,27 @@ import {
   type BuffLayerChangeReason,
   BuffRemovedEvent,
 } from '../core/events';
-import { EventBus } from '../core/EventBus';
-import type { Ability } from '../abilities/Ability';
-import { markBuffAppliedAtCurrentAction, rememberRemovedBuff } from '../core/runtimeState';
+import {
+  markBuffAppliedAtCurrentAction,
+  rememberRemovedBuff,
+} from '../core/runtimeState';
+import { BuffId } from '../core/types';
+import { CombatResultEmitterV3 } from '../v3/CombatResultEmitterV3';
+import { CombatAttributionV3, combatCarrierFromAbilityV3 } from '../v3/origin';
+import type { CombatTraceV3 } from '../v3/types';
+import { Unit } from './Unit';
+
+interface BuffApplicationOriginV3 {
+  ability?: Ability;
+  buff?: Buff;
+  attribution?: CombatAttributionV3;
+  trace?: CombatTraceV3;
+}
+
+enum BuffApplicationModeV3 {
+  RUNTIME = 'runtime',
+  INITIALIZATION = 'initialization',
+}
 
 /**
  * BuffContainer - Buff 容器
@@ -33,39 +51,80 @@ export class BuffContainer {
    * @param buff 要添加的 Buff
    * @param source Buff 来源（通常是施法者），用于 DOT 伤害归属等
    */
-  addBuff(
+  addBuff(buff: Buff, source?: Unit, origin?: BuffApplicationOriginV3): void {
+    this._applyBuff(buff, source, origin, BuffApplicationModeV3.RUNTIME);
+  }
+
+  /**
+   * 绑定战斗开始前已经存在的 Buff。
+   * 初始化状态只进入首帧快照，不产生战斗中的申请、触发或可见事实。
+   */
+  initializeBuff(
     buff: Buff,
     source?: Unit,
-    origin?: { ability?: Ability; buff?: Buff },
+    origin?: BuffApplicationOriginV3,
   ): void {
-    // 1. 发布拦截事件
-    const event: BuffAddEvent = {
-      type: 'BuffAddEvent',
-      timestamp: Date.now(),
-      target: this._owner,
-      buff,
-      source,
-      isCancelled: false,
-    };
-    EventBus.instance.publish(event);
-    if (event.isCancelled) return;
+    this._applyBuff(buff, source, origin, BuffApplicationModeV3.INITIALIZATION);
+  }
+
+  private _applyBuff(
+    buff: Buff,
+    source: Unit | undefined,
+    origin: BuffApplicationOriginV3 | undefined,
+    mode: BuffApplicationModeV3,
+  ): void {
+    const attribution = this._resolveAttribution(buff, source, origin);
+    buff.setCombatAttributionV3(attribution);
+    let publishedAddEvent: BuffAddEvent | undefined;
+    if (mode === BuffApplicationModeV3.RUNTIME) {
+      // 1. 发布拦截事件
+      const event: BuffAddEvent = {
+        type: 'BuffAddEvent',
+        timestamp: Date.now(),
+        target: this._owner,
+        buff,
+        source,
+        isCancelled: false,
+      };
+      publishedAddEvent = EventBus.instance.runInCausalContext(
+        {
+          origin: attribution.origin,
+          trace: EventBus.instance.getCurrentTrace(),
+        },
+        () => EventBus.instance.publish(event),
+      );
+      if (event.isCancelled) return;
+    }
 
     // 2. 堆叠规则处理
     const existing = this._buffs.get(buff.id);
     if (existing) {
       const previousLayer = existing.getLayer();
-      const appliedBuff = this._applyStackRule(existing, buff, source);
+      const appliedBuff = this._applyStackRule(
+        existing,
+        buff,
+        source,
+        attribution,
+      );
       if (appliedBuff) {
-        this._publishLayerChanged(
-          appliedBuff,
-          previousLayer,
-          appliedBuff.getLayer(),
-          'stack',
-          source,
-          origin,
-        );
-        markBuffAppliedAtCurrentAction(this._owner, appliedBuff);
-        this._publishAppliedEvent(appliedBuff, source, origin);
+        if (mode === BuffApplicationModeV3.RUNTIME) {
+          this._publishLayerChanged(
+            appliedBuff,
+            previousLayer,
+            appliedBuff.getLayer(),
+            'stack',
+            source,
+            origin,
+          );
+          markBuffAppliedAtCurrentAction(this._owner, appliedBuff);
+          this._publishAppliedEvent(
+            appliedBuff,
+            source,
+            origin,
+            attribution,
+            publishedAddEvent!.trace!,
+          );
+        }
       }
       return;
     }
@@ -83,33 +142,43 @@ export class BuffContainer {
 
     // 3.3 调用激活方法（子类在此订阅事件、添加标签等）
     buff.onActivate();
-    this._publishLayerChanged(
-      buff,
-      0,
-      buff.getLayer(),
-      'apply',
-      source,
-      origin,
-    );
-    markBuffAppliedAtCurrentAction(this._owner, buff);
+    if (mode === BuffApplicationModeV3.RUNTIME) {
+      this._publishLayerChanged(
+        buff,
+        0,
+        buff.getLayer(),
+        'apply',
+        source,
+        origin,
+      );
+      markBuffAppliedAtCurrentAction(this._owner, buff);
+    }
 
     // 3.4 更新派生属性
     this._owner.updateDerivedStats();
 
     // 4. 发布应用成功事件
-    this._publishAppliedEvent(buff, source, origin);
+    if (mode === BuffApplicationModeV3.RUNTIME) {
+      this._publishAppliedEvent(
+        buff,
+        source,
+        origin,
+        attribution,
+        publishedAddEvent!.trace!,
+      );
+    }
   }
 
   /**
    * 移除 BUFF（手动移除，如驱散）
    */
-  removeBuff(buffId: BuffId): void {
-    this._removeBuffWithReason(buffId, 'manual');
+  removeBuff(buffId: BuffId, origin?: BuffApplicationOriginV3): void {
+    this._removeBuffWithReason(buffId, 'manual', origin);
   }
 
   removeBuffDispel(
     buffId: BuffId,
-    origin?: { source?: Unit; ability?: Ability },
+    origin?: BuffApplicationOriginV3 & { source?: Unit },
   ): boolean {
     const buff = this._buffs.get(buffId);
     if (!buff || buff.dispelPolicy !== 'normal') return false;
@@ -135,14 +204,14 @@ export class BuffContainer {
       origin?.source,
       origin,
     );
-    this._removeBuffWithReason(buffId, 'dispel');
+    this._removeBuffWithReason(buffId, 'dispel', origin);
     return true;
   }
 
   modifyBuffLayer(
     buffId: BuffId,
     delta: number,
-    origin?: { source?: Unit; ability?: Ability; buff?: Buff },
+    origin?: BuffApplicationOriginV3 & { source?: Unit },
   ): number {
     const buff = this._buffs.get(buffId);
     if (!buff) return 0;
@@ -158,7 +227,7 @@ export class BuffContainer {
         origin?.source,
         origin,
       );
-      this._removeBuffWithReason(buffId, 'manual');
+      this._removeBuffWithReason(buffId, 'manual', origin);
       return 0;
     }
 
@@ -178,7 +247,7 @@ export class BuffContainer {
   setBuffLayer(
     buffId: BuffId,
     layer: number,
-    origin?: { source?: Unit; ability?: Ability; buff?: Buff },
+    origin?: BuffApplicationOriginV3 & { source?: Unit },
   ): number {
     const buff = this._buffs.get(buffId);
     if (!buff) return 0;
@@ -193,7 +262,7 @@ export class BuffContainer {
         origin?.source,
         origin,
       );
-      this._removeBuffWithReason(buffId, 'manual');
+      this._removeBuffWithReason(buffId, 'manual', origin);
       return 0;
     }
 
@@ -213,11 +282,18 @@ export class BuffContainer {
   /**
    * 移除 BUFF（过期）
    */
-  removeBuffExpired(buffId: BuffId): void {
-    this._removeBuffWithReason(buffId, 'expired');
+  removeBuffExpired(
+    buffId: BuffId,
+    origin?: Pick<BuffApplicationOriginV3, 'trace'>,
+  ): void {
+    this._removeBuffWithReason(buffId, 'expired', origin);
   }
 
-  private _removeBuffWithReason(buffId: BuffId, reason: 'manual' | 'expired' | 'dispel' | 'replace'): void {
+  private _removeBuffWithReason(
+    buffId: BuffId,
+    reason: 'manual' | 'expired' | 'dispel' | 'replace',
+    operation?: BuffApplicationOriginV3,
+  ): void {
     const buff = this._buffs.get(buffId);
     if (!buff) return;
 
@@ -231,7 +307,35 @@ export class BuffContainer {
     this._buffs.delete(buffId);
     this._owner.updateDerivedStats();
 
-    // 发布移除事件
+    const attribution = buff.getCombatAttributionV3();
+    if (!attribution) {
+      throw new Error(`Buff ${buff.id} has no attribution when removed`);
+    }
+    const resultOrigin = operation?.attribution?.origin ?? attribution.origin;
+    const causalTrace = operation?.trace ?? EventBus.instance.reserveTrace();
+    let removedEventParentTrace = causalTrace;
+    if (buff.logVisibility !== 'debug') {
+      const statusTrace = EventBus.instance.reserveTrace({
+        parentEventId: causalTrace.eventId,
+      });
+      const statusResult = new CombatResultEmitterV3().commit(
+        this._owner,
+        {
+          type: 'status',
+          operation: 'remove',
+          statusId: buff.id,
+          statusName: buff.name,
+          statusType: buff.type,
+        },
+        {
+          origin: resultOrigin,
+          parentTrace: causalTrace,
+          reservedTrace: statusTrace,
+        },
+      );
+      removedEventParentTrace = statusResult.trace!;
+    }
+
     const removedEvent: BuffRemovedEvent = {
       type: 'BuffRemovedEvent',
       timestamp: Date.now(),
@@ -239,7 +343,21 @@ export class BuffContainer {
       buff,
       reason,
     };
-    EventBus.instance.publish(removedEvent);
+    EventBus.instance.runInCausalContext(
+      { origin: resultOrigin, trace: removedEventParentTrace },
+      () => EventBus.instance.publish(removedEvent),
+    );
+  }
+
+  removeBuffsOnDeath(): void {
+    let changed = false;
+    for (const [id, buff] of this._buffs) {
+      if (!buff.removeOnDeath) continue;
+      buff.onDeactivate('death');
+      this._buffs.delete(id);
+      changed = true;
+    }
+    if (changed) this._owner.updateDerivedStats();
   }
 
   getAllBuffs(): Buff[] {
@@ -262,7 +380,12 @@ export class BuffContainer {
     this._owner.updateDerivedStats();
   }
 
-  private _applyStackRule(existing: Buff, newBuff: Buff, source?: Unit): Buff | null {
+  private _applyStackRule(
+    existing: Buff,
+    newBuff: Buff,
+    source: Unit | undefined,
+    attribution: CombatAttributionV3,
+  ): Buff | null {
     switch (newBuff.stackRule) {
       case StackRule.STACK_LAYER:
         existing.addLayer(newBuff.getLayer());
@@ -270,20 +393,22 @@ export class BuffContainer {
         if (source) {
           existing.setSource(source);
         }
+        existing.setCombatAttributionV3(attribution);
         return existing;
 
       case StackRule.REFRESH_DURATION:
         if (newBuff.stackPriority > existing.stackPriority) {
-          return this._replaceBuff(existing, newBuff, source);
+          return this._replaceBuff(existing, newBuff, source, attribution);
         }
         existing.refreshToDuration(newBuff.getMaxDuration());
         if (source) {
           existing.setSource(source);
         }
+        existing.setCombatAttributionV3(attribution);
         return existing;
 
       case StackRule.OVERRIDE:
-        return this._replaceBuff(existing, newBuff, source);
+        return this._replaceBuff(existing, newBuff, source, attribution);
 
       case StackRule.IGNORE:
         return null;
@@ -292,10 +417,16 @@ export class BuffContainer {
     return null;
   }
 
-  private _replaceBuff(existing: Buff, newBuff: Buff, source?: Unit): Buff {
+  private _replaceBuff(
+    existing: Buff,
+    newBuff: Buff,
+    source: Unit | undefined,
+    attribution: CombatAttributionV3,
+  ): Buff {
     existing.onDeactivate('replace');
     this._buffs.set(existing.id, newBuff);
     newBuff.setOwner(this._owner);
+    newBuff.setCombatAttributionV3(attribution);
     if (source) {
       newBuff.setSource(source);
     }
@@ -307,8 +438,28 @@ export class BuffContainer {
   private _publishAppliedEvent(
     buff: Buff,
     source?: Unit,
-    origin?: { ability?: Ability; buff?: Buff },
+    origin?: BuffApplicationOriginV3,
+    attribution?: CombatAttributionV3,
+    parentTrace?: NonNullable<BuffAppliedEvent['trace']>,
   ): void {
+    if (!attribution || !parentTrace) {
+      throw new Error(`Buff ${buff.id} application has no V3 attribution`);
+    }
+    if (buff.logVisibility !== 'debug') {
+      new CombatResultEmitterV3().commit(
+        this._owner,
+        {
+          type: 'status',
+          operation: 'apply',
+          statusId: buff.id,
+          statusName: buff.name,
+          statusType: buff.type,
+          layers: buff.getLayer(),
+          duration: buff.getMaxDuration(),
+        },
+        { origin: attribution.origin, parentTrace },
+      );
+    }
     const appliedEvent: BuffAppliedEvent = {
       type: 'BuffAppliedEvent',
       timestamp: Date.now(),
@@ -318,7 +469,37 @@ export class BuffContainer {
       ability: origin?.ability,
       sourceBuff: origin?.buff,
     };
-    EventBus.instance.publish(appliedEvent);
+    EventBus.instance.runInCausalContext(
+      { origin: attribution.origin, trace: parentTrace },
+      () => EventBus.instance.publish(appliedEvent),
+    );
+  }
+
+  private _resolveAttribution(
+    buff: Buff,
+    source: Unit | undefined,
+    origin: BuffApplicationOriginV3 | undefined,
+  ): CombatAttributionV3 {
+    if (origin?.attribution) return origin.attribution;
+    if (origin?.ability) {
+      return CombatAttributionV3.owned(
+        source ?? this._owner,
+        combatCarrierFromAbilityV3(origin.ability),
+      );
+    }
+    const sourceAttribution = origin?.buff?.getCombatAttributionV3();
+    if (sourceAttribution) {
+      return CombatAttributionV3.rebind(
+        sourceAttribution.owner,
+        sourceAttribution.origin,
+      );
+    }
+    const carrier = {
+      kind: 'buff' as const,
+      id: buff.id,
+      name: buff.name,
+    };
+    return CombatAttributionV3.owned(source ?? this._owner, carrier);
   }
 
   private _publishLayerChanged(
@@ -351,6 +532,21 @@ export class BuffContainer {
       clone._buffs.set(clonedBuff.id, clonedBuff);
       // 使用新的生命周期方法
       clonedBuff.setOwner(owner);
+      const attribution = buff.getCombatAttributionV3();
+      if (attribution) {
+        clonedBuff.setCombatAttributionV3(
+          CombatAttributionV3.rebind(
+            attribution.owner === this._owner ? owner : attribution.owner,
+            attribution.origin.kind === 'owned' &&
+              attribution.origin.owner.id === this._owner.id
+              ? {
+                  ...attribution.origin,
+                  owner: { id: owner.id, name: owner.name },
+                }
+              : attribution.origin,
+          ),
+        );
+      }
       clonedBuff.onActivate();
     }
     return clone;

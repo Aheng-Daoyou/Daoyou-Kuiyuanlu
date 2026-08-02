@@ -1,9 +1,9 @@
 import { BattlePageLayout } from '@app/components/feature/battle/BattlePageLayout';
-import { BattlePlaybackPanel } from '@app/components/feature/battle/BattlePlaybackPanel';
-import { useBattlePlaybackState } from '@app/components/feature/battle/useBattlePlaybackState';
+import { BattlePlaybackPanel } from '@app/components/feature/battle/v3/BattlePlaybackPanel';
+import { useBattlePlaybackState } from '@app/components/feature/battle/v3/useBattlePlaybackState';
 import Link from '@app/components/router/AppLink';
 import { GameImmersiveLoading } from '@app/components/game-shell';
-import type { BattleRecord as BattleRecordNative } from '@shared/types/battle';
+import type { BattleRecordV3 as BattleRecordNative } from '@shared/types/battle';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
 
@@ -11,7 +11,6 @@ type BattleRecordRow = {
   id: string;
   createdAt: string | null;
   battleResult: BattleRecordNative;
-  battleReport?: string | null;
 };
 
 type BattleRecordResponse = {
@@ -34,7 +33,7 @@ export default function BattleReplayPage() {
     const fetchBattleRecord = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/battle-records/v2/${id}`, {
+        const res = await fetch(`/api/battle-records/v3/${id}`, {
           cache: 'no-store',
         });
         if (!res.ok) return;
@@ -87,19 +86,6 @@ export default function BattleReplayPage() {
           label: '返回战绩',
           href: '/game/battle/history',
         }}
-        unsupportedNotice={
-          <div className="space-y-3 text-center">
-            <p className="text-ink-secondary">
-              该战斗记录不支持新版回放（缺少关键时间线数据）。
-            </p>
-            <Link
-              href="/game/battle/history"
-              className="text-ink hover:text-crimson"
-            >
-              [返回战绩]
-            </Link>
-          </div>
-        }
       />
     </BattlePageLayout>
   );

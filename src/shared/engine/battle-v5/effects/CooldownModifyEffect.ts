@@ -1,9 +1,9 @@
 import { ActiveSkill } from '../abilities/ActiveSkill';
 import { CooldownModifyParams } from '../core/configs';
-import { EventBus } from '../core/EventBus';
 import { CooldownModifyEvent } from '../core/events';
 import { EffectRegistry } from '../factories/EffectRegistry';
-import { EffectContext, GameplayEffect } from './Effect';
+import { CombatMechanicCodeV3 } from '../v3/mechanics';
+import { EffectExecutionContextV3, GameplayEffect } from './Effect';
 
 /**
  * 冷却修改原子效果
@@ -14,7 +14,7 @@ export class CooldownModifyEffect extends GameplayEffect {
     super();
   }
 
-  execute(context: EffectContext): void {
+  execute(context: EffectExecutionContextV3): void {
     const { target, caster, ability } = context;
     const recipient = this.params.target === 'caster' ? caster : target;
     const abilities = recipient.abilities.getAllAbilities();
@@ -33,13 +33,23 @@ export class CooldownModifyEffect extends GameplayEffect {
           );
 
     for (let i = 0; i < countToModify; i++) {
+      if (!context.canExecuteEffect()) break;
       const skill = matchedSkills[i];
 
       // 调用 ActiveSkill 提供的标准化方法修改冷却
       skill.modifyCooldown(this.params.cdModifyValue);
 
+      context.commit(recipient, {
+        type: 'mechanic',
+        mechanic: 'cooldown_modify',
+        code: CombatMechanicCodeV3.COOLDOWN_MODIFY,
+        name: '冷却变化',
+        detail: skill.name,
+        value: this.params.cdModifyValue,
+      });
+
       // 发布冷却修改事件
-      EventBus.instance.publish<CooldownModifyEvent>({
+      context.emit<CooldownModifyEvent>({
         type: 'CooldownModifyEvent',
         timestamp: Date.now(),
         caster,

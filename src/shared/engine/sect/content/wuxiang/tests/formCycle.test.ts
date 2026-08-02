@@ -354,7 +354,7 @@ describe('无相禅宗三相循环', () => {
         damageTaken: 65,
         beforeHp: owner.getCurrentHp(),
         remainHp: owner.getCurrentHp(),
-        isLethal: false,
+        hpReachedZeroBeforeReactions: false,
       });
     }
 
@@ -401,7 +401,7 @@ describe('无相禅宗三相循环', () => {
         damageTaken: 100,
         beforeHp: owner.getCurrentHp(),
         remainHp: owner.getCurrentHp(),
-        isLethal: false,
+        hpReachedZeroBeforeReactions: false,
       });
 
     beginRuntimeAction(enemy);
@@ -555,7 +555,7 @@ describe('无相禅宗三相循环', () => {
       damageTaken: 100,
       beforeHp: enemy.getCurrentHp() + 100,
       remainHp: enemy.getCurrentHp(),
-      isLethal: false,
+      hpReachedZeroBeforeReactions: false,
     });
     expect(owner.getCurrentHp()).toBe(beforeAttack + 25);
 

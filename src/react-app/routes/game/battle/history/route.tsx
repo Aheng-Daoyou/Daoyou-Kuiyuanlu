@@ -52,7 +52,7 @@ export default function BattleHistoryPage() {
       try {
         const typeParam = activeTab === 'all' ? '' : `&type=${activeTab}`;
         const res = await fetch(
-          `/api/battle-records/v2?page=${page}&pageSize=${PAGE_SIZE}${typeParam}`,
+          `/api/battle-records/v3?page=${page}&pageSize=${PAGE_SIZE}${typeParam}`,
           { cache: 'no-store' },
         );
         if (!res.ok || cancelled) return;

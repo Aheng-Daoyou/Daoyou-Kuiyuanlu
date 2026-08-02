@@ -2,14 +2,21 @@ import type { ConsumeStatusTriggerParams } from '../core/configs';
 import { executeEffectConfigs } from '../core/effectExecutor';
 import { getDelayedBuffEffects } from '../core/runtimeState';
 import { EffectRegistry } from '../factories/EffectRegistry';
-import { EffectContext, GameplayEffect } from './Effect';
-import { findMatchingBuffs, publishMechanicLog } from './advancedEffectUtils';
+import { CombatMechanicCodeV3 } from '../v3/mechanics';
+import { EffectExecutionContextV3, GameplayEffect } from './Effect';
+import {
+  commitMechanicResultV3,
+  findMatchingBuffs,
+} from './advancedEffectUtils';
 
 export class ConsumeStatusTriggerEffect extends GameplayEffect {
-  constructor(private params: ConsumeStatusTriggerParams) { super(); }
+  constructor(private params: ConsumeStatusTriggerParams) {
+    super();
+  }
 
-  execute(context: EffectContext): void {
-    const unit = this.params.target === 'caster' ? context.caster : context.target;
+  execute(context: EffectExecutionContextV3): void {
+    const unit =
+      this.params.target === 'caster' ? context.caster : context.target;
     const matched = findMatchingBuffs(unit, this.params.match);
     const buff = matched[0];
     if (!buff) {
@@ -28,30 +35,41 @@ export class ConsumeStatusTriggerEffect extends GameplayEffect {
             typeof consume === 'number' ? Math.max(1, consume) : 1,
           );
     if (consume === 'all') {
-      unit.buffs.setBuffLayer(buff.id, 0);
+      unit.buffs.setBuffLayer(buff.id, 0, {
+        source: context.caster,
+        ability: context.ability,
+        buff: context.buff,
+        attribution: context.attribution,
+        trace: context.trace,
+      });
     } else {
       const layers = typeof consume === 'number' ? consume : 1;
-      unit.buffs.modifyBuffLayer(buff.id, -Math.max(1, layers));
+      unit.buffs.modifyBuffLayer(buff.id, -Math.max(1, layers), {
+        source: context.caster,
+        ability: context.ability,
+        buff: context.buff,
+        attribution: context.attribution,
+        trace: context.trace,
+      });
     }
 
-    publishMechanicLog({
+    commitMechanicResultV3(context, {
       mechanic: 'buff_layer',
-      source: context.caster,
-      ability: context.ability,
-      sourceBuff: context.buff,
+      code: CombatMechanicCodeV3.CONSUME_STATUS,
       target: unit,
-      name: buff.name,
       displayName: this.params.displayName ?? buff.name,
       visibility: 'player',
       value: consumedLayers,
-      detail: 'consumed',
+      detail: '消耗层数',
     });
 
-    const configuredEffects = this.params.effects.length > 0
-      ? this.params.effects
-      : delayedEffects ?? [];
+    const configuredEffects =
+      this.params.effects.length > 0
+        ? this.params.effects
+        : (delayedEffects ?? []);
     const repeats = this.params.scaleEffectsByLayer ? consumedLayers : 1;
     for (let index = 0; index < repeats; index += 1) {
+      if (!context.canExecuteEffect()) break;
       executeEffectConfigs(configuredEffects, context);
     }
   }

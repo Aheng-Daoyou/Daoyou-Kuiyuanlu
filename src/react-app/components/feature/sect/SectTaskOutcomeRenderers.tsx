@@ -1,6 +1,6 @@
 import { BattlePageLayout } from '@app/components/feature/battle/BattlePageLayout';
-import { BattlePlaybackPanel } from '@app/components/feature/battle/BattlePlaybackPanel';
-import { useBattlePlaybackState } from '@app/components/feature/battle/useBattlePlaybackState';
+import { BattlePlaybackPanel } from '@app/components/feature/battle/v3/BattlePlaybackPanel';
+import { useBattlePlaybackState } from '@app/components/feature/battle/v3/useBattlePlaybackState';
 import { CombatResultDialog } from '@app/components/feature/battle/v5/CombatResultDialog';
 import { InkButton, InkDialog, InkNotice } from '@app/components/ui';
 import type { SectOutcomeRendererProps } from '@app/lib/sect/presentation/core/registry';
@@ -169,7 +169,7 @@ export function BattleOutcome({
         }}
       />
       <CombatResultDialog
-        key={`${attemptId}-${battle.battle.turns}`}
+        key={`${attemptId}-${battle.battle.outcome.turns}`}
         dialogKey={`sect-task-${attemptId}`}
         open={playback.isPlaybackFinished}
         title={battle.won ? '宗门战局得胜' : '宗门战局失利'}
