@@ -18,7 +18,6 @@ import {
   projectSectMethodGrowthPresentation,
   type CultivatorSectState,
   type SectHeartMethodDefinition,
-  type SectMethodEffectGrowthValues,
 } from '@shared/engine/sect';
 import { resolveSectAbilities } from '@shared/engine/sect/content';
 import type { RealmType } from '@shared/types/constants';
@@ -42,18 +41,6 @@ function describePanel(
   const panel = method.growthProfile.panelModifier;
   if (!panel || value === undefined) return undefined;
   return `${attrLabel(panel.attrType)} +${percent(value)}`;
-}
-
-function describeEffectGrowth(effects: SectMethodEffectGrowthValues): string {
-  const entries: Array<[string, number]> = [
-    ['伤害', effects.damage],
-    ['治疗', effects.heal],
-    ['护盾', effects.shield],
-    ['状态', effects.status],
-  ];
-  return entries
-    .map(([label, value]) => `${label} +${percent(value)}`)
-    .join(' · ');
 }
 
 function getMethodDisabledReason(args: {
@@ -240,45 +227,39 @@ export function MethodsTab({
               </div>
             </section>
 
-            <section>
-              <h3 className="mb-2 text-base font-semibold">心法加成</h3>
-              <dl className="grid gap-3 text-sm leading-6">
-                <div>
-                  <dt className="text-ink-secondary">当前加成</dt>
-                  {selectedGrowth.current.panelValue !== undefined ? (
-                    <dd>
-                      {describePanel(
-                        selectedMethod,
-                        selectedGrowth.current.panelValue,
-                      )}
-                    </dd>
-                  ) : null}
-                  <dd className="text-ink-secondary">
-                    本卷神通：
-                    {describeEffectGrowth(selectedGrowth.current.effects)}
-                  </dd>
-                </div>
-                {selectedGrowth.next ? (
+            {selectedMethod.growthProfile.panelModifier ? (
+              <section>
+                <h3 className="mb-2 text-base font-semibold">心法加成</h3>
+                <dl className="grid gap-3 text-sm leading-6">
                   <div>
-                    <dt className="text-ink-secondary">
-                      研习至{selectedGrowth.next.snapshot.level}级可获得
-                    </dt>
-                    {selectedGrowth.next.delta.panelValue !== undefined ? (
-                      <dd className="text-crimson text-xs">
+                    <dt className="text-ink-secondary">当前加成</dt>
+                    {selectedGrowth.current.panelValue !== undefined ? (
+                      <dd>
                         {describePanel(
                           selectedMethod,
-                          selectedGrowth.next.delta.panelValue,
+                          selectedGrowth.current.panelValue,
                         )}
                       </dd>
                     ) : null}
-                    <dd className="text-crimson text-xs">
-                      本卷神通：
-                      {describeEffectGrowth(selectedGrowth.next.delta.effects)}
-                    </dd>
                   </div>
-                ) : null}
-              </dl>
-            </section>
+                  {selectedGrowth.next ? (
+                    <div>
+                      <dt className="text-ink-secondary">
+                        研习至{selectedGrowth.next.snapshot.level}级可获得
+                      </dt>
+                      {selectedGrowth.next.delta.panelValue !== undefined ? (
+                        <dd className="text-crimson text-xs">
+                          {describePanel(
+                            selectedMethod,
+                            selectedGrowth.next.delta.panelValue,
+                          )}
+                        </dd>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </dl>
+              </section>
+            ) : null}
 
             <section>
               <h3 className="mb-2 text-base font-semibold">可悟神通</h3>
