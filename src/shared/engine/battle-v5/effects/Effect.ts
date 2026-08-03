@@ -4,6 +4,7 @@ import { EventBus } from '../core/EventBus';
 import { CombatEvent, type LogCauseRef } from '../core/types';
 import { Unit } from '../units/Unit';
 import { CombatResultEmitterV3 } from '../v3/CombatResultEmitterV3';
+import type { CombatMechanicCuePayloadV3 } from '../v3/mechanics';
 import {
   CombatAttributionV3,
   type CombatSystemSourceV3,
@@ -53,7 +54,10 @@ export class EffectExecutionContextV3 {
     this.caster = input.caster;
     this.target = input.target;
     this.origin = attribution.origin;
-    this.trace = trace;
+    this.trace = Object.freeze({
+      ...trace,
+      narrativeCauseId: trace.narrativeCauseId ?? trace.eventId,
+    });
     this.ability = input.ability;
     this.buff = input.buff;
     this.castSnapshot = input.castSnapshot;
@@ -127,6 +131,40 @@ export class EffectExecutionContextV3 {
       origin: this.origin,
       parentTrace: this.trace,
     });
+  }
+
+  commitCue(
+    target: Unit,
+    result: Extract<CombatFactDraftV3, { type: 'mechanic' }> & {
+      payload: CombatMechanicCuePayloadV3;
+    },
+  ): void {
+    new CombatResultEmitterV3().commit(target, result, {
+      origin: this.origin,
+      parentTrace: this.trace,
+      narrativeRole: 'cue',
+    });
+  }
+
+  withNarrativeCause(): EffectExecutionContextV3 {
+    return new EffectExecutionContextV3(
+      {
+        owner: this.owner,
+        caster: this.caster,
+        target: this.target,
+        trace: {
+          ...this.trace,
+          narrativeCauseId: EventBus.instance.nextNarrativeCauseId(),
+        },
+        ability: this.ability,
+        buff: this.buff,
+        castSnapshot: this.castSnapshot,
+        damageCause: this.damageCause,
+        triggerEvent: this.triggerEvent,
+      },
+      this.attribution,
+      this.ownerLivenessPolicy,
+    );
   }
 }
 

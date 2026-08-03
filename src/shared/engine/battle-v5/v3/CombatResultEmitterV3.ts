@@ -2,12 +2,18 @@ import { EventBus } from '../core/EventBus';
 import type { Unit } from '../units/Unit';
 import { CombatV3EventType, type CombatResultCommittedEventV3 } from './events';
 import { freezeCombatOriginV3 } from './origin';
-import type { CombatFactDraftV3, CombatOriginV3, CombatTraceV3 } from './types';
+import type {
+  CombatFactDraftV3,
+  CombatNarrativeRelationV3,
+  CombatOriginV3,
+  CombatTraceV3,
+} from './types';
 
 export interface CombatResultScopeV3 {
   origin: CombatOriginV3;
   parentTrace: CombatTraceV3;
   reservedTrace?: CombatTraceV3;
+  narrativeRole?: CombatNarrativeRelationV3['role'];
 }
 
 export class CombatResultEmitterV3 {
@@ -30,6 +36,12 @@ export class CombatResultEmitterV3 {
 
     const immutableOrigin = freezeCombatOriginV3(origin);
     const immutableResult = freezeResult(result);
+    const narrative = parentTrace.narrativeCauseId
+      ? Object.freeze({
+          causeId: parentTrace.narrativeCauseId,
+          role: scope.narrativeRole ?? ('result' as const),
+        })
+      : undefined;
     const committed = this.eventBus.runInCausalContext(
       { origin: immutableOrigin, trace: parentTrace },
       () =>
@@ -38,6 +50,7 @@ export class CombatResultEmitterV3 {
           timestamp: Date.now(),
           target,
           result: immutableResult,
+          narrative,
           trace: scope.reservedTrace,
           origin: immutableOrigin,
         }),
@@ -55,6 +68,26 @@ function freezeResult(result: CombatFactDraftV3): CombatFactDraftV3 {
       ...result,
       killer: Object.freeze({ ...result.killer }),
     });
+  }
+  if (result.type === 'action_state' && result.ability) {
+    return Object.freeze({
+      ...result,
+      ability: Object.freeze({ ...result.ability }),
+    });
+  }
+  if (result.type === 'mechanic') {
+    const payload =
+      result.payload.kind === 'ability_transform'
+        ? Object.freeze({
+            ...result.payload,
+            modifiers: Object.freeze(
+              result.payload.modifiers.map((modifier) =>
+                Object.freeze({ ...modifier }),
+              ),
+            ),
+          })
+        : Object.freeze({ ...result.payload });
+    return Object.freeze({ ...result, payload }) as CombatFactDraftV3;
   }
   return Object.freeze({ ...result }) as CombatFactDraftV3;
 }

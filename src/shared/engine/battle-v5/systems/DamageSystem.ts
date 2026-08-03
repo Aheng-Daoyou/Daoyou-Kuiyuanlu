@@ -308,7 +308,7 @@ export class DamageSystem {
     EventBus.instance.publish(damageEvent);
 
     // 直接应用伤害（不再通过订阅 DamageEvent）
-    this._updateTargetHealth(damageEvent);
+    this._updateTargetHealth(damageEvent, damageType);
   }
 
   private _resolveDamageType(event: DamageRequestEvent): DamageType {
@@ -405,7 +405,10 @@ export class DamageSystem {
   /**
    * 更新目标气血，发布受击事件
    */
-  private _updateTargetHealth(damageEvent: DamageEvent): void {
+  private _updateTargetHealth(
+    damageEvent: DamageEvent,
+    damageType: DamageType,
+  ): void {
     const {
       target,
       finalDamage,
@@ -480,7 +483,7 @@ export class DamageSystem {
         ability,
         buff, // 传递 buff
         damageSource: damageEvent.damageSource,
-        damageType: damageEvent.damageType,
+        damageType,
         calculationMode: damageEvent.calculationMode,
         cause: damageEvent.cause,
         damageTags: damageEvent.damageTags,
@@ -510,7 +513,7 @@ export class DamageSystem {
         amount: Math.round(actualHpDamage),
         beforeHp: Math.round(beforeHp),
         afterHp: Math.round(finalHp),
-        damageType: damageEvent.damageType,
+        damageType,
         damageSource: damageEvent.damageSource,
         critical: isCritical ?? false,
         shieldAbsorbed: Math.round(absorbedAmount),

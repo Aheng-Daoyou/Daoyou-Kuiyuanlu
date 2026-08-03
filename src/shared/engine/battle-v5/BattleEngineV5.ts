@@ -294,9 +294,11 @@ export class BattleEngineV5 {
               this.cancelQueuedAction(actor, cancelledQueue, controlTag);
               this.commitSystemResult(actor, {
                 type: 'mechanic',
-                mechanic: 'control_skip',
                 code: CombatMechanicCodeV3.CONTROL_SKIP,
-                name: '无法行动',
+                payload: {
+                  kind: 'control_skip',
+                  controlName: this.getControlName(actor, controlTag),
+                },
               });
               this._eventBus.publish<ControlledSkipEvent>({
                 type: 'ControlledSkipEvent',
@@ -394,6 +396,10 @@ export class BattleEngineV5 {
       phase: 'cancelled',
       name: '蓄势',
       remainingActions: 0,
+      ability: {
+        id: queuedAction.ability.slug,
+        name: queuedAction.ability.name,
+      },
     });
     this._eventBus.publish<ActionStateEvent>({
       type: 'ActionStateEvent',
@@ -422,6 +428,13 @@ export class BattleEngineV5 {
     }
 
     return null;
+  }
+
+  private getControlName(actor: Unit, controlTag: string): string {
+    return (
+      actor.buffs.getAllBuffs().find((buff) => buff.tags.hasTag(controlTag))
+        ?.name ?? '控制效果'
+    );
   }
 
   private commitSystemResult(unit: Unit, result: CombatFactDraftV3): void {

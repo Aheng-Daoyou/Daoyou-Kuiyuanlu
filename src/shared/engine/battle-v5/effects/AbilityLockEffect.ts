@@ -39,11 +39,12 @@ export class AbilityLockEffect extends GameplayEffect {
       skill.modifyCooldown(rounds);
       context.commit(context.target, {
         type: 'mechanic',
-        mechanic: 'ability_lock',
         code: CombatMechanicCodeV3.ABILITY_LOCK,
-        name: '技能封禁',
-        detail: skill.name,
-        value: rounds,
+        payload: {
+          kind: 'ability_lock',
+          abilityName: skill.name,
+          rounds,
+        },
       });
       context.emit<CooldownModifyEvent>({
         type: 'CooldownModifyEvent',

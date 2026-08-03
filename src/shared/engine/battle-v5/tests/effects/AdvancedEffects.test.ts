@@ -43,6 +43,9 @@ import {
   TurnStateCounterEffect,
 } from '../../effects/AdvancedEffects';
 import { DamageEffect } from '../../effects/DamageEffect';
+import { DispelEffect } from '../../effects/DispelEffect';
+import { TagTriggerEffect } from '../../effects/TagTriggerEffect';
+import '../../effects/ShieldEffect';
 import { AbilityFactory } from '../../factories/AbilityFactory';
 import { BuffFactory } from '../../factories/BuffFactory';
 import { Unit } from '../../units/Unit';
@@ -160,7 +163,7 @@ describe('Advanced battle effects', () => {
     expect(requests[0].baseDamage).toBe(20);
   });
 
-  it('consume status trigger logs consumed layer count before removal', () => {
+  it('consume status trigger commits one final consumed status fact', () => {
     const caster = createUnit('caster');
     const target = createUnit('target');
     const poison = new Buff(
@@ -173,7 +176,7 @@ describe('Advanced battle effects', () => {
     poison.tags.addTags([GameplayTags.BUFF.DOT.POISON]);
     poison.setLayer(3);
     target.buffs.addBuff(poison, caster);
-    const mechanics = collectCommittedResultsV3('mechanic');
+    const statuses = collectCommittedResultsV3('status');
 
     executeTestEffect(
       new ConsumeStatusTriggerEffect({
@@ -184,12 +187,109 @@ describe('Advanced battle effects', () => {
       { caster, target },
     );
 
-    expect(mechanics).toHaveLength(1);
-    expect(mechanics[0].result).toMatchObject({
-      mechanic: 'buff_layer',
-      value: 3,
-      detail: '消耗层数',
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0].result).toMatchObject({
+      type: 'status',
+      operation: 'remove',
+      reason: 'consumed',
+      statusName: '毒',
+      beforeLayers: 3,
+      afterLayers: 0,
     });
+  });
+
+  it('partially consumed status is represented by one layer fact', () => {
+    const caster = createUnit('caster');
+    const target = createUnit('target');
+    const poison = new Buff(
+      'poison_partial',
+      '毒',
+      BuffType.DEBUFF,
+      3,
+      StackRule.STACK_LAYER,
+    );
+    poison.tags.addTags([GameplayTags.BUFF.DOT.POISON]);
+    poison.setLayer(3);
+    target.buffs.addBuff(poison, caster);
+    const statuses = collectCommittedResultsV3('status');
+    const mechanics = collectCommittedResultsV3('mechanic');
+
+    executeTestEffect(
+      new ConsumeStatusTriggerEffect({
+        match: { tags: [GameplayTags.BUFF.DOT.POISON] },
+        consume: 2,
+        effects: [],
+      }),
+      { caster, target },
+    );
+
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0].result).toMatchObject({
+      type: 'status',
+      operation: 'layers',
+      reason: 'consumed',
+      beforeLayers: 3,
+      afterLayers: 1,
+    });
+    expect(mechanics).toHaveLength(0);
+  });
+
+  it('links a mechanic cue to its final result explicitly', () => {
+    const caster = createUnit('caster');
+    const target = createUnit('target');
+    const mechanics = collectCommittedResultsV3('mechanic');
+    const shields = collectCommittedResultsV3('shield');
+
+    executeTestEffect(
+      new TagTriggerEffect({
+        triggerTag: GameplayTags.STATUS.ROOT,
+        displayName: '毒发',
+        effects: [{ type: 'shield', params: { value: { base: 10 } } }],
+      }),
+      { caster, target },
+    );
+
+    expect(mechanics).toHaveLength(1);
+    expect(shields).toHaveLength(1);
+    expect(mechanics[0].narrative).toMatchObject({ role: 'cue' });
+    expect(shields[0].narrative).toMatchObject({
+      causeId: mechanics[0].narrative?.causeId,
+      role: 'result',
+    });
+  });
+
+  it('represents dispel with one final status fact', () => {
+    const caster = createUnit('caster');
+    const target = createUnit('target');
+    const poison = new Buff(
+      'poison_dispel',
+      '毒',
+      BuffType.DEBUFF,
+      3,
+      StackRule.STACK_LAYER,
+    );
+    poison.tags.addTags([GameplayTags.BUFF.DOT.POISON]);
+    target.buffs.addBuff(poison, caster);
+    const statuses = collectCommittedResultsV3('status');
+    const defenses = collectCommittedResultsV3('defense');
+
+    executeTestEffect(
+      new DispelEffect({
+        targetTag: GameplayTags.BUFF.DOT.POISON,
+        maxCount: 1,
+      }),
+      { caster, target },
+    );
+
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0].result).toMatchObject({
+      type: 'status',
+      operation: 'remove',
+      reason: 'dispelled',
+      beforeLayers: 1,
+      afterLayers: 0,
+    });
+    expect(defenses).toHaveLength(0);
   });
 
   it('delayed effect triggers on owner action post', () => {
@@ -630,6 +730,8 @@ describe('Advanced battle effects', () => {
     mark.tags.addTags([GameplayTags.BUFF.ELEMENT.THUNDER]);
     mark.setLayer(2);
     target.buffs.addBuff(mark, caster);
+    const statuses = collectCommittedResultsV3('status');
+    const mechanics = collectCommittedResultsV3('mechanic');
 
     const requests: DamageRequestEvent[] = [];
     EventBus.instance.subscribe<DamageRequestEvent>(
@@ -662,6 +764,15 @@ describe('Advanced battle effects', () => {
 
     expect(target.buffs.getAllBuffs()).toHaveLength(0);
     expect(requests).toHaveLength(2);
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0].result).toMatchObject({
+      type: 'status',
+      operation: 'remove',
+      reason: 'manual',
+      beforeLayers: 2,
+      afterLayers: 0,
+    });
+    expect(mechanics).toHaveLength(0);
   });
 
   it('stacking an existing buff emits applied event with updated layers for logs', () => {
@@ -1373,13 +1484,21 @@ describe('Advanced battle effects', () => {
 
     expect(mechanics).toHaveLength(1);
     expect(mechanics[0].result).toMatchObject({
-      mechanic: 'hp_sacrifice',
-      value: Math.round(caster.getMaxHp() * 0.1),
+      code: 'hp_sacrifice',
+      payload: {
+        kind: 'hp_sacrifice',
+        amount: Math.round(caster.getMaxHp() * 0.1),
+      },
     });
     expect(mechanics[0].target).toBe(caster);
     expect(requests).toHaveLength(1);
     expect(requests[0].baseDamage).toBe(
-      Math.round((mechanics[0].result.value ?? 0) * 2),
+      Math.round(
+        (mechanics[0].result.type === 'mechanic' &&
+        mechanics[0].result.payload.kind === 'hp_sacrifice'
+          ? mechanics[0].result.payload.amount
+          : 0) * 2,
+      ),
     );
   });
 });

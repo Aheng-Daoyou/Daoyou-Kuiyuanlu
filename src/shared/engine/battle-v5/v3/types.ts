@@ -1,6 +1,6 @@
 import type { ActionStatePhase, ActionStateType } from '../core/actionState';
 import type { UnitStateDelta, UnitStateSnapshot } from '../systems/state/types';
-import type { CombatMechanicOperationV3 } from './mechanics';
+import type { CombatMechanicPayloadV3 } from './mechanics';
 
 export interface UnitRefV3 {
   id: string;
@@ -36,6 +36,12 @@ export interface CombatTraceV3 {
   ordinal: number;
   parentEventId?: string;
   resolutionId?: string;
+  narrativeCauseId?: string;
+}
+
+export interface CombatNarrativeRelationV3 {
+  causeId: string;
+  role: 'cue' | 'result';
 }
 
 export type CombatSequencePhaseV3 =
@@ -66,7 +72,75 @@ export interface CombatFactBaseV3 {
   trace: CombatTraceV3;
   origin: CombatOriginV3;
   target: UnitRefV3;
+  narrative?: CombatNarrativeRelationV3;
 }
+
+export type CombatStatusApplicationTransitionV3 =
+  'added' | 'stacked' | 'refreshed' | 'replaced';
+
+export type CombatStatusRemovalReasonV3 =
+  'expired' | 'dispelled' | 'consumed' | 'replaced' | 'manual';
+
+export type CombatStatusLayerChangeReasonV3 =
+  'modified' | 'consumed' | 'dispelled';
+
+type CombatStatusFactV3 = CombatFactBaseV3 &
+  (
+    | {
+        type: 'status';
+        operation: 'apply';
+        transition: CombatStatusApplicationTransitionV3;
+        statusId: string;
+        statusName: string;
+        statusType: 'buff' | 'debuff' | 'control';
+        beforeLayers: number;
+        afterLayers: number;
+        duration: number;
+      }
+    | {
+        type: 'status';
+        operation: 'layers';
+        reason: CombatStatusLayerChangeReasonV3;
+        statusId: string;
+        statusName: string;
+        statusType: 'buff' | 'debuff' | 'control';
+        beforeLayers: number;
+        afterLayers: number;
+      }
+    | {
+        type: 'status';
+        operation: 'remove';
+        reason: CombatStatusRemovalReasonV3;
+        statusId: string;
+        statusName: string;
+        statusType: 'buff' | 'debuff' | 'control';
+        beforeLayers: number;
+        afterLayers: 0;
+      }
+    | {
+        type: 'status';
+        operation: 'immune';
+        statusId: string;
+        statusName: string;
+        statusType: 'buff' | 'debuff' | 'control';
+      }
+  );
+
+type CombatActionStateFactV3 = CombatFactBaseV3 & {
+  type: 'action_state';
+  phase: ActionStatePhase;
+  name: string;
+  remainingActions: number;
+} & (
+    | {
+        stateType: 'queued_action';
+        ability: AbilityRefV3;
+      }
+    | {
+        stateType: Exclude<ActionStateType, 'queued_action'>;
+        ability?: never;
+      }
+  );
 
 export type CombatFactV3 =
   | (CombatFactBaseV3 & {
@@ -74,7 +148,7 @@ export type CombatFactV3 =
       amount: number;
       beforeHp: number;
       afterHp: number;
-      damageType?: 'physical' | 'magical' | 'true' | 'dot';
+      damageType: 'physical' | 'magical' | 'true' | 'dot';
       damageSource?: 'direct' | 'reflect' | 'counter' | 'follow_up' | 'delayed';
       critical: boolean;
       shieldAbsorbed: number;
@@ -90,24 +164,11 @@ export type CombatFactV3 =
       amount: number;
       after: number;
     })
-  | (CombatFactBaseV3 & {
-      type: 'status';
-      operation: 'apply' | 'remove' | 'immune';
-      statusId?: string;
-      statusName: string;
-      statusType?: 'buff' | 'debuff' | 'control';
-      layers?: number;
-      duration?: number;
-    })
+  | CombatStatusFactV3
   | (CombatFactBaseV3 & {
       type: 'defense';
       defense:
-        | 'mana_shield'
-        | 'damage_immune'
-        | 'dodge'
-        | 'resist'
-        | 'dispel'
-        | 'interrupt';
+        'mana_shield' | 'damage_immune' | 'dodge' | 'resist' | 'interrupt';
       amount?: number;
       detail?: string;
     })
@@ -120,22 +181,11 @@ export type CombatFactV3 =
       applied: number;
       max?: number;
     })
-  | (CombatFactBaseV3 & {
-      type: 'action_state';
-      stateType: ActionStateType;
-      phase: ActionStatePhase;
-      name: string;
-      remainingActions: number;
-    })
+  | CombatActionStateFactV3
   | (CombatFactBaseV3 & {
       type: 'mechanic';
-      mechanic: string;
       code: string;
-      name: string;
-      operation?: CombatMechanicOperationV3;
-      previousName?: string;
-      detail?: string;
-      value?: number;
+      payload: CombatMechanicPayloadV3;
     })
   | (CombatFactBaseV3 & {
       type: 'death_prevented';
@@ -196,6 +246,10 @@ export type PresentedLogToneV3 =
   | 'secondary'
   | 'ability'
   | 'damage'
+  | 'damage_physical'
+  | 'damage_magical'
+  | 'damage_true'
+  | 'damage_dot'
   | 'positive'
   | 'negative'
   | 'shield'
@@ -224,4 +278,42 @@ export interface PresentedLogLineV3 {
     | 'state'
     | 'system';
   parts: PresentedLogPartV3[];
+  /** 来源与结果合并时使用因果谓语，或直接承接已自带谓语的完整句。 */
+  attributionLink?: 'caused' | 'context';
+}
+
+export type CombatLogPresentationModeV3 = 'concise' | 'detailed';
+
+interface PresentedLogGroupBaseV3 {
+  id: string;
+}
+
+/** 当前 Sequence 的直接结果，不额外声明来源。 */
+export interface PresentedRootLogGroupV3 extends PresentedLogGroupBaseV3 {
+  layout: 'root';
+  lines: PresentedLogLineV3[];
+}
+
+/** 单一来源结果，来源和结果合并为一行。 */
+export interface PresentedInlineLogGroupV3 extends PresentedLogGroupBaseV3 {
+  layout: 'inline';
+  line: PresentedLogLineV3;
+}
+
+/** 同一来源产生多个结果，保留显式来源标题和结果子树。 */
+export interface PresentedBranchLogGroupV3 extends PresentedLogGroupBaseV3 {
+  layout: 'branch';
+  heading: PresentedLogLineV3;
+  lines: PresentedLogLineV3[];
+}
+
+export type PresentedLogGroupV3 =
+  | PresentedRootLogGroupV3
+  | PresentedInlineLogGroupV3
+  | PresentedBranchLogGroupV3;
+
+export interface PresentedCombatSequenceV3 {
+  id: string;
+  heading?: PresentedLogLineV3;
+  groups: PresentedLogGroupV3[];
 }

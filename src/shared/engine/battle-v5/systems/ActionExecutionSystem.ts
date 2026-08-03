@@ -72,7 +72,6 @@ export class ActionExecutionSystem {
             {
               type: 'defense',
               defense: 'interrupt',
-              detail: '施法被打断',
             },
             { origin: interruptedOrigin, parentTrace: eventTrace },
           );
@@ -93,6 +92,7 @@ export class ActionExecutionSystem {
                 phase: 'cancelled',
                 name: event.queuedActionState.name,
                 remainingActions: 0,
+                ability: { id: event.ability.id, name: event.ability.name },
               },
               { origin: interruptedOrigin, parentTrace: eventTrace },
             );
@@ -174,6 +174,7 @@ export class ActionExecutionSystem {
             phase: 'triggered',
             name: event.queuedActionState.name,
             remainingActions: 0,
+            ability: { id: ability.id, name: ability.name },
           },
           { origin, parentTrace: castTrace },
         );

@@ -43,13 +43,14 @@ export class DamageDeferEffect extends GameplayEffect {
       rememberAmount(event.target, this.params.memory.key, deferred, cap);
     }
     commitMechanicResultV3(context, {
-      mechanic: 'damage_defer',
       code: CombatMechanicCodeV3.DAMAGE_DEFER,
       target: event.target,
-      displayName: '延迟伤害',
       visibility: 'player',
-      value: deferred,
-      detail: `延后${this.params.delayTurns}回合结算`,
+      payload: {
+        kind: 'damage_defer',
+        amount: deferred,
+        turns: this.params.delayTurns,
+      },
     });
 
     event.target.buffs.addBuff(

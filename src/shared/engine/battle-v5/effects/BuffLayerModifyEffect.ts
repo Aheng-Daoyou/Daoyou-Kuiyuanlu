@@ -1,12 +1,8 @@
 import { BuffLayerModifyParams } from '../core/configs';
 import { executeEffectConfigs } from '../core/effectExecutor';
 import { EffectRegistry } from '../factories/EffectRegistry';
-import { CombatMechanicCodeV3 } from '../v3/mechanics';
 import { EffectExecutionContextV3, GameplayEffect } from './Effect';
-import {
-  commitMechanicResultV3,
-  findMatchingBuffs,
-} from './advancedEffectUtils';
+import { findMatchingBuffs } from './advancedEffectUtils';
 
 export class BuffLayerModifyEffect extends GameplayEffect {
   constructor(private params: BuffLayerModifyParams) {
@@ -22,6 +18,8 @@ export class BuffLayerModifyEffect extends GameplayEffect {
       buff: context.buff,
       attribution: context.attribution,
       trace: context.trace,
+      layerChangeReason: 'modified' as const,
+      statusFactVisibility: this.params.logVisibility,
     };
     for (const buff of findMatchingBuffs(unit, this.params.match)) {
       if (!context.canExecuteEffect()) break;
@@ -45,19 +43,13 @@ export class BuffLayerModifyEffect extends GameplayEffect {
           unit.buffs.setBuffLayer(buff.id, 0, origin);
           break;
         case 'set':
-          unit.buffs.setBuffLayer(buff.id, this.params.layers ?? 1, origin);
+          unit.buffs.setBuffLayer(
+            buff.id,
+            this.params.layers ?? 1,
+            origin,
+          );
           break;
       }
-
-      commitMechanicResultV3(context, {
-        mechanic: 'buff_layer',
-        code: CombatMechanicCodeV3.BUFF_LAYER_MODIFY,
-        target: unit,
-        displayName: buff.name,
-        visibility: this.params.logVisibility ?? 'player',
-        value: before,
-        detail: '修改前层数',
-      });
 
       const repeat = this.params.scaleEffectsByLayer ? before : 1;
       for (let i = 0; i < repeat; i++) {

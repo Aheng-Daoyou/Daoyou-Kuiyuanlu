@@ -68,12 +68,6 @@ export class DispelEffect extends GameplayEffect {
       return;
     }
 
-    context.commit(target, {
-      type: 'defense',
-      defense: 'dispel',
-      detail: removedBuffNames.join('、'),
-    });
-
     // 发布驱散事件
     context.emit<DispelEvent>({
       type: 'DispelEvent',

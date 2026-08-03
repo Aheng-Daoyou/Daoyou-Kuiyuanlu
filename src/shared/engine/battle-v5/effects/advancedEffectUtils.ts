@@ -1,7 +1,10 @@
 import { Buff } from '../buffs/Buff';
 import { BuffMatchParams } from '../core/configs';
 import type { Unit } from '../units/Unit';
-import type { CombatMechanicOperationV3 } from '../v3/mechanics';
+import type {
+  AbilityTransformModifierV3,
+  CombatMechanicPayloadV3,
+} from '../v3/mechanics';
 import { EffectExecutionContextV3 } from './Effect';
 
 export function matchesBuff(buff: Buff, match?: BuffMatchParams): boolean {
@@ -23,26 +26,41 @@ export function findMatchingBuffs(
 export function commitMechanicResultV3(
   context: EffectExecutionContextV3,
   event: {
-    mechanic: string;
     code: string;
-    displayName: string;
+    payload: CombatMechanicPayloadV3;
     target: Unit;
-    detail?: string;
-    value?: number;
     visibility?: 'player' | 'debug';
-    operation?: CombatMechanicOperationV3;
-    previousDisplayName?: string;
   },
 ): void {
   if (event.visibility === 'debug') return;
   context.commit(event.target, {
     type: 'mechanic',
-    mechanic: event.mechanic,
     code: event.code,
-    name: event.displayName,
-    operation: event.operation,
-    previousName: event.previousDisplayName,
-    detail: event.detail,
-    value: event.value,
+    payload: event.payload,
   });
+}
+
+export function abilityTransformModifiersV3(params: {
+  trueDamage?: boolean;
+  addDispel?: unknown;
+  mpCostToHp?: boolean;
+  freeManaCost?: boolean;
+  cooldownModify?: number;
+  forceCritical?: boolean;
+  bonusDamageMemory?: unknown;
+}): AbilityTransformModifierV3[] {
+  const modifiers: AbilityTransformModifierV3[] = [];
+  if (params.trueDamage) modifiers.push({ kind: 'true_damage' });
+  if (params.addDispel) modifiers.push({ kind: 'dispel' });
+  if (params.mpCostToHp) modifiers.push({ kind: 'mp_cost_to_hp' });
+  if (params.freeManaCost) modifiers.push({ kind: 'free_mana_cost' });
+  if (params.cooldownModify !== undefined) {
+    const cooldownRounds = Math.round(params.cooldownModify);
+    if (cooldownRounds !== 0) {
+      modifiers.push({ kind: 'cooldown', rounds: cooldownRounds });
+    }
+  }
+  if (params.forceCritical) modifiers.push({ kind: 'force_critical' });
+  if (params.bonusDamageMemory) modifiers.push({ kind: 'stored_damage' });
+  return modifiers;
 }

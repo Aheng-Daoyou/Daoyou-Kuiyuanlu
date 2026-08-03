@@ -32,10 +32,8 @@ export class ManaBurnEffect extends GameplayEffect {
 
     context.commit(target, {
       type: 'mechanic',
-      mechanic: 'mana_burn',
       code: CombatMechanicCodeV3.MANA_BURN,
-      name: '法力燃烧',
-      value: Math.round(actualBurned),
+      payload: { kind: 'mana_burn', amount: Math.round(actualBurned) },
     });
 
     // 发布焚元事件

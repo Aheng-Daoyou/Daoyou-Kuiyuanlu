@@ -466,7 +466,7 @@ function collectLogMetrics(sequences: CombatSequenceV3[] | undefined) {
           break;
         }
         case 'mechanic':
-          if (fact.mechanic !== 'control_skip') break;
+          if (fact.payload.kind !== 'control_skip') break;
           controlSkipCount += 1;
           break;
         default:

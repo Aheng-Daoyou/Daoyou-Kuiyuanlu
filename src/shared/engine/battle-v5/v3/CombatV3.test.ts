@@ -1,14 +1,18 @@
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BattleEngineV5 } from '../BattleEngineV5';
-import { Buff } from '../buffs/Buff';
+import { Buff, StackRule } from '../buffs/Buff';
 import {
   SeededBattleRandomSource,
   withBattleRandomSource,
 } from '../core/BattleRandom';
 import type { AbilityConfig } from '../core/configs';
 import { EventBus } from '../core/EventBus';
-import type { ActionPostEvent, DamageRequestEvent } from '../core/events';
+import type {
+  ActionPostEvent,
+  BuffLayerChangedEvent,
+  DamageRequestEvent,
+} from '../core/events';
 import {
   AbilityType,
   AttributeType,
@@ -33,16 +37,21 @@ import {
   BattleRecordValidatorV3,
   validateBattleRecordV3,
 } from './BattleRecordV3';
+import { CombatFactNarratorV3 } from './CombatFactNarratorV3';
 import { CombatPresenterV3 } from './CombatPresenterV3';
 import { CombatRecordBuilderV3 } from './CombatRecordBuilderV3';
 import type { CombatResultScopeV3 } from './CombatResultEmitterV3';
 import { CombatResultEmitterV3 } from './CombatResultEmitterV3';
+import type { CombatMechanicPayloadV3 } from './mechanics';
 import { CombatAttributionV3, CombatSystemSourceV3 } from './origin';
 import type {
   BattleRecordV3,
   CombatFactV3,
   CombatOriginV3,
   CombatSequenceV3,
+  CombatStatusApplicationTransitionV3,
+  CombatStatusLayerChangeReasonV3,
+  CombatStatusRemovalReasonV3,
 } from './types';
 
 function unit(id: string, name: string, strength = 100): Unit {
@@ -163,7 +172,9 @@ function damageFact(
     amount: 1,
     beforeHp: 1,
     afterHp: 0,
+    damageType: DamageType.TRUE,
     shieldAbsorbed: 0,
+    critical: false,
     damageSource: DamageSource.DIRECT,
   };
 }
@@ -190,7 +201,13 @@ function recordWithFacts(facts: CombatFactV3[]): BattleRecordV3 {
         actor: { id: 'winner', name: '胜者' },
         facts,
       },
-      { id: 'sequence:end', turn: 1, phase: 'battle_end', facts: [] },
+      {
+        id: 'sequence:end',
+        turn: 1,
+        phase: 'battle_end',
+        actor: { id: 'winner', name: '胜者' },
+        facts: [],
+      },
     ],
     stateTimeline: {
       unitIds: ['winner', 'loser'],
@@ -345,9 +362,8 @@ describe('combat facts V3', () => {
           defender,
           {
             type: 'mechanic',
-            mechanic: 'death_guard',
             code: 'death_guard',
-            name: '不灭金身',
+            payload: { kind: 'named_trigger', label: '不灭金身' },
           },
           { origin, parentTrace: trigger.trace! },
         );
@@ -356,8 +372,10 @@ describe('combat facts V3', () => {
 
     const sequence = builder.getSequences()[0];
     expect(sequence.facts[0].origin).toEqual(origin);
-    const output = new CombatPresenterV3().format(sequence).join('\n');
-    expect(output).toContain('「防守者」的「玄黄不灭甲」');
+    const output = new CombatPresenterV3('detailed')
+      .format(sequence)
+      .join('\n');
+    expect(output).toContain('「防守者」的「玄黄不灭甲」：触发「不灭金身」');
     expect(output).not.toContain('「进攻者」的「玄黄不灭甲」');
     builder.destroy();
   });
@@ -749,9 +767,8 @@ describe('combat facts V3', () => {
       trace: { eventId: id, sequenceId: 'sequence', ordinal },
       origin: factOrigin,
       target,
-      mechanic: id,
       code: id,
-      name,
+      payload: { kind: 'named_trigger', label: name },
     });
     const sequence: CombatSequenceV3 = {
       id: 'sequence',
@@ -765,9 +782,147 @@ describe('combat facts V3', () => {
       ],
     };
 
-    const lines = new CombatPresenterV3().format(sequence);
+    const lines = new CombatPresenterV3('detailed').format(sequence);
     expect(lines.join('\n')).toMatch(/第一[\s\S]*第二[\s\S]*第三[\s\S]*第四/);
     expect(lines.filter((line) => line.includes('「归藏」'))).toHaveLength(2);
+  });
+
+  it('models direct, inline, and branch attribution layouts explicitly', () => {
+    const actor = { id: 'actor', name: '裴一真' };
+    const target = { id: 'target', name: '木桩' };
+    const defender = { id: 'defender', name: '墨无痕' };
+    const ability = { id: 'attack', name: '听雷' };
+    const trace = (eventId: string, ordinal: number) => ({
+      eventId,
+      sequenceId: 'sequence:layouts',
+      ordinal,
+    });
+    const actionOrigin: CombatOriginV3 = {
+      kind: 'owned',
+      owner: actor,
+      carrier: { kind: 'ability', ...ability },
+    };
+    const passiveOrigin: CombatOriginV3 = {
+      kind: 'owned',
+      owner: actor,
+      carrier: { kind: 'gongfa', id: 'passive', name: '大巧不工' },
+    };
+    const equipmentOrigin: CombatOriginV3 = {
+      kind: 'owned',
+      owner: defender,
+      carrier: { kind: 'equipment', id: 'armor', name: '玄甲' },
+    };
+    const sequence: CombatSequenceV3 = {
+      id: 'sequence:layouts',
+      turn: 1,
+      phase: 'action',
+      actor,
+      ability,
+      facts: [
+        {
+          id: 'direct',
+          type: 'resource',
+          trace: trace('direct', 1),
+          origin: actionOrigin,
+          target: actor,
+          resourceId: 'sword-intent',
+          resourceName: '剑意',
+          before: 0,
+          after: 1,
+          applied: 1,
+        },
+        {
+          id: 'inline',
+          type: 'resource',
+          trace: trace('inline', 2),
+          origin: passiveOrigin,
+          target: actor,
+          resourceId: 'sword-intent',
+          resourceName: '剑意',
+          before: 1,
+          after: 2,
+          applied: 1,
+        },
+        {
+          id: 'branch-recovery',
+          type: 'recovery',
+          trace: trace('branch-recovery', 3),
+          origin: equipmentOrigin,
+          target: defender,
+          resource: 'mp',
+          amount: 12,
+          after: 88,
+        },
+        {
+          id: 'branch-shield',
+          type: 'shield',
+          trace: trace('branch-shield', 4),
+          origin: equipmentOrigin,
+          target: defender,
+          amount: 30,
+          after: 30,
+        },
+      ],
+    };
+
+    const presentation = new CombatPresenterV3('concise').present(sequence);
+    expect(presentation.groups.map((group) => group.layout)).toEqual([
+      'root',
+      'inline',
+      'branch',
+    ]);
+    const inline = presentation.groups[1];
+    expect(inline).toMatchObject({ layout: 'inline' });
+    if (inline.layout !== 'inline') throw new Error('Expected inline group');
+    expect(inline.line.parts.map((entry) => entry.text).join('')).toBe(
+      '「大巧不工」触发：剑意 1 → 2',
+    );
+    const branch = presentation.groups[2];
+    expect(branch).toMatchObject({ layout: 'branch' });
+    if (branch.layout !== 'branch') throw new Error('Expected branch group');
+    expect(branch.heading.parts.map((entry) => entry.text).join('')).toBe(
+      '「墨无痕」的「玄甲」触发',
+    );
+    expect(branch.lines).toHaveLength(2);
+  });
+
+  it('keeps unattributed expiry summaries at the sequence root', () => {
+    const actor = { id: 'actor', name: '裴一真' };
+    const sequence: CombatSequenceV3 = {
+      id: 'sequence:expiry-root',
+      turn: 2,
+      phase: 'action_after',
+      actor,
+      facts: [
+        {
+          id: 'expired',
+          type: 'status',
+          trace: {
+            eventId: 'expired',
+            sequenceId: 'sequence:expiry-root',
+            ordinal: 1,
+          },
+          origin: {
+            kind: 'owned',
+            owner: actor,
+            carrier: { kind: 'ability', id: 'charge', name: '藏锋听雷' },
+          },
+          target: actor,
+          operation: 'remove',
+          reason: 'expired',
+          statusId: 'charge',
+          statusName: '藏锋听雷',
+          statusType: 'buff',
+          beforeLayers: 1,
+          afterLayers: 0,
+        },
+      ],
+    };
+
+    const presentation = new CombatPresenterV3('concise').present(sequence);
+    expect(presentation.heading).toBeUndefined();
+    expect(presentation.groups).toHaveLength(1);
+    expect(presentation.groups[0]).toMatchObject({ layout: 'root' });
   });
 
   it('renders action-state phases with domain text instead of internal values', () => {
@@ -793,12 +948,15 @@ describe('combat facts V3', () => {
           phase: 'entered',
           name: '蓄势',
           remainingActions: 1,
+          ability: { id: 'queued', name: '听雷' },
         },
       ],
     };
 
-    const output = new CombatPresenterV3().format(sequence).join('\n');
-    expect(output).toContain('蓄势：进入');
+    const output = new CombatPresenterV3('detailed')
+      .format(sequence)
+      .join('\n');
+    expect(output).toContain('开始蓄势');
     expect(output).not.toContain('entered');
   });
 
@@ -859,6 +1017,7 @@ describe('combat facts V3', () => {
           new AbilityTransformEffect({
             id: 'internal_transform_rule',
             triggers: 1,
+            forceCritical: true,
           }),
           context,
         );
@@ -871,16 +1030,1154 @@ describe('combat facts V3', () => {
       },
     );
 
-    const output = new CombatPresenterV3()
+    const output = new CombatPresenterV3('detailed')
       .format(builder.getSequences()[0])
       .join('\n');
-    expect(output).toContain('能力强化');
+    expect(output).toContain('技能获得强化');
     expect(output).not.toContain('internal_transform_rule');
-    expect(output).toContain('数值：1');
+    expect(output).toContain('必定暴击');
+    expect(output).not.toContain('数值：1');
     expect(output).toContain('法力护盾');
     expect(output).toContain('12');
     expect(output).toContain('消耗12点法力');
     builder.destroy();
+  });
+
+  it('emits explicit status transitions for add, stack, refresh, and replace', () => {
+    const builder = new CombatRecordBuilderV3(EventBus.instance);
+    const owner = unit('owner', '归属者');
+
+    builder.runInSequence(
+      { id: 'sequence:status-transitions', phase: 'action', turn: 1 },
+      () => {
+        owner.buffs.addBuff(
+          new Buff(
+            'stack',
+            '叠层',
+            BuffType.BUFF,
+            2,
+            StackRule.STACK_LAYER,
+            undefined,
+            2,
+          ),
+          owner,
+        );
+        owner.buffs.addBuff(
+          new Buff(
+            'stack',
+            '叠层',
+            BuffType.BUFF,
+            2,
+            StackRule.STACK_LAYER,
+            undefined,
+            2,
+          ),
+          owner,
+        );
+        owner.buffs.addBuff(
+          new Buff(
+            'stack',
+            '叠层',
+            BuffType.BUFF,
+            2,
+            StackRule.STACK_LAYER,
+            undefined,
+            2,
+          ),
+          owner,
+        );
+        owner.buffs.addBuff(
+          new Buff(
+            'refresh',
+            '刷新',
+            BuffType.BUFF,
+            1,
+            StackRule.REFRESH_DURATION,
+          ),
+          owner,
+        );
+        owner.buffs.addBuff(
+          new Buff(
+            'refresh',
+            '刷新',
+            BuffType.BUFF,
+            3,
+            StackRule.REFRESH_DURATION,
+          ),
+          owner,
+        );
+        owner.buffs.addBuff(
+          new Buff('replace', '替换', BuffType.BUFF, 1, StackRule.OVERRIDE),
+          owner,
+        );
+        owner.buffs.addBuff(
+          new Buff('replace', '替换', BuffType.BUFF, 2, StackRule.OVERRIDE),
+          owner,
+        );
+      },
+    );
+
+    const transitions = builder
+      .getSequences()[0]
+      .facts.filter(
+        (entry) => entry.type === 'status' && entry.operation === 'apply',
+      )
+      .map((entry) => ({
+        transition: entry.transition,
+        before: entry.beforeLayers,
+        after: entry.afterLayers,
+      }));
+    expect(transitions).toEqual([
+      { transition: 'added', before: 0, after: 1 },
+      { transition: 'stacked', before: 1, after: 2 },
+      { transition: 'refreshed', before: 2, after: 2 },
+      { transition: 'added', before: 0, after: 1 },
+      { transition: 'refreshed', before: 1, after: 1 },
+      { transition: 'added', before: 0, after: 1 },
+      { transition: 'replaced', before: 1, after: 1 },
+    ]);
+    builder.destroy();
+  });
+
+  it('commits a stack result before layer-change reactions mutate the buff', () => {
+    const builder = new CombatRecordBuilderV3(EventBus.instance);
+    const owner = unit('owner', '归属者');
+
+    builder.runInSequence(
+      { id: 'sequence:stack-reaction', phase: 'action', turn: 1, actor: owner },
+      () => {
+        owner.buffs.addBuff(
+          new Buff(
+            'reactive-stack',
+            '反应叠层',
+            BuffType.BUFF,
+            2,
+            StackRule.STACK_LAYER,
+          ),
+          owner,
+        );
+        EventBus.instance.subscribe<BuffLayerChangedEvent>(
+          'BuffLayerChangedEvent',
+          (event) => {
+            if (
+              event.buff.id === 'reactive-stack' &&
+              event.currentLayer === 2
+            ) {
+              owner.buffs.modifyBuffLayer('reactive-stack', -1);
+            }
+          },
+        );
+        owner.buffs.addBuff(
+          new Buff(
+            'reactive-stack',
+            '反应叠层',
+            BuffType.BUFF,
+            2,
+            StackRule.STACK_LAYER,
+          ),
+          owner,
+        );
+      },
+    );
+
+    const applications = builder
+      .getSequences()[0]
+      .facts.filter(
+        (entry) => entry.type === 'status' && entry.operation === 'apply',
+      );
+    expect(applications.map((entry) => entry.transition)).toEqual([
+      'added',
+      'stacked',
+    ]);
+    expect(applications[1]).toMatchObject({ beforeLayers: 1, afterLayers: 2 });
+    expect(
+      owner.buffs
+        .getAllBuffs()
+        .find((buff) => buff.id === 'reactive-stack')
+        ?.getLayer(),
+    ).toBe(1);
+    builder.destroy();
+  });
+
+  it('compacts redundant action state and status lifecycle without losing meaning', () => {
+    const actor = { id: 'actor', name: '裴一真' };
+    const target = { id: 'target', name: '墨无痕' };
+    const ability = { id: 'hidden-thunder', name: '藏锋听雷' };
+    const origin: CombatOriginV3 = {
+      kind: 'owned',
+      owner: actor,
+      carrier: { kind: 'ability', ...ability },
+    };
+    const trace = (id: string, ordinal: number, causeId: string) => ({
+      eventId: id,
+      sequenceId: 'sequence:narrative',
+      ordinal,
+      narrativeCauseId: causeId,
+    });
+    const relation = (causeId: string) => ({
+      causeId,
+      role: 'result' as const,
+    });
+    const sequence: CombatSequenceV3 = {
+      id: 'sequence:narrative',
+      turn: 1,
+      phase: 'action',
+      actor,
+      ability,
+      facts: [
+        {
+          id: 'self-status',
+          type: 'status',
+          trace: trace('self-status', 1, 'cause:action'),
+          narrative: relation('cause:action'),
+          origin,
+          target: actor,
+          operation: 'apply',
+          transition: 'added',
+          statusId: 'hidden-thunder-status',
+          statusName: '藏锋听雷',
+          statusType: 'buff',
+          beforeLayers: 0,
+          afterLayers: 1,
+          duration: 1,
+        },
+        {
+          id: 'queued',
+          type: 'action_state',
+          trace: trace('queued', 2, 'cause:action'),
+          narrative: relation('cause:action'),
+          origin,
+          target: actor,
+          stateType: 'queued_action',
+          phase: 'entered',
+          name: '蓄势',
+          remainingActions: 1,
+          ability: { id: 'thunder', name: '听雷' },
+        },
+        {
+          id: 'erosion-1',
+          type: 'status',
+          trace: trace('erosion-1', 3, 'cause:erosion'),
+          narrative: relation('cause:erosion'),
+          origin,
+          target,
+          operation: 'apply',
+          transition: 'added',
+          statusId: 'erosion',
+          statusName: '蚀魂',
+          statusType: 'debuff',
+          beforeLayers: 0,
+          afterLayers: 1,
+          duration: 3,
+        },
+        {
+          id: 'erosion-2',
+          type: 'status',
+          trace: trace('erosion-2', 4, 'cause:erosion'),
+          narrative: relation('cause:erosion'),
+          origin,
+          target,
+          operation: 'apply',
+          transition: 'stacked',
+          statusId: 'erosion',
+          statusName: '蚀魂',
+          statusType: 'debuff',
+          beforeLayers: 1,
+          afterLayers: 2,
+          duration: 3,
+        },
+        {
+          id: 'expired-a',
+          type: 'status',
+          trace: trace('expired-a', 5, 'cause:expiry'),
+          origin,
+          target: actor,
+          operation: 'remove',
+          reason: 'expired',
+          statusId: 'a',
+          statusName: '藏锋听雷',
+          statusType: 'buff',
+          beforeLayers: 1,
+          afterLayers: 0,
+        },
+        {
+          id: 'expired-b',
+          type: 'status',
+          trace: trace('expired-b', 6, 'cause:expiry'),
+          origin,
+          target: actor,
+          operation: 'remove',
+          reason: 'expired',
+          statusId: 'b',
+          statusName: '踏雪无痕',
+          statusType: 'buff',
+          beforeLayers: 1,
+          afterLayers: 0,
+        },
+        {
+          id: 'expired-c',
+          type: 'status',
+          trace: trace('expired-c', 7, 'cause:other-expiry'),
+          origin: {
+            kind: 'owned',
+            owner: target,
+            carrier: { kind: 'ability', id: 'river', name: '忘川潮' },
+          },
+          target: actor,
+          operation: 'remove',
+          reason: 'expired',
+          statusId: 'c',
+          statusName: '忘川',
+          statusType: 'debuff',
+          beforeLayers: 1,
+          afterLayers: 0,
+        },
+      ],
+    };
+
+    const concise = new CombatPresenterV3('concise')
+      .format(sequence)
+      .join('\n');
+    const detailed = new CombatPresenterV3('detailed')
+      .format(sequence)
+      .join('\n');
+    expect(concise).not.toContain('获得「藏锋听雷」');
+    expect(concise).toContain('开始蓄势，下次行动施放《听雷》');
+    expect(concise.match(/蚀魂/g)).toHaveLength(1);
+    expect(concise).toContain('「藏锋听雷」、「踏雪无痕」');
+    expect(concise).not.toContain('「踏雪无痕」、「忘川」');
+    expect(concise).toContain('状态结束：「忘川」');
+    expect(detailed).toContain('获得「藏锋听雷」');
+    expect(detailed.match(/蚀魂/g)).toHaveLength(2);
+  });
+
+  it('hides a cue only through an explicit cause link regardless of adjacency', () => {
+    const actor = { id: 'actor', name: '归属者' };
+    const target = { id: 'target', name: '目标' };
+    const origin: CombatOriginV3 = {
+      kind: 'owned',
+      owner: actor,
+      carrier: { kind: 'gongfa', id: 'gongfa', name: '五雷真解' },
+    };
+    const trace = (id: string, ordinal: number) => ({
+      eventId: id,
+      sequenceId: 'sequence:cues',
+      ordinal,
+    });
+    const sequence: CombatSequenceV3 = {
+      id: 'sequence:cues',
+      turn: 1,
+      phase: 'action',
+      actor,
+      facts: [
+        {
+          id: 'tag-cue',
+          type: 'mechanic',
+          trace: trace('tag-cue', 1),
+          origin,
+          target,
+          code: 'tag-cue',
+          payload: { kind: 'tag_trigger', label: '引雷' },
+          narrative: { causeId: 'cause:thunder', role: 'cue' },
+        },
+        {
+          id: 'interleaved-result',
+          type: 'resource',
+          trace: trace('interleaved-result', 2),
+          origin,
+          target: actor,
+          resourceId: 'sword-intent',
+          resourceName: '剑意',
+          before: 1,
+          after: 2,
+          applied: 1,
+        },
+        {
+          id: 'status-result',
+          type: 'status',
+          trace: trace('status-result', 3),
+          origin,
+          target,
+          operation: 'apply',
+          transition: 'added',
+          statusId: 'thunder-mark',
+          statusName: '雷印',
+          statusType: 'debuff',
+          beforeLayers: 0,
+          afterLayers: 1,
+          duration: 2,
+          narrative: { causeId: 'cause:thunder', role: 'result' },
+        },
+        {
+          id: 'standalone-cue',
+          type: 'mechanic',
+          trace: trace('standalone-cue', 4),
+          origin,
+          target,
+          code: 'standalone-cue',
+          payload: { kind: 'named_trigger', label: '余雷' },
+        },
+      ],
+    };
+
+    const concise = new CombatPresenterV3('concise')
+      .format(sequence)
+      .join('\n');
+    expect(concise).not.toContain('引雷');
+    expect(concise).toContain('雷印');
+    expect(concise).toContain('触发「余雷」');
+    const detailed = new CombatPresenterV3('detailed')
+      .format(sequence)
+      .join('\n');
+    expect(detailed).toContain('触发「引雷」');
+  });
+
+  it('does not hide an equally named status from a different carrier', () => {
+    const actor = { id: 'actor', name: '裴一真' };
+    const ability = { id: 'hidden-thunder', name: '藏锋听雷' };
+    const causeId = 'cause:action';
+    const sequence: CombatSequenceV3 = {
+      id: 'sequence:carrier-identity',
+      turn: 1,
+      phase: 'action',
+      actor,
+      ability,
+      facts: [
+        {
+          id: 'same-name-status',
+          type: 'status',
+          trace: {
+            eventId: 'same-name-status',
+            sequenceId: 'sequence:carrier-identity',
+            ordinal: 1,
+            narrativeCauseId: causeId,
+          },
+          narrative: { causeId, role: 'result' },
+          origin: {
+            kind: 'owned',
+            owner: actor,
+            carrier: { kind: 'gongfa', id: 'other-source', name: '其他功法' },
+          },
+          target: actor,
+          operation: 'apply',
+          transition: 'added',
+          statusId: 'same-name-status',
+          statusName: ability.name,
+          statusType: 'buff',
+          beforeLayers: 0,
+          afterLayers: 1,
+          duration: 1,
+        },
+        {
+          id: 'queued-action',
+          type: 'action_state',
+          trace: {
+            eventId: 'queued-action',
+            sequenceId: 'sequence:carrier-identity',
+            ordinal: 2,
+            narrativeCauseId: causeId,
+          },
+          narrative: { causeId, role: 'result' },
+          origin: {
+            kind: 'owned',
+            owner: actor,
+            carrier: { kind: 'ability', ...ability },
+          },
+          target: actor,
+          stateType: 'queued_action',
+          phase: 'entered',
+          name: '蓄势',
+          remainingActions: 1,
+          ability: { id: 'thunder', name: '听雷' },
+        },
+      ],
+    };
+
+    expect(
+      new CombatPresenterV3('concise').format(sequence).join('\n'),
+    ).toContain('获得「藏锋听雷」');
+  });
+
+  it('renders every mechanic payload with explicit player semantics', () => {
+    const cases = {
+      ability_transform: [
+        {
+          kind: 'ability_transform',
+          triggers: 1,
+          modifiers: [{ kind: 'force_critical' }],
+        },
+        '必定暴击',
+      ],
+      ability_lock: [
+        { kind: 'ability_lock', abilityName: '问剑式', rounds: 2 },
+        '封禁《问剑式》',
+      ],
+      tag_trigger: [{ kind: 'tag_trigger', label: '追击' }, '触发「追击」'],
+      hp_sacrifice: [{ kind: 'hp_sacrifice', amount: 30 }, '消耗 30 点气血'],
+      damage_defer: [
+        { kind: 'damage_defer', amount: 80, turns: 2 },
+        '80 点伤害延后 2 回合',
+      ],
+      mana_burn: [{ kind: 'mana_burn', amount: 44 }, '44 点法力'],
+      cooldown_change: [
+        { kind: 'cooldown_change', abilityName: '一叹', rounds: -1 },
+        '冷却缩短 1 回合',
+      ],
+      damage_memory_record: [
+        { kind: 'damage_memory_record', amount: 215 },
+        '记录 215 点伤害',
+      ],
+      damage_memory_release: [
+        { kind: 'damage_memory_release', amount: 215, releaseAs: 'damage' },
+        '转化为 215 点伤害',
+      ],
+      control_skip: [
+        { kind: 'control_skip', controlName: '失魂' },
+        '受「失魂」影响',
+      ],
+      named_trigger: [
+        { kind: 'named_trigger', label: '剑势共鸣' },
+        '触发「剑势共鸣」',
+      ],
+      status_transition: [
+        { kind: 'status_transition', label: '火印', operation: 'refresh' },
+        '刷新「火印」',
+      ],
+    } satisfies {
+      [K in CombatMechanicPayloadV3['kind']]: [
+        Extract<CombatMechanicPayloadV3, { kind: K }>,
+        string,
+      ];
+    };
+    const origin: CombatOriginV3 = {
+      kind: 'system',
+      carrier: { kind: 'system', id: 'test', name: '测试系统' },
+    };
+
+    for (const [payload, expected] of Object.values(cases)) {
+      const sequence: CombatSequenceV3 = {
+        id: `sequence:${payload.kind}`,
+        turn: 1,
+        phase: 'action',
+        facts: [
+          {
+            id: payload.kind,
+            type: 'mechanic',
+            trace: {
+              eventId: payload.kind,
+              sequenceId: `sequence:${payload.kind}`,
+              ordinal: 1,
+            },
+            origin,
+            target: { id: 'target', name: '目标' },
+            code: payload.kind,
+            payload,
+          },
+        ],
+      };
+      const output = new CombatPresenterV3('detailed')
+        .format(sequence)
+        .join('\n');
+      expect(output).toContain(expected);
+      expect(output).not.toMatch(/数值：|ability_transform|damage_memory/);
+    }
+  });
+
+  it('renders every top-level fact type', () => {
+    const target = { id: 'target', name: '目标' };
+    const origin: CombatOriginV3 = {
+      kind: 'system',
+      carrier: { kind: 'system', id: 'test', name: '测试系统' },
+    };
+    const trace = (id: string) => ({
+      eventId: id,
+      sequenceId: `sequence:${id}`,
+      ordinal: 1,
+      resolutionId: `resolution:${id}`,
+    });
+    const cases = {
+      damage: {
+        fact: {
+          id: 'damage',
+          type: 'damage',
+          trace: trace('damage'),
+          origin,
+          target,
+          amount: 10,
+          beforeHp: 100,
+          afterHp: 90,
+          damageType: DamageType.PHYSICAL,
+          critical: false,
+          shieldAbsorbed: 0,
+        },
+        expected: '造成 10 点伤害',
+      },
+      recovery: {
+        fact: {
+          id: 'recovery',
+          type: 'recovery',
+          trace: trace('recovery'),
+          origin,
+          target,
+          resource: 'hp',
+          amount: 10,
+          after: 100,
+        },
+        expected: '恢复 10 点气血',
+      },
+      shield: {
+        fact: {
+          id: 'shield',
+          type: 'shield',
+          trace: trace('shield'),
+          origin,
+          target,
+          amount: 10,
+          after: 10,
+        },
+        expected: '提供 10 点护盾',
+      },
+      status: {
+        fact: {
+          id: 'status',
+          type: 'status',
+          trace: trace('status'),
+          origin,
+          target,
+          operation: 'apply',
+          transition: 'added',
+          statusId: 'status',
+          statusName: '测试状态',
+          statusType: 'buff',
+          beforeLayers: 0,
+          afterLayers: 1,
+          duration: 2,
+        },
+        expected: '施加「测试状态」',
+      },
+      defense: {
+        fact: {
+          id: 'defense',
+          type: 'defense',
+          trace: trace('defense'),
+          origin,
+          target,
+          defense: 'dodge',
+        },
+        expected: '成功闪避',
+      },
+      resource: {
+        fact: {
+          id: 'resource',
+          type: 'resource',
+          trace: trace('resource'),
+          origin,
+          target,
+          resourceId: 'intent',
+          resourceName: '剑意',
+          before: 1,
+          after: 2,
+          applied: 1,
+        },
+        expected: '剑意 1 → 2',
+      },
+      action_state: {
+        fact: {
+          id: 'action_state',
+          type: 'action_state',
+          trace: trace('action_state'),
+          origin,
+          target,
+          stateType: 'rest',
+          phase: 'entered',
+          name: '调息',
+          remainingActions: 1,
+        },
+        expected: '进入「调息」',
+      },
+      mechanic: {
+        fact: {
+          id: 'mechanic',
+          type: 'mechanic',
+          trace: trace('mechanic'),
+          origin,
+          target,
+          code: 'named',
+          payload: { kind: 'named_trigger', label: '剑鸣' },
+        },
+        expected: '触发「剑鸣」',
+      },
+      death_prevented: {
+        fact: {
+          id: 'death_prevented',
+          type: 'death_prevented',
+          trace: trace('death_prevented'),
+          origin,
+          target,
+        },
+        expected: '免于死亡',
+      },
+      unit_died: {
+        fact: {
+          id: 'unit_died',
+          type: 'unit_died',
+          trace: trace('unit_died'),
+          origin,
+          target,
+        },
+        expected: '被击败',
+      },
+    } satisfies {
+      [K in CombatFactV3['type']]: {
+        fact: Extract<CombatFactV3, { type: K }>;
+        expected: string;
+      };
+    };
+
+    for (const { fact: visibleFact, expected } of Object.values(cases)) {
+      const sequence: CombatSequenceV3 = {
+        id: visibleFact.trace.sequenceId,
+        turn: 1,
+        phase: 'action',
+        facts: [visibleFact],
+      };
+      expect(
+        new CombatPresenterV3('detailed').format(sequence).join('\n'),
+      ).toContain(expected);
+    }
+  });
+
+  it('renders every defense semantic', () => {
+    type DefenseFact = Extract<CombatFactV3, { type: 'defense' }>;
+    const cases = {
+      mana_shield: '法力护盾生效',
+      damage_immune: '免疫伤害',
+      dodge: '成功闪避',
+      resist: '抵抗控制',
+      interrupt: '施法被打断',
+    } satisfies Record<DefenseFact['defense'], string>;
+
+    for (const [defense, expected] of Object.entries(cases)) {
+      const sequence: CombatSequenceV3 = {
+        id: `sequence:${defense}`,
+        turn: 1,
+        phase: 'action',
+        facts: [
+          {
+            id: defense,
+            type: 'defense',
+            trace: {
+              eventId: defense,
+              sequenceId: `sequence:${defense}`,
+              ordinal: 1,
+            },
+            origin: {
+              kind: 'system',
+              carrier: { kind: 'system', id: 'test', name: '测试系统' },
+            },
+            target: { id: 'target', name: '目标' },
+            defense: defense as DefenseFact['defense'],
+          },
+        ],
+      };
+      expect(
+        new CombatPresenterV3('detailed').format(sequence).join('\n'),
+      ).toContain(expected);
+    }
+  });
+
+  it('renders every status transition and final removal reason', () => {
+    const applicationText = {
+      added: '获得「剑势」',
+      stacked: '叠至 2 层',
+      refreshed: '刷新「剑势」',
+      replaced: '状态替换为「剑势」',
+    } satisfies Record<CombatStatusApplicationTransitionV3, string>;
+    const layerText = {
+      modified: '层数 3 → 2',
+      consumed: '消耗「剑势」1 层，剩余 2 层',
+      dispelled: '驱散「剑势」1 层，剩余 2 层',
+    } satisfies Record<CombatStatusLayerChangeReasonV3, string>;
+    const removalText = {
+      expired: '结束',
+      dispelled: '被驱散',
+      consumed: '被消耗',
+      replaced: '被替换',
+      manual: '被移除',
+    } satisfies Record<CombatStatusRemovalReasonV3, string>;
+    const owner = { id: 'owner', name: '归属者' };
+    const origin: CombatOriginV3 = {
+      kind: 'owned',
+      owner,
+      carrier: { kind: 'buff', id: 'stance', name: '剑势' },
+    };
+    const present = (visibleFact: CombatFactV3) =>
+      new CombatPresenterV3('detailed')
+        .format({
+          id: visibleFact.trace.sequenceId,
+          turn: 1,
+          phase: 'action',
+          facts: [visibleFact],
+        })
+        .join('\n');
+
+    for (const [transition, expected] of Object.entries(applicationText)) {
+      const beforeLayers = transition === 'added' ? 0 : 1;
+      const afterLayers = transition === 'stacked' ? 2 : 1;
+      expect(
+        present({
+          id: `apply:${transition}`,
+          type: 'status',
+          trace: {
+            eventId: `apply:${transition}`,
+            sequenceId: `sequence:apply:${transition}`,
+            ordinal: 1,
+          },
+          origin,
+          target: owner,
+          operation: 'apply',
+          transition: transition as CombatStatusApplicationTransitionV3,
+          statusId: 'stance',
+          statusName: '剑势',
+          statusType: 'buff',
+          beforeLayers,
+          afterLayers,
+          duration: 2,
+        }),
+      ).toContain(expected);
+    }
+
+    for (const [reason, expected] of Object.entries(layerText)) {
+      expect(
+        present({
+          id: `layers:${reason}`,
+          type: 'status',
+          trace: {
+            eventId: `layers:${reason}`,
+            sequenceId: `sequence:layers:${reason}`,
+            ordinal: 1,
+          },
+          origin,
+          target: owner,
+          operation: 'layers',
+          reason: reason as CombatStatusLayerChangeReasonV3,
+          statusId: 'stance',
+          statusName: '剑势',
+          statusType: 'buff',
+          beforeLayers: 3,
+          afterLayers: 2,
+        }),
+      ).toContain(expected);
+    }
+
+    for (const [reason, expected] of Object.entries(removalText)) {
+      expect(
+        present({
+          id: `remove:${reason}`,
+          type: 'status',
+          trace: {
+            eventId: `remove:${reason}`,
+            sequenceId: `sequence:remove:${reason}`,
+            ordinal: 1,
+          },
+          origin,
+          target: owner,
+          operation: 'remove',
+          reason: reason as CombatStatusRemovalReasonV3,
+          statusId: 'stance',
+          statusName: '剑势',
+          statusType: 'buff',
+          beforeLayers: 1,
+          afterLayers: 0,
+        }),
+      ).toContain(expected);
+    }
+
+    expect(
+      present({
+        id: 'immune',
+        type: 'status',
+        trace: {
+          eventId: 'immune',
+          sequenceId: 'sequence:immune',
+          ordinal: 1,
+        },
+        origin,
+        target: owner,
+        operation: 'immune',
+        statusId: 'control',
+        statusName: '失魂',
+        statusType: 'control',
+      }),
+    ).toContain('免疫「失魂」');
+  });
+
+  it('renders every queued action phase and ability mode', () => {
+    const phaseText = {
+      entered: '开始蓄势',
+      triggered: '蓄势完成',
+      cancelled: '蓄势被打断',
+      skipped: '蓄势未能发动',
+    } as const;
+    const owner = { id: 'owner', name: '归属者' };
+    const origin: CombatOriginV3 = {
+      kind: 'owned',
+      owner,
+      carrier: { kind: 'ability', id: 'charge', name: '蓄势术' },
+    };
+
+    for (const [phase, expected] of Object.entries(phaseText)) {
+      const sequence: CombatSequenceV3 = {
+        id: `sequence:${phase}`,
+        turn: 1,
+        phase: 'action',
+        facts: [
+          {
+            id: phase,
+            type: 'action_state',
+            trace: {
+              eventId: phase,
+              sequenceId: `sequence:${phase}`,
+              ordinal: 1,
+            },
+            origin,
+            target: owner,
+            stateType: 'queued_action',
+            phase: phase as keyof typeof phaseText,
+            name: '蓄势',
+            remainingActions: phase === 'entered' ? 1 : 0,
+            ability: { id: 'strike', name: '听雷' },
+          },
+        ],
+      };
+      expect(
+        new CombatPresenterV3('detailed').format(sequence).join('\n'),
+      ).toContain(expected);
+    }
+
+    const abilityMode: CombatSequenceV3 = {
+      id: 'sequence:ability-mode',
+      turn: 1,
+      phase: 'action',
+      facts: [
+        {
+          id: 'ability-mode',
+          type: 'action_state',
+          trace: {
+            eventId: 'ability-mode',
+            sequenceId: 'sequence:ability-mode',
+            ordinal: 1,
+          },
+          origin,
+          target: owner,
+          stateType: 'ability_mode',
+          phase: 'entered',
+          name: '剑心',
+          remainingActions: 2,
+        },
+      ],
+    };
+    expect(
+      new CombatPresenterV3('detailed').format(abilityMode).join('\n'),
+    ).toContain('进入「剑心」状态');
+  });
+
+  it('describes shield-only damage without saying zero damage', () => {
+    const sequence: CombatSequenceV3 = {
+      id: 'sequence:shield-only',
+      turn: 1,
+      phase: 'action',
+      facts: [
+        {
+          id: 'damage',
+          type: 'damage',
+          trace: {
+            eventId: 'damage',
+            sequenceId: 'sequence:shield-only',
+            ordinal: 1,
+            resolutionId: 'resolution',
+          },
+          origin: {
+            kind: 'system',
+            carrier: { kind: 'system', id: 'test', name: '测试系统' },
+          },
+          target: { id: 'target', name: '目标' },
+          amount: 0,
+          beforeHp: 100,
+          afterHp: 100,
+          damageType: DamageType.PHYSICAL,
+          critical: false,
+          shieldAbsorbed: 88,
+        },
+      ],
+    };
+    const output = new CombatPresenterV3('concise').format(sequence).join('\n');
+    expect(output).toContain('护盾吸收 88 点伤害');
+    expect(output).toContain('气血未损');
+    expect(output).not.toContain('造成 0 点伤害');
+  });
+
+  it.each([
+    [DamageType.PHYSICAL, 'damage_physical'],
+    [DamageType.MAGICAL, 'damage_magical'],
+    [DamageType.TRUE, 'damage_true'],
+    [DamageType.DOT, 'damage_dot'],
+  ] as const)(
+    'assigns %s damage its dedicated narrative tone',
+    (damageType, expectedTone) => {
+      const line = new CombatFactNarratorV3('concise').narrate({
+        kind: 'fact',
+        fact: {
+          id: `damage:${damageType}`,
+          type: 'damage',
+          trace: {
+            eventId: `damage:${damageType}`,
+            sequenceId: 'sequence:damage-tones',
+            ordinal: 1,
+          },
+          origin: {
+            kind: 'system',
+            carrier: { kind: 'system', id: 'test', name: '测试系统' },
+          },
+          target: { id: 'target', name: '目标' },
+          amount: 10,
+          beforeHp: 100,
+          afterHp: 90,
+          damageType,
+          critical: false,
+          shieldAbsorbed: 0,
+        },
+      });
+
+      expect(line.parts.find((part) => part.text === '10')?.tone).toBe(
+        expectedTone,
+      );
+    },
+  );
+
+  it.each([
+    ['buff', 'buff'],
+    ['debuff', 'debuff'],
+    ['control', 'control'],
+  ] as const)(
+    'assigns %s statuses their dedicated narrative tone',
+    (statusType, expectedTone) => {
+      const line = new CombatFactNarratorV3('concise').narrate({
+        kind: 'fact',
+        fact: {
+          id: `status:${statusType}`,
+          type: 'status',
+          trace: {
+            eventId: `status:${statusType}`,
+            sequenceId: 'sequence:status-tones',
+            ordinal: 1,
+          },
+          origin: {
+            kind: 'system',
+            carrier: { kind: 'system', id: 'test', name: '测试系统' },
+          },
+          target: { id: 'target', name: '目标' },
+          operation: 'apply',
+          transition: 'added',
+          statusId: `status:${statusType}`,
+          statusName: '测试状态',
+          statusType,
+          beforeLayers: 0,
+          afterLayers: 1,
+          duration: 2,
+        },
+      });
+
+      expect(line.parts.find((part) => part.kind === 'status')?.tone).toBe(
+        expectedTone,
+      );
+    },
+  );
+
+  it('uses the shield tone for mana shield settlement', () => {
+    const line = new CombatFactNarratorV3('concise').narrate({
+      kind: 'fact',
+      fact: {
+        id: 'defense:mana-shield',
+        type: 'defense',
+        trace: {
+          eventId: 'defense:mana-shield',
+          sequenceId: 'sequence:shield-tone',
+          ordinal: 1,
+        },
+        origin: {
+          kind: 'system',
+          carrier: { kind: 'system', id: 'test', name: '测试系统' },
+        },
+        target: { id: 'target', name: '目标' },
+        defense: 'mana_shield',
+        amount: 20,
+      },
+    });
+
+    expect(
+      line.parts.filter((part) => part.tone).map((part) => part.tone),
+    ).toEqual(['shield', 'shield']);
+  });
+
+  it('adds settlement details only in detailed mode', () => {
+    const target = { id: 'target', name: '目标' };
+    const sequence: CombatSequenceV3 = {
+      id: 'sequence:mode-detail',
+      turn: 1,
+      phase: 'action',
+      facts: [
+        {
+          id: 'damage-detail',
+          type: 'damage',
+          trace: {
+            eventId: 'damage-detail',
+            sequenceId: 'sequence:mode-detail',
+            ordinal: 1,
+            resolutionId: 'resolution:detail',
+          },
+          origin: {
+            kind: 'system',
+            carrier: { kind: 'system', id: 'test', name: '测试系统' },
+          },
+          target,
+          amount: 60,
+          beforeHp: 100,
+          afterHp: 40,
+          damageType: DamageType.PHYSICAL,
+          critical: false,
+          shieldAbsorbed: 0,
+        },
+        {
+          id: 'recovery-detail',
+          type: 'recovery',
+          trace: {
+            eventId: 'recovery-detail',
+            sequenceId: 'sequence:mode-detail',
+            ordinal: 2,
+          },
+          origin: {
+            kind: 'system',
+            carrier: { kind: 'system', id: 'test', name: '测试系统' },
+          },
+          target,
+          resource: 'hp',
+          amount: 20,
+          after: 60,
+        },
+      ],
+    };
+
+    const concise = new CombatPresenterV3('concise')
+      .format(sequence)
+      .join('\n');
+    const detailed = new CombatPresenterV3('detailed')
+      .format(sequence)
+      .join('\n');
+    expect(concise).not.toContain('气血 100 → 40');
+    expect(concise).not.toContain('结算后气血 60');
+    expect(detailed).toContain('气血 100 → 40');
+    expect(detailed).toContain('结算后气血 60');
   });
 
   it('does not commit a status spread fact when the 1v1 battle has no spread target', () => {
@@ -941,6 +2238,9 @@ describe('combat facts V3', () => {
         expect(Object.isFrozen(event.trace)).toBe(true);
         expect(Object.isFrozen(event.origin)).toBe(true);
         expect(Object.isFrozen(event.result)).toBe(true);
+        if (event.result.type === 'mechanic') {
+          expect(Object.isFrozen(event.result.payload)).toBe(true);
+        }
       },
       2_000,
     );
@@ -956,9 +2256,8 @@ describe('combat facts V3', () => {
           target,
           {
             type: 'mechanic',
-            mechanic: 'immutable_result',
             code: 'immutable_result',
-            name: '不可变结果',
+            payload: { kind: 'named_trigger', label: '不可变结果' },
           },
           { origin, parentTrace: trigger.trace! },
         );
@@ -979,9 +2278,8 @@ describe('combat facts V3', () => {
         target,
         {
           type: 'mechanic',
-          mechanic: 'invalid',
           code: 'invalid',
-          name: '无来源',
+          payload: { kind: 'named_trigger', label: '无来源' },
         },
         undefined as unknown as CombatResultScopeV3,
       ),
@@ -993,13 +2291,121 @@ describe('combat facts V3', () => {
           {
             ...fact('mechanic', 1, 'death_prevented'),
             type: 'mechanic',
-            mechanic: '',
             code: '',
-            name: '',
+            payload: { kind: 'named_trigger', label: '' },
           },
         ]),
       ),
     ).toThrow(/mechanic fact .* incomplete/);
+
+    expect(() =>
+      validateBattleRecordV3(
+        recordWithFacts([
+          {
+            ...fact('mechanic-modifiers', 1, 'death_prevented'),
+            type: 'mechanic',
+            code: 'ability-transform',
+            payload: {
+              kind: 'ability_transform',
+              triggers: 1,
+              modifiers: [],
+            },
+          },
+        ]),
+      ),
+    ).toThrow(/no ability modifiers/);
+
+    expect(() =>
+      validateBattleRecordV3(
+        recordWithFacts([
+          {
+            ...fact('cue-without-relation', 1, 'death_prevented'),
+            type: 'mechanic',
+            code: 'tag-trigger',
+            payload: { kind: 'tag_trigger', label: '追击' },
+          },
+        ]),
+      ),
+    ).toThrow(/has no cue relation/);
+
+    expect(() =>
+      validateBattleRecordV3(
+        recordWithFacts([
+          {
+            ...damageFact('damage-without-type', 1),
+            damageType: undefined,
+          } as unknown as CombatFactV3,
+        ]),
+      ),
+    ).toThrow(/invalid damage type/);
+
+    expect(() =>
+      validateBattleRecordV3(
+        recordWithFacts([
+          {
+            ...fact('inconsistent-cause', 1, 'death_prevented'),
+            type: 'mechanic',
+            code: 'named-trigger',
+            payload: { kind: 'named_trigger', label: '剑势' },
+            trace: {
+              eventId: 'inconsistent-cause',
+              sequenceId: 'sequence:action',
+              ordinal: 1,
+              narrativeCauseId: 'cause:trace',
+            },
+            narrative: { causeId: 'cause:fact', role: 'result' },
+          },
+        ]),
+      ),
+    ).toThrow(/inconsistent narrative cause/);
+
+    expect(() =>
+      validateBattleRecordV3(
+        recordWithFacts([
+          {
+            ...fact('status-remove', 1, 'death_prevented'),
+            type: 'status',
+            operation: 'remove',
+            statusId: 'status',
+            statusName: '状态',
+            statusType: 'buff',
+          } as CombatFactV3,
+        ]),
+      ),
+    ).toThrow(/invalid removal reason/);
+
+    expect(() =>
+      validateBattleRecordV3(
+        recordWithFacts([
+          {
+            ...fact('status-layers', 1, 'death_prevented'),
+            type: 'status',
+            operation: 'layers',
+            reason: 'modified',
+            statusId: 'status',
+            statusName: '状态',
+            statusType: 'buff',
+            beforeLayers: 1,
+            afterLayers: 1,
+          },
+        ]),
+      ),
+    ).toThrow(/invalid layer change/);
+
+    expect(() =>
+      validateBattleRecordV3(
+        recordWithFacts([
+          {
+            ...fact('queued-action', 1, 'death_prevented'),
+            type: 'action_state',
+            stateType: 'queued_action',
+            phase: 'entered',
+            name: '蓄势',
+            remainingActions: 1,
+          } as CombatFactV3,
+        ]),
+      ),
+    ).toThrow(/queued action .* has no ability/);
 
     expect(() =>
       validateBattleRecordV3(

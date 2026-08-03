@@ -393,7 +393,7 @@ describe('战斗引擎 V5 原子效果全量回归验证 (最终回归版)', () 
     const controlSkips = facts.filter(
       (fact) =>
         fact.type === 'mechanic' &&
-        fact.mechanic === 'control_skip' &&
+        fact.payload.kind === 'control_skip' &&
         fact.target.id === defender.id,
     );
     expect(controlSkips).toHaveLength(2);

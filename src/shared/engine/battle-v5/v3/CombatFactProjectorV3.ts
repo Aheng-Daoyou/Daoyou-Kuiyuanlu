@@ -11,6 +11,7 @@ export class CombatFactProjectorV3 {
       trace: event.trace,
       origin: event.origin,
       target: Object.freeze({ id: event.target.id, name: event.target.name }),
+      ...(event.narrative ? { narrative: event.narrative } : {}),
     }) as CombatFactV3;
   }
 }

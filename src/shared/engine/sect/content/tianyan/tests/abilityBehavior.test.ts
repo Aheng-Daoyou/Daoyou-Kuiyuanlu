@@ -178,16 +178,27 @@ describe('天衍落印术与反应实际结算', () => {
         reacts ? 1 : 0,
       );
       expect(
-        mechanics.filter((event) => event.result.mechanic === 'named_trigger'),
+        mechanics.filter(
+          (event) =>
+            event.result.type === 'mechanic' &&
+            event.result.payload.kind === 'named_trigger',
+        ),
       ).toHaveLength(reacts ? 1 : 0);
       expect(
         mechanics
           .map((event) => event.result)
-          .filter((result) => result.mechanic === 'status_transition'),
+          .filter(
+            (result) =>
+              result.type === 'mechanic' &&
+              result.payload.kind === 'status_transition',
+          )
+          .map((result) =>
+            result.type === 'mechanic' ? result.payload : undefined,
+          ),
       ).toContainEqual(
         expect.objectContaining({
           operation: relation.kind === 'refresh' ? 'refresh' : 'replace',
-          name: expect.stringContaining('印'),
+          label: expect.stringContaining('印'),
         }),
       );
     },

@@ -32,14 +32,17 @@ export class TagTriggerEffect extends GameplayEffect {
       return;
     }
 
-    context.commit(target, {
+    const narrativeContext = context.withNarrativeCause();
+    narrativeContext.commitCue(target, {
       type: 'mechanic',
-      mechanic: 'tag_trigger',
       code: CombatMechanicCodeV3.TAG_TRIGGER,
-      name: this.params.displayName ?? '标签触发',
+      payload: {
+        kind: 'tag_trigger',
+        label: this.params.displayName ?? '特殊效果',
+      },
     });
 
-    context.emit<TagTriggerEvent>({
+    narrativeContext.emit<TagTriggerEvent>({
       type: 'TagTriggerEvent',
       timestamp: Date.now(),
       caster,
@@ -48,10 +51,10 @@ export class TagTriggerEffect extends GameplayEffect {
       tag: this.params.triggerTag,
       displayName: this.params.displayName,
     });
-    if (!context.canExecuteEffect()) return;
+    if (!narrativeContext.canExecuteEffect()) return;
 
     if (this.params.effects && this.params.effects.length > 0) {
-      executeEffectConfigs(this.params.effects, context);
+      executeEffectConfigs(this.params.effects, narrativeContext);
     } else {
       // Legacy fallback: old tag_trigger implied a fixed Spirit-scaling damage hit.
       const damageEffect = new DamageEffect({
@@ -61,10 +64,10 @@ export class TagTriggerEffect extends GameplayEffect {
           attribute: AttributeType.SPIRIT,
         },
       });
-      executeGameplayEffectV3(damageEffect, context);
+      executeGameplayEffectV3(damageEffect, narrativeContext);
     }
 
-    if (!context.canExecuteEffect()) return;
+    if (!narrativeContext.canExecuteEffect()) return;
     if (this.params.removeOnTrigger) {
       const buffs = target.buffs.getAllBuffs();
       const targetBuff = buffs.find((b) =>
@@ -72,10 +75,10 @@ export class TagTriggerEffect extends GameplayEffect {
       );
       if (targetBuff) {
         target.buffs.removeBuff(targetBuff.id, {
-          ability: context.ability,
-          buff: context.buff,
-          attribution: context.attribution,
-          trace: context.trace,
+          ability: narrativeContext.ability,
+          buff: narrativeContext.buff,
+          attribution: narrativeContext.attribution,
+          trace: narrativeContext.trace,
         });
       }
     }

@@ -327,12 +327,12 @@ function simulate(
       if (event.origin?.kind !== 'owned' || event.origin.owner.id !== player.id)
         return;
       if (
-        event.result.mechanic === 'named_trigger' &&
+        event.result.payload.kind === 'named_trigger' &&
         event.result.code.startsWith('sect.tianyan.reaction.')
       )
         reactions += 1;
       if (
-        event.result.mechanic === 'named_trigger' &&
+        event.result.payload.kind === 'named_trigger' &&
         (event.result.code === 'sect.tianyan.hetu-cycle' ||
           event.result.code === 'sect.tianyan.luoshu-break')
       ) {
@@ -342,8 +342,8 @@ function simulate(
         if (round <= 10) trinaryWithinTenRounds += 1;
       }
       if (
-        event.result.mechanic === 'status_transition' &&
-        event.result.operation === 'replace'
+        event.result.payload.kind === 'status_transition' &&
+        event.result.payload.operation === 'replace'
       ) {
         replacements += 1;
       }

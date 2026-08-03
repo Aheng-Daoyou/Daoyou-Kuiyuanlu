@@ -15,7 +15,12 @@ import {
 import { BuffId } from '../core/types';
 import { CombatResultEmitterV3 } from '../v3/CombatResultEmitterV3';
 import { CombatAttributionV3, combatCarrierFromAbilityV3 } from '../v3/origin';
-import type { CombatTraceV3 } from '../v3/types';
+import type {
+  CombatStatusApplicationTransitionV3,
+  CombatStatusLayerChangeReasonV3,
+  CombatStatusRemovalReasonV3,
+  CombatTraceV3,
+} from '../v3/types';
 import { Unit } from './Unit';
 
 interface BuffApplicationOriginV3 {
@@ -23,11 +28,19 @@ interface BuffApplicationOriginV3 {
   buff?: Buff;
   attribution?: CombatAttributionV3;
   trace?: CombatTraceV3;
+  layerChangeReason?: CombatStatusLayerChangeReasonV3;
+  statusDisplayName?: string;
+  statusFactVisibility?: 'player' | 'debug';
 }
 
 enum BuffApplicationModeV3 {
   RUNTIME = 'runtime',
   INITIALIZATION = 'initialization',
+}
+
+interface BuffStackApplicationV3 {
+  buff: Buff;
+  transition: CombatStatusApplicationTransitionV3;
 }
 
 /**
@@ -100,14 +113,22 @@ export class BuffContainer {
     const existing = this._buffs.get(buff.id);
     if (existing) {
       const previousLayer = existing.getLayer();
-      const appliedBuff = this._applyStackRule(
+      const application = this._applyStackRule(
         existing,
         buff,
         source,
         attribution,
       );
-      if (appliedBuff) {
+      if (application) {
+        const appliedBuff = application.buff;
         if (mode === BuffApplicationModeV3.RUNTIME) {
+          this._commitAppliedFact(
+            appliedBuff,
+            attribution,
+            publishedAddEvent!.trace!,
+            application.transition,
+            previousLayer,
+          );
           this._publishLayerChanged(
             appliedBuff,
             previousLayer,
@@ -119,10 +140,10 @@ export class BuffContainer {
           markBuffAppliedAtCurrentAction(this._owner, appliedBuff);
           this._publishAppliedEvent(
             appliedBuff,
-            source,
-            origin,
             attribution,
             publishedAddEvent!.trace!,
+            source,
+            origin,
           );
         }
       }
@@ -143,6 +164,13 @@ export class BuffContainer {
     // 3.3 调用激活方法（子类在此订阅事件、添加标签等）
     buff.onActivate();
     if (mode === BuffApplicationModeV3.RUNTIME) {
+      this._commitAppliedFact(
+        buff,
+        attribution,
+        publishedAddEvent!.trace!,
+        'added',
+        0,
+      );
       this._publishLayerChanged(
         buff,
         0,
@@ -161,10 +189,10 @@ export class BuffContainer {
     if (mode === BuffApplicationModeV3.RUNTIME) {
       this._publishAppliedEvent(
         buff,
-        source,
-        origin,
         attribution,
         publishedAddEvent!.trace!,
+        source,
+        origin,
       );
     }
   }
@@ -185,6 +213,13 @@ export class BuffContainer {
     if (buff.dispelMode === 'one_layer' && buff.getLayer() > 1) {
       const previousLayer = buff.getLayer();
       buff.setLayer(previousLayer - 1);
+      this._commitLayerFact(
+        buff,
+        previousLayer,
+        buff.getLayer(),
+        'dispelled',
+        origin,
+      );
       this._publishLayerChanged(
         buff,
         previousLayer,
@@ -227,11 +262,22 @@ export class BuffContainer {
         origin?.source,
         origin,
       );
-      this._removeBuffWithReason(buffId, 'manual', origin);
+      this._removeBuffWithReason(
+        buffId,
+        origin?.layerChangeReason === 'consumed' ? 'consumed' : 'manual',
+        origin,
+      );
       return 0;
     }
 
     buff.setLayer(nextLayer);
+    this._commitLayerFact(
+      buff,
+      previousLayer,
+      buff.getLayer(),
+      origin?.layerChangeReason ?? 'modified',
+      origin,
+    );
     this._publishLayerChanged(
       buff,
       previousLayer,
@@ -262,11 +308,22 @@ export class BuffContainer {
         origin?.source,
         origin,
       );
-      this._removeBuffWithReason(buffId, 'manual', origin);
+      this._removeBuffWithReason(
+        buffId,
+        origin?.layerChangeReason === 'consumed' ? 'consumed' : 'manual',
+        origin,
+      );
       return 0;
     }
 
     buff.setLayer(layer);
+    this._commitLayerFact(
+      buff,
+      previousLayer,
+      buff.getLayer(),
+      origin?.layerChangeReason ?? 'modified',
+      origin,
+    );
     this._publishLayerChanged(
       buff,
       previousLayer,
@@ -291,7 +348,7 @@ export class BuffContainer {
 
   private _removeBuffWithReason(
     buffId: BuffId,
-    reason: 'manual' | 'expired' | 'dispel' | 'replace',
+    reason: 'manual' | 'expired' | 'dispel' | 'replace' | 'consumed',
     operation?: BuffApplicationOriginV3,
   ): void {
     const buff = this._buffs.get(buffId);
@@ -302,7 +359,7 @@ export class BuffContainer {
     }
 
     // GAS 模式：调用 onDeactivate（取消订阅、移除标签等）
-    buff.onDeactivate(reason);
+    buff.onDeactivate(reason === 'consumed' ? 'manual' : reason);
 
     this._buffs.delete(buffId);
     this._owner.updateDerivedStats();
@@ -313,8 +370,12 @@ export class BuffContainer {
     }
     const resultOrigin = operation?.attribution?.origin ?? attribution.origin;
     const causalTrace = operation?.trace ?? EventBus.instance.reserveTrace();
+    const previousLayers = buff.getLayer();
     let removedEventParentTrace = causalTrace;
-    if (buff.logVisibility !== 'debug') {
+    if (
+      buff.logVisibility !== 'debug' &&
+      operation?.statusFactVisibility !== 'debug'
+    ) {
       const statusTrace = EventBus.instance.reserveTrace({
         parentEventId: causalTrace.eventId,
       });
@@ -324,8 +385,11 @@ export class BuffContainer {
           type: 'status',
           operation: 'remove',
           statusId: buff.id,
-          statusName: buff.name,
+          statusName: operation?.statusDisplayName ?? buff.name,
           statusType: buff.type,
+          reason: this._statusRemovalReason(reason),
+          beforeLayers: previousLayers,
+          afterLayers: 0,
         },
         {
           origin: resultOrigin,
@@ -341,7 +405,7 @@ export class BuffContainer {
       timestamp: Date.now(),
       target: this._owner,
       buff,
-      reason,
+      reason: reason === 'consumed' ? 'manual' : reason,
     };
     EventBus.instance.runInCausalContext(
       { origin: resultOrigin, trace: removedEventParentTrace },
@@ -385,30 +449,42 @@ export class BuffContainer {
     newBuff: Buff,
     source: Unit | undefined,
     attribution: CombatAttributionV3,
-  ): Buff | null {
+  ): BuffStackApplicationV3 | null {
     switch (newBuff.stackRule) {
-      case StackRule.STACK_LAYER:
+      case StackRule.STACK_LAYER: {
+        const previousLayer = existing.getLayer();
         existing.addLayer(newBuff.getLayer());
         existing.refreshToDuration(newBuff.getMaxDuration());
         if (source) {
           existing.setSource(source);
         }
         existing.setCombatAttributionV3(attribution);
-        return existing;
+        return {
+          buff: existing,
+          transition:
+            existing.getLayer() > previousLayer ? 'stacked' : 'refreshed',
+        };
+      }
 
       case StackRule.REFRESH_DURATION:
         if (newBuff.stackPriority > existing.stackPriority) {
-          return this._replaceBuff(existing, newBuff, source, attribution);
+          return {
+            buff: this._replaceBuff(existing, newBuff, source, attribution),
+            transition: 'replaced',
+          };
         }
         existing.refreshToDuration(newBuff.getMaxDuration());
         if (source) {
           existing.setSource(source);
         }
         existing.setCombatAttributionV3(attribution);
-        return existing;
+        return { buff: existing, transition: 'refreshed' };
 
       case StackRule.OVERRIDE:
-        return this._replaceBuff(existing, newBuff, source, attribution);
+        return {
+          buff: this._replaceBuff(existing, newBuff, source, attribution),
+          transition: 'replaced',
+        };
 
       case StackRule.IGNORE:
         return null;
@@ -437,29 +513,11 @@ export class BuffContainer {
 
   private _publishAppliedEvent(
     buff: Buff,
+    attribution: CombatAttributionV3,
+    parentTrace: NonNullable<BuffAppliedEvent['trace']>,
     source?: Unit,
     origin?: BuffApplicationOriginV3,
-    attribution?: CombatAttributionV3,
-    parentTrace?: NonNullable<BuffAppliedEvent['trace']>,
   ): void {
-    if (!attribution || !parentTrace) {
-      throw new Error(`Buff ${buff.id} application has no V3 attribution`);
-    }
-    if (buff.logVisibility !== 'debug') {
-      new CombatResultEmitterV3().commit(
-        this._owner,
-        {
-          type: 'status',
-          operation: 'apply',
-          statusId: buff.id,
-          statusName: buff.name,
-          statusType: buff.type,
-          layers: buff.getLayer(),
-          duration: buff.getMaxDuration(),
-        },
-        { origin: attribution.origin, parentTrace },
-      );
-    }
     const appliedEvent: BuffAppliedEvent = {
       type: 'BuffAppliedEvent',
       timestamp: Date.now(),
@@ -472,6 +530,81 @@ export class BuffContainer {
     EventBus.instance.runInCausalContext(
       { origin: attribution.origin, trace: parentTrace },
       () => EventBus.instance.publish(appliedEvent),
+    );
+  }
+
+  private _commitAppliedFact(
+    buff: Buff,
+    attribution: CombatAttributionV3,
+    parentTrace: NonNullable<BuffAppliedEvent['trace']>,
+    transition: CombatStatusApplicationTransitionV3,
+    beforeLayers: number,
+  ): void {
+    if (buff.logVisibility !== 'debug') {
+      new CombatResultEmitterV3().commit(
+        this._owner,
+        {
+          type: 'status',
+          operation: 'apply',
+          transition,
+          statusId: buff.id,
+          statusName: buff.name,
+          statusType: buff.type,
+          beforeLayers,
+          afterLayers: buff.getLayer(),
+          duration: buff.getMaxDuration(),
+        },
+        { origin: attribution.origin, parentTrace },
+      );
+    }
+  }
+
+  private _statusRemovalReason(
+    reason: 'manual' | 'expired' | 'dispel' | 'replace' | 'consumed',
+  ): CombatStatusRemovalReasonV3 {
+    if (reason === 'dispel') return 'dispelled';
+    if (reason === 'replace') return 'replaced';
+    return reason;
+  }
+
+  private _commitLayerFact(
+    buff: Buff,
+    beforeLayers: number,
+    afterLayers: number,
+    reason: CombatStatusLayerChangeReasonV3,
+    operation?: BuffApplicationOriginV3,
+  ): void {
+    if (
+      buff.logVisibility === 'debug' ||
+      operation?.statusFactVisibility === 'debug' ||
+      beforeLayers === afterLayers
+    ) {
+      return;
+    }
+    const attribution = buff.getCombatAttributionV3();
+    if (!attribution) {
+      throw new Error(`Buff ${buff.id} has no attribution when layers change`);
+    }
+    const parentTrace =
+      operation?.trace ??
+      EventBus.instance.getCurrentTrace() ??
+      EventBus.instance.reserveTrace();
+    new CombatResultEmitterV3().commit(
+      this._owner,
+      {
+        type: 'status',
+        operation: 'layers',
+        reason,
+        statusId: buff.id,
+        statusName: operation?.statusDisplayName ?? buff.name,
+        statusType: buff.type,
+        beforeLayers,
+        afterLayers,
+      },
+      {
+        origin: operation?.attribution?.origin ?? attribution.origin,
+        parentTrace,
+      },
     );
   }
 

@@ -15,6 +15,8 @@ export class CooldownModifyEffect extends GameplayEffect {
   }
 
   execute(context: EffectExecutionContextV3): void {
+    const rounds = Math.round(this.params.cdModifyValue);
+    if (rounds === 0) return;
     const { target, caster, ability } = context;
     const recipient = this.params.target === 'caster' ? caster : target;
     const abilities = recipient.abilities.getAllAbilities();
@@ -37,15 +39,16 @@ export class CooldownModifyEffect extends GameplayEffect {
       const skill = matchedSkills[i];
 
       // 调用 ActiveSkill 提供的标准化方法修改冷却
-      skill.modifyCooldown(this.params.cdModifyValue);
+      skill.modifyCooldown(rounds);
 
       context.commit(recipient, {
         type: 'mechanic',
-        mechanic: 'cooldown_modify',
         code: CombatMechanicCodeV3.COOLDOWN_MODIFY,
-        name: '冷却变化',
-        detail: skill.name,
-        value: this.params.cdModifyValue,
+        payload: {
+          kind: 'cooldown_change',
+          abilityName: skill.name,
+          rounds,
+        },
       });
 
       // 发布冷却修改事件
@@ -55,7 +58,7 @@ export class CooldownModifyEffect extends GameplayEffect {
         caster,
         target: recipient,
         ability,
-        cdModifyValue: this.params.cdModifyValue,
+        cdModifyValue: rounds,
         affectedAbilityName: skill.name,
       });
     }

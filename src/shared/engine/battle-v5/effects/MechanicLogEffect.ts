@@ -11,13 +11,18 @@ export class MechanicLogEffect extends GameplayEffect {
 
   execute(context: EffectExecutionContextV3): void {
     commitMechanicResultV3(context, {
-      mechanic: this.params.mechanic,
       code: this.params.internalKey,
       target: this.params.target === 'caster' ? context.caster : context.target,
-      displayName: this.params.displayName,
       visibility: this.params.visibility ?? 'player',
-      operation: this.params.operation,
-      previousDisplayName: this.params.previousDisplayName,
+      payload:
+        this.params.mechanic === 'named_trigger'
+          ? { kind: 'named_trigger', label: this.params.displayName }
+          : {
+              kind: 'status_transition',
+              label: this.params.displayName,
+              operation: this.params.operation ?? 'apply',
+              previousLabel: this.params.previousDisplayName,
+            },
     });
   }
 }

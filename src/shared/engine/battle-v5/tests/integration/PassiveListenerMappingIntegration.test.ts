@@ -287,7 +287,7 @@ describe('Passive Listener Mapping Integration', () => {
     const engine = new BattleEngineV5(attacker, defender);
     const result = engine.execute();
 
-    const targetLog = new CombatPresenterV3()
+    const targetLog = new CombatPresenterV3('detailed')
       .formatAll(result.sequences)
       .find((log) => log.includes('术痕印记'));
     expect(targetLog).toBeDefined();

@@ -2,12 +2,8 @@ import type { ConsumeStatusTriggerParams } from '../core/configs';
 import { executeEffectConfigs } from '../core/effectExecutor';
 import { getDelayedBuffEffects } from '../core/runtimeState';
 import { EffectRegistry } from '../factories/EffectRegistry';
-import { CombatMechanicCodeV3 } from '../v3/mechanics';
 import { EffectExecutionContextV3, GameplayEffect } from './Effect';
-import {
-  commitMechanicResultV3,
-  findMatchingBuffs,
-} from './advancedEffectUtils';
+import { findMatchingBuffs } from './advancedEffectUtils';
 
 export class ConsumeStatusTriggerEffect extends GameplayEffect {
   constructor(private params: ConsumeStatusTriggerParams) {
@@ -41,6 +37,8 @@ export class ConsumeStatusTriggerEffect extends GameplayEffect {
         buff: context.buff,
         attribution: context.attribution,
         trace: context.trace,
+        layerChangeReason: 'consumed',
+        statusDisplayName: this.params.displayName,
       });
     } else {
       const layers = typeof consume === 'number' ? consume : 1;
@@ -50,18 +48,10 @@ export class ConsumeStatusTriggerEffect extends GameplayEffect {
         buff: context.buff,
         attribution: context.attribution,
         trace: context.trace,
+        layerChangeReason: 'consumed',
+        statusDisplayName: this.params.displayName,
       });
     }
-
-    commitMechanicResultV3(context, {
-      mechanic: 'buff_layer',
-      code: CombatMechanicCodeV3.CONSUME_STATUS,
-      target: unit,
-      displayName: this.params.displayName ?? buff.name,
-      visibility: 'player',
-      value: consumedLayers,
-      detail: '消耗层数',
-    });
 
     const configuredEffects =
       this.params.effects.length > 0

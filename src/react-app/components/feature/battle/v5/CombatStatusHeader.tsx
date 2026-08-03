@@ -69,15 +69,15 @@ function ResourceRow({
     width: `${shieldPercent}%`,
     left: `${Math.max(0, percent - shieldPercent)}%`,
   };
-  const shieldLabel = !!shield && shield > 0 ? ` (${fmtInt(shield)})` : '';
-
   return (
     <div className="space-y-0.5">
       <div className="flex items-center gap-1.5 text-[11px] leading-4 md:text-xs md:leading-5">
         <span className="text-battle-muted w-7 shrink-0">{label}</span>
         <span className="text-ink min-w-0 flex-1 truncate text-right font-mono">
           {fmtInt(current)} / {fmtInt(max)}
-          {shieldLabel}
+          {!!shield && shield > 0 && (
+            <span className="text-resource-shield"> ({fmtInt(shield)})</span>
+          )}
         </span>
       </div>
       <div className="bg-battle-faint relative h-[3px] overflow-hidden">
@@ -90,7 +90,7 @@ function ResourceRow({
         />
         {!!shield && shield > 0 && (
           <div
-            className="bg-battle-gold-soft absolute top-0 h-full transition-all duration-500 ease-out"
+            className="bg-resource-shield-soft absolute top-0 h-full transition-all duration-500 ease-out"
             style={shieldStyle}
           />
         )}

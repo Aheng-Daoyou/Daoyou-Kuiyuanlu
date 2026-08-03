@@ -36,6 +36,7 @@ export class QueueActionEffect extends GameplayEffect {
       phase: 'entered',
       name: '蓄势',
       remainingActions: 1,
+      ability: { id: abilityConfig.slug, name: abilityConfig.name },
     });
     context.emit<ActionStateEvent>({
       type: 'ActionStateEvent',

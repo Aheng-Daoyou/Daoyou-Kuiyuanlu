@@ -291,7 +291,7 @@ describe('不可打断后发策略', () => {
       ]),
     );
     expect(
-      new CombatPresenterV3().formatAll(result.sequences).join('\n'),
+      new CombatPresenterV3('detailed').formatAll(result.sequences).join('\n'),
     ).not.toMatch(/蓄势取消|蓄势被打断/);
     expect(peekQueuedAction(actor)).toBeUndefined();
   });
@@ -343,7 +343,7 @@ describe('不可打断后发策略', () => {
     expect(sequence).toEqual(expect.arrayContaining(['entered', 'triggered']));
     expect(
       sequence.indexOf('controlled_skip'),
-      `${sequence.join(',')}\n${new CombatPresenterV3()
+      `${sequence.join(',')}\n${new CombatPresenterV3('detailed')
         .formatAll(result.sequences)
         .join('\n')}`,
     ).toBeGreaterThan(sequence.indexOf('triggered'));

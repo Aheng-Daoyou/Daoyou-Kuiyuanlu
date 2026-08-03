@@ -27,7 +27,7 @@ import {
 import type { Cultivator } from '@shared/types/cultivator';
 
 const SAMPLE_LOG_LINE_LIMIT = 80;
-const presenter = new CombatPresenterV3();
+const presenter = new CombatPresenterV3('detailed');
 
 export class AdminBattleSimulatorError extends Error {
   constructor(

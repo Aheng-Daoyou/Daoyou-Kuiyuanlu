@@ -41,6 +41,7 @@ export class EventBus {
   private _eventCounter = 0;
   private _ordinalCounter = 0;
   private _resolutionCounter = 0;
+  private _narrativeCauseCounter = 0;
   private readonly _maxHistorySize = EventBus.DEFAULT_MAX_HISTORY_SIZE;
 
   private constructor() {}
@@ -135,6 +136,9 @@ export class EventBus {
           reservedTrace?.parentEventId ?? parentContext?.trace?.eventId,
         resolutionId:
           reservedTrace?.resolutionId ?? parentContext?.trace?.resolutionId,
+        narrativeCauseId:
+          reservedTrace?.narrativeCauseId ??
+          parentContext?.trace?.narrativeCauseId,
       },
       origin: event.origin ?? parentContext?.origin,
     }) as T;
@@ -196,6 +200,7 @@ export class EventBus {
   public reserveTrace(options?: {
     resolutionId?: string;
     parentEventId?: string;
+    narrativeCauseId?: string;
   }): CombatTraceV3 {
     const sequence = this.getCurrentSequence();
     const parentTrace = this.getCurrentTrace();
@@ -205,7 +210,13 @@ export class EventBus {
       ordinal: ++this._ordinalCounter,
       parentEventId: options?.parentEventId ?? parentTrace?.eventId,
       resolutionId: options?.resolutionId ?? parentTrace?.resolutionId,
+      narrativeCauseId:
+        options?.narrativeCauseId ?? parentTrace?.narrativeCauseId,
     };
+  }
+
+  public nextNarrativeCauseId(): string {
+    return `narrative_v3_${++this._narrativeCauseCounter}`;
   }
 
   public reserveResolutionTrace(parentEventId?: string): CombatTraceV3 & {
@@ -270,5 +281,6 @@ export class EventBus {
     this._eventCounter = 0;
     this._ordinalCounter = 0;
     this._resolutionCounter = 0;
+    this._narrativeCauseCounter = 0;
   }
 }

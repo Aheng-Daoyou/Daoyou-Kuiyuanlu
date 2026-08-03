@@ -3,6 +3,7 @@ import type {
   BattleStateTimeline,
   UnitStateSnapshot,
 } from '../systems/state/types';
+import { isCombatMechanicCuePayloadV3 } from './mechanics';
 import type {
   BattleRecordV3,
   BattleStateTimelineV3,
@@ -124,6 +125,24 @@ export class BattleRecordValidatorV3 {
         this.assertKnownUnitRef(sequence.actor, 'sequence actor');
       }
       if (
+        ['action_pre', 'action', 'action_after', 'battle_end'].includes(
+          sequence.phase,
+        ) &&
+        !sequence.actor
+      ) {
+        throw new Error(
+          `BattleRecordV3 ${sequence.phase} sequence has no actor`,
+        );
+      }
+      if (
+        sequence.phase === 'battle_end' &&
+        sequence.actor?.id !== this.record.outcome.winner.id
+      ) {
+        throw new Error(
+          'BattleRecordV3 battle end actor does not match winner',
+        );
+      }
+      if (
         sequence.ability &&
         (!sequence.ability.id || !sequence.ability.name)
       ) {
@@ -180,6 +199,25 @@ export class BattleRecordValidatorV3 {
     this.eventOrdinals.set(fact.trace.eventId, fact.trace.ordinal);
     this.ordinals.add(fact.trace.ordinal);
 
+    if (fact.narrative) {
+      if (
+        !fact.narrative.causeId.trim() ||
+        !['cue', 'result'].includes(fact.narrative.role)
+      ) {
+        throw new Error(
+          `BattleRecordV3 fact ${fact.id} has invalid narrative relation`,
+        );
+      }
+      if (
+        fact.trace.narrativeCauseId !== undefined &&
+        fact.trace.narrativeCauseId !== fact.narrative.causeId
+      ) {
+        throw new Error(
+          `BattleRecordV3 fact ${fact.id} has inconsistent narrative cause`,
+        );
+      }
+    }
+
     if (!fact.target?.id || !fact.target.name) {
       throw new Error(`BattleRecordV3 fact ${fact.id} has no target`);
     }
@@ -195,6 +233,20 @@ export class BattleRecordValidatorV3 {
         fact.origin.owner,
         `fact ${fact.id} origin owner`,
       );
+      if (
+        !['ability', 'buff', 'equipment', 'gongfa', 'mechanic'].includes(
+          fact.origin.carrier.kind,
+        )
+      ) {
+        throw new Error(
+          `BattleRecordV3 fact ${fact.id} has invalid owned carrier`,
+        );
+      }
+    } else if (
+      fact.origin.kind !== 'system' ||
+      fact.origin.carrier.kind !== 'system'
+    ) {
+      throw new Error(`BattleRecordV3 fact ${fact.id} has invalid origin`);
     }
     this.validateFactPayload(fact);
     if (fact.type === 'damage') {
@@ -208,12 +260,6 @@ export class BattleRecordValidatorV3 {
         );
       }
       this.damageResolutions.set(resolutionId, fact.target.id);
-    }
-    if (
-      fact.type === 'mechanic' &&
-      (!fact.mechanic.trim() || !fact.code.trim() || !fact.name.trim())
-    ) {
-      throw new Error(`BattleRecordV3 mechanic fact ${fact.id} is incomplete`);
     }
     if (fact.type === 'unit_died') {
       if (fact.killer) this.assertKnownUnitRef(fact.killer, 'killer');
@@ -248,6 +294,11 @@ export class BattleRecordValidatorV3 {
   private validateFactPayload(fact: CombatFactV3): void {
     switch (fact.type) {
       case 'damage':
+        if (!['physical', 'magical', 'true', 'dot'].includes(fact.damageType)) {
+          throw new Error(
+            `BattleRecordV3 damage fact ${fact.id} has invalid damage type`,
+          );
+        }
         this.assertNonNegativeFinite(fact.amount, fact, 'amount');
         this.assertNonNegativeFinite(fact.beforeHp, fact, 'beforeHp');
         this.assertNonNegativeFinite(fact.afterHp, fact, 'afterHp');
@@ -263,25 +314,22 @@ export class BattleRecordValidatorV3 {
         this.assertNonNegativeFinite(fact.after, fact, 'after');
         break;
       case 'status':
-        if (
-          fact.layers !== undefined &&
-          (!Number.isInteger(fact.layers) || fact.layers < 1)
-        ) {
-          throw new Error(
-            `BattleRecordV3 ${fact.type} fact ${fact.id} has invalid layers`,
-          );
-        }
-        if (
-          fact.duration !== undefined &&
-          fact.duration !== -1 &&
-          (!Number.isInteger(fact.duration) || fact.duration < 1)
-        ) {
-          throw new Error(
-            `BattleRecordV3 ${fact.type} fact ${fact.id} has invalid duration`,
-          );
-        }
+        this.validateStatusFact(fact);
         break;
       case 'defense':
+        if (
+          ![
+            'mana_shield',
+            'damage_immune',
+            'dodge',
+            'resist',
+            'interrupt',
+          ].includes(fact.defense)
+        ) {
+          throw new Error(
+            `BattleRecordV3 defense fact ${fact.id} has invalid defense`,
+          );
+        }
         if (fact.amount !== undefined) {
           this.assertNonNegativeFinite(fact.amount, fact, 'amount');
         }
@@ -316,15 +364,255 @@ export class BattleRecordValidatorV3 {
             `BattleRecordV3 action_state fact ${fact.id} has invalid action state`,
           );
         }
+        if (
+          fact.stateType === 'queued_action' &&
+          (!fact.ability?.id || !fact.ability.name)
+        ) {
+          throw new Error(
+            `BattleRecordV3 queued action fact ${fact.id} has no ability`,
+          );
+        }
         break;
       case 'mechanic':
-        if (fact.value !== undefined) {
-          this.assertFinite(fact.value, fact, 'value');
-        }
+        this.validateMechanicFact(fact);
         break;
       case 'death_prevented':
       case 'unit_died':
         break;
+      default:
+        throw new Error('BattleRecordV3 contains an unknown fact type');
+    }
+  }
+
+  private validateStatusFact(
+    fact: Extract<CombatFactV3, { type: 'status' }>,
+  ): void {
+    const factId = fact.id;
+    if (!fact.statusId.trim() || !fact.statusName.trim()) {
+      throw new Error(`BattleRecordV3 status fact ${fact.id} is incomplete`);
+    }
+    if (!['buff', 'debuff', 'control'].includes(fact.statusType)) {
+      throw new Error(
+        `BattleRecordV3 status fact ${fact.id} has invalid status type`,
+      );
+    }
+    if (fact.operation === 'apply') {
+      if (
+        !['added', 'stacked', 'refreshed', 'replaced'].includes(
+          fact.transition,
+        ) ||
+        !Number.isInteger(fact.beforeLayers) ||
+        fact.beforeLayers < 0 ||
+        !Number.isInteger(fact.afterLayers) ||
+        fact.afterLayers < 1 ||
+        (fact.duration !== -1 &&
+          (!Number.isInteger(fact.duration) || fact.duration < 1))
+      ) {
+        throw new Error(
+          `BattleRecordV3 status fact ${fact.id} has invalid application`,
+        );
+      }
+      if (fact.transition === 'added' && fact.beforeLayers !== 0) {
+        throw new Error(
+          `BattleRecordV3 status fact ${fact.id} has invalid added transition`,
+        );
+      }
+      if (
+        fact.transition === 'stacked' &&
+        fact.afterLayers <= fact.beforeLayers
+      ) {
+        throw new Error(
+          `BattleRecordV3 status fact ${fact.id} has invalid stacked transition`,
+        );
+      }
+      if (
+        fact.transition === 'refreshed' &&
+        fact.afterLayers !== fact.beforeLayers
+      ) {
+        throw new Error(
+          `BattleRecordV3 status fact ${fact.id} has invalid refreshed transition`,
+        );
+      }
+      return;
+    }
+    if (fact.operation === 'remove') {
+      if (
+        !['expired', 'dispelled', 'consumed', 'replaced', 'manual'].includes(
+          fact.reason,
+        ) ||
+        !Number.isInteger(fact.beforeLayers) ||
+        fact.beforeLayers < 1 ||
+        fact.afterLayers !== 0
+      ) {
+        throw new Error(
+          `BattleRecordV3 status fact ${fact.id} has invalid removal reason`,
+        );
+      }
+      return;
+    }
+    if (fact.operation === 'layers') {
+      if (
+        !['modified', 'consumed', 'dispelled'].includes(fact.reason) ||
+        !Number.isInteger(fact.beforeLayers) ||
+        fact.beforeLayers < 1 ||
+        !Number.isInteger(fact.afterLayers) ||
+        fact.afterLayers < 1 ||
+        fact.beforeLayers === fact.afterLayers
+      ) {
+        throw new Error(
+          `BattleRecordV3 status fact ${fact.id} has invalid layer change`,
+        );
+      }
+      return;
+    }
+    if (fact.operation === 'immune') return;
+    throw new Error(
+      `BattleRecordV3 status fact ${factId} has invalid operation`,
+    );
+  }
+
+  private validateMechanicFact(
+    fact: Extract<CombatFactV3, { type: 'mechanic' }>,
+  ): void {
+    if (
+      !fact.code.trim() ||
+      !fact.payload ||
+      typeof fact.payload !== 'object'
+    ) {
+      throw new Error(`BattleRecordV3 mechanic fact ${fact.id} is incomplete`);
+    }
+    const payload = fact.payload;
+    const isCue = isCombatMechanicCuePayloadV3(payload);
+    if (isCue && fact.narrative?.role !== 'cue') {
+      throw new Error(
+        `BattleRecordV3 mechanic fact ${fact.id} has no cue relation`,
+      );
+    }
+    if (!isCue && fact.narrative?.role === 'cue') {
+      throw new Error(
+        `BattleRecordV3 mechanic fact ${fact.id} has invalid cue relation`,
+      );
+    }
+    switch (payload.kind) {
+      case 'ability_transform':
+        this.assertPositiveInteger(payload.triggers, fact, 'triggers');
+        if (!payload.modifiers.length) {
+          throw new Error(
+            `BattleRecordV3 mechanic fact ${fact.id} has no ability modifiers`,
+          );
+        }
+        for (const modifier of payload.modifiers) {
+          if (
+            ![
+              'true_damage',
+              'dispel',
+              'mp_cost_to_hp',
+              'free_mana_cost',
+              'cooldown',
+              'force_critical',
+              'stored_damage',
+            ].includes(modifier.kind)
+          ) {
+            throw new Error(
+              `BattleRecordV3 mechanic fact ${fact.id} has unknown ability modifier`,
+            );
+          }
+          if (modifier.kind === 'cooldown') {
+            if (!Number.isInteger(modifier.rounds) || modifier.rounds === 0) {
+              throw new Error(
+                `BattleRecordV3 mechanic fact ${fact.id} has invalid cooldown modifier`,
+              );
+            }
+          }
+        }
+        break;
+      case 'ability_lock':
+        this.assertText(payload.abilityName, fact, 'abilityName');
+        this.assertPositiveInteger(payload.rounds, fact, 'rounds');
+        break;
+      case 'tag_trigger':
+      case 'named_trigger':
+        this.assertText(payload.label, fact, 'label');
+        break;
+      case 'hp_sacrifice':
+      case 'mana_burn':
+      case 'damage_memory_record':
+        this.assertPositiveFinite(payload.amount, fact, 'amount');
+        break;
+      case 'damage_defer':
+        this.assertPositiveFinite(payload.amount, fact, 'amount');
+        this.assertPositiveInteger(payload.turns, fact, 'turns');
+        break;
+      case 'cooldown_change':
+        this.assertText(payload.abilityName, fact, 'abilityName');
+        if (!Number.isInteger(payload.rounds) || payload.rounds === 0) {
+          throw new Error(
+            `BattleRecordV3 mechanic fact ${fact.id} has invalid cooldown change`,
+          );
+        }
+        break;
+      case 'damage_memory_release':
+        this.assertPositiveFinite(payload.amount, fact, 'amount');
+        if (
+          ![
+            'damage',
+            'heal',
+            'shield',
+            'reflect',
+            'counter',
+            'follow_up',
+          ].includes(payload.releaseAs)
+        ) {
+          throw new Error(
+            `BattleRecordV3 mechanic fact ${fact.id} has invalid release type`,
+          );
+        }
+        break;
+      case 'control_skip':
+        this.assertText(payload.controlName, fact, 'controlName');
+        break;
+      case 'status_transition':
+        this.assertText(payload.label, fact, 'label');
+        if (
+          !['apply', 'refresh', 'replace', 'consume'].includes(
+            payload.operation,
+          )
+        ) {
+          throw new Error(
+            `BattleRecordV3 mechanic fact ${fact.id} has invalid transition`,
+          );
+        }
+        if (
+          payload.operation === 'replace' &&
+          payload.previousLabel !== undefined
+        ) {
+          this.assertText(payload.previousLabel, fact, 'previousLabel');
+        }
+        break;
+      default:
+        throw new Error(
+          `BattleRecordV3 mechanic fact ${fact.id} has unknown payload`,
+        );
+    }
+  }
+
+  private assertText(value: string, fact: CombatFactV3, field: string): void {
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new Error(
+        `BattleRecordV3 ${fact.type} fact ${fact.id} has invalid ${field}`,
+      );
+    }
+  }
+
+  private assertPositiveInteger(
+    value: number,
+    fact: CombatFactV3,
+    field: string,
+  ): void {
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new Error(
+        `BattleRecordV3 ${fact.type} fact ${fact.id} has invalid ${field}`,
+      );
     }
   }
 

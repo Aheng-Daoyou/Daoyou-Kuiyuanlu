@@ -24,12 +24,10 @@ export class HpSacrificeDamageEffect extends GameplayEffect {
 
     context.caster.takeDamage(spend);
     commitMechanicResultV3(context, {
-      mechanic: 'hp_sacrifice',
       code: CombatMechanicCodeV3.HP_SACRIFICE,
       target: context.caster,
-      displayName: '气血献祭',
       visibility: 'player',
-      value: spend,
+      payload: { kind: 'hp_sacrifice', amount: spend },
     });
     const damage = Math.round(spend * this.params.damagePerHp);
     if (damage <= 0) return;
