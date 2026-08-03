@@ -25,6 +25,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -272,7 +273,10 @@ export const sectFacilities = pgTable(
   ],
 );
 
-export const localTransactionMessages = pgTable(
+/**
+ * @deprecated BullMQ 时代的本地执行消息表。仅为后续独立清理保留，禁止新增读写。
+ */
+export const legacyLocalTransactionMessages = pgTable(
   'wanjiedaoyou_local_transaction_messages',
   {
     id: uuid('id').primaryKey().defaultRandom(),
@@ -289,6 +293,43 @@ export const localTransactionMessages = pgTable(
     index('local_transaction_messages_pending_idx')
       .on(table.createdAt)
       .where(sql`${table.completedAt} is null`),
+  ],
+);
+
+export const transactionalMessages = pgTable(
+  'wanjiedaoyou_transactional_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    messageKey: varchar('message_key', { length: 128 }).notNull(),
+    destination: varchar('destination', { length: 160 }).notNull(),
+    payload: jsonb('payload').notNull(),
+    deduplicationKey: varchar('deduplication_key', { length: 256 }),
+    publishedAt: timestamp('published_at'),
+    publishAttempts: integer('publish_attempts').notNull().default(0),
+    lastPublishError: text('last_publish_error'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('transactional_messages_dedupe_unique')
+      .on(table.messageKey, table.deduplicationKey)
+      .where(sql`${table.deduplicationKey} is not null`),
+    index('transactional_messages_pending_idx')
+      .on(table.createdAt)
+      .where(sql`${table.publishedAt} is null`),
+  ],
+);
+
+export const messageConsumptions = pgTable(
+  'wanjiedaoyou_message_consumptions',
+  {
+    consumerName: varchar('consumer_name', { length: 96 }).notNull(),
+    messageId: uuid('message_id').notNull(),
+    messageKey: varchar('message_key', { length: 128 }).notNull(),
+    processedAt: timestamp('processed_at').notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.consumerName, table.messageId] }),
+    index('message_consumptions_processed_idx').on(table.processedAt),
   ],
 );
 

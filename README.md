@@ -50,7 +50,8 @@
 - 样式：`Tailwind CSS 4`
 - 数据库：`PostgreSQL` + `Drizzle ORM`
 - 认证：`Better Auth`
-- 缓存 / 定时任务依赖：`Redis`
+- 缓存 / 分布式协调：`Redis`
+- 领域事件：`NATS JetStream`
 - AI 能力：`AI SDK` + `DeepSeek`
 
 ## 当前目录结构
@@ -92,6 +93,7 @@
 - `Bun 1.3+`
 - `PostgreSQL`
 - `Redis`：不是进程启动硬依赖，但排行榜、世界聊天、部分定时任务等功能会用到
+- `NATS JetStream`：进程启动硬依赖，负责消息持久化投递；当前主要承载领域事件和异步投影
 
 说明：
 
@@ -117,6 +119,8 @@ cp .env.example .env.local
 | `DATABASE_URL` | PostgreSQL 连接串 |
 | `BETTER_AUTH_SECRET` | Better Auth 密钥 |
 | `BETTER_AUTH_URL` | Better Auth 后端对外基准地址；生产填 API 域名，如 `https://api.example.com` |
+| `NATS_SERVERS` | NATS 服务地址，多个地址使用逗号分隔 |
+| `NATS_USER` / `NATS_PASSWORD` | NATS 应用用户凭据 |
 
 ### 建议同时配置
 
@@ -197,13 +201,18 @@ bun run auth:migrate
 ## 本地开发
 
 1. 准备好 `.env.local`
-2. 确保数据库和 Redis 可连接
+2. 确保数据库、Redis 和 NATS JetStream 可连接
 3. 执行迁移
 4. 启动开发服务器
 
 ```bash
+docker compose -f docker-compose.nats.yml up -d
 bun run dev
 ```
+
+本地 NATS 容器监听 `4222`，监控端口为 `8222`，开发凭据与 `.env.example` 一致。持久数据保存在 Docker volume `nats-data` 中。
+
+生产硬切顺序、Stream/consumer、DLQ 和故障检查参见 [`docs/nats-domain-events.md`](docs/nats-domain-events.md)。
 
 访问：
 

@@ -1,4 +1,5 @@
 import type { AppEnv } from '@server/lib/hono/types';
+import { getNatsHealthStatus } from '@server/lib/nats';
 import { getRedisHealthStatus } from '@server/lib/redis';
 import accountRouter from '@server/routes/api/account.router';
 import adminRouter from '@server/routes/api/admin';
@@ -36,13 +37,17 @@ import { Hono } from 'hono';
 const apiRouter = new Hono<AppEnv>();
 
 apiRouter.get('/health-check', async (c) => {
-  const redis = await getRedisHealthStatus();
-  if (redis === 'down') {
+  const [redis, nats] = await Promise.all([
+    getRedisHealthStatus(),
+    getNatsHealthStatus(),
+  ]);
+  if (redis === 'down' || nats === 'down') {
     return c.json(
       {
         success: false,
-        error: 'Redis unavailable',
+        error: redis === 'down' ? 'Redis unavailable' : 'NATS unavailable',
         redis,
+        nats,
       },
       503,
     );
@@ -52,6 +57,7 @@ apiRouter.get('/health-check', async (c) => {
     success: true,
     message: 'OK',
     redis,
+    nats,
   });
 });
 

@@ -1,6 +1,6 @@
 import type { DbTransaction } from '@server/lib/drizzle/db';
-import { publishLocalTransactionMessageBestEffort } from '@server/lib/mq/localTransactionMessagePublisher';
-import { createTaskProgressMessage } from '@server/lib/mq/task-progress/message';
+import { createDomainEvent } from '@server/lib/mq/domainEventWriter';
+import { publishTransactionalMessageBestEffort } from '@server/lib/mq/transactionalMessagePublisher';
 import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import { createMessage } from '@server/lib/repositories/worldChatRepository';
 import { getPlayerLoadoutByCultivatorId } from '@server/lib/services/cultivator/CultivatorLoadoutReader';
@@ -110,7 +110,7 @@ export async function executeCraftCommand(args: {
             input.analysisId,
           );
     let afterCommit: (() => Promise<void>) | undefined;
-    let taskMessageId: string | undefined;
+    let domainEventId: string | undefined;
     const actionInstanceId = randomUUID();
     const committed = await playerCommandExecutor.executeWithLock({
       userId: args.userId,
@@ -140,13 +140,18 @@ export async function executeCraftCommand(args: {
           metadata: { committedAt: new Date().toISOString() },
           tx,
         });
-        taskMessageId = (
-          await createTaskProgressMessage(
+        domainEventId = (
+          await createDomainEvent(
             {
-              payload: {
-                kind: 'activity_event',
+              type: 'alchemy.craft.completed',
+              aggregate: {
+                type: 'cultivator',
+                id: args.cultivatorId,
+              },
+              data: {
                 cultivatorId: args.cultivatorId,
-                event: 'alchemy_crafted',
+                actionInstanceId,
+                mode,
               },
               deduplicationKey: `${args.cultivatorId}:alchemy:${actionInstanceId}`,
             },
@@ -163,7 +168,7 @@ export async function executeCraftCommand(args: {
       },
     });
     await runAfterCommit(afterCommit, args.cultivatorId, `alchemy_${mode}`);
-    publishLocalTransactionMessageBestEffort(taskMessageId, {
+    publishTransactionalMessageBestEffort(domainEventId, {
       source: `alchemy_${mode}`,
       cultivatorId: args.cultivatorId,
     });

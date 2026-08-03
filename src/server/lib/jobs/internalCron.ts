@@ -8,7 +8,7 @@ import {
 } from '@server/lib/redis/lock';
 import { getTopRankingCultivatorIds } from '@server/lib/redis/rankings';
 import { getItemLibraryDailyMaterialGenerationSettings } from '@server/lib/repositories/appSettingsRepository';
-import { pruneCompletedLocalTransactionMessages } from '@server/lib/repositories/localTransactionMessageRepository';
+import { pruneMessageConsumptions } from '@server/lib/repositories/messageConsumptionRepository';
 import {
   prunePlayerMutationRequestsOlderThan,
   pruneResourceEventsOlderThan,
@@ -17,6 +17,7 @@ import {
   pruneExpiredData,
   type ExpiredDataCleanupResult,
 } from '@server/lib/repositories/retentionRepository';
+import { prunePublishedTransactionalMessages } from '@server/lib/repositories/transactionalMessageRepository';
 import { expireListings } from '@server/lib/services/AuctionService';
 import { expireBetBattles } from '@server/lib/services/BetBattleService';
 import type { MailAttachment } from '@server/lib/services/MailService';
@@ -43,7 +44,8 @@ const DUNGEON_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const BATTLE_RECORD_V3_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const REPUTATION_SHOP_PURCHASE_RETENTION_MS = 21 * 24 * 60 * 60 * 1000;
 const AUCTION_LISTING_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
-const LOCAL_TRANSACTION_MESSAGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const TRANSACTIONAL_MESSAGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const MESSAGE_CONSUMPTION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type CronJobResult = {
   success: true;
@@ -65,7 +67,8 @@ export type TowerEnemySetsJobResult = CronJobResult & {
 
 export type ExpiredDataCleanupJobResult = CronJobResult & {
   deleted: ExpiredDataCleanupResult & {
-    localTransactionMessages: number;
+    transactionalMessages: number;
+    messageConsumptions: number;
   };
 };
 
@@ -396,8 +399,12 @@ export async function runExpiredDataCleanupJob(): Promise<
         },
         tx,
       )),
-      localTransactionMessages: await pruneCompletedLocalTransactionMessages(
-        new Date(now - LOCAL_TRANSACTION_MESSAGE_RETENTION_MS),
+      transactionalMessages: await prunePublishedTransactionalMessages(
+        new Date(now - TRANSACTIONAL_MESSAGE_RETENTION_MS),
+        tx,
+      ),
+      messageConsumptions: await pruneMessageConsumptions(
+        new Date(now - MESSAGE_CONSUMPTION_RETENTION_MS),
         tx,
       ),
     }));

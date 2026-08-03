@@ -4,7 +4,7 @@ import {
   creationProducts,
   materials,
 } from '@server/lib/drizzle/schema';
-import { createPostgresLocalTransactionMessageWriter } from '@server/lib/mq/localTransactionMessages';
+import { createPostgresDomainEventWriter } from '@server/lib/mq/domainEventWriter';
 import * as organization from '@server/lib/repositories/sectOrganizationRepository';
 import * as memberships from '@server/lib/repositories/sectRepository';
 import { mapConsumableRow } from '@server/lib/services/consumablePersistence';
@@ -15,7 +15,9 @@ import {
   mapArtifactRow,
   mapMaterialRow,
 } from '@server/lib/services/cultivator/CultivatorInventoryRepository';
-import { updateCultivationExp } from '@server/lib/services/cultivator/CultivatorStateRepository';
+import {
+  updateCultivationExp,
+} from '@server/lib/services/cultivator/CultivatorStateRepository';
 import { updateCultivator } from '@server/lib/services/cultivator/CultivatorStateRepository';
 import { executePersistentWorldBattle } from '@server/lib/services/BattleStateCoordinator';
 import {
@@ -855,7 +857,7 @@ export function createPostgresSectConstructionCommandContext(args: {
     memberships: membershipQueryAdapter(args.q),
     facilities: facilityCommandAdapter(args.q, args.runtime),
     construction: constructionCommandAdapter(args.q),
-    messages: createPostgresLocalTransactionMessageWriter(args.q),
+    events: createPostgresDomainEventWriter(args.q),
     economy: economyCommandAdapter(args.q),
     modules: moduleResolver(args.runtime),
     clock: args.clock ?? systemSectClock,

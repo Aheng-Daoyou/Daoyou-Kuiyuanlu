@@ -1,6 +1,6 @@
 import type { DbTransaction } from '@server/lib/drizzle/db';
-import { publishLocalTransactionMessageBestEffort } from '@server/lib/mq/localTransactionMessagePublisher';
-import { createTaskProgressMessage } from '@server/lib/mq/task-progress/message';
+import { createDomainEvent } from '@server/lib/mq/domainEventWriter';
+import { publishTransactionalMessageBestEffort } from '@server/lib/mq/transactionalMessagePublisher';
 import {
   acquireChallengeLock,
   addToRanking,
@@ -50,12 +50,17 @@ export async function executeRankingBattleCommand<T>(args: {
     },
     args.tx,
   );
-  const taskMessage = await createTaskProgressMessage(
+  const domainEvent = await createDomainEvent(
     {
-      payload: {
-        kind: 'activity_event',
+      type: 'ranking.challenge.completed',
+      aggregate: {
+        type: 'cultivator',
+        id: args.cultivatorId,
+      },
+      data: {
         cultivatorId: args.cultivatorId,
-        event: 'ranking_challenge_battled',
+        opponentCultivatorId: args.opponentCultivatorId,
+        battleRecordId: battleRecord.id,
       },
       deduplicationKey: `${args.cultivatorId}:ranking:${battleRecord.id}`,
     },
@@ -64,7 +69,7 @@ export async function executeRankingBattleCommand<T>(args: {
   return {
     result: args.result,
     resourceChanges: [],
-    taskMessageId: taskMessage.id,
+    domainEventId: domainEvent.id,
   };
 }
 
@@ -212,7 +217,7 @@ export async function runRankingBattleCommand(args: {
     const remainingChallenges = await incrementDailyChallenges(
       args.cultivatorId,
     );
-    let taskMessageId: string | undefined;
+    let domainEventId: string | undefined;
     const committed = await playerCommandExecutor.executeWithLock({
       userId: args.userId,
       cultivatorId: args.cultivatorId,
@@ -239,11 +244,11 @@ export async function runRankingBattleCommand(args: {
           battleResult,
           tx,
         });
-        taskMessageId = command.taskMessageId;
+        domainEventId = command.domainEventId;
         return command;
       },
     });
-    publishLocalTransactionMessageBestEffort(taskMessageId, {
+    publishTransactionalMessageBestEffort(domainEventId, {
       source: 'ranking_challenge_battle',
       cultivatorId: args.cultivatorId,
     });

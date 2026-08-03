@@ -1,4 +1,4 @@
-import type { LocalTransactionMessageWriter } from '@server/lib/mq/localTransactionMessages';
+import type { DomainEventWriter } from '@server/lib/mq/domainEventWriter';
 import type {
   DbExecutor,
   DbTransaction,
@@ -460,7 +460,7 @@ export interface SectConstructionCommandContext extends SectConstructionQueryCon
   facilities: SectFacilityReadRepository &
     Pick<SectFacilityRepository, 'ensure'>;
   construction: SectConstructionRepository;
-  messages: LocalTransactionMessageWriter;
+  events: DomainEventWriter;
   economy: Pick<SectEconomyRepository, 'spendSpiritStones'>;
 }
 
