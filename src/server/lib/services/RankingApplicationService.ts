@@ -281,7 +281,7 @@ export async function sendWeeklyRankingRewardCommand(args: {
       fingerprint: args.requestFingerprint,
     },
     command: async (tx) => {
-      await MailService.sendMail(
+      const mail = await MailService.sendMail(
         args.cultivatorId,
         args.title,
         args.content,
@@ -289,9 +289,12 @@ export async function sendWeeklyRankingRewardCommand(args: {
         'reward',
         tx,
       );
+      if (!mail) {
+        throw new Error('排行榜奖励邮件创建失败');
+      }
       const mailSummary = await readPlayerMailSummary(args.cultivatorId, tx);
       return {
-        result: null,
+        result: { mailId: mail.id },
         resourceChanges: [
           {
             resourceTopic: 'player.mail-summary',
