@@ -816,6 +816,110 @@ describe('combat facts V3', () => {
     engine.destroy();
   });
 
+  it('settles an expired status through the system after its source dies', () => {
+    const source = new Unit('source', '施加者', {
+      [AttributeType.VITALITY]: 100,
+      [AttributeType.STRENGTH]: 100,
+      [AttributeType.SPIRIT]: 100,
+      [AttributeType.ENDURANCE]: 100,
+      [AttributeType.SPEED]: 1_000,
+      [AttributeType.WILLPOWER]: 100,
+    });
+    const survivor = unit('survivor', '存活者');
+    source.setHp(10);
+    source.abilities.setDefaultAttack(
+      AbilityFactory.create({
+        slug: 'lingering-status',
+        name: '遗留术法',
+        type: AbilityType.ACTIVE_SKILL,
+        tags: [
+          GameplayTags.ABILITY.KIND.SKILL,
+          GameplayTags.ABILITY.FUNCTION.BUFF,
+        ],
+        hitPolicy: 'guaranteed',
+        effects: [
+          {
+            type: 'apply_buff',
+            params: {
+              target: 'target',
+              buffConfig: {
+                id: 'lingering-debuff',
+                name: '遗留减益',
+                type: BuffType.DEBUFF,
+                duration: 1,
+                stackRule: StackRule.REFRESH_DURATION,
+                tags: [GameplayTags.BUFF.TYPE.DEBUFF],
+                statusTags: [GameplayTags.STATUS.CATEGORY.DEBUFF],
+              },
+            },
+          },
+        ],
+      }),
+    );
+    survivor.abilities.setDefaultAttack(
+      AbilityFactory.create({
+        slug: 'finishing-strike',
+        name: '终结一击',
+        type: AbilityType.ACTIVE_SKILL,
+        tags: [
+          GameplayTags.ABILITY.KIND.SKILL,
+          GameplayTags.ABILITY.FUNCTION.DAMAGE,
+          GameplayTags.ABILITY.CHANNEL.TRUE,
+        ],
+        hitPolicy: 'guaranteed',
+        effects: [
+          {
+            type: 'damage',
+            params: {
+              value: {
+                base: 10,
+                attribute: AttributeType.ATK,
+                coefficient: 0,
+              },
+              damageType: DamageType.TRUE,
+            },
+          },
+        ],
+      }),
+    );
+
+    const engine = new BattleEngineV5(source, survivor);
+    const result = withBattleRandomSource(
+      new SeededBattleRandomSource('dead-status-source'),
+      () => engine.execute(),
+    );
+    const record: BattleRecordV3 = {
+      participants: {
+        player: { id: source.id, name: source.name },
+        opponent: { id: survivor.id, name: survivor.name },
+      },
+      outcome: {
+        winner: { id: survivor.id, name: survivor.name },
+        loser: { id: source.id, name: source.name },
+        turns: result.turns,
+      },
+      sequences: result.sequences,
+      stateTimeline: result.stateTimeline,
+      finalSnapshots: {
+        winner: result.winnerSnapshot,
+        loser: result.loserSnapshot,
+      },
+    };
+    const removal = result.sequences
+      .flatMap((sequence) => sequence.facts)
+      .find(
+        (fact) =>
+          fact.type === 'status' &&
+          fact.operation === 'remove' &&
+          fact.statusId === 'lingering-debuff',
+      );
+
+    expect(result.winner).toBe(survivor.id);
+    expect(removal?.origin.kind).toBe('system');
+    expect(() => validateBattleRecordV3(record)).not.toThrow();
+    engine.destroy();
+  });
+
   it('does not record death when a hit reaction restores hp from zero', () => {
     const builder = new CombatRecordBuilderV3(EventBus.instance);
     const damageSystem = new DamageSystem();
