@@ -554,10 +554,12 @@ export default function TrainingRoomPage() {
         <BattlePlaybackPanel
           battleResult={battleResult}
           playback={playback}
-          statusAction={{
-            label: '离开练功房',
-            onClick: handleLeave,
-          }}
+          statusActions={[
+            {
+              label: '离开练功房',
+              onClick: handleLeave,
+            },
+          ]}
         />
       )}
 

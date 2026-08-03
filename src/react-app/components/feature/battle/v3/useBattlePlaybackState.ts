@@ -1,5 +1,7 @@
-import type { UnitStateSnapshot } from '@shared/engine/battle-v5/systems/state/types';
-import type { BattleRecordV3 } from '@shared/types/battle';
+import type {
+  BattlePlaybackRecordV3,
+  PublicBattleUnitSnapshotV1,
+} from '@shared/types/battle';
 import { useEffect, useMemo, useState } from 'react';
 import { useCombatPlayer } from './useCombatPlayer';
 
@@ -15,25 +17,25 @@ export interface BattlePlaybackStateV3 {
   play: () => void;
   pause: () => void;
   reset: () => void;
-  currentPlayerFrame: UnitStateSnapshot | undefined;
-  currentOpponentFrame: UnitStateSnapshot | undefined;
+  currentPlayerFrame: PublicBattleUnitSnapshotV1 | undefined;
+  currentOpponentFrame: PublicBattleUnitSnapshotV1 | undefined;
   playerName: string;
   opponentName: string;
   isPlaybackFinished: boolean;
-  selectedUnit: UnitStateSnapshot | null;
-  openUnitDetails: (unit: UnitStateSnapshot | null) => void;
+  selectedUnit: PublicBattleUnitSnapshotV1 | null;
+  openUnitDetails: (unit: PublicBattleUnitSnapshotV1 | null) => void;
   closeUnitDetails: () => void;
 }
 
 export function resolveSelectedBattleUnit(
   selectedUnitId: string | null,
-  unitSnapshots: Record<string, UnitStateSnapshot>,
+  unitSnapshots: Record<string, PublicBattleUnitSnapshotV1>,
 ) {
   return selectedUnitId ? (unitSnapshots[selectedUnitId] ?? null) : null;
 }
 
 export function resolveBattleUnitName(
-  record: BattleRecordV3 | undefined,
+  record: BattlePlaybackRecordV3 | undefined,
   unitId: string | undefined,
   fallbackName: string,
 ) {
@@ -52,7 +54,9 @@ export function resolveBattleUnitName(
   return fallbackName;
 }
 
-export function resolveBattlePlaybackNames(record: BattleRecordV3 | undefined) {
+export function resolveBattlePlaybackNames(
+  record: BattlePlaybackRecordV3 | undefined,
+) {
   return {
     playerName: resolveBattleUnitName(
       record,
@@ -68,7 +72,7 @@ export function resolveBattlePlaybackNames(record: BattleRecordV3 | undefined) {
 }
 
 export function useBattlePlaybackState(
-  record: BattleRecordV3 | undefined,
+  record: BattlePlaybackRecordV3 | undefined,
 ): BattlePlaybackStateV3 {
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const {

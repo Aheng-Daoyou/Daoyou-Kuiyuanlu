@@ -1,16 +1,18 @@
-import type { UnitStateSnapshot } from '@shared/engine/battle-v5/systems/state/types';
-import type { BattleRecordV3 } from '@shared/types/battle';
+import type {
+  BattlePlaybackRecordV3,
+  PublicBattleUnitSnapshotV1,
+} from '@shared/types/battle';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export type PlaybackState = {
-  record: BattleRecordV3 | undefined;
+  record: BattlePlaybackRecordV3 | undefined;
   currentIndex: number;
   isPlaying: boolean;
 };
 
 export function resolvePlaybackStateForRecord(
   playbackState: PlaybackState,
-  record: BattleRecordV3 | undefined,
+  record: BattlePlaybackRecordV3 | undefined,
 ): PlaybackState {
   return playbackState.record === record
     ? playbackState
@@ -22,7 +24,7 @@ export function resolvePlaybackStateForRecord(
  *
  * 职责：管理战斗播放状态，并提供平滑的状态快照映射。
  */
-export function useCombatPlayer(record: BattleRecordV3 | undefined) {
+export function useCombatPlayer(record: BattlePlaybackRecordV3 | undefined) {
   const [playbackState, setPlaybackState] = useState<PlaybackState>({
     record,
     currentIndex: -1,
@@ -42,7 +44,7 @@ export function useCombatPlayer(record: BattleRecordV3 | undefined) {
     currentRecordState.isPlaying && totalActions > 0 && !isEnded;
 
   const latestUnitsBySequenceId = useMemo(() => {
-    const map = new Map<string, Record<string, UnitStateSnapshot>>();
+    const map = new Map<string, Record<string, PublicBattleUnitSnapshotV1>>();
     for (const frame of record?.stateTimeline.frames ?? []) {
       if (frame.sourceSequenceId) {
         map.set(frame.sourceSequenceId, frame.units);
@@ -51,7 +53,9 @@ export function useCombatPlayer(record: BattleRecordV3 | undefined) {
     return map;
   }, [record]);
 
-  const unitSnapshots = useMemo<Record<string, UnitStateSnapshot>>(() => {
+  const unitSnapshots = useMemo<
+    Record<string, PublicBattleUnitSnapshotV1>
+  >(() => {
     const initialUnits = record?.stateTimeline.frames[0]?.units;
     if (!record || !initialUnits) {
       return {};

@@ -163,10 +163,12 @@ export function BattleOutcome({
       <BattlePlaybackPanel
         battleResult={battle.battle}
         playback={playback}
-        statusAction={{
-          label: returnTarget.returnLabel,
-          onClick: () => navigate(returnTarget.route),
-        }}
+        statusActions={[
+          {
+            label: returnTarget.returnLabel,
+            onClick: () => navigate(returnTarget.route),
+          },
+        ]}
       />
       <CombatResultDialog
         key={`${attemptId}-${battle.battle.outcome.turns}`}

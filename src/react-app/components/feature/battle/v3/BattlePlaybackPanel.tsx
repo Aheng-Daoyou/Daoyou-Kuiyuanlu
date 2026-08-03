@@ -1,4 +1,8 @@
-import type { BattleRecordV3 } from '@shared/types/battle';
+import type { UnitStateSnapshot } from '@shared/engine/battle-v5/systems/state/types';
+import type {
+  BattlePlaybackRecordV3,
+  PublicBattleUnitSnapshotV1,
+} from '@shared/types/battle';
 import { CombatAttributeModal } from '../v5/CombatAttributeModal';
 import { CombatControlBar } from '../v5/CombatControlBar';
 import { CombatStatusHeader } from '../v5/CombatStatusHeader';
@@ -12,15 +16,21 @@ export interface BattleStatusAction {
 }
 
 interface BattlePlaybackPanelProps {
-  battleResult: BattleRecordV3 | undefined;
+  battleResult: BattlePlaybackRecordV3 | undefined;
   playback: BattlePlaybackStateV3;
-  statusAction?: BattleStatusAction;
+  statusActions?: BattleStatusAction[];
+}
+
+function hasExactAttributes(
+  unit: PublicBattleUnitSnapshotV1 | null | undefined,
+): unit is UnitStateSnapshot {
+  return Boolean(unit && 'attrs' in unit && 'baseAttrs' in unit);
 }
 
 export function BattlePlaybackPanel({
   battleResult,
   playback,
-  statusAction,
+  statusActions,
 }: BattlePlaybackPanelProps) {
   if (!battleResult) {
     return null;
@@ -33,11 +43,21 @@ export function BattlePlaybackPanel({
           <CombatStatusHeader
             player={playback.currentPlayerFrame}
             opponent={playback.currentOpponentFrame}
-            onShowPlayerDetails={() =>
-              playback.openUnitDetails(playback.currentPlayerFrame ?? null)
+            onShowPlayerDetails={
+              hasExactAttributes(playback.currentPlayerFrame)
+                ? () =>
+                    playback.openUnitDetails(
+                      playback.currentPlayerFrame ?? null,
+                    )
+                : undefined
             }
-            onShowOpponentDetails={() =>
-              playback.openUnitDetails(playback.currentOpponentFrame ?? null)
+            onShowOpponentDetails={
+              hasExactAttributes(playback.currentOpponentFrame)
+                ? () =>
+                    playback.openUnitDetails(
+                      playback.currentOpponentFrame ?? null,
+                    )
+                : undefined
             }
             controls={
               <CombatControlBar
@@ -51,7 +71,7 @@ export function BattlePlaybackPanel({
                 onReset={playback.reset}
               />
             }
-            statusAction={statusAction}
+            statusActions={statusActions}
           />
         )}
 
@@ -62,8 +82,12 @@ export function BattlePlaybackPanel({
       </div>
 
       <CombatAttributeModal
-        unit={playback.selectedUnit}
-        isOpen={!!playback.selectedUnit}
+        unit={
+          hasExactAttributes(playback.selectedUnit)
+            ? playback.selectedUnit
+            : null
+        }
+        isOpen={hasExactAttributes(playback.selectedUnit)}
         onClose={playback.closeUnitDetails}
       />
     </>

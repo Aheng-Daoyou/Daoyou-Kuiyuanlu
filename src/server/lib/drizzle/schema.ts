@@ -8,6 +8,7 @@ import type {
   ItemLibraryPayload,
 } from '@shared/lib/itemLibrary';
 import type { TowerPreparedEnemy } from '@shared/lib/tower';
+import type { BattleRecordV3 } from '@shared/types/battle';
 import type {
   AlchemyFormulaBlueprint,
   AlchemyFormulaMastery,
@@ -15,7 +16,6 @@ import type {
   PillFamily,
 } from '@shared/types/consumable';
 import type { MailAttachment } from '@shared/types/mail';
-import type { BattleRecordV3 } from '@shared/types/battle';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -938,6 +938,8 @@ export const battleRecordsV3 = pgTable(
       .notNull()
       .default('normal'),
     battleResult: jsonb('battle_result').$type<BattleRecordV3>().notNull(),
+    shareCode: uuid('share_code'),
+    sharedAt: timestamp('shared_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => [
@@ -953,6 +955,7 @@ export const battleRecordsV3 = pgTable(
       table.userId,
       table.createdAt,
     ),
+    uniqueIndex('battle_records_v3_share_code_uidx').on(table.shareCode),
   ],
 );
 
@@ -1193,9 +1196,7 @@ export const sectShopItems = pgTable(
       .notNull(),
   },
   (table) => [
-    uniqueIndex('sect_shop_item_library_item_uidx').on(
-      table.itemLibraryItemId,
-    ),
+    uniqueIndex('sect_shop_item_library_item_uidx').on(table.itemLibraryItemId),
     index('sect_shop_status_sort_idx').on(
       table.status,
       table.sortOrder,

@@ -7,7 +7,8 @@ import type {
   BattleRecordV3,
   BattleRecordV3Summary,
 } from '@shared/types/battle';
-import { and, desc, eq, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 
 export type BattleRecordV3Row = typeof battleRecordsV3.$inferSelect;
 
@@ -29,6 +30,12 @@ export interface ListBattleRecordV3Input {
 export interface ListBattleRecordV3Result {
   data: BattleRecordV3Summary[];
   hasMore: boolean;
+}
+
+export interface BattleRecordV3ShareResult {
+  record: BattleRecordV3Row;
+  shareCode: string;
+  created: boolean;
 }
 
 const summaryFields = {
@@ -172,6 +179,58 @@ export async function getBattleRecordV3ByIdForCultivator(
     )
     .limit(1);
   if (!row) return null;
+  validateBattleRecordV3(row.battleResult);
+  return row;
+}
+
+export async function ensureBattleRecordV3Share(
+  id: string,
+  cultivatorId: string,
+  q: DbExecutor = getExecutor(),
+): Promise<BattleRecordV3ShareResult | null> {
+  const current = await getBattleRecordV3ByIdForCultivator(id, cultivatorId, q);
+  if (!current) return null;
+  if (current.shareCode) {
+    return { record: current, shareCode: current.shareCode, created: false };
+  }
+
+  const shareCode = randomUUID();
+  const [updated] = await q
+    .update(battleRecordsV3)
+    .set({ shareCode, sharedAt: new Date() })
+    .where(
+      and(
+        eq(battleRecordsV3.id, id),
+        isNull(battleRecordsV3.shareCode),
+        or(
+          eq(battleRecordsV3.cultivatorId, cultivatorId),
+          eq(battleRecordsV3.opponentCultivatorId, cultivatorId),
+        ),
+      ),
+    )
+    .returning();
+
+  if (updated) {
+    validateBattleRecordV3(updated.battleResult);
+    return { record: updated, shareCode, created: true };
+  }
+
+  const raced = await getBattleRecordV3ByIdForCultivator(id, cultivatorId, q);
+  return raced?.shareCode
+    ? { record: raced, shareCode: raced.shareCode, created: false }
+    : null;
+}
+
+export async function getSharedBattleRecordV3ByCode(
+  shareCode: string,
+  q: DbExecutor = getExecutor(),
+): Promise<BattleRecordV3Row | null> {
+  const [row] = await q
+    .select()
+    .from(battleRecordsV3)
+    .where(eq(battleRecordsV3.shareCode, shareCode))
+    .limit(1);
+  if (!row?.shareCode) return null;
   validateBattleRecordV3(row.battleResult);
   return row;
 }

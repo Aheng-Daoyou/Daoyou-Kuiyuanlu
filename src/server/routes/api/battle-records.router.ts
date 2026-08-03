@@ -5,13 +5,17 @@ import {
 } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
 import {
+  ensureBattleRecordV3Share,
   getBattleRecordV3ByIdForCultivator,
+  getSharedBattleRecordV3ByCode,
   listBattleRecordV3Summaries,
 } from '@server/lib/repositories/battleRecordV3Repository';
+import { toPublicBattleReplayV1 } from '@shared/lib/battle/publicBattleReplay';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
 const router = new Hono<AppEnv>();
+const UuidSchema = z.string().uuid();
 
 const BattleRecordListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(500).default(1),
@@ -20,6 +24,29 @@ const BattleRecordListQuerySchema = z.object({
 });
 
 type BattleRecordListQuery = z.infer<typeof BattleRecordListQuerySchema>;
+
+router.get('/shared/:shareCode', async (c) => {
+  const parsedCode = UuidSchema.safeParse(c.req.param('shareCode'));
+  if (!parsedCode.success) {
+    return c.json({ success: false, error: '记录不存在' }, 404);
+  }
+  const record = await getSharedBattleRecordV3ByCode(parsedCode.data);
+  if (!record?.shareCode) {
+    return c.json({ success: false, error: '记录不存在' }, 404);
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      shareCode: record.shareCode,
+      createdAt: record.createdAt.toISOString(),
+      winner: record.battleResult.outcome.winner,
+      loser: record.battleResult.outcome.loser,
+      turns: record.battleResult.outcome.turns,
+      battleResult: toPublicBattleReplayV1(record.battleResult),
+    },
+  });
+});
 
 router.get(
   '/v3',
@@ -71,6 +98,30 @@ router.get('/v3/:id', requireActiveCultivatorRef(), async (c) => {
       id: record.id,
       createdAt: record.createdAt,
       battleResult: record.battleResult,
+    },
+  });
+});
+
+router.post('/v3/:id/share', requireActiveCultivatorRef(), async (c) => {
+  const activeRef = c.get('activeCultivatorRef');
+  const parsedId = UuidSchema.safeParse(c.req.param('id'));
+  if (!activeRef || !parsedId.success) {
+    return c.json({ success: false, error: '记录不存在' }, 404);
+  }
+  const result = await ensureBattleRecordV3Share(
+    parsedId.data,
+    activeRef.cultivatorId,
+  );
+  if (!result) {
+    return c.json({ success: false, error: '记录不存在' }, 404);
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      shareCode: result.shareCode,
+      sharePath: `/battle-replay/${result.shareCode}`,
+      created: result.created,
     },
   });
 });

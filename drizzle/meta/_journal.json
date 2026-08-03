@@ -148,6 +148,13 @@
       "when": 1785681588311,
       "tag": "0020_lowly_stryfe",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785728967815,
+      "tag": "0021_battle_record_sharing",
+      "breakpoints": true
     }
   ]
 }
