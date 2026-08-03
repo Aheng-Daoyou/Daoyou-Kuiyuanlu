@@ -160,7 +160,7 @@ export const GONGFA_AFFIXES: AffixDefinition[] = [
       type: 'attribute_modifier',
       params: {
         attrType: AttributeType.CRIT_RATE,
-        modType: ModifierType.ADD,
+        modType: ModifierType.FIXED,
         value: { base: 0.04, scale: 'quality', coefficient: 0.012 },
       },
     },
@@ -402,7 +402,7 @@ export const GONGFA_AFFIXES: AffixDefinition[] = [
       type: 'attribute_modifier',
       params: {
         attrType: AttributeType.HEAL_AMPLIFY,
-        modType: ModifierType.ADD,
+        modType: ModifierType.FIXED,
         value: { base: 0.015, scale: 'quality', coefficient: 0.012 },
       },
     },
@@ -431,7 +431,7 @@ export const GONGFA_AFFIXES: AffixDefinition[] = [
       type: 'attribute_modifier',
       params: {
         attrType: AttributeType.CONTROL_HIT,
-        modType: ModifierType.ADD,
+        modType: ModifierType.FIXED,
         value: { base: 0.01, scale: 'quality', coefficient: 0.005 },
       },
     },
@@ -460,7 +460,7 @@ export const GONGFA_AFFIXES: AffixDefinition[] = [
       type: 'attribute_modifier',
       params: {
         attrType: AttributeType.CONTROL_RESISTANCE,
-        modType: ModifierType.ADD,
+        modType: ModifierType.FIXED,
         value: { base: 0.01, scale: 'quality', coefficient: 0.012 },
       },
     },
