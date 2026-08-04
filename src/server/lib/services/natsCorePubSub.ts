@@ -7,35 +7,96 @@ type SharedSubscription = {
   handlers: Set<NatsMessageHandler>;
   subscription?: Subscription;
   closed: boolean;
-  ready: Promise<void>;
+  healthy: boolean;
+  task: Promise<void>;
+  cancelRestartWait?: () => void;
 };
 
 const codec = StringCodec();
 const subscriptions = new Map<string, SharedSubscription>();
+const SUBSCRIPTION_RESTART_DELAYS_MS = [
+  1_000,
+  2_000,
+  5_000,
+  10_000,
+  30_000,
+] as const;
 
 function createSharedSubscription(subject: string): SharedSubscription {
   const shared: SharedSubscription = {
     handlers: new Set(),
     closed: false,
-    ready: Promise.resolve(),
+    healthy: false,
+    task: Promise.resolve(),
   };
-  shared.ready = getNatsConnection()
-    .then(async (connection) => {
+  shared.task = superviseSubscription(subject, shared);
+  subscriptions.set(subject, shared);
+  return shared;
+}
+
+async function superviseSubscription(
+  subject: string,
+  shared: SharedSubscription,
+): Promise<void> {
+  let restartAttempt = 0;
+  while (!shared.closed) {
+    try {
+      const connection = await getNatsConnection();
       if (shared.closed) return;
       const subscription = connection.subscribe(subject);
       shared.subscription = subscription;
+      shared.healthy = true;
+      restartAttempt = 0;
       for await (const message of subscription) {
         const decoded = codec.decode(message.data);
-        for (const handler of shared.handlers) handler(decoded);
+        for (const handler of shared.handlers) {
+          try {
+            handler(decoded);
+          } catch (error) {
+            console.warn('[nats-core] subscription handler failed', {
+              subject,
+              error,
+            });
+          }
+        }
       }
-    })
-    .catch((error) => {
+      if (!shared.closed) throw new Error('NATS Core subscription 意外结束');
+    } catch (error) {
+      shared.healthy = false;
       if (!shared.closed) {
-        console.warn('[nats-core] subscription stopped', { subject, error });
+        const delayMs =
+          SUBSCRIPTION_RESTART_DELAYS_MS[
+            Math.min(restartAttempt, SUBSCRIPTION_RESTART_DELAYS_MS.length - 1)
+          ]!;
+        restartAttempt += 1;
+        console.warn('[nats-core] subscription stopped', {
+          subject,
+          restartDelayMs: delayMs,
+          error,
+        });
+        await waitForRestart(shared, delayMs);
       }
-    });
-  subscriptions.set(subject, shared);
-  return shared;
+    } finally {
+      shared.healthy = false;
+      shared.subscription = undefined;
+    }
+  }
+}
+
+function waitForRestart(
+  shared: SharedSubscription,
+  delayMs: number,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      shared.cancelRestartWait = undefined;
+      resolve();
+    };
+    const timer = setTimeout(finish, delayMs);
+    timer.unref();
+    shared.cancelRestartWait = finish;
+  });
 }
 
 export function encodeNatsSubjectToken(value: string): string {
@@ -69,6 +130,26 @@ export function subscribeNatsCoreSubject(
     if (current.handlers.size > 0) return;
     subscriptions.delete(subject);
     current.closed = true;
+    current.healthy = false;
+    current.cancelRestartWait?.();
     current.subscription?.unsubscribe();
   };
+}
+
+export function areNatsCoreSubscriptionsHealthy(): boolean {
+  return [...subscriptions.values()].every(
+    (subscription) => subscription.closed || subscription.healthy,
+  );
+}
+
+export async function stopNatsCoreSubscriptions(): Promise<void> {
+  const active = [...subscriptions.values()];
+  subscriptions.clear();
+  for (const shared of active) {
+    shared.closed = true;
+    shared.healthy = false;
+    shared.cancelRestartWait?.();
+    shared.subscription?.unsubscribe();
+  }
+  await Promise.allSettled(active.map((shared) => shared.task));
 }

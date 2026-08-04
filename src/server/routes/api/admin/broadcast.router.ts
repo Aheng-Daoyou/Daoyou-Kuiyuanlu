@@ -8,12 +8,15 @@ import {
   normalizeTemplatePayload,
   renderTemplate,
 } from '@server/lib/admin/template';
-import { getExecutor } from '@server/lib/drizzle/db';
-import { adminMessageTemplates, mails } from '@server/lib/drizzle/schema';
+import { db, getExecutor } from '@server/lib/drizzle/db';
+import { adminMessageTemplates } from '@server/lib/drizzle/schema';
 import { requireAdmin } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
 import { findPublishedItemLibraryForSelections } from '@server/lib/repositories/itemLibraryRepository';
-import type { MailAttachment } from '@server/lib/services/MailService';
+import {
+  MailService,
+  type MailAttachment,
+} from '@server/lib/services/MailService';
 import { REALM_VALUES } from '@shared/types/constants';
 import {
   ItemLibraryResolveError,
@@ -273,15 +276,24 @@ router.post('/game-mail', requireAdmin(), async (c) => {
     cultivatorId: recipient.recipientKey,
     title: finalTitle,
     content: finalContent,
-    type,
     attachments,
-    isRead: false,
-    isClaimed: false,
   }));
 
   const batchSize = Number(process.env.ADMIN_BROADCAST_BATCH_SIZE ?? 500);
   for (let i = 0; i < rows.length; i += batchSize) {
-    await q.insert(mails).values(rows.slice(i, i + batchSize));
+    const batch = rows.slice(i, i + batchSize);
+    await db.transaction(async (tx) => {
+      for (const row of batch) {
+        await MailService.sendMail(
+          row.cultivatorId,
+          row.title,
+          row.content,
+          row.attachments,
+          type,
+          tx,
+        );
+      }
+    });
   }
 
   return c.json({

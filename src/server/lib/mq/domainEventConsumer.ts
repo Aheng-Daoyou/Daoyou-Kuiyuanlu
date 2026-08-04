@@ -14,8 +14,8 @@ import {
 
 const MAX_PROCESSING_ATTEMPTS = 10;
 const WORKING_INTERVAL_MS = 30_000;
+const CONSUMER_RESTART_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
 const codec = JSONCodec();
-const runningConsumers = new Set<ConsumerMessages>();
 const activeHandlers = new Set<Promise<void>>();
 
 type DomainEventConsumerRegistration = {
@@ -24,6 +24,39 @@ type DomainEventConsumerRegistration = {
   acceptedTypes: readonly DomainEventType[];
   handle(event: DomainEventEnvelope): Promise<void>;
 };
+
+type DomainEventConsumerRunner = {
+  registration: DomainEventConsumerRegistration;
+  messages?: ConsumerMessages;
+  task: Promise<void>;
+  stopping: boolean;
+  healthy: boolean;
+  cancelRestartWait?: () => void;
+};
+
+const consumerRunners = new Map<string, DomainEventConsumerRunner>();
+
+function restartDelayMs(attempt: number): number {
+  return CONSUMER_RESTART_DELAYS_MS[
+    Math.min(attempt, CONSUMER_RESTART_DELAYS_MS.length - 1)
+  ]!;
+}
+
+function waitForRestart(
+  runner: DomainEventConsumerRunner,
+  delayMs: number,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      runner.cancelRestartWait = undefined;
+      resolve();
+    };
+    const timer = setTimeout(finish, delayMs);
+    timer.unref();
+    runner.cancelRestartWait = finish;
+  });
+}
 
 async function publishDeadLetter(
   registration: DomainEventConsumerRegistration,
@@ -115,39 +148,28 @@ async function processMessage(
 export async function startDomainEventConsumer(
   registration: DomainEventConsumerRegistration,
 ): Promise<void> {
-  const jetStream = await getJetStreamClient();
-  const consumer = await jetStream.consumers.get(
-    DOMAIN_EVENT_STREAM,
-    registration.consumerName,
-  );
-  const messages = await consumer.consume({
-    max_messages: registration.concurrency,
-  });
-  runningConsumers.add(messages);
+  if (consumerRunners.has(registration.consumerName)) return;
 
-  void (async () => {
-    const consumerHandlers = new Set<Promise<void>>();
-    try {
-      for await (const message of messages) {
-        const handler = processMessage(registration, message).finally(() => {
-          activeHandlers.delete(handler);
-          consumerHandlers.delete(handler);
-        });
-        activeHandlers.add(handler);
-        consumerHandlers.add(handler);
-        if (consumerHandlers.size >= registration.concurrency) {
-          await Promise.race(consumerHandlers);
-        }
-      }
-    } catch (error) {
-      console.error('[domain-event-consumer] consumer loop stopped', {
-        consumerName: registration.consumerName,
-        error,
-      });
-    } finally {
-      runningConsumers.delete(messages);
-    }
-  })();
+  let resolveInitialStart!: () => void;
+  let rejectInitialStart!: (error: unknown) => void;
+  const initialStart = new Promise<void>((resolve, reject) => {
+    resolveInitialStart = resolve;
+    rejectInitialStart = reject;
+  });
+  const runner: DomainEventConsumerRunner = {
+    registration,
+    task: Promise.resolve(),
+    stopping: false,
+    healthy: false,
+  };
+  consumerRunners.set(registration.consumerName, runner);
+  runner.task = superviseDomainEventConsumer(
+    runner,
+    resolveInitialStart,
+    rejectInitialStart,
+  );
+
+  await initialStart;
 
   console.info('[domain-event-consumer] started', {
     consumerName: registration.consumerName,
@@ -155,11 +177,99 @@ export async function startDomainEventConsumer(
   });
 }
 
-export async function stopDomainEventConsumers(): Promise<void> {
-  await Promise.allSettled(
-    [...runningConsumers].map((messages) => messages.close()),
+async function superviseDomainEventConsumer(
+  runner: DomainEventConsumerRunner,
+  resolveInitialStart: () => void,
+  rejectInitialStart: (error: unknown) => void,
+): Promise<void> {
+  let started = false;
+  let restartAttempt = 0;
+
+  while (!runner.stopping) {
+    const consumerHandlers = new Set<Promise<void>>();
+    try {
+      const jetStream = await getJetStreamClient();
+      const consumer = await jetStream.consumers.get(
+        DOMAIN_EVENT_STREAM,
+        runner.registration.consumerName,
+      );
+      const messages = await consumer.consume({
+        max_messages: runner.registration.concurrency,
+      });
+      runner.messages = messages;
+      runner.healthy = true;
+      restartAttempt = 0;
+      if (!started) {
+        started = true;
+        resolveInitialStart();
+      } else {
+        console.info('[domain-event-consumer] restarted', {
+          consumerName: runner.registration.consumerName,
+        });
+      }
+
+      for await (const message of messages) {
+        const handler = processMessage(runner.registration, message).finally(
+          () => {
+            activeHandlers.delete(handler);
+            consumerHandlers.delete(handler);
+          },
+        );
+        activeHandlers.add(handler);
+        consumerHandlers.add(handler);
+        if (consumerHandlers.size >= runner.registration.concurrency) {
+          await Promise.race(consumerHandlers);
+        }
+      }
+      if (!runner.stopping) {
+        throw new Error('领域事件 consumer loop 意外结束');
+      }
+    } catch (error) {
+      runner.healthy = false;
+      if (!started) {
+        consumerRunners.delete(runner.registration.consumerName);
+        rejectInitialStart(error);
+        return;
+      }
+      if (!runner.stopping) {
+        const delayMs = restartDelayMs(restartAttempt);
+        restartAttempt += 1;
+        console.error('[domain-event-consumer] consumer loop stopped', {
+          consumerName: runner.registration.consumerName,
+          restartDelayMs: delayMs,
+          error,
+        });
+        await waitForRestart(runner, delayMs);
+      }
+    } finally {
+      runner.healthy = false;
+      runner.messages = undefined;
+      await Promise.allSettled([...consumerHandlers]);
+    }
+  }
+}
+
+export function areDomainEventConsumersHealthy(): boolean {
+  return (
+    consumerRunners.size > 0 &&
+    [...consumerRunners.values()].every(
+      (runner) => !runner.stopping && runner.healthy,
+    )
   );
+}
+
+export async function stopDomainEventConsumers(): Promise<void> {
+  const runners = [...consumerRunners.values()];
+  for (const runner of runners) {
+    runner.stopping = true;
+    runner.healthy = false;
+    runner.cancelRestartWait?.();
+  }
+  await Promise.allSettled(
+    runners.map((runner) => runner.messages?.close()),
+  );
+  await Promise.allSettled(runners.map((runner) => runner.task));
   await Promise.allSettled([...activeHandlers]);
-  runningConsumers.clear();
+  consumerRunners.clear();
   activeHandlers.clear();
 }

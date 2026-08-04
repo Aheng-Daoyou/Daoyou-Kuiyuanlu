@@ -24,8 +24,13 @@ import {
 
 const MAX_PROCESSING_ATTEMPTS = 10;
 const WORKING_INTERVAL_MS = 30_000;
+const CONSUMER_RESTART_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
 const codec = JSONCodec();
 let runningMessages: ConsumerMessages | undefined;
+let consumerTask: Promise<void> | undefined;
+let stopping = false;
+let healthy = false;
+let cancelRestartWait: (() => void) | undefined;
 const activeHandlers = new Set<Promise<void>>();
 
 const handlers = {
@@ -124,19 +129,57 @@ async function processMessage(message: JsMsg): Promise<void> {
 }
 
 export async function startBackgroundCommandConsumer(): Promise<void> {
-  if (runningMessages) return;
-  const jetStream = await getJetStreamClient();
-  const consumer = await jetStream.consumers.get(
-    BACKGROUND_COMMAND_CONSUMER.stream,
-    BACKGROUND_COMMAND_CONSUMER.name,
-  );
-  const messages = await consumer.consume({
-    max_messages: BACKGROUND_COMMAND_CONSUMER.concurrency,
+  if (consumerTask) return;
+  stopping = false;
+
+  let resolveInitialStart!: () => void;
+  let rejectInitialStart!: (error: unknown) => void;
+  const initialStart = new Promise<void>((resolve, reject) => {
+    resolveInitialStart = resolve;
+    rejectInitialStart = reject;
   });
-  runningMessages = messages;
-  void (async () => {
+  consumerTask = superviseBackgroundCommandConsumer(
+    resolveInitialStart,
+    rejectInitialStart,
+  );
+  await initialStart;
+
+  console.info('[background-command-consumer] started', {
+    consumerName: BACKGROUND_COMMAND_CONSUMER.name,
+    concurrency: BACKGROUND_COMMAND_CONSUMER.concurrency,
+  });
+}
+
+async function superviseBackgroundCommandConsumer(
+  resolveInitialStart: () => void,
+  rejectInitialStart: (error: unknown) => void,
+): Promise<void> {
+  let started = false;
+  let restartAttempt = 0;
+
+  while (!stopping) {
     const handlers = new Set<Promise<void>>();
     try {
+      const jetStream = await getJetStreamClient();
+      const consumer = await jetStream.consumers.get(
+        BACKGROUND_COMMAND_CONSUMER.stream,
+        BACKGROUND_COMMAND_CONSUMER.name,
+      );
+      const messages = await consumer.consume({
+        max_messages: BACKGROUND_COMMAND_CONSUMER.concurrency,
+      });
+      runningMessages = messages;
+      healthy = true;
+      restartAttempt = 0;
+      if (!started) {
+        started = true;
+        resolveInitialStart();
+      } else {
+        console.info('[background-command-consumer] restarted', {
+          consumerName: BACKGROUND_COMMAND_CONSUMER.name,
+        });
+      }
+
       for await (const message of messages) {
         const handler = processMessage(message).finally(() => {
           handlers.delete(handler);
@@ -148,22 +191,58 @@ export async function startBackgroundCommandConsumer(): Promise<void> {
           await Promise.race(handlers);
         }
       }
+      if (!stopping) {
+        throw new Error('后台 Command consumer loop 意外结束');
+      }
     } catch (error) {
-      console.error('[background-command-consumer] loop stopped', error);
+      healthy = false;
+      if (!started) {
+        consumerTask = undefined;
+        rejectInitialStart(error);
+        return;
+      }
+      if (!stopping) {
+        const delayMs =
+          CONSUMER_RESTART_DELAYS_MS[
+            Math.min(restartAttempt, CONSUMER_RESTART_DELAYS_MS.length - 1)
+          ]!;
+        restartAttempt += 1;
+        console.error('[background-command-consumer] loop stopped', {
+          restartDelayMs: delayMs,
+          error,
+        });
+        await new Promise<void>((resolve) => {
+          const finish = () => {
+            clearTimeout(timer);
+            cancelRestartWait = undefined;
+            resolve();
+          };
+          const timer = setTimeout(finish, delayMs);
+          timer.unref();
+          cancelRestartWait = finish;
+        });
+      }
     } finally {
-      if (runningMessages === messages) runningMessages = undefined;
+      healthy = false;
+      runningMessages = undefined;
+      await Promise.allSettled([...handlers]);
     }
-  })();
-  console.info('[background-command-consumer] started', {
-    consumerName: BACKGROUND_COMMAND_CONSUMER.name,
-    concurrency: BACKGROUND_COMMAND_CONSUMER.concurrency,
-  });
+  }
+}
+
+export function isBackgroundCommandConsumerHealthy(): boolean {
+  return Boolean(consumerTask && !stopping && healthy);
 }
 
 export async function stopBackgroundCommandConsumer(): Promise<void> {
+  stopping = true;
+  healthy = false;
+  cancelRestartWait?.();
   const messages = runningMessages;
   runningMessages = undefined;
   await messages?.close();
+  await consumerTask;
+  consumerTask = undefined;
   await Promise.allSettled([...activeHandlers]);
   activeHandlers.clear();
 }

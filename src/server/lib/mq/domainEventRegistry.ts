@@ -1,6 +1,10 @@
 import { closeNatsConnection, getNatsConnection } from '@server/lib/nats';
 import { projectMailCreated } from '@server/lib/services/MailDomainEventProjector';
 import { projectRealmChangedRanking } from '@server/lib/services/RealmChangedDomainEventProjector';
+import {
+  areNatsCoreSubscriptionsHealthy,
+  stopNatsCoreSubscriptions,
+} from '@server/lib/services/natsCorePubSub';
 import { projectSectConstructionDonation } from '@server/lib/services/sect-organization/SectConstructionSettlementService';
 import { projectTaskDomainEvent } from '@server/lib/services/TaskDomainEventProjector';
 import { projectWorldRumorDomainEvent } from '@server/lib/services/WorldRumorDomainEventProjector';
@@ -13,10 +17,12 @@ import {
   type DomainEventEnvelope,
 } from '@shared/contracts/domainEvents';
 import {
+  isBackgroundCommandConsumerHealthy,
   startBackgroundCommandConsumer,
   stopBackgroundCommandConsumer,
 } from './backgroundCommandConsumer';
 import {
+  areDomainEventConsumersHealthy,
   startDomainEventConsumer,
   stopDomainEventConsumers,
 } from './domainEventConsumer';
@@ -162,5 +168,15 @@ export async function shutdownMessageInfrastructure(): Promise<void> {
   stopTransactionalMessageRelay();
   await stopBackgroundCommandConsumer();
   await stopDomainEventConsumers();
+  await stopNatsCoreSubscriptions();
   await closeNatsConnection();
+}
+
+export function getMessageInfrastructureHealthStatus(): 'up' | 'down' {
+  return registered &&
+    areDomainEventConsumersHealthy() &&
+    isBackgroundCommandConsumerHealthy() &&
+    areNatsCoreSubscriptionsHealthy()
+    ? 'up'
+    : 'down';
 }

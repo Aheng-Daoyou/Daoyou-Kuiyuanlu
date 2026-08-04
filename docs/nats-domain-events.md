@@ -78,7 +78,7 @@ NATS_PASSWORD=replace-with-production-secret
 3. 在生产 env 文件中配置全部 `NATS_*` 变量。
 4. 执行 `bunx drizzle-kit migrate`。迁移会新增通用事务消息表和消费幂等表，并删除已确认废弃的 `wanjiedaoyou_local_transaction_messages`。注意现有 `0025` 还会删除 `wanjiedaoyou_sect_contribution_ledger` 与 `wanjiedaoyou_sect_daily_commissions`，上线前应单独确认这两张宗门旧表的数据无需保留。
 5. 启动新应用；启动成功意味着 NATS 连接、领域事件 Stream、Command WorkQueue 和全部 consumer 初始化成功。
-6. 检查 `/api/health-check` 返回 `redis: up` 和 `nats: up`。
+6. 检查 `/api/health-check` 返回 `redis: up`、`nats: up` 和 `messaging: up`；`messaging` 同时覆盖 JetStream consumer 与当前活跃的 NATS Core subscription。
 7. 检查 NATS `8222` 监控端点与应用日志，确认无 Outbox/consumer 错误。
 
 ## 本地 NATS
