@@ -1,19 +1,27 @@
 import { closeNatsConnection, getNatsConnection } from '@server/lib/nats';
+import { projectMailCreated } from '@server/lib/services/MailDomainEventProjector';
+import { projectRealmChangedRanking } from '@server/lib/services/RealmChangedDomainEventProjector';
 import { projectSectConstructionDonation } from '@server/lib/services/sect-organization/SectConstructionSettlementService';
 import { projectTaskDomainEvent } from '@server/lib/services/TaskDomainEventProjector';
+import { projectWorldRumorDomainEvent } from '@server/lib/services/WorldRumorDomainEventProjector';
+import {
+  generateYieldRewardAttachments,
+  projectYieldReward,
+} from '@server/lib/services/YieldDomainEventProjector';
 import {
   isDomainEventType,
   type DomainEventEnvelope,
 } from '@shared/contracts/domainEvents';
 import {
+  startBackgroundCommandConsumer,
+  stopBackgroundCommandConsumer,
+} from './backgroundCommandConsumer';
+import {
   startDomainEventConsumer,
   stopDomainEventConsumers,
 } from './domainEventConsumer';
 import { executeDomainEvent } from './DomainEventExecutor';
-import {
-  DOMAIN_EVENT_CONSUMERS,
-  ensureDomainEventTopology,
-} from './natsTopology';
+import { DOMAIN_EVENT_CONSUMERS, ensureMessageTopology } from './natsTopology';
 import {
   startTransactionalMessageRelay,
   stopTransactionalMessageRelay,
@@ -21,12 +29,13 @@ import {
 
 let registered = false;
 
-export async function registerDomainEventInfrastructure(): Promise<void> {
+export async function registerMessageInfrastructure(): Promise<void> {
   if (registered) return;
 
   await getNatsConnection();
-  await ensureDomainEventTopology();
+  await ensureMessageTopology();
   await Promise.all([
+    startBackgroundCommandConsumer(),
     startDomainEventConsumer({
       consumerName: DOMAIN_EVENT_CONSUMERS.sectFacilityProjector.name,
       concurrency: DOMAIN_EVENT_CONSUMERS.sectFacilityProjector.concurrency,
@@ -40,8 +49,40 @@ export async function registerDomainEventInfrastructure(): Promise<void> {
         'alchemy.craft.completed',
         'ranking.challenge.completed',
         'dungeon.run.settled',
+        'yield.claimed',
       ],
       handle: handleTaskEvent,
+    }),
+    startDomainEventConsumer({
+      consumerName: DOMAIN_EVENT_CONSUMERS.yieldRewardProjector.name,
+      concurrency: DOMAIN_EVENT_CONSUMERS.yieldRewardProjector.concurrency,
+      acceptedTypes: ['yield.claimed'],
+      handle: handleYieldRewardEvent,
+    }),
+    startDomainEventConsumer({
+      consumerName: DOMAIN_EVENT_CONSUMERS.worldRumorProjector.name,
+      concurrency: DOMAIN_EVENT_CONSUMERS.worldRumorProjector.concurrency,
+      acceptedTypes: [
+        'cultivator.realm.changed',
+        'craft.item.created',
+        'market.material.revealed',
+        'bet-battle.created',
+        'bet-battle.settled',
+        'ranking.position.changed',
+      ],
+      handle: handleWorldRumorEvent,
+    }),
+    startDomainEventConsumer({
+      consumerName: DOMAIN_EVENT_CONSUMERS.rankingRealmProjector.name,
+      concurrency: DOMAIN_EVENT_CONSUMERS.rankingRealmProjector.concurrency,
+      acceptedTypes: ['cultivator.realm.changed'],
+      handle: handleRankingRealmEvent,
+    }),
+    startDomainEventConsumer({
+      consumerName: DOMAIN_EVENT_CONSUMERS.mailNotificationProjector.name,
+      concurrency: DOMAIN_EVENT_CONSUMERS.mailNotificationProjector.concurrency,
+      acceptedTypes: ['mail.created'],
+      handle: handleMailCreatedEvent,
     }),
   ]);
   startTransactionalMessageRelay();
@@ -69,10 +110,57 @@ async function handleTaskEvent(event: DomainEventEnvelope) {
   });
 }
 
-export async function shutdownDomainEventInfrastructure(): Promise<void> {
+async function handleYieldRewardEvent(event: DomainEventEnvelope) {
+  if (!isDomainEventType(event, 'yield.claimed')) {
+    throw new Error(`历练奖励投影不支持领域事件: ${event.type}`);
+  }
+  const attachments = await generateYieldRewardAttachments(event);
+  await executeDomainEvent({
+    consumerName: DOMAIN_EVENT_CONSUMERS.yieldRewardProjector.name,
+    source: 'yield_reward_domain_event',
+    event,
+    handle: (message, tx) => projectYieldReward(message, attachments, tx),
+  });
+}
+
+async function handleWorldRumorEvent(event: DomainEventEnvelope) {
+  await executeDomainEvent({
+    consumerName: DOMAIN_EVENT_CONSUMERS.worldRumorProjector.name,
+    source: 'world_rumor_domain_event',
+    event,
+    handle: projectWorldRumorDomainEvent,
+  });
+}
+
+async function handleRankingRealmEvent(event: DomainEventEnvelope) {
+  if (!isDomainEventType(event, 'cultivator.realm.changed')) {
+    throw new Error(`境界榜单投影不支持领域事件: ${event.type}`);
+  }
+  await executeDomainEvent({
+    consumerName: DOMAIN_EVENT_CONSUMERS.rankingRealmProjector.name,
+    source: 'ranking_realm_domain_event',
+    event,
+    handle: projectRealmChangedRanking,
+  });
+}
+
+async function handleMailCreatedEvent(event: DomainEventEnvelope) {
+  if (!isDomainEventType(event, 'mail.created')) {
+    throw new Error(`邮件通知投影不支持领域事件: ${event.type}`);
+  }
+  await executeDomainEvent({
+    consumerName: DOMAIN_EVENT_CONSUMERS.mailNotificationProjector.name,
+    source: 'mail_notification_domain_event',
+    event,
+    handle: projectMailCreated,
+  });
+}
+
+export async function shutdownMessageInfrastructure(): Promise<void> {
   if (!registered) return;
   registered = false;
   stopTransactionalMessageRelay();
+  await stopBackgroundCommandConsumer();
   await stopDomainEventConsumers();
   await closeNatsConnection();
 }

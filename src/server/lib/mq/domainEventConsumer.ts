@@ -6,9 +6,14 @@ import {
   type DomainEventType,
 } from '@shared/contracts/domainEvents';
 import { JSONCodec, type ConsumerMessages, type JsMsg } from 'nats';
-import { DEAD_LETTER_STREAM, DEAD_LETTER_SUBJECT_PREFIX } from './natsTopology';
+import {
+  consumerRetryDelayMs,
+  DEAD_LETTER_STREAM,
+  DEAD_LETTER_SUBJECT_PREFIX,
+} from './natsTopology';
 
 const MAX_PROCESSING_ATTEMPTS = 10;
+const WORKING_INTERVAL_MS = 30_000;
 const codec = JSONCodec();
 const runningConsumers = new Set<ConsumerMessages>();
 const activeHandlers = new Set<Promise<void>>();
@@ -51,6 +56,18 @@ async function processMessage(
   registration: DomainEventConsumerRegistration,
   message: JsMsg,
 ): Promise<void> {
+  const workingTimer = setInterval(() => {
+    try {
+      message.working();
+    } catch (error) {
+      console.warn('[domain-event-consumer] working heartbeat failed', {
+        consumerName: registration.consumerName,
+        streamSequence: message.info.streamSequence,
+        error,
+      });
+    }
+  }, WORKING_INTERVAL_MS);
+  workingTimer.unref();
   try {
     const event = parseDomainEventEnvelope(message.json());
     if (event.subject !== message.subject) {
@@ -89,7 +106,9 @@ async function processMessage(
       }
       return;
     }
-    message.nak();
+    message.nak(consumerRetryDelayMs(message.info.deliveryCount));
+  } finally {
+    clearInterval(workingTimer);
   }
 }
 

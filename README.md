@@ -51,7 +51,7 @@
 - 数据库：`PostgreSQL` + `Drizzle ORM`
 - 认证：`Better Auth`
 - 缓存 / 分布式协调：`Redis`
-- 领域事件：`NATS JetStream`
+- 消息与实时广播：`NATS JetStream` + `NATS Core`
 - AI 能力：`AI SDK` + `DeepSeek`
 
 ## 当前目录结构
@@ -77,7 +77,7 @@
 
 - `src/react-app` 使用 `BrowserRouter` 管理前端路由
 - `src/server/app.ts` 提供 `/api/*` 和 `/internal/*` 接口
-- `src/index.ts` 在生产环境会注册 Bun 内置 cron，用于单容器内直接触发定时任务
+- `src/index.ts` 在生产环境注册 Bun 内置 cron；Cron 只向 NATS WorkQueue 发布后台 command
 - 前端 SPA 独立部署到 Cloudflare Pages；后端 Docker 不再服务 `index.html` 或静态资源
 
 当前路由约定：
@@ -93,7 +93,7 @@
 - `Bun 1.3+`
 - `PostgreSQL`
 - `Redis`：不是进程启动硬依赖，但排行榜、世界聊天、部分定时任务等功能会用到
-- `NATS JetStream`：进程启动硬依赖，负责消息持久化投递；当前主要承载领域事件和异步投影
+- `NATS`：进程启动硬依赖；JetStream 承载领域事件、异步投影和后台 command，Core 承载跨实例实时广播
 
 说明：
 
@@ -302,7 +302,7 @@ docker compose up -d
 
 当前仓库默认采用两层设计：
 
-- 生产环境单容器运行时，`src/index.ts` 会直接注册 Bun 内置 cron
+- 生产环境中 `src/index.ts` 注册 Bun 内置 cron，Cron 只发布 JetStream command，durable Worker consumer 执行 job runner
 - `/internal/cron/*` 仍然保留，便于手动触发、联调，或后续切回外部调度器
 
 - `GET /internal/cron/auction-expire`
@@ -325,10 +325,9 @@ docker compose up -d
 
 说明：
 
-- Bun 内置 cron 运行在 Web 进程内，适合当前“单 Docker 容器先跑起来”的场景
-- 这类进程内调度不保证跨重启继续执行；如果后续要更强保证，仍建议切回宿主机 cron、云定时任务或 K8s CronJob
+- Bun 内置 cron 仍运行在 Web 进程内，但实际任务已与调度回调解耦；发布成功的 command 由 JetStream 持久化并可跨应用重启继续执行
 - Bun 的 cron 表达式按 `UTC` 解释，所以 `rank-rewards` 在代码里配置为 `0 16 * * *`，对应北京时间次日 `00:00`
-- 内置任务直接调用 job runner，不走 HTTP
+- 内置调度不直接调用 job runner，也不走 HTTP；它发布 `daoyou.command.cron.>` command
 - `/internal/cron/*` 接口继续要求 `Authorization: Bearer ${CRON_SECRET}`，适合人工补跑或外部调度
 - 这些任务内部带 Redis 分布式锁与幂等保护，重复触发会返回 `skipped`
 

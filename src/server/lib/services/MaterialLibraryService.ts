@@ -213,6 +213,7 @@ export function materialLibraryEntryToMaterial(
 export async function generateMaterialLibraryEntries(input: {
   request: ItemLibraryMaterialGenerateInput;
   userId: string;
+  ignoreItemIdConflicts?: boolean;
 }): Promise<ItemLibraryEntry[]> {
   const skeletons: MaterialSkeleton[] = Array.from(
     { length: input.request.count },
@@ -268,10 +269,12 @@ export async function generateMaterialLibraryEntries(input: {
     };
   });
 
-  const rows = await getExecutor()
-    .insert(itemLibrary)
-    .values(values)
-    .returning();
+  const insert = getExecutor().insert(itemLibrary).values(values);
+  const rows = input.ignoreItemIdConflicts
+    ? await insert
+        .onConflictDoNothing({ target: itemLibrary.itemId })
+        .returning()
+    : await insert.returning();
   return rows.map(parseRow);
 }
 
@@ -351,6 +354,7 @@ export async function generateDailyMarketMaterialLibraryEntries(input: {
     const entries = await generateMaterialLibraryEntries({
       request,
       userId: input.userId,
+      ignoreItemIdConflicts: true,
     });
     generated.push(...entries);
   }

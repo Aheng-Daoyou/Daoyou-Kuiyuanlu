@@ -5,6 +5,7 @@ import {
 
 const EVENT_ID = '11111111-1111-4111-8111-111111111111';
 const CULTIVATOR_ID = '22222222-2222-4222-8222-222222222222';
+const USER_ID = '55555555-5555-4555-8555-555555555555';
 
 describe('domain event contracts', () => {
   it('parses a versioned event envelope', () => {
@@ -62,5 +63,108 @@ describe('domain event contracts', () => {
         },
       }),
     ).toThrow();
+  });
+
+  it.each([
+    {
+      type: 'yield.claimed' as const,
+      data: {
+        cultivatorId: CULTIVATOR_ID,
+        actionInstanceId: '33333333-3333-4333-8333-333333333333',
+        realm: '筑基',
+        materialCount: 2,
+      },
+    },
+    {
+      type: 'cultivator.realm.changed' as const,
+      data: {
+        userId: USER_ID,
+        cultivatorId: CULTIVATOR_ID,
+        actionInstanceId: '33333333-3333-4333-8333-333333333333',
+        cultivatorName: '玄真',
+        fromRealm: '炼气',
+        fromStage: '圆满',
+        toRealm: '筑基',
+        toStage: '初期',
+        major: true,
+      },
+    },
+    {
+      type: 'mail.created' as const,
+      data: {
+        mailId: '66666666-6666-4666-8666-666666666666',
+        cultivatorId: CULTIVATOR_ID,
+        mailType: 'reward',
+        attachmentCount: 1,
+      },
+    },
+    {
+      type: 'craft.item.created' as const,
+      data: {
+        userId: USER_ID,
+        cultivatorId: CULTIVATOR_ID,
+        cultivatorName: '玄真',
+        itemType: 'artifact',
+        itemId: '77777777-7777-4777-8777-777777777777',
+        itemName: '玄光剑',
+        quality: '天品',
+        snapshot: { id: '77777777-7777-4777-8777-777777777777' },
+      },
+    },
+    {
+      type: 'market.material.revealed' as const,
+      data: {
+        userId: USER_ID,
+        cultivatorId: CULTIVATOR_ID,
+        cultivatorName: '玄真',
+        materialId: '77777777-7777-4777-8777-777777777777',
+        materialName: '星辰砂',
+        quality: '天品',
+        snapshot: { id: '77777777-7777-4777-8777-777777777777' },
+      },
+    },
+    {
+      type: 'bet-battle.created' as const,
+      data: {
+        userId: USER_ID,
+        cultivatorId: CULTIVATOR_ID,
+        cultivatorName: '玄真',
+        battleId: '88888888-8888-4888-8888-888888888888',
+        taunt: '可敢一战',
+      },
+    },
+    {
+      type: 'bet-battle.settled' as const,
+      data: {
+        userId: USER_ID,
+        cultivatorId: CULTIVATOR_ID,
+        battleId: '88888888-8888-4888-8888-888888888888',
+        rumor: '玄真于赌战台取胜。',
+      },
+    },
+    {
+      type: 'ranking.position.changed' as const,
+      data: {
+        userId: USER_ID,
+        cultivatorId: CULTIVATOR_ID,
+        challengerName: '玄真',
+        targetName: '赤霄',
+        realm: '筑基',
+        rank: 3,
+        changeType: 'challenge_win',
+      },
+    },
+  ])('parses $type integration event data', ({ type, data }) => {
+    const definition = DOMAIN_EVENT_DEFINITIONS[type];
+    const event = parseDomainEventEnvelope({
+      id: EVENT_ID,
+      type,
+      version: definition.version,
+      subject: definition.subject,
+      occurredAt: '2026-08-03T08:00:00.000Z',
+      aggregate: { type: 'cultivator', id: CULTIVATOR_ID },
+      data,
+    });
+    expect(event.type).toBe(type);
   });
 });

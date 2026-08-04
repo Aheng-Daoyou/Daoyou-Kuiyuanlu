@@ -5,13 +5,14 @@ import {
   type DomainEventEnvelope,
 } from '@shared/contracts/domainEvents';
 import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
+import type { FeatureCommandResult } from './CommandExecutors';
 import { readPlayerTaskSummary } from './PlayerResourceReaderService';
 import { TaskService } from './TaskService';
 
 export async function projectTaskDomainEvent(
   event: DomainEventEnvelope,
   tx: DbTransaction,
-) {
+): Promise<FeatureCommandResult<{ status: 'applied' | 'ignored' }>> {
   if (isDomainEventType(event, 'alchemy.craft.completed')) {
     await lockCultivatorForStateMutation(tx, event.data.cultivatorId);
     await TaskService.recordTaskEvent(
@@ -23,13 +24,10 @@ export async function projectTaskDomainEvent(
   }
 
   if (isDomainEventType(event, 'ranking.challenge.completed')) {
-    await lockCultivatorForStateMutation(tx, event.data.cultivatorId);
-    await TaskService.recordTaskEvent(
-      event.data.cultivatorId,
-      'ranking_challenge_battled',
-      { tx },
-    );
-    return taskProjectionResult(event.data.cultivatorId, tx);
+    return {
+      result: { status: 'ignored' as const },
+      resourceChanges: [],
+    };
   }
 
   if (isDomainEventType(event, 'dungeon.run.settled')) {
@@ -49,10 +47,20 @@ export async function projectTaskDomainEvent(
     return taskProjectionResult(event.data.cultivatorId, tx);
   }
 
+  if (isDomainEventType(event, 'yield.claimed')) {
+    return {
+      result: { status: 'ignored' as const },
+      resourceChanges: [],
+    };
+  }
+
   throw new Error(`任务投影不支持领域事件: ${event.type}`);
 }
 
-async function taskProjectionResult(cultivatorId: string, tx: DbTransaction) {
+async function taskProjectionResult(
+  cultivatorId: string,
+  tx: DbTransaction,
+): Promise<FeatureCommandResult<{ status: 'applied' | 'ignored' }>> {
   const taskSummary = await readPlayerTaskSummary(cultivatorId, tx);
   const scope = { kind: 'cultivator' as const, id: cultivatorId };
   return {
