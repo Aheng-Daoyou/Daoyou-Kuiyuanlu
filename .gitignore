@@ -202,3 +202,4 @@ dist
 .vscode
 .antigravitycli
 output/
+.venv*
