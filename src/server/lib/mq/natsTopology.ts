@@ -1,5 +1,9 @@
 import { getJetStreamManager } from '@server/lib/nats';
 import {
+  BACKGROUND_COMMAND_STREAM,
+  BACKGROUND_COMMAND_SUBJECT_PREFIX,
+} from '@shared/contracts/backgroundCommands';
+import {
   DOMAIN_EVENT_STREAM,
   DOMAIN_EVENT_SUBJECT_PREFIX,
 } from '@shared/contracts/domainEvents';
@@ -18,6 +22,15 @@ import {
 
 export const DEAD_LETTER_STREAM = 'DAOYOU_DOMAIN_EVENT_DLQ';
 export const DEAD_LETTER_SUBJECT_PREFIX = 'daoyou.dead-letter';
+export const COMMAND_DEAD_LETTER_STREAM = 'DAOYOU_BACKGROUND_COMMAND_DLQ';
+export const COMMAND_DEAD_LETTER_SUBJECT_PREFIX = 'daoyou.command-dead-letter';
+
+export const BACKGROUND_COMMAND_CONSUMER = {
+  stream: BACKGROUND_COMMAND_STREAM,
+  name: 'background-command-worker-v1',
+  filterSubject: `${BACKGROUND_COMMAND_SUBJECT_PREFIX}.>`,
+  concurrency: 4,
+} as const;
 
 export const DOMAIN_EVENT_CONSUMERS = {
   sectFacilityProjector: {
@@ -30,6 +43,26 @@ export const DOMAIN_EVENT_CONSUMERS = {
     filterSubject: `${DOMAIN_EVENT_SUBJECT_PREFIX}.activity.*.v1`,
     concurrency: 8,
   },
+  yieldRewardProjector: {
+    name: 'yield-reward-projector-v1',
+    filterSubject: `${DOMAIN_EVENT_SUBJECT_PREFIX}.activity.yield-claimed.v1`,
+    concurrency: 2,
+  },
+  worldRumorProjector: {
+    name: 'world-rumor-projector-v1',
+    filterSubject: `${DOMAIN_EVENT_SUBJECT_PREFIX}.gameplay.*.v1`,
+    concurrency: 4,
+  },
+  rankingRealmProjector: {
+    name: 'ranking-realm-projector-v1',
+    filterSubject: `${DOMAIN_EVENT_SUBJECT_PREFIX}.gameplay.cultivator-realm-changed.v1`,
+    concurrency: 4,
+  },
+  mailNotificationProjector: {
+    name: 'mail-notification-projector-v1',
+    filterSubject: `${DOMAIN_EVENT_SUBJECT_PREFIX}.communication.mail-created.v1`,
+    concurrency: 8,
+  },
 } as const;
 
 const DOMAIN_EVENT_STREAM_CONFIG: Partial<StreamConfig> = {
@@ -40,7 +73,7 @@ const DOMAIN_EVENT_STREAM_CONFIG: Partial<StreamConfig> = {
   storage: StorageType.File,
   discard: DiscardPolicy.Old,
   max_age: nanos(14 * 24 * 60 * 60 * 1_000),
-  max_bytes: 3 * 1_024 * 1_024 * 1_024,
+  max_bytes: 2_560 * 1_024 * 1_024,
   max_msg_size: 256 * 1_024,
   duplicate_window: nanos(2 * 60 * 1_000),
   num_replicas: 1,
@@ -55,21 +88,59 @@ const DEAD_LETTER_STREAM_CONFIG: Partial<StreamConfig> = {
   storage: StorageType.File,
   discard: DiscardPolicy.Old,
   max_age: nanos(30 * 24 * 60 * 60 * 1_000),
-  max_bytes: 1 * 1_024 * 1_024 * 1_024,
+  max_bytes: 768 * 1_024 * 1_024,
   max_msg_size: 512 * 1_024,
   duplicate_window: nanos(2 * 60 * 1_000),
   num_replicas: 1,
   allow_direct: true,
 };
 
-const CONSUMER_BACKOFF = [
+const BACKGROUND_COMMAND_STREAM_CONFIG: Partial<StreamConfig> = {
+  name: BACKGROUND_COMMAND_STREAM,
+  description: 'Daoyou durable one-to-one background commands',
+  subjects: [`${BACKGROUND_COMMAND_SUBJECT_PREFIX}.>`],
+  retention: RetentionPolicy.Workqueue,
+  storage: StorageType.File,
+  discard: DiscardPolicy.Old,
+  max_age: nanos(7 * 24 * 60 * 60 * 1_000),
+  max_bytes: 384 * 1_024 * 1_024,
+  max_msg_size: 256 * 1_024,
+  duplicate_window: nanos(10 * 60 * 1_000),
+  num_replicas: 1,
+  allow_direct: true,
+};
+
+const COMMAND_DEAD_LETTER_STREAM_CONFIG: Partial<StreamConfig> = {
+  name: COMMAND_DEAD_LETTER_STREAM,
+  description: 'Daoyou terminal background command failures',
+  subjects: [`${COMMAND_DEAD_LETTER_SUBJECT_PREFIX}.>`],
+  retention: RetentionPolicy.Limits,
+  storage: StorageType.File,
+  discard: DiscardPolicy.Old,
+  max_age: nanos(30 * 24 * 60 * 60 * 1_000),
+  max_bytes: 128 * 1_024 * 1_024,
+  max_msg_size: 512 * 1_024,
+  duplicate_window: nanos(10 * 60 * 1_000),
+  num_replicas: 1,
+  allow_direct: true,
+};
+
+export const CONSUMER_RETRY_DELAYS_MS = [
   1_000,
   5_000,
   15_000,
   60_000,
   5 * 60_000,
   15 * 60_000,
-].map(nanos);
+] as const;
+
+export function consumerRetryDelayMs(deliveryCount: number): number {
+  const index = Math.min(
+    Math.max(0, deliveryCount - 1),
+    CONSUMER_RETRY_DELAYS_MS.length - 1,
+  );
+  return CONSUMER_RETRY_DELAYS_MS[index]!;
+}
 
 function isNotFoundError(error: unknown): boolean {
   return (
@@ -106,7 +177,10 @@ async function ensureConsumer(input: {
     max_deliver: -1,
     max_ack_pending: input.concurrency,
     max_batch: input.concurrency,
-    backoff: CONSUMER_BACKOFF,
+    // Keep ACK timeout independent from business retry delays. JetStream uses
+    // the first backoff value as ack_wait, so an empty list is required here
+    // to clear older consumer configs that accidentally reduced it to 1s.
+    backoff: [],
     filter_subject: input.filterSubject,
   };
   try {
@@ -128,18 +202,66 @@ async function ensureConsumer(input: {
   }
 }
 
-export async function ensureDomainEventTopology(): Promise<void> {
+async function ensureBackgroundCommandConsumer() {
+  const manager = await getJetStreamManager();
+  const mutableConfig: Partial<ConsumerUpdateConfig> = {
+    description: `Daoyou command consumer ${BACKGROUND_COMMAND_CONSUMER.name}`,
+    ack_wait: nanos(15 * 60 * 1_000),
+    max_deliver: -1,
+    max_ack_pending: BACKGROUND_COMMAND_CONSUMER.concurrency,
+    max_batch: BACKGROUND_COMMAND_CONSUMER.concurrency,
+    backoff: [],
+    filter_subject: BACKGROUND_COMMAND_CONSUMER.filterSubject,
+  };
+  try {
+    await manager.consumers.info(
+      BACKGROUND_COMMAND_STREAM,
+      BACKGROUND_COMMAND_CONSUMER.name,
+    );
+    await manager.consumers.update(
+      BACKGROUND_COMMAND_STREAM,
+      BACKGROUND_COMMAND_CONSUMER.name,
+      mutableConfig,
+    );
+  } catch (error) {
+    if (!isNotFoundError(error)) throw error;
+    await manager.consumers.add(BACKGROUND_COMMAND_STREAM, {
+      ...mutableConfig,
+      durable_name: BACKGROUND_COMMAND_CONSUMER.name,
+      ack_policy: AckPolicy.Explicit,
+      deliver_policy: DeliverPolicy.All,
+      replay_policy: ReplayPolicy.Instant,
+    } satisfies Partial<ConsumerConfig>);
+  }
+}
+
+export async function ensureMessageTopology(): Promise<void> {
   await ensureStream(
     DOMAIN_EVENT_STREAM_CONFIG as Partial<StreamConfig> & { name: string },
   );
   await ensureStream(
     DEAD_LETTER_STREAM_CONFIG as Partial<StreamConfig> & { name: string },
   );
-  await Promise.all(Object.values(DOMAIN_EVENT_CONSUMERS).map(ensureConsumer));
+  await ensureStream(
+    BACKGROUND_COMMAND_STREAM_CONFIG as Partial<StreamConfig> & {
+      name: string;
+    },
+  );
+  await ensureStream(
+    COMMAND_DEAD_LETTER_STREAM_CONFIG as Partial<StreamConfig> & {
+      name: string;
+    },
+  );
+  await Promise.all([
+    ...Object.values(DOMAIN_EVENT_CONSUMERS).map(ensureConsumer),
+    ensureBackgroundCommandConsumer(),
+  ]);
   console.info('[nats] JetStream topology ready', {
     stream: DOMAIN_EVENT_STREAM,
     consumers: Object.values(DOMAIN_EVENT_CONSUMERS).map(
       (consumer) => consumer.name,
     ),
+    commandStream: BACKGROUND_COMMAND_STREAM,
+    commandConsumer: BACKGROUND_COMMAND_CONSUMER.name,
   });
 }

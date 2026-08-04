@@ -2,19 +2,19 @@ import { websocket } from 'hono/bun';
 import app from './server/app';
 import { registerInternalCronJobs } from './server/lib/jobs/internalCronScheduler';
 import {
-  registerDomainEventInfrastructure,
-  shutdownDomainEventInfrastructure,
+  registerMessageInfrastructure,
+  shutdownMessageInfrastructure,
 } from './server/lib/mq/domainEventRegistry';
 
+await registerMessageInfrastructure();
 registerInternalCronJobs({ enabled: import.meta.env.PROD });
-await registerDomainEventInfrastructure();
 
 let shuttingDown = false;
 async function shutdown(signal: NodeJS.Signals) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.info('[runtime] graceful shutdown started', { signal });
-  await shutdownDomainEventInfrastructure();
+  await shutdownMessageInfrastructure();
   process.exit(0);
 }
 

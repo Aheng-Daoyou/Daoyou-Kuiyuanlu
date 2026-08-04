@@ -200,11 +200,12 @@ export async function runBetBattleExpireJob(): Promise<CronJobResult> {
   });
 }
 
-export async function runRankRewardsJob(): Promise<RankRewardsJobResult> {
+export async function runRankRewardsJob(
+  scheduledAt = new Date(),
+): Promise<RankRewardsJobResult> {
   return withJobLock('rank-rewards', async () => {
-    const now = new Date();
-    const settlementDate = getSettlementDateCN(now);
-    if (!isSettlementMondayCN(now)) {
+    const settlementDate = getSettlementDateCN(scheduledAt);
+    if (!isSettlementMondayCN(scheduledAt)) {
       return {
         success: true,
         processed: 0,
@@ -299,7 +300,9 @@ export async function runMarketRefreshCronJob(): Promise<CronJobResult> {
   });
 }
 
-export async function runMaterialLibraryDailyGenerationJob(): Promise<CronJobResult> {
+export async function runMaterialLibraryDailyGenerationJob(
+  scheduledAt = new Date(),
+): Promise<CronJobResult> {
   return withJobLock(
     'material-library-daily-generation',
     async () => {
@@ -317,7 +320,7 @@ export async function runMaterialLibraryDailyGenerationJob(): Promise<CronJobRes
         count: settings.count,
         userId: ITEM_LIBRARY_SYSTEM_USER_ID,
         source: 'daily_cron',
-        seed: `daily_cron:${new Date().toISOString()}`,
+        seed: `daily_cron:${getSettlementDateCN(scheduledAt)}`,
       });
 
       return {

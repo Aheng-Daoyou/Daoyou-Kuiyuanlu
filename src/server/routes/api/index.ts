@@ -1,4 +1,5 @@
 import type { AppEnv } from '@server/lib/hono/types';
+import { getMessageInfrastructureHealthStatus } from '@server/lib/mq/domainEventRegistry';
 import { getNatsHealthStatus } from '@server/lib/nats';
 import { getRedisHealthStatus } from '@server/lib/redis';
 import accountRouter from '@server/routes/api/account.router';
@@ -41,13 +42,20 @@ apiRouter.get('/health-check', async (c) => {
     getRedisHealthStatus(),
     getNatsHealthStatus(),
   ]);
-  if (redis === 'down' || nats === 'down') {
+  const messaging = getMessageInfrastructureHealthStatus();
+  if (redis === 'down' || nats === 'down' || messaging === 'down') {
     return c.json(
       {
         success: false,
-        error: redis === 'down' ? 'Redis unavailable' : 'NATS unavailable',
+        error:
+          redis === 'down'
+            ? 'Redis unavailable'
+            : nats === 'down'
+              ? 'NATS unavailable'
+              : 'Message infrastructure unavailable',
         redis,
         nats,
+        messaging,
       },
       503,
     );
@@ -58,6 +66,7 @@ apiRouter.get('/health-check', async (c) => {
     message: 'OK',
     redis,
     nats,
+    messaging,
   });
 });
 

@@ -54,10 +54,22 @@ async function monitorNatsConnection(connection: NatsConnection) {
 }
 
 export function getNatsConnection(): Promise<NatsConnection> {
-  connectionPromise ??= createNatsConnection().catch((error) => {
-    connectionPromise = undefined;
-    throw error;
-  });
+  if (!connectionPromise) {
+    const pending = createNatsConnection();
+    connectionPromise = pending;
+    void pending.then(
+      async (connection) => {
+        const error = await connection.closed();
+        if (connectionPromise === pending) connectionPromise = undefined;
+        if (error) {
+          console.warn('[nats] connection closed', { error });
+        }
+      },
+      () => {
+        if (connectionPromise === pending) connectionPromise = undefined;
+      },
+    );
+  }
   return connectionPromise;
 }
 
