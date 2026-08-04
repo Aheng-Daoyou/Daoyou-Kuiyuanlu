@@ -153,6 +153,7 @@ export interface SectTaskRecord {
   status: 'active' | 'completed';
   progress: number;
   payload: SectTaskRecordPayload;
+  createdAt: Date;
   completedAt?: Date;
   claimedAt?: Date;
 }
@@ -216,6 +217,7 @@ export interface SectTaskRepository extends SectTaskReadRepository {
     payload: SectTaskRecordPayload;
   }): Promise<SectTaskRecord>;
   complete(id: string, progress: number): Promise<SectTaskRecord | null>;
+  abandon(id: string, acceptedBefore: Date): Promise<boolean>;
   claim(id: string, claimedAt: Date): Promise<SectTaskRecord | null>;
   updatePayload(
     id: string,

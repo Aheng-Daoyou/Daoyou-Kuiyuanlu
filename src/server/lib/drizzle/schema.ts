@@ -273,29 +273,6 @@ export const sectFacilities = pgTable(
   ],
 );
 
-/**
- * @deprecated BullMQ 时代的本地执行消息表。仅为后续独立清理保留，禁止新增读写。
- */
-export const legacyLocalTransactionMessages = pgTable(
-  'wanjiedaoyou_local_transaction_messages',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    messageKey: varchar('message_key', { length: 96 }).notNull(),
-    payload: jsonb('payload').notNull(),
-    deduplicationKey: varchar('deduplication_key', { length: 256 }),
-    completedAt: timestamp('completed_at'),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex('local_transaction_messages_dedupe_unique')
-      .on(table.messageKey, table.deduplicationKey)
-      .where(sql`${table.deduplicationKey} is not null`),
-    index('local_transaction_messages_pending_idx')
-      .on(table.createdAt)
-      .where(sql`${table.completedAt} is null`),
-  ],
-);
-
 export const transactionalMessages = pgTable(
   'wanjiedaoyou_transactional_messages',
   {
@@ -368,27 +345,6 @@ export const sectTaskRecords = pgTable(
   ],
 );
 
-export const sectContributionLedger = pgTable(
-  'wanjiedaoyou_sect_contribution_ledger',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    membershipId: uuid('membership_id')
-      .references(() => sectMemberships.id, { onDelete: 'cascade' })
-      .notNull(),
-    delta: integer('delta').notNull(),
-    balanceAfter: integer('balance_after').notNull(),
-    source: varchar('source', { length: 32 }).notNull(),
-    referenceId: varchar('reference_id', { length: 128 }),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-  },
-  (table) => [
-    index('sect_contribution_membership_created_idx').on(
-      table.membershipId,
-      table.createdAt,
-    ),
-  ],
-);
-
 export const sectStipendClaims = pgTable(
   'wanjiedaoyou_sect_stipend_claims',
   {
@@ -405,6 +361,7 @@ export const sectStipendClaims = pgTable(
       table.membershipId,
       table.weekKey,
     ),
+    index('sect_stipend_claimed_idx').on(table.claimedAt),
   ],
 );
 
@@ -504,27 +461,6 @@ export const sectAbilityLoadouts = pgTable(
     uniqueIndex('sect_ability_membership_ability_unique').on(
       table.membershipId,
       table.abilityId,
-    ),
-  ],
-);
-
-export const sectDailyCommissions = pgTable(
-  'wanjiedaoyou_sect_daily_commissions',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    membershipId: uuid('membership_id')
-      .references(() => sectMemberships.id, { onDelete: 'cascade' })
-      .notNull(),
-    dateKey: varchar('date_key', { length: 10 }).notNull(),
-    completionType: varchar('completion_type', { length: 16 }).notNull(),
-    completedAt: timestamp('completed_at').notNull(),
-    claimedAt: timestamp('claimed_at'),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex('sect_commission_membership_date_unique').on(
-      table.membershipId,
-      table.dateKey,
     ),
   ],
 );

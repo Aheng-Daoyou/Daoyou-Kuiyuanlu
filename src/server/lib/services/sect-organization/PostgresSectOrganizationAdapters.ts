@@ -84,6 +84,7 @@ function mapTask(row: {
   status: string;
   progress: number;
   payload: unknown;
+  createdAt: Date;
   completedAt: Date | null;
   claimedAt: Date | null;
 }): SectTaskRecord {
@@ -96,6 +97,7 @@ function mapTask(row: {
     status: row.status as SectTaskRecord['status'],
     progress: row.progress,
     payload: SectTaskRecordPayloadSchema.parse(row.payload),
+    createdAt: row.createdAt,
     completedAt: row.completedAt ?? undefined,
     claimedAt: row.claimedAt ?? undefined,
   };
@@ -618,18 +620,11 @@ async function buildSubmissionInventoryChange(
 
 function rewardAdapter(q: DbExecutor | DbTransaction, userId: string) {
   return {
-    async grantContribution(
-      membershipId: string,
-      amount: number,
-      reason: string,
-      referenceId: string,
-    ) {
+    async grantContribution(membershipId: string, amount: number) {
       if (!('rollback' in q)) throw new Error('宗门奖励必须在事务中执行');
       const balance = await organization.addSectContribution(
         membershipId,
         amount,
-        reason,
-        referenceId,
         q,
       );
       const effects = emptySectCommandEffects();
@@ -723,17 +718,10 @@ function economyReadAdapter(
 function economyCommandAdapter(tx: DbTransaction): SectEconomyRepository {
   return {
     ...economyReadAdapter(tx),
-    async spendContribution(
-      membershipId: string,
-      amount: number,
-      reason: string,
-      referenceId: string,
-    ) {
+    async spendContribution(membershipId: string, amount: number) {
       return organization.spendSectContribution(
         membershipId,
         amount,
-        reason,
-        referenceId,
         tx,
       );
     },
@@ -754,17 +742,10 @@ function constructionCommandAdapter(
   tx: DbTransaction,
 ): SectConstructionRepository {
   return {
-    async grantContribution(
-      membershipId: string,
-      amount: number,
-      reason: string,
-      referenceId: string,
-    ) {
+    async grantContribution(membershipId: string, amount: number) {
       return organization.addSectContribution(
         membershipId,
         amount,
-        reason,
-        referenceId,
         tx,
       );
     },
@@ -930,6 +911,8 @@ export function createPostgresSectCommandContext(args: {
         const row = await organization.completeSectTaskRecord(id, progress, tx);
         return row ? mapTask(row) : null;
       },
+      abandon: (id, acceptedBefore) =>
+        organization.abandonSectTaskRecord(id, acceptedBefore, tx),
       updatePayload: async (id, payload) => {
         const row = await organization.updateSectTaskPayload(
           id,
