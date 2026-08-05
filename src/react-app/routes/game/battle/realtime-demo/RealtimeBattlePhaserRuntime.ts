@@ -18,6 +18,14 @@ import {
 const DESKTOP_STAGE = { width: 1280, height: 720 } as const;
 const MOBILE_STAGE = { width: 720, height: 1080 } as const;
 const FONT_FAMILY = 'LXGWWenKai, serif';
+const TEXT_OUTLINE_COLOR = '#eee7d6';
+
+function outlinedText(strokeThickness: number) {
+  return {
+    stroke: TEXT_OUTLINE_COLOR,
+    strokeThickness,
+  };
+}
 
 type StageSize = { width: number; height: number };
 type FormationPoint = { x: number; y: number };
@@ -314,8 +322,7 @@ export function attachRealtimeBattlePhaser(
           fontSize: source.isPet ? '16px' : '20px',
           fontStyle: 'bold',
           color: colorHex(color),
-          backgroundColor: '#eee7d6ee',
-          padding: { x: 8, y: 3 },
+          ...outlinedText(source.isPet ? 3 : 4),
           letterSpacing: 2,
         })
         .setOrigin(0.5)
@@ -624,8 +631,7 @@ export function attachRealtimeBattlePhaser(
           fontSize: '18px',
           fontStyle: 'bold',
           color: colorHex(color),
-          backgroundColor: '#eee7d6e6',
-          padding: { x: 7, y: 3 },
+          ...outlinedText(4),
           letterSpacing: 2,
         })
         .setOrigin(0.5)
@@ -747,6 +753,7 @@ export function attachRealtimeBattlePhaser(
               : '27px',
           color: textColor,
           fontStyle: 'bold',
+          ...outlinedText(isPet ? 3 : 4),
           letterSpacing: isPet ? 1 : 2,
         })
         .setOrigin(0.5)
@@ -756,8 +763,7 @@ export function attachRealtimeBattlePhaser(
           fontFamily: FONT_FAMILY,
           fontSize: compact ? '9px' : isPet ? '11px' : '13px',
           color: '#90323c',
-          backgroundColor: '#eee7d6',
-          padding: { x: 3, y: 1 },
+          ...outlinedText(compact ? 2 : 3),
         })
         .setOrigin(0.5)
         .setResolution(renderScale);
@@ -766,8 +772,7 @@ export function attachRealtimeBattlePhaser(
           fontFamily: FONT_FAMILY,
           fontSize: compact ? '9px' : isPet ? '11px' : '13px',
           color: '#276d83',
-          backgroundColor: '#eee7d6',
-          padding: { x: 3, y: 1 },
+          ...outlinedText(compact ? 2 : 3),
         })
         .setOrigin(0.5)
         .setResolution(renderScale);
@@ -776,8 +781,7 @@ export function attachRealtimeBattlePhaser(
           fontFamily: FONT_FAMILY,
           fontSize: compact ? '9px' : isPet ? '11px' : '13px',
           color: '#946718',
-          backgroundColor: '#eee7d6',
-          padding: { x: 3, y: 1 },
+          ...outlinedText(compact ? 2 : 3),
         })
         .setOrigin(0.5)
         .setResolution(renderScale);
@@ -815,6 +819,8 @@ export function attachRealtimeBattlePhaser(
       }
       Object.assign(combatResourceDeltaValue.style, {
         letterSpacing: '0.06em',
+        textShadow:
+          '-1px -1px 0 #eee7d6, 1px -1px 0 #eee7d6, -1px 1px 0 #eee7d6, 1px 1px 0 #eee7d6',
       });
       const iconHueRotation = entity.combatResources[0]?.iconHueRotation;
       if (iconHueRotation) {
@@ -837,8 +843,7 @@ export function attachRealtimeBattlePhaser(
           fontFamily: FONT_FAMILY,
           fontSize: compact ? '8px' : isPet ? '9px' : '11px',
           color: '#735080',
-          stroke: '#eee7d6',
-          strokeThickness: 3,
+          ...outlinedText(3),
           letterSpacing: 1,
         })
         .setOrigin(0.5)
@@ -848,8 +853,7 @@ export function attachRealtimeBattlePhaser(
           fontFamily: FONT_FAMILY,
           fontSize: compact ? '9px' : isPet ? '10px' : '12px',
           color: '#357257',
-          stroke: '#eee7d6',
-          strokeThickness: 3,
+          ...outlinedText(3),
           letterSpacing: 1,
         })
         .setOrigin(0.5)
@@ -859,8 +863,7 @@ export function attachRealtimeBattlePhaser(
           fontFamily: FONT_FAMILY,
           fontSize: compact ? '9px' : isPet ? '10px' : '12px',
           color: '#a32d3b',
-          stroke: '#eee7d6',
-          strokeThickness: 3,
+          ...outlinedText(3),
           letterSpacing: 1,
         })
         .setOrigin(0.5)
@@ -1083,8 +1086,7 @@ export function attachRealtimeBattlePhaser(
           fontSize: source.isPet ? '14px' : '17px',
           fontStyle: 'bold',
           color: colorHex(color),
-          backgroundColor: '#eee7d6ee',
-          padding: { x: 7, y: 3 },
+          ...outlinedText(source.isPet ? 3 : 4),
           letterSpacing: 2,
         })
         .setOrigin(0.5)
@@ -1285,8 +1287,7 @@ export function attachRealtimeBattlePhaser(
           fontSize: `${fontSize}px`,
           fontStyle: 'bold',
           color: colorHex(mainColor),
-          stroke: '#eee7d6',
-          strokeThickness: 5,
+          ...outlinedText(5),
           letterSpacing: 2,
         })
         .setOrigin(0, 0.5)
@@ -1300,8 +1301,7 @@ export function attachRealtimeBattlePhaser(
             fontSize: `${Math.max(17, fontSize - 4)}px`,
             fontStyle: 'bold',
             color: '#b47d18',
-            stroke: '#eee7d6',
-            strokeThickness: 5,
+            ...outlinedText(5),
             letterSpacing: 1,
           })
           .setOrigin(0, 0.5)
