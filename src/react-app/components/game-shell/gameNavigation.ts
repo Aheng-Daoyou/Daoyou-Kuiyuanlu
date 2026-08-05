@@ -280,6 +280,10 @@ export const gameDockGroups: GameNavGroup[] = [
         sceneLabel: '挑战天骄',
       },
       {
+        id: 'battle-realtime-demo',
+        sceneLabel: '实时字阵演武',
+      },
+      {
         id: 'battle-replay',
         sceneLabel: '战斗回放',
       },

@@ -81,6 +81,13 @@ export const router = createBrowserRouter(
         handle={title('公开战谱')}
       />
       <Route
+        path="/battle-realtime-demo"
+        lazy={lazyRoute(
+          () => import('@app/routes/game/battle/realtime-demo/route'),
+        )}
+        handle={title('实时字阵演武')}
+      />
+      <Route
         id={AUTH_LAYOUT_ROUTE_ID}
         lazy={lazyRoute(() => import('@app/routes/auth/layout'))}
       >
@@ -955,6 +962,20 @@ export const router = createBrowserRouter(
                   dock: 'hidden',
                 },
                 '挑战天骄',
+              )}
+            />
+            <Route
+              path="battle/realtime-demo"
+              lazy={lazyRoute(
+                () => import('@app/routes/game/battle/realtime-demo/route'),
+              )}
+              handle={scene(
+                {
+                  id: 'battle-realtime-demo',
+                  chrome: 'immersive',
+                  dock: 'hidden',
+                },
+                '实时字阵演武',
               )}
             />
             <Route
