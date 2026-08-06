@@ -1,8 +1,11 @@
 import { createBattleBoardgameGame } from './lib/services/BattleBoardgameAdapter';
-import { PostgresBattleBoardgameStorage } from './lib/services/BattleBoardgameStorage';
+import { RedisBattleBoardgameStorage } from './lib/services/BattleBoardgameStorage';
 import { BattleBoardgameTransport } from './lib/services/BattleBoardgameTransport';
+import { publishPendingBattleReplays } from './lib/services/BattleReplayArchivePublisher';
 import { Server } from './lib/services/boardgameio-server';
 import { timingSafeEqual } from 'node:crypto';
+import { closeNatsConnection, getNatsConnection } from './lib/nats';
+import { ensureBattleReplayStream } from './lib/mq/natsTopology';
 
 const port = Number(process.env.BATTLE_SERVER_PORT ?? 3100);
 if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
@@ -29,7 +32,10 @@ if (!apiToken && process.env.NODE_ENV === 'production') {
   throw new Error('BATTLE_SERVER_API_TOKEN is required in production');
 }
 
-const battleStorage = new PostgresBattleBoardgameStorage();
+const battleStorage = new RedisBattleBoardgameStorage();
+await battleStorage.connect();
+await getNatsConnection();
+await ensureBattleReplayStream();
 const battleTransport = new BattleBoardgameTransport();
 const battleServer = Server({
   games: [createBattleBoardgameGame()],
@@ -115,6 +121,9 @@ const runTimeoutWorker = async () => {
         battleTransport.publishMatchState(matchId, next.state);
       }
     }
+    for (const matchId of await battleStorage.listExpiredWaitingMatchIds()) {
+      await battleStorage.expireWaiting(matchId);
+    }
   } catch (error) {
     timeoutWorkerBackoffUntil = Date.now() + 5_000;
     console.warn('[battle-server] timeout worker failed', { error });
@@ -123,13 +132,29 @@ const runTimeoutWorker = async () => {
 const timeoutWorker = setInterval(() => void runTimeoutWorker(), 1_000);
 timeoutWorker.unref();
 
+let archivePublisherBackoffUntil = 0;
+const runArchivePublisher = async () => {
+  if (Date.now() < archivePublisherBackoffUntil) return;
+  try {
+    await publishPendingBattleReplays(battleStorage);
+  } catch (error) {
+    archivePublisherBackoffUntil = Date.now() + 5_000;
+    console.warn('[battle-server] replay archive publish failed', { error });
+  }
+};
+const archivePublisher = setInterval(() => void runArchivePublisher(), 250);
+archivePublisher.unref();
+void runArchivePublisher();
+
 let shuttingDown = false;
-function shutdown(signal: NodeJS.Signals) {
+async function shutdown(signal: NodeJS.Signals) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.info('[battle-server] shutting down', { signal });
   clearInterval(timeoutWorker);
+  clearInterval(archivePublisher);
   battleServer.kill(servers);
+  await closeNatsConnection();
 }
 
 async function readJsonBody(request: NodeJS.ReadableStream): Promise<unknown | null> {
@@ -149,8 +174,8 @@ async function readJsonBody(request: NodeJS.ReadableStream): Promise<unknown | n
   }
 }
 
-process.once('SIGTERM', () => shutdown('SIGTERM'));
-process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => void shutdown('SIGTERM'));
+process.once('SIGINT', () => void shutdown('SIGINT'));
 
 function matchesBearerToken(authorization: string, expected: string): boolean {
   const prefix = 'Bearer ';

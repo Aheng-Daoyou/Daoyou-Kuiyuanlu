@@ -1,58 +1,134 @@
-import type { LogEntry, Server, State, StorageAPI } from 'boardgame.io';
-import { and, eq, lte } from 'drizzle-orm';
-import { db } from '@server/lib/drizzle/db';
-import {
-  battleMatchGameStates,
-  battleMatchResolutions,
-  battleMatches,
-} from '@server/lib/drizzle/schema';
+import type { Server, State, StorageAPI } from 'boardgame.io';
+import type { BattleReplayV1 } from '@shared/contracts/battleReplay';
+import { createBattlePublicSnapshot } from '@shared/engine/battle-v5/match/BattlePublicSnapshot';
+import { ROUND_PLANNING_TIMEOUT_MS } from '@shared/engine/battle-v5/round/types';
+import type { BattleMatchSessionV1 } from '@shared/contracts/battle-matches';
+import { getRedisClient, redis } from '@server/lib/redis';
 import type { BattleBoardgameG } from './BattleBoardgameAdapter';
 import {
   resolveBoardgameTimeout,
   resumeBoardgameResolution,
 } from './BattleBoardgameAdapter';
-import type { BattleMatchStateV1 } from '@shared/engine/battle-v5/match/types';
-import { ROUND_PLANNING_TIMEOUT_MS } from '@shared/engine/battle-v5/round/types';
-import type { BattleMatchSessionV1 } from '@shared/contracts/battle-matches';
-import { isDeepStrictEqual } from 'node:util';
 
 type StoredState = State<BattleBoardgameG>;
 
 export type BattleBoardgamePlayerSessionV1 = BattleMatchSessionV1;
 
-/** boardgame.io StorageAPI backed by the battle match tables. */
-export class PostgresBattleBoardgameStorage implements StorageAPI.Async {
+const MATCH_PREFIX = 'battle:online:';
+const ALL_MATCHES_KEY = 'battle:online:matches';
+const DEADLINES_KEY = 'battle:online:deadlines';
+const RESOLVING_KEY = 'battle:online:resolving';
+const WAITING_KEY = 'battle:online:waiting';
+const ARCHIVE_PENDING_KEY = 'battle:replay:archive:pending';
+const ARCHIVED_MATCH_TTL_SECONDS = 30 * 60;
+const MATCH_ACCEPT_TIMEOUT_MS = 10 * 60 * 1_000;
+
+const CREATE_MATCH_LUA = `
+if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
+redis.call('HSET', KEYS[1],
+  'state_id', ARGV[1],
+  'state', ARGV[2],
+  'initial_state', ARGV[2],
+  'metadata', ARGV[3],
+  'status', ARGV[4],
+  'deadline_at', ARGV[5],
+  'updated_at', ARGV[6],
+  'replay_initial', ARGV[9])
+redis.call('SADD', KEYS[4], ARGV[7])
+if ARGV[5] ~= '' then redis.call('ZADD', KEYS[2], ARGV[5], ARGV[7]) end
+  if ARGV[4] == 'resolving' then redis.call('SADD', KEYS[3], ARGV[7]) end
+if ARGV[8] ~= '' then redis.call('ZADD', KEYS[5], ARGV[8], ARGV[7]) end
+return 1
+`;
+
+const SET_STATE_LUA = `
+local current = redis.call('HGET', KEYS[1], 'state_id')
+if not current then return -2 end
+local currentNumber = tonumber(current)
+local expected = tonumber(ARGV[1])
+local incoming = tonumber(ARGV[2])
+if incoming <= currentNumber then return 0 end
+if currentNumber ~= expected or incoming ~= currentNumber + 1 then return -1 end
+if redis.call('LLEN', KEYS[7]) ~= tonumber(ARGV[11]) then return -3 end
+redis.call('HSET', KEYS[1],
+  'state_id', ARGV[2],
+  'state', ARGV[3],
+  'status', ARGV[4],
+  'deadline_at', ARGV[5],
+  'updated_at', ARGV[6])
+redis.call('ZREM', KEYS[2], ARGV[7])
+if ARGV[5] ~= '' then redis.call('ZADD', KEYS[2], ARGV[5], ARGV[7]) end
+  redis.call('SREM', KEYS[3], ARGV[7])
+  if ARGV[4] == 'resolving' then redis.call('SADD', KEYS[3], ARGV[7]) end
+  redis.call('ZREM', KEYS[5], ARGV[7])
+  if ARGV[8] ~= '' then
+    redis.call('HSET', KEYS[1], 'archive', ARGV[8], 'archive_status', 'pending')
+    redis.call('SADD', KEYS[6], ARGV[7])
+  end
+  if ARGV[9] ~= '' then redis.call('ZADD', KEYS[5], ARGV[9], ARGV[7]) end
+  if ARGV[10] ~= '' then redis.call('RPUSH', KEYS[7], ARGV[10]) end
+return 1
+`;
+
+const SET_METADATA_LUA = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+redis.call('HSET', KEYS[1], 'metadata', ARGV[1])
+return 1
+`;
+
+const EXPIRE_WAITING_LUA = `
+local deadline = redis.call('ZSCORE', KEYS[2], ARGV[1])
+if not deadline or tonumber(deadline) > tonumber(ARGV[2]) then return 0 end
+redis.call('DEL', KEYS[1], KEYS[7])
+redis.call('ZREM', KEYS[2], ARGV[1])
+redis.call('SREM', KEYS[3], ARGV[1])
+redis.call('ZREM', KEYS[4], ARGV[1])
+redis.call('SREM', KEYS[5], ARGV[1])
+redis.call('SREM', KEYS[6], ARGV[1])
+return 1
+`;
+
+export function battleOnlineMatchKey(matchID: string): string {
+  if (!/^[A-Za-z0-9_-]{1,120}$/.test(matchID)) {
+    throw new Error('Invalid battle match id');
+  }
+  return `${MATCH_PREFIX}${matchID}`;
+}
+
+function replayRoundsKey(matchID: string): string {
+  return `${battleOnlineMatchKey(matchID)}:replay-rounds`;
+}
+
+/** Redis is the only authority for an in-progress boardgame.io match. */
+export class RedisBattleBoardgameStorage implements StorageAPI.Async {
   type(): 1 {
     return 1;
   }
 
-  async connect(): Promise<void> {}
+  async connect(): Promise<void> {
+    await redis.ping();
+  }
 
   async hasMatch(matchID: string): Promise<boolean> {
-    const [row] = await db
-      .select({ matchId: battleMatchGameStates.matchId })
-      .from(battleMatchGameStates)
-      .where(eq(battleMatchGameStates.matchId, matchID))
-      .limit(1);
-    return Boolean(row);
+    return (await redis.exists(battleOnlineMatchKey(matchID))) === 1;
   }
 
   async getPlayerSession(
     matchID: string,
     applicationPlayerId: string,
   ): Promise<BattleBoardgamePlayerSessionV1 | null> {
-    const [row] = await db
-      .select({ state: battleMatchGameStates.state, metadata: battleMatchGameStates.metadata })
-      .from(battleMatchGameStates)
-      .where(eq(battleMatchGameStates.matchId, matchID))
-      .limit(1);
-    if (!row) return null;
-    const state = row.state as StoredState;
+    const [stateJson, metadataJson] = await redis.hmget(
+      battleOnlineMatchKey(matchID),
+      'state',
+      'metadata',
+    );
+    if (!stateJson || !metadataJson) return null;
+    const state = parseState(stateJson, matchID);
     const boardgameId = Object.entries(state.G.playerIdByBoardgameId).find(
       ([, playerId]) => playerId === applicationPlayerId,
     )?.[0];
     if (!boardgameId) return null;
-    const metadata = row.metadata as Server.MatchData;
+    const metadata = JSON.parse(metadataJson) as Server.MatchData;
     const playerIndex = Number(boardgameId);
     if (!Number.isSafeInteger(playerIndex) || playerIndex < 0) return null;
     const player = metadata.players?.[playerIndex];
@@ -71,126 +147,54 @@ export class PostgresBattleBoardgameStorage implements StorageAPI.Async {
     opts: StorageAPI.CreateMatchOpts,
   ): Promise<void> {
     const state = normalizeBoardgameState(matchID, opts.initialState as StoredState);
-    const battle = toBattleState(state.G);
-    await db.transaction(async (tx) => {
-      await tx.insert(battleMatches).values(toBattleRow(battle));
-      await tx.insert(battleMatchGameStates).values({
-        matchId: matchID,
-        state,
-        initialState: state,
-        metadata: opts.metadata,
-        log: [],
-      });
-    });
+    const deadlineAt = indexedDeadline(state.G);
+    const acceptDeadlineAt = indexedAcceptDeadline(state.G);
+    const storedState = stripReplayRounds(state);
+    const result = Number(await getRedisClient().eval(
+      CREATE_MATCH_LUA,
+      5,
+      battleOnlineMatchKey(matchID),
+      DEADLINES_KEY,
+      RESOLVING_KEY,
+      ALL_MATCHES_KEY,
+      WAITING_KEY,
+      String(state._stateID),
+      JSON.stringify(storedState),
+      JSON.stringify(opts.metadata ?? {}),
+      state.G.status,
+      deadlineAt === null ? '' : String(deadlineAt),
+      String(state.G.updatedAt),
+      matchID,
+      acceptDeadlineAt === null ? '' : String(acceptDeadlineAt),
+      JSON.stringify(state.G.replay.initialBattle),
+    ));
+    if (result !== 1) throw new Error(`Battle boardgame match already exists: ${matchID}`);
   }
 
   async setState(
     matchID: string,
     state: State,
-    deltalog: LogEntry[] = [],
   ): Promise<void> {
-    const boardgameState = state as StoredState;
-    const battle = toBattleState(boardgameState.G);
-    if (battle.matchId !== matchID) {
-      throw new Error('Boardgame match id does not match battle state');
-    }
-    await db.transaction(async (tx) => {
-      const [current] = await tx
-        .select({
-          revision: battleMatches.revision,
-          battleState: battleMatches.state,
-          boardgameState: battleMatchGameStates.state,
-          log: battleMatchGameStates.log,
-        })
-        .from(battleMatches)
-        .innerJoin(
-          battleMatchGameStates,
-          eq(battleMatchGameStates.matchId, battleMatches.matchId),
-        )
-        .where(eq(battleMatches.matchId, matchID))
-        .limit(1);
-      if (!current) {
-        throw new Error('Unknown battle boardgame match');
-      }
-      const previousBoardgameState = current.boardgameState as StoredState;
-      if (boardgameState._stateID <= previousBoardgameState._stateID) {
-        return;
-      }
-      if (boardgameState._stateID !== previousBoardgameState._stateID + 1) {
-        throw new Error('Battle boardgame state id conflict');
-      }
-      const advancesBattle = current.revision === battle.revision - 1;
-      const repeatsBattle =
-        current.revision === battle.revision &&
-        isDeepStrictEqual(current.battleState, battle);
-      if (!advancesBattle && !repeatsBattle) {
-        throw new Error('Battle boardgame state revision conflict');
-      }
-      if (advancesBattle) {
-        const updated = await tx
-          .update(battleMatches)
-          .set(toBattleRow(battle))
-          .where(
-            and(
-              eq(battleMatches.matchId, matchID),
-              eq(battleMatches.revision, battle.revision - 1),
-            ),
-          )
-          .returning({ matchId: battleMatches.matchId });
-        if (updated.length === 0) {
-          throw new Error('Battle boardgame state revision conflict');
-        }
-      }
-      const previousLog = Array.isArray(current.log) ? current.log : [];
-      const gameStateUpdated = await tx
-        .update(battleMatchGameStates)
-        .set({
-          state: boardgameState,
-          log: [...previousLog, ...deltalog],
-          updatedAt: new Date(battle.updatedAt),
-        })
-        .where(eq(battleMatchGameStates.matchId, matchID))
-        .returning({ matchId: battleMatchGameStates.matchId });
-      if (gameStateUpdated.length === 0) {
-        throw new Error('Battle boardgame state persistence failed');
-      }
-      const resolution = boardgameState.G.latestResolution;
-      if (resolution) {
-        await tx
-          .insert(battleMatchResolutions)
-          .values({
-            matchId: matchID,
-            round: resolution.round,
-            commandSetId: resolution.commandSetId,
-            checkpointRevision: resolution.checkpoint.checkpointRevision,
-            resolution,
-          })
-          .onConflictDoNothing({
-            target: [
-              battleMatchResolutions.matchId,
-              battleMatchResolutions.commandSetId,
-            ],
-          });
-      }
-    });
+    const updated = await this.compareAndSetState(matchID, state as StoredState);
+    if (!updated) throw new Error('Battle boardgame state conflict');
   }
 
-  async setMetadata(
-    matchID: string,
-    metadata: Server.MatchData,
-  ): Promise<void> {
-    await db
-      .update(battleMatchGameStates)
-      .set({ metadata })
-      .where(eq(battleMatchGameStates.matchId, matchID));
+  async setMetadata(matchID: string, metadata: Server.MatchData): Promise<void> {
+    const updated = Number(await getRedisClient().eval(
+      SET_METADATA_LUA,
+      1,
+      battleOnlineMatchKey(matchID),
+      JSON.stringify(metadata),
+    ));
+    if (updated !== 1) throw new Error(`Unknown boardgame match: ${matchID}`);
   }
 
   async acceptPlayer(matchID: string, playerID: string, now = Date.now()): Promise<boolean> {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
       const fetched = await this.fetch(matchID, { state: true });
       const current = fetched.state as StoredState;
       if (!current.G.playerIdByBoardgameId[playerID]) throw new Error('Unknown battle player slot');
-      const accepted = current.G.acceptedBoardgamePlayerIds ?? Object.keys(current.G.playerIdByBoardgameId);
+      const accepted = current.G.acceptedBoardgamePlayerIds ?? [];
       if (accepted.includes(playerID)) return false;
       const acceptedBoardgamePlayerIds = [...accepted, playerID].sort();
       const allAccepted = acceptedBoardgamePlayerIds.length === current.G.controllers.length;
@@ -207,74 +211,123 @@ export class PostgresBattleBoardgameStorage implements StorageAPI.Async {
         },
         _stateID: current._stateID + 1,
       };
-      try {
-        await this.setState(matchID, next);
-        return true;
-      } catch (error) {
-        if (!(error instanceof Error) || !error.message.includes('state id conflict') || attempt === 2) throw error;
-      }
+      if (await this.compareAndSetState(matchID, next)) return true;
     }
-    return false;
+    throw new Error('Battle boardgame accept conflict');
   }
 
   async fetch<O extends StorageAPI.FetchOpts>(
     matchID: string,
     opts: O,
   ): Promise<StorageAPI.FetchResult<O>> {
-    const [row] = await db
-      .select()
-      .from(battleMatchGameStates)
-      .where(eq(battleMatchGameStates.matchId, matchID))
-      .limit(1);
-    if (!row) throw new Error(`Unknown boardgame match: ${matchID}`);
+    const [fields, replayRounds] = await Promise.all([
+      redis.hmget(battleOnlineMatchKey(matchID), 'state', 'initial_state', 'metadata', 'replay_initial'),
+      redis.lrange(replayRoundsKey(matchID), 0, -1),
+    ]);
+    if (!fields[0]) throw new Error(`Unknown boardgame match: ${matchID}`);
     const result: Record<string, unknown> = {};
-    if (opts.state) result.state = row.state;
-    if (opts.initialState) result.initialState = row.initialState;
-    if (opts.metadata) result.metadata = row.metadata;
-    if (opts.log) result.log = row.log;
+    if (opts.state) result.state = hydrateReplay(parseState(fields[0], matchID), fields[3], replayRounds);
+    if (opts.initialState) result.initialState = fields[1]
+      ? hydrateReplay(parseState(fields[1], matchID), fields[3], replayRounds)
+      : undefined;
+    if (opts.metadata) result.metadata = fields[2] ? JSON.parse(fields[2]) : {};
+    // boardgame.io internal move logs are intentionally not persisted.
+    if (opts.log) result.log = [];
     return result as StorageAPI.FetchResult<O>;
   }
 
   async wipe(matchID: string): Promise<void> {
-    await db
-      .delete(battleMatches)
-      .where(eq(battleMatches.matchId, matchID));
+    const [participantsJson, stateJson] = await redis.hmget(
+      battleOnlineMatchKey(matchID),
+      'participants',
+      'state',
+    );
+    const invitedUserIds = participantsJson
+      ? parseInvitationUserIds(participantsJson)
+      : stateJson
+        ? parseInvitationUserIdsFromState(stateJson)
+        : [];
+    const transaction = redis.multi()
+      .del(battleOnlineMatchKey(matchID))
+      .del(replayRoundsKey(matchID))
+      .srem(ALL_MATCHES_KEY, matchID)
+      .zrem(DEADLINES_KEY, matchID)
+      .zrem(WAITING_KEY, matchID)
+      .srem(RESOLVING_KEY, matchID)
+      .srem(ARCHIVE_PENDING_KEY, matchID);
+    for (const userId of invitedUserIds) transaction.zrem(`battle:invites:user:${userId}`, matchID);
+    await transaction.exec();
   }
 
   async listMatches(): Promise<string[]> {
-    const rows = await db
-      .select({ matchId: battleMatchGameStates.matchId })
-      .from(battleMatchGameStates);
-    return rows.map((row) => row.matchId);
+    return redis.smembers(ALL_MATCHES_KEY);
   }
 
-  async listExpiredMatchIds(now = new Date()): Promise<string[]> {
-    const rows = await db
-      .select({ matchId: battleMatchGameStates.matchId })
-      .from(battleMatchGameStates)
-      .innerJoin(
-        battleMatches,
-        eq(battleMatches.matchId, battleMatchGameStates.matchId),
-      )
-      .where(
-        and(
-          eq(battleMatches.status, 'planning'),
-          lte(battleMatches.deadlineAt, now),
-        ),
-      );
-    return rows.map((row) => row.matchId);
+  async listExpiredMatchIds(now = Date.now(), limit = 100): Promise<string[]> {
+    return redis.zrangebyscore(DEADLINES_KEY, 0, now, 'LIMIT', 0, limit);
   }
 
   async listResolvingMatchIds(): Promise<string[]> {
-    const rows = await db
-      .select({ matchId: battleMatchGameStates.matchId })
-      .from(battleMatchGameStates)
-      .innerJoin(
-        battleMatches,
-        eq(battleMatches.matchId, battleMatchGameStates.matchId),
-      )
-      .where(eq(battleMatches.status, 'resolving'));
-    return rows.map((row) => row.matchId);
+    return redis.smembers(RESOLVING_KEY);
+  }
+
+  async listExpiredWaitingMatchIds(now = Date.now(), limit = 100): Promise<string[]> {
+    return redis.zrangebyscore(WAITING_KEY, 0, now, 'LIMIT', 0, limit);
+  }
+
+  async expireWaiting(matchID: string, now = Date.now()): Promise<boolean> {
+    const [participantsJson, stateJson] = await redis.hmget(
+      battleOnlineMatchKey(matchID), 'participants', 'state',
+    );
+    const invitedUserIds = participantsJson
+      ? parseInvitationUserIds(participantsJson)
+      : stateJson
+        ? parseInvitationUserIdsFromState(stateJson)
+        : [];
+    const expired = Number(await getRedisClient().eval(
+      EXPIRE_WAITING_LUA,
+      7,
+      battleOnlineMatchKey(matchID),
+      WAITING_KEY,
+      ALL_MATCHES_KEY,
+      DEADLINES_KEY,
+      RESOLVING_KEY,
+      ARCHIVE_PENDING_KEY,
+      replayRoundsKey(matchID),
+      matchID,
+      String(now),
+    ));
+    if (expired !== 1) return false;
+    if (invitedUserIds.length > 0) {
+      const transaction = redis.multi();
+      for (const userId of invitedUserIds) {
+        transaction.zrem(`battle:invites:user:${userId}`, matchID);
+      }
+      await transaction.exec();
+    }
+    return true;
+  }
+
+  async listPendingArchiveMatchIds(): Promise<string[]> {
+    return redis.smembers(ARCHIVE_PENDING_KEY);
+  }
+
+  async getPendingArchive(matchID: string): Promise<BattleReplayV1 | null> {
+    const payload = await redis.hget(battleOnlineMatchKey(matchID), 'archive');
+    return payload ? JSON.parse(payload) as BattleReplayV1 : null;
+  }
+
+  async markArchivePublished(matchID: string): Promise<void> {
+    await redis
+      .multi()
+      .hset(battleOnlineMatchKey(matchID), 'archive_status', 'published')
+      .expire(battleOnlineMatchKey(matchID), ARCHIVED_MATCH_TTL_SECONDS)
+      .expire(replayRoundsKey(matchID), ARCHIVED_MATCH_TTL_SECONDS)
+      .srem(ARCHIVE_PENDING_KEY, matchID)
+      .srem(ALL_MATCHES_KEY, matchID)
+      .zrem(DEADLINES_KEY, matchID)
+      .srem(RESOLVING_KEY, matchID)
+      .exec();
   }
 
   async resolveExpired(matchID: string, now = Date.now()): Promise<boolean> {
@@ -285,74 +338,188 @@ export class PostgresBattleBoardgameStorage implements StorageAPI.Async {
       !current.G.planning ||
       current.G.planning.deadlineAt > now
     ) {
+      await redis.zrem(DEADLINES_KEY, matchID);
       return false;
     }
     const next = resolveBoardgameTimeout(current.G, now);
     if (next === current.G) return false;
-    await this.setState(matchID, {
-      ...current,
-      G: next,
-      _stateID: current._stateID + 1,
-      ctx:
-        next.status === 'finished'
-          ? {
-              ...current.ctx,
-              gameover: { result: next.latestResolution?.outcome },
-            }
-          : current.ctx,
-    });
-    return true;
+    return this.compareAndSetState(matchID, withGameState(current, next));
   }
 
   async resumeResolving(matchID: string, now = Date.now()): Promise<boolean> {
     const fetched = await this.fetch(matchID, { state: true });
     const current = fetched.state as StoredState;
-    if (current.G.status !== 'resolving' || !current.G.resolving) return false;
+    if (current.G.status !== 'resolving' || !current.G.resolving) {
+      await redis.srem(RESOLVING_KEY, matchID);
+      return false;
+    }
     const next = resumeBoardgameResolution(current.G, now);
-    await this.setState(matchID, {
-      ...current,
-      G: next,
-      _stateID: current._stateID + 1,
-      ctx:
-        next.status === 'finished'
-          ? {
-              ...current.ctx,
-              gameover: { result: next.latestResolution?.outcome },
-            }
-          : current.ctx,
-    });
-    return true;
+    return this.compareAndSetState(matchID, withGameState(current, next));
+  }
+
+  private async compareAndSetState(matchID: string, state: StoredState): Promise<boolean> {
+    const [currentJson, storedRoundCount] = await Promise.all([
+      redis.hget(battleOnlineMatchKey(matchID), 'state'),
+      redis.llen(replayRoundsKey(matchID)),
+    ]);
+    if (!currentJson) throw new Error(`Unknown boardgame match: ${matchID}`);
+    parseState(currentJson, matchID);
+    if (state.G.matchId !== matchID) throw new Error('Boardgame match id does not match battle state');
+    if (state._stateID < 1) {
+      throw new Error('Battle boardgame state id conflict');
+    }
+    const deadlineAt = indexedDeadline(state.G);
+    const acceptDeadlineAt = indexedAcceptDeadline(state.G);
+    const storedState = stripReplayRounds(state);
+    const nextRounds = state.G.replay.rounds;
+    const appendedRoundCount = nextRounds.length - storedRoundCount;
+    if (appendedRoundCount < 0 || appendedRoundCount > 1) {
+      throw new Error('Battle replay accumulator conflict');
+    }
+    const replayRound = appendedRoundCount === 1
+      ? JSON.stringify(nextRounds[nextRounds.length - 1])
+      : '';
+    const archive = state.G.status === 'finished' ? buildReplay(state.G) : null;
+    const result = Number(await getRedisClient().eval(
+      SET_STATE_LUA,
+      7,
+      battleOnlineMatchKey(matchID),
+      DEADLINES_KEY,
+      RESOLVING_KEY,
+      ALL_MATCHES_KEY,
+      WAITING_KEY,
+      ARCHIVE_PENDING_KEY,
+      replayRoundsKey(matchID),
+      String(state._stateID - 1),
+      String(state._stateID),
+      JSON.stringify(storedState),
+      state.G.status,
+      deadlineAt === null ? '' : String(deadlineAt),
+      String(state.G.updatedAt),
+      matchID,
+      archive ? JSON.stringify(archive) : '',
+      acceptDeadlineAt === null ? '' : String(acceptDeadlineAt),
+      replayRound,
+      String(storedRoundCount),
+    ));
+    if (result === 1) return true;
+    if (result === 0) return false;
+    if (result === -2) throw new Error(`Unknown boardgame match: ${matchID}`);
+    if (result === -3) throw new Error('Battle replay accumulator conflict');
+    throw new Error('Battle boardgame state id conflict');
   }
 }
 
-function toBattleState(G: BattleBoardgameG): BattleMatchStateV1 {
-  const battle = JSON.parse(JSON.stringify(G)) as Record<string, unknown>;
-  delete battle.playerIdByBoardgameId;
-  delete battle.acceptedBoardgamePlayerIds;
-  return battle as unknown as BattleMatchStateV1;
+function indexedDeadline(G: BattleBoardgameG): number | null {
+  const allAccepted = G.acceptedBoardgamePlayerIds.length === G.controllers.length;
+  return G.status === 'planning' && G.planning && allAccepted
+    ? G.planning.deadlineAt
+    : null;
 }
 
-function normalizeBoardgameState(
-  matchID: string,
+function indexedAcceptDeadline(G: BattleBoardgameG): number | null {
+  return G.status === 'planning' &&
+    G.acceptedBoardgamePlayerIds.length < G.controllers.length
+    ? G.createdAt + MATCH_ACCEPT_TIMEOUT_MS
+    : null;
+}
+
+function stripReplayRounds(state: StoredState): StoredState {
+  return {
+    ...state,
+    G: {
+      ...state.G,
+      replay: { ...state.G.replay, rounds: [] },
+    },
+  };
+}
+
+function hydrateReplay(
   state: StoredState,
+  initialBattleJson: string | null,
+  roundJson: readonly string[] = [],
 ): StoredState {
+  if (!initialBattleJson) return state;
+  const initialBattle = JSON.parse(initialBattleJson) as BattleBoardgameG['replay']['initialBattle'];
+  const rounds = roundJson.map((value) => JSON.parse(value) as BattleBoardgameG['replay']['rounds'][number]);
+  return {
+    ...state,
+    G: {
+      ...state.G,
+      replay: {
+        version: 'battle_replay_accumulator_v1',
+        initialBattle,
+        rounds,
+      },
+    },
+  };
+}
+
+function parseInvitationUserIds(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as Array<{ userId?: unknown; status?: unknown }>;
+    return Array.isArray(parsed)
+      ? parsed.filter((entry) => entry.status === 'invited' && typeof entry.userId === 'string')
+        .map((entry) => entry.userId as string)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseInvitationUserIdsFromState(value: string): string[] {
+  try {
+    const state = JSON.parse(value) as StoredState;
+    return state.G.controllers
+      .map((controller) => controller.playerId)
+      .filter((playerId) => !state.G.acceptedBoardgamePlayerIds.includes(playerId));
+  } catch {
+    return [];
+  }
+}
+
+function withGameState(current: StoredState, G: BattleBoardgameG): StoredState {
+  return {
+    ...current,
+    G,
+    _stateID: current._stateID + 1,
+    ctx: G.status === 'finished'
+      ? { ...current.ctx, gameover: { result: G.latestResolution?.outcome } }
+      : current.ctx,
+  };
+}
+
+function buildReplay(G: BattleBoardgameG): BattleReplayV1 {
+  const outcome = G.latestResolution?.outcome;
+  if (!outcome?.battleEnded || G.replay.rounds.length === 0) {
+    throw new Error('Finished battle is missing replay material');
+  }
+  return {
+    version: 'battle_replay_v1',
+    matchId: G.matchId,
+    engineVersion: 'battle-v5',
+    rulesetVersion: 'team-sync-round-v1',
+    startedAt: G.createdAt,
+    finishedAt: G.updatedAt,
+    participants: G.controllers,
+    initialBattle: G.replay.initialBattle,
+    rounds: G.replay.rounds,
+    finalSnapshot: createBattlePublicSnapshot(G.battle),
+    outcome,
+  };
+}
+
+function parseState(value: string, matchID: string): StoredState {
+  const state = JSON.parse(value) as StoredState;
+  if (state.G.matchId !== matchID || state.G.version !== 'battle_match_state_v1') {
+    throw new Error('Invalid stored boardgame battle state');
+  }
+  return state;
+}
+
+function normalizeBoardgameState(matchID: string, state: StoredState): StoredState {
   if (!matchID || state.G.version !== 'battle_match_state_v1') {
     throw new Error('Invalid boardgame battle state');
   }
-  return {
-    ...state,
-    G: { ...state.G, matchId: matchID },
-  };
-}
-
-function toBattleRow(state: BattleMatchStateV1) {
-  return {
-    matchId: state.matchId,
-    status: state.status,
-    revision: state.revision,
-    checkpointRevision: state.battle.checkpoint.checkpointRevision,
-    state,
-    deadlineAt: state.planning ? new Date(state.planning.deadlineAt) : null,
-    updatedAt: new Date(state.updatedAt),
-  };
+  return { ...state, G: { ...state.G, matchId: matchID } };
 }

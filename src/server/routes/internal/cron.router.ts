@@ -1,7 +1,6 @@
 import {
   runAuctionExpireJob,
   runBetBattleExpireJob,
-  runBattleMatchTimeoutJob,
   runExpiredDataCleanupJob,
   runMarketRefreshCronJob,
   runMaterialLibraryDailyGenerationJob,
@@ -67,10 +66,6 @@ router.get('/auction-expire', (c) =>
 
 router.get('/bet-battle-expire', (c) =>
   handleCronRequest(c.req.raw, runBetBattleExpireJob),
-);
-
-router.get('/battle-match-timeout', (c) =>
-  handleCronRequest(c.req.raw, runBattleMatchTimeoutJob),
 );
 
 router.get('/rank-rewards', (c) =>

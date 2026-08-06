@@ -10,7 +10,7 @@ const alias = {
 /**
  * The battle process is a Node service, rather than a browser bundle.
  * Keep server dependencies external so Node resolves their supported runtime
- * entry points (notably boardgame.io, pg and ioredis).
+ * entry points (notably boardgame.io, ioredis and nats).
  */
 export default defineConfig({
   resolve: { alias },
@@ -25,7 +25,7 @@ export default defineConfig({
         format: 'es',
         entryFileNames: 'battle-server.js',
       },
-      external: ['boardgame.io', 'pg', 'ioredis', 'node-persist'],
+      external: ['boardgame.io', 'ioredis', 'nats', 'node-persist'],
     },
   },
 });

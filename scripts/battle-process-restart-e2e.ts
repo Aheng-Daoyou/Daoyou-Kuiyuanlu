@@ -1,8 +1,5 @@
 import { Client } from 'boardgame.io/client';
 import { SocketIO } from 'boardgame.io/multiplayer';
-import { eq } from 'drizzle-orm';
-import { db } from '@server/lib/drizzle/db';
-import { battleMatchGameStates, battleMatches } from '@server/lib/drizzle/schema';
 import { AttributeType, type TeamSlot } from '@shared/engine/battle-v5/core/types';
 import { BattleRoster } from '@shared/engine/battle-v5/core/BattleRoster';
 import { BattleRuntime } from '@shared/engine/battle-v5/runtime/BattleRuntime';
@@ -12,6 +9,12 @@ import type { BattleSaveV1 } from '@shared/engine/battle-v5/persistence/types';
 import { createBattleMatchState, transitionBattleMatch } from '@shared/engine/battle-v5/match/BattleMatchStateMachine';
 import type { BattleMatchPlayerViewV1, BattleMatchStateV1 } from '@shared/engine/battle-v5/match/types';
 import { battleBoardgameClientGame } from '@shared/online-battle/BattleBoardgameClientGame';
+import {
+  battleOnlineMatchKey,
+  RedisBattleBoardgameStorage,
+} from '@server/lib/services/BattleBoardgameStorage';
+import type { BattleBoardgameG } from '@server/lib/services/BattleBoardgameAdapter';
+import { redis } from '@server/lib/redis';
 
 const port = Number(process.env.BATTLE_RESTART_E2E_PORT ?? 3120);
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -96,20 +99,39 @@ try {
     }));
   }
 
-  const resolving = transitionBattleMatch(makeState(created.matchID), {
+  const resolvingSeed = makeState(created.matchID);
+  const defeatedBeta = {
+    ...resolvingSeed,
+    battle: {
+      ...resolvingSeed.battle,
+      checkpoint: {
+        ...resolvingSeed.battle.checkpoint,
+        units: Object.fromEntries(Object.entries(resolvingSeed.battle.checkpoint.units).map(
+          ([unitId, unit]) => [unitId, unitId.startsWith('b') ? { ...unit, hp: 0 } : unit],
+        )),
+      },
+    },
+  };
+  const resolving = transitionBattleMatch(defeatedBeta, {
     type: 'resolve_planning_timeout', matchId: created.matchID, requestId: 'restart-fixture-timeout',
     expectedMatchRevision: 0, expectedCheckpointRevision: 0,
   }, Date.now() + 31_000).state;
-  const [stored] = await db.select({ state: battleMatchGameStates.state }).from(battleMatchGameStates).where(eq(battleMatchGameStates.matchId, created.matchID)).limit(1);
-  if (!stored) throw new Error('boardgame state was not persisted');
-  const currentGame = stored.state as Record<string, unknown>;
+  const storage = new RedisBattleBoardgameStorage();
+  const stored = await storage.fetch(created.matchID, { state: true });
+  if (!stored.state) throw new Error('boardgame state was not persisted in Redis');
+  const currentGame = stored.state;
+  const currentG = currentGame.G as BattleBoardgameG;
   const resolvingGame = {
     ...currentGame,
-    G: { ...resolving, playerIdByBoardgameId: mapping },
-    _stateID: Number(currentGame._stateID ?? 0) + 1,
+    G: {
+      ...resolving,
+      playerIdByBoardgameId: mapping,
+      acceptedBoardgamePlayerIds: Object.keys(mapping),
+      replay: currentG.replay,
+    },
+    _stateID: currentGame._stateID + 1,
   };
-  await db.update(battleMatches).set({ state: resolving, status: resolving.status, revision: resolving.revision, checkpointRevision: resolving.battle.checkpoint.checkpointRevision }).where(eq(battleMatches.matchId, created.matchID));
-  await db.update(battleMatchGameStates).set({ state: resolvingGame }).where(eq(battleMatchGameStates.matchId, created.matchID));
+  await storage.setState(created.matchID, resolvingGame);
 
   await stopServer(server);
   server = spawnServer();
@@ -118,9 +140,26 @@ try {
   try {
     client.start();
     await waitUntil(() => client.getState()?.isConnected === true, 10_000);
-    await waitUntil(() => (client.getState()?.G as BattleMatchPlayerViewV1 | undefined)?.latestResolution?.round === 1, 10_000);
+    await waitUntil(() => {
+      const view = client.getState()?.G as BattleMatchPlayerViewV1 | undefined;
+      return view?.status === 'finished' && view.latestResolution?.round === 1;
+    }, 10_000);
   } finally { client.stop(); }
-  console.log('battle process restart resolving recovery passed', { matchID: created.matchID });
+  await waitUntil(async () => (
+    await redis.hget(battleOnlineMatchKey(created.matchID), 'archive_status')
+  ) === 'published', 10_000);
+  const archive = JSON.parse(
+    await redis.hget(battleOnlineMatchKey(created.matchID), 'archive') ?? 'null',
+  ) as { version?: string; outcome?: { battleEnded?: boolean }; rounds?: unknown[] } | null;
+  if (
+    archive?.version !== 'battle_replay_v1' ||
+    archive.outcome?.battleEnded !== true ||
+    archive.rounds?.length !== 1
+  ) {
+    throw new Error('finished battle replay was not published through NATS');
+  }
+  await storage.wipe(created.matchID);
+  console.log('battle Redis restart and NATS replay publish passed', { matchID: created.matchID });
 } finally {
   await stopServer(server);
 }

@@ -93,7 +93,7 @@
 
 - `Bun 1.3+`
 - `PostgreSQL`
-- `Redis`：不是进程启动硬依赖，但排行榜、世界聊天、部分定时任务等功能会用到
+- `Redis`：API 的部分能力按需使用；独立 battle-server 将其作为在线对局的启动硬依赖
 - `NATS`：进程启动硬依赖；JetStream 承载领域事件、异步投影和后台 command，Core 承载跨实例实时广播
 
 说明：
@@ -133,10 +133,17 @@ cp .env.example .env.local
 | `BATTLE_SERVER_API_TOKEN` | 应用服务 / matchmaker 调用 Lobby API 时使用的独立 Bearer 密钥 |
 | `BATTLE_SERVER_URL` | Hono Session Gateway 调用 battle-server 的内网地址 |
 | `BATTLE_SERVER_PUBLIC_ORIGIN` | 返回给浏览器建立 Socket.IO 连接的公网地址 |
+| `REDIS_URL` | 在线对局唯一权威状态、邀请、凭据、截止时间与恢复索引 |
+| `NATS_SERVERS` / `NATS_USER` / `NATS_PASSWORD` | 结束对局回放归档使用的 JetStream |
 
 客户端不得直接调用 boardgame.io 的 `/games/*` Lobby API，也不得持有上述 token。
 应用侧 matchmaker 负责创建对局、预占 player slot 并把对应的 boardgame 凭据通过已认证的
 业务接口交给正确玩家；Socket.IO 连接只使用该玩家自己的凭据。
+
+实时战斗的数据边界固定为：`battle-v5` 只做确定性规则解析，boardgame.io 只做协议与编排；
+进行中的 `G / ctx / _stateID`、选招、锁定、邀请和回放素材只在 Redis。对局结束后 battle-server
+将 `BattleReplayV1` 发布到 NATS JetStream，应用侧 durable consumer 异步、幂等写入
+`wanjiedaoyou_battle_replay_archives`。玩家 move 链路不查询或写入 PostgreSQL，也不使用 Redis Stream。
 
 ### 建议同时配置
 
@@ -264,8 +271,8 @@ bun run dev
 
 React SPA 继续独立部署到 Cloudflare Pages，不进入任何后端镜像。主服务与
 battle-server 使用独立镜像：`app`（`3000`）使用 Bun，`battle`（`3100`）使用
-Node.js LTS；两者共享 PostgreSQL，battle-server 只负责编排实时对局，`battle-v5`
-仍是无框架依赖的纯战斗引擎。
+Node.js LTS；battle-server 只连接 Redis 与 NATS，不连接 PostgreSQL，并只负责编排实时对局；
+`battle-v5` 仍是无框架依赖的纯战斗引擎。PostgreSQL 回放归档由应用侧 NATS consumer 完成。
 
 本地构建镜像：
 

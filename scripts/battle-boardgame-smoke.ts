@@ -70,6 +70,7 @@ function runSmoke(
     controllers.map((controller, index) => [String(index), controller.playerId]),
   );
   const game = createBattleBoardgameGame();
+  const startedAt = Date.now();
   let G = game.setup?.(null as never, {
     state: {
       version: 'battle_match_state_v1',
@@ -82,7 +83,7 @@ function runSmoke(
       planning: {
         round: 1,
         checkpointRevision: 0,
-        deadlineAt: 30_000,
+        deadlineAt: startedAt + 30_000,
         submissions: {},
         lockedPlayerIds: [],
       },
@@ -111,7 +112,7 @@ function runSmoke(
   }
 
   if (resolveByTimeout) {
-    G = resolveBoardgameTimeout(G, 30_000);
+    G = resolveBoardgameTimeout(G, startedAt + 30_000);
   } else {
     for (const { unitId } of units) {
       const controllerIndex = controllers.findIndex((controller) =>

@@ -8,8 +8,11 @@ import {
 import { resolveBattleRound } from '@shared/engine/battle-v5/round/BattleRoundResolver';
 import type {
   BattleMatchStateV1,
+  BattleRoundResolutionPublicV1,
   ClientBattleIntentV1,
 } from '@shared/engine/battle-v5/match/types';
+import type { BattleReplayRoundV1 } from '@shared/contracts/battleReplay';
+import type { BattleSaveV1 } from '@shared/engine/battle-v5/persistence/types';
 
 export interface BattleBoardgameSetupDataV1 {
   readonly state: BattleMatchStateV1;
@@ -32,6 +35,11 @@ export interface BattleBoardgameLockPayloadV1 {
 export type BattleBoardgameG = BattleMatchStateV1 & {
   readonly playerIdByBoardgameId: Readonly<Record<string, string>>;
   readonly acceptedBoardgamePlayerIds: readonly string[];
+  readonly replay: {
+    readonly version: 'battle_replay_accumulator_v1';
+    readonly initialBattle: BattleSaveV1;
+    readonly rounds: readonly BattleReplayRoundV1[];
+  };
 };
 
 function appPlayerId(G: BattleBoardgameG, playerID: PlayerID | null): string | null {
@@ -44,10 +52,10 @@ function acceptedPlayerIds(G: BattleBoardgameG): readonly string[] {
   return G.acceptedBoardgamePlayerIds ?? Object.keys(G.playerIdByBoardgameId);
 }
 
-function nextDeterministicTime(G: BattleBoardgameG): number {
-  // Reducers must replay identically. Real deadline time is owned by the
-  // match coordinator, so the boardgame adapter advances only a logical value.
-  return G.updatedAt + 1;
+function serverNow(): number {
+  const now = Date.now();
+  if (!Number.isFinite(now)) throw new Error('Battle server clock is invalid');
+  return now;
 }
 
 /**
@@ -74,6 +82,11 @@ export function createBattleBoardgameGame(): Game<
         playerIdByBoardgameId: setupData.playerIdByBoardgameId,
         acceptedBoardgamePlayerIds:
           setupData.acceptedBoardgamePlayerIds ?? Object.keys(setupData.playerIdByBoardgameId),
+        replay: {
+          version: 'battle_replay_accumulator_v1',
+          initialBattle: structuredClone(setupData.state.battle),
+          rounds: [],
+        },
       };
     },
     validateSetupData: (setupData, numPlayers) => {
@@ -126,7 +139,7 @@ export function createBattleBoardgameGame(): Game<
                     unitId: payload.unitId,
                     intent: payload.intent,
                   },
-                  nextDeterministicTime(G),
+                  serverNow(),
                 );
               } catch {
                 return INVALID_MOVE;
@@ -152,7 +165,7 @@ export function createBattleBoardgameGame(): Game<
                     expectedMatchRevision: G.revision,
                     expectedCheckpointRevision: G.battle.checkpoint.checkpointRevision,
                   },
-                  nextDeterministicTime(G),
+                  serverNow(),
                 );
               } catch {
                 return INVALID_MOVE;
@@ -220,6 +233,7 @@ export function resumeBoardgameResolution(
     revision: G.revision + 1,
     playerIdByBoardgameId: G.playerIdByBoardgameId,
     acceptedBoardgamePlayerIds: acceptedPlayerIds(G),
+    replay: appendReplayRound(G, G.resolving.commandSet, resolution),
   };
 }
 
@@ -235,6 +249,7 @@ function transitionAndResolve(
       ...transition.state,
       playerIdByBoardgameId: G.playerIdByBoardgameId,
       acceptedBoardgamePlayerIds: acceptedPlayerIds(G),
+      replay: G.replay,
     };
   }
   const resolution = resolveBattleRound(
@@ -253,6 +268,41 @@ function transitionAndResolve(
     revision: G.revision + 1,
     playerIdByBoardgameId: G.playerIdByBoardgameId,
     acceptedBoardgamePlayerIds: acceptedPlayerIds(G),
+    replay: appendReplayRound(G, effect.commandSet, resolution),
+  };
+}
+
+function appendReplayRound(
+  G: BattleBoardgameG,
+  commandSet: import('@shared/engine/battle-v5/round/types').RoundCommandSetV1,
+  resolution: import('@shared/engine/battle-v5/round/types').BattleRoundResolutionV1,
+): BattleBoardgameG['replay'] {
+  if (G.replay.rounds.some((round) => round.commandSet.commandSetId === commandSet.commandSetId)) {
+    return G.replay;
+  }
+  return {
+    ...G.replay,
+    rounds: [
+      ...G.replay.rounds,
+      {
+        round: resolution.round,
+        commandSet,
+        resolution: toPublicResolution(resolution),
+      },
+    ],
+  };
+}
+
+function toPublicResolution(
+  resolution: import('@shared/engine/battle-v5/round/types').BattleRoundResolutionV1,
+): BattleRoundResolutionPublicV1 {
+  return {
+    version: 'battle_round_resolution_public_v1',
+    commandSetId: resolution.commandSetId,
+    round: resolution.round,
+    outcome: resolution.outcome,
+    sequences: resolution.sequences,
+    stateTimeline: resolution.stateTimeline,
   };
 }
 
