@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "updatedAt": "2026-08-06",
+  "sponsorUrl": null,
+  "tiers": [
+    {
+      "id": "kindling",
+      "name": "添薪道友",
+      "description": "感谢为项目添上一缕薪火。",
+      "order": 10
+    },
+    {
+      "id": "companion",
+      "name": "同行道友",
+      "description": "感谢与项目并肩同行。",
+      "order": 20
+    },
+    {
+      "id": "guardian",
+      "name": "护道同修",
+      "description": "感谢长期护持项目成长。",
+      "order": 30
+    },
+    {
+      "id": "co-builder",
+      "name": "山门共建者",
+      "description": "感谢共同建设并守护这方世界。",
+      "order": 40
+    }
+  ],
+  "sponsors": [
+    {
+      "id": "sd-xingchen",
+      "name": "SD星辰",
+      "kind": "person",
+      "tier": "kindling",
+      "since": "2026-08",
+      "endedAt": null,
+      "blessing": "愿星辰照道，仙途长明。",
+      "url": null,
+      "avatar": "https://page-r2.daoyou.org/avatar/b_08902713c8f91ca4b2330a16ec13cfaf.jpg"
+    },
+    {
+      "id": "demu",
+      "name": "得木",
+      "kind": "person",
+      "tier": "kindling",
+      "since": "2026-08",
+      "endedAt": null,
+      "blessing": "愿得木逢春，道途常青。",
+      "url": null,
+      "avatar": "https://page-r2.daoyou.org/avatar/b_0527b511bfd3f97f35117f45f5d1fa88.jpg"
+    },
+    {
+      "id": "nongchangzhu",
+      "name": "农场主",
+      "kind": "person",
+      "tier": "companion",
+      "since": "2026-08",
+      "endedAt": null,
+      "blessing": "愿灵田常丰，修行有成。",
+      "url": null,
+      "avatar": "https://page-r2.daoyou.org/avatar/b_9479836bae3ffbdb0fbc356b3f68f010.jpg"
+    }
+  ],
+  "anonymous": {
+    "activeCount": 0
+  }
+}
