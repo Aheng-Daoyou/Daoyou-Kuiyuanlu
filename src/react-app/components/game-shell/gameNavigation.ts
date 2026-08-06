@@ -284,6 +284,15 @@ export const gameDockGroups: GameNavGroup[] = [
         sceneLabel: '实时字阵演武',
       },
       {
+        id: 'battle-live-lobby',
+        sceneLabel: '多人战斗邀请',
+        href: '/game/battle/live',
+      },
+      {
+        id: 'battle-live-match',
+        sceneLabel: '实时多人战局',
+      },
+      {
         id: 'battle-replay',
         sceneLabel: '战斗回放',
       },

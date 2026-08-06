@@ -20,6 +20,11 @@ import {
 import { prunePublishedTransactionalMessages } from '@server/lib/repositories/transactionalMessageRepository';
 import { expireListings } from '@server/lib/services/AuctionService';
 import { expireBetBattles } from '@server/lib/services/BetBattleService';
+import {
+  createPostgresBattleMatchCoordinator,
+  PostgresBattleMatchRepository,
+} from '@server/lib/services/BattleMatchPersistence';
+import { PostgresBattleBoardgameStorage } from '@server/lib/services/BattleBoardgameStorage';
 import type { MailAttachment } from '@server/lib/services/MailService';
 import { runMarketRefreshJob } from '@server/lib/services/MarketScheduler';
 import {
@@ -197,6 +202,36 @@ export async function runBetBattleExpireJob(): Promise<CronJobResult> {
       processed,
       skipped: false,
     };
+  });
+}
+
+export async function runBattleMatchTimeoutJob(): Promise<CronJobResult> {
+  return withJobLock('battle-match-timeout', async () => {
+    const repository = new PostgresBattleMatchRepository();
+    const coordinator = createPostgresBattleMatchCoordinator();
+    const boardgameRepository = new PostgresBattleBoardgameStorage();
+    let processed = 0;
+    const boardgameMatchIds = new Set(
+      await boardgameRepository.listExpiredMatchIds(),
+    );
+    for (const matchId of boardgameMatchIds) {
+      if (await boardgameRepository.resolveExpired(matchId)) processed += 1;
+    }
+    for (const matchId of await repository.listExpiredMatchIds()) {
+      if (boardgameMatchIds.has(matchId)) continue;
+      const before = await repository.load(matchId);
+      if (!before || before.status !== 'planning') continue;
+      const after = await coordinator.resolveExpired(matchId);
+      if (after.revision !== before.revision) processed += 1;
+    }
+    for (const matchId of await repository.listResolvingMatchIds()) {
+      if (boardgameMatchIds.has(matchId)) continue;
+      const before = await repository.load(matchId);
+      if (!before || before.status !== 'resolving') continue;
+      const after = await coordinator.resumeResolving(matchId);
+      if (after.revision !== before.revision) processed += 1;
+    }
+    return { success: true, processed, skipped: false };
   });
 }
 

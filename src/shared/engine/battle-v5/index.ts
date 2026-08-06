@@ -91,3 +91,4 @@ export { BattleEngineV5, type BattleResult } from './BattleEngineV5';
 export * from './v4';
 export * from './persistence';
 export * from './round';
+export * from './match';
