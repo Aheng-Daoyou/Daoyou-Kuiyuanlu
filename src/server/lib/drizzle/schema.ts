@@ -321,6 +321,7 @@ export const sectTaskRecords = pgTable(
     taskId: varchar('task_id', { length: 64 }).notNull(),
     kind: varchar('kind', { length: 16 }).notNull(),
     periodKey: varchar('period_key', { length: 16 }).notNull(),
+    attempt: integer('attempt').notNull().default(1),
     status: varchar('status', { length: 16 }).notNull().default('active'),
     progress: integer('progress').notNull().default(0),
     payload: jsonb('payload').notNull().default({}),
@@ -333,10 +334,11 @@ export const sectTaskRecords = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [
-    uniqueIndex('sect_task_membership_period_task_unique').on(
+    uniqueIndex('sect_task_membership_period_task_attempt_unique').on(
       table.membershipId,
       table.periodKey,
       table.taskId,
+      table.attempt,
     ),
     index('sect_task_membership_kind_period_idx').on(
       table.membershipId,
