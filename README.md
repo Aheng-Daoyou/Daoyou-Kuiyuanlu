@@ -123,7 +123,7 @@ cp .env.example .env.local
 | `NATS_SERVERS` | NATS 服务地址，多个地址使用逗号分隔 |
 | `NATS_USER` / `NATS_PASSWORD` | NATS 应用用户凭据 |
 
-独立实时战斗服务以 `bun run battle:server` 启动。生产环境还必须配置：
+独立实时战斗服务由 Node.js 运行构建产物；生产环境还必须配置：
 
 | 变量 | 说明 |
 | --- | --- |
@@ -242,18 +242,20 @@ bun run dev
 - 前端页面：`http://localhost:5173`
 - 健康检查：`http://localhost:5173/api/health-check`
 
-`bun run dev` 会同时启动两个进程：Vite 提供前端页面，Bun 在本地提供 Hono API 与 WebSocket；Vite 将 `/api` 和 `/internal` 代理到 Bun API 服务。
+`bun run dev` 会同时启动三个进程：Vite 提供前端页面，Bun 在本地提供 Hono API，独立 battle-server 提供实时战斗；Vite 将 `/api` 和 `/internal` 代理到 Bun API 服务。battle-server 默认监听 `3100`，由 `BATTLE_SERVER_*` 环境变量控制。
+
+本地 NATS 使用 JetStream 文件卷保存消息和 durable consumer 的投递位点。启动时发现历史消息是预期行为；回放归档和事务消息会在 PostgreSQL 可用后继续消费。若 PostgreSQL 暂时不可用，事务消息恢复器会以 5 秒至 60 秒退避重试，避免连接超时期间持续打满连接池；不应通过删除 NATS 数据卷来规避数据库故障。
 
 ## 构建与运行
 
 | 命令 | 作用 |
 | --- | --- |
-| `bun run dev` | 本地开发 |
+| `bun run dev` | 启动 Vite、API 和 Node.js battle-server 本地开发进程 |
 | `bun run build` | 依次构建前端与服务端 |
 | `bun run build:client` | 构建 Cloudflare Pages 使用的前端 SPA |
 | `bun run build:server` | 构建 Docker 使用的 Bun/Hono 后端 |
 | `bun run build:battle` | 使用 Vite SSR 构建 Node LTS battle-server 到 `dist-battle/battle-server.js` |
-| `bun run battle:server` | 从源码启动独立战斗服务，默认监听 `3100` |
+| `bun run battle:server` | 使用 Node.js 启动已构建的独立战斗服务，默认监听 `3100` |
 | `bun run battle:smoke` | 验证 2v2、4v4、超时与真实 Socket.IO 同步流程 |
 | `bun run preview` | 先构建，再运行 `dist/index.js` |
 | `bun run start` | 直接运行已构建产物 |
