@@ -212,6 +212,7 @@ describe('BattleMatchStateMachine', () => {
     const view = createBattleMatchPlayerView(next, 'p-a', 32_001);
     expect(view.latestResolution?.version).toBe('battle_round_resolution_public_v1');
     expect(JSON.stringify(view.latestResolution)).not.toContain('battle_save_v1');
+    expect(view.latestResolution).not.toHaveProperty('stateTimeline');
   });
 
   it('persists resolving before executing and can resume after a retry', async () => {

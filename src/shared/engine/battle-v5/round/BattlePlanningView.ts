@@ -34,14 +34,36 @@ export function createBattlePlanningView(input: {
                 ability.targetPolicy,
                 allUnits,
               );
+              const hasEnoughResources = ability.hasEnoughResources(unit);
+              const hasTriggerableTarget = candidates.some((target) =>
+                ability.canTrigger({ caster: unit, target }),
+              );
               return {
                 abilityId: ability.id,
                 name: ability.name,
+                description: ability.description,
+                costs: ability.resourceCosts.map((cost) => ({
+                  resource: cost.type,
+                  amount: cost.amount,
+                  mode: cost.mode,
+                })),
+                cooldown: {
+                  current: ability.currentCooldown,
+                  max: ability.maxCooldown,
+                },
                 ready:
                   ability.isReady() &&
-                  candidates.some((target) =>
-                    ability.canTrigger({ caster: unit, target }),
-                  ),
+                  hasEnoughResources &&
+                  hasTriggerableTarget,
+                unavailableReason: !ability.isReady()
+                  ? 'cooldown'
+                  : candidates.length === 0
+                    ? 'no_target'
+                    : !hasEnoughResources
+                      ? 'resource'
+                      : hasTriggerableTarget
+                        ? undefined
+                        : 'condition',
                 targetTeam: ability.targetPolicy.team,
                 targetScope: ability.targetPolicy.scope,
                 legalTargetIds: candidates.map((target) => target.id),

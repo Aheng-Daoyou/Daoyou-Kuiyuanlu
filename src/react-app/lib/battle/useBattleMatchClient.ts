@@ -8,11 +8,15 @@ import {
 } from './battleMatchClient';
 
 type BattleClient = ReturnType<typeof createBattleMatchClient>;
+export type BattleMatchConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
 export function useBattleMatchClient(matchId: string | null) {
   const [session, setSession] = useState<BattleMatchSessionV1 | null>(null);
   const [view, setView] = useState<BattleBoardgamePlayerViewV1 | null>(null);
+  const [viewReceivedAt, setViewReceivedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] =
+    useState<BattleMatchConnectionStatus>('connecting');
   const activeSession =
     session && session.matchID === matchId ? session : null;
 
@@ -51,6 +55,12 @@ export function useBattleMatchClient(matchId: string | null) {
     const onState: Parameters<BattleClient['subscribe']>[0] = (state) => {
       const nextView = state?.G as BattleBoardgamePlayerViewV1 | undefined;
       setView(nextView ?? null);
+      if (state?.isConnected === false) {
+        setConnectionStatus('disconnected');
+      } else if (nextView) {
+        setConnectionStatus('connected');
+        setViewReceivedAt(Date.now());
+      }
     };
     const unsubscribe = client.subscribe(onState);
     client.start();
@@ -72,5 +82,13 @@ export function useBattleMatchClient(matchId: string | null) {
     [client],
   );
 
-  return { client, session: activeSession, view: client ? view : null, error, actions };
+  return {
+    client,
+    session: activeSession,
+    view: client ? view : null,
+    viewReceivedAt,
+    connectionStatus,
+    error,
+    actions,
+  };
 }

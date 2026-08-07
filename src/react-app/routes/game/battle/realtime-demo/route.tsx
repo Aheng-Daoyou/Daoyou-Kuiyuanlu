@@ -4,14 +4,17 @@ import './realtimeBattleDemo.css';
 import {
   attachRealtimeBattlePhaser,
   type RealtimeBattlePhaserController,
-} from './RealtimeBattlePhaserRuntime';
+} from '@app/components/feature/battle/realtime/RealtimeBattlePhaserRuntime';
 import {
   createInitialRealtimeBattleSnapshot,
   REALTIME_BATTLE_LOOP_DURATION_MS,
+  RealtimeBattleSimulation,
   type RealtimeBattleCommand,
-  type RealtimeBattleEntity,
-  type RealtimeBattleSnapshot,
 } from './realtimeBattleSimulation';
+import type {
+  BattlePresentationEntityV1,
+  BattlePresentationSnapshotV1,
+} from '@shared/online-battle/BattlePresentation';
 
 const COMMANDS: Array<{
   id: RealtimeBattleCommand;
@@ -30,7 +33,7 @@ function formatBattleTime(elapsedMs: number) {
     .padStart(2, '0')}.${Math.floor((elapsedMs % 1_000) / 100)}`;
 }
 
-function describeFocusedState(entity: RealtimeBattleEntity) {
+function describeFocusedState(entity: BattlePresentationEntityV1) {
   if (!entity.alive) return '已离阵';
   const state = [`气血 ${Math.round((entity.hp / entity.maxHp) * 100)}%`];
   if (entity.shield > 0) state.push(`护界 ${Math.ceil(entity.shield)}`);
@@ -49,38 +52,66 @@ export default function RealtimeBattleDemoPage() {
   const controllerRef = useRef<RealtimeBattlePhaserController | undefined>(
     undefined,
   );
+  const commandRef = useRef<(command: RealtimeBattleCommand) => void>(
+    () => undefined,
+  );
   const navigate = useNavigate();
   const location = useLocation();
-  const [snapshot, setSnapshot] = useState<RealtimeBattleSnapshot>(() =>
+  const [snapshot, setSnapshot] = useState<BattlePresentationSnapshotV1>(() =>
     createInitialRealtimeBattleSnapshot(),
   );
   const [paused, setPaused] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const pausedRef = useRef(false);
+  const speedRef = useRef(1);
 
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
     let cancelled = false;
     let controller: RealtimeBattlePhaserController | undefined;
+    let frame = 0;
+    let lastFrameAt = performance.now();
+    const simulation = new RealtimeBattleSimulation((timeline) => {
+      controller?.playTimeline(timeline);
+    });
+    commandRef.current = (command) => {
+      simulation.command(command);
+      controller?.syncSnapshot(simulation.snapshot());
+    };
 
     const mount = async () => {
       await document.fonts.ready;
       if (cancelled) return;
       controller = attachRealtimeBattlePhaser({
         root,
+        initialSnapshot: simulation.snapshot(),
         onState: setSnapshot,
-        onFocus: () => undefined,
+        onFocus: (entityId) => simulation.focus(entityId),
       });
       controllerRef.current = controller;
+      const tick = (now: number) => {
+        if (cancelled) return;
+        const delta = Math.max(0, Math.min(now - lastFrameAt, 100));
+        lastFrameAt = now;
+        if (!pausedRef.current) {
+          simulation.step(delta * speedRef.current);
+          controller?.syncSnapshot(simulation.snapshot());
+        }
+        frame = window.requestAnimationFrame(tick);
+      };
+      frame = window.requestAnimationFrame(tick);
     };
 
     void mount();
     return () => {
       cancelled = true;
+      window.cancelAnimationFrame(frame);
       controller?.destroy();
       if (controllerRef.current === controller) {
         controllerRef.current = undefined;
       }
+      commandRef.current = () => undefined;
     };
   }, []);
 
@@ -94,12 +125,14 @@ export default function RealtimeBattleDemoPage() {
   const togglePause = () => {
     const nextPaused = !paused;
     setPaused(nextPaused);
+    pausedRef.current = nextPaused;
     controllerRef.current?.setPaused(nextPaused);
   };
 
   const toggleSpeed = () => {
     const nextSpeed = speed === 1 ? 2 : 1;
     setSpeed(nextSpeed);
+    speedRef.current = nextSpeed;
     controllerRef.current?.setSpeed(nextSpeed);
   };
 
@@ -177,7 +210,7 @@ export default function RealtimeBattleDemoPage() {
               key={command.id}
               type="button"
               className="realtime-battle-demo__command"
-              onClick={() => controllerRef.current?.command(command.id)}
+              onClick={() => commandRef.current(command.id)}
             >
               <strong>{command.name}</strong>
               <span>{command.intent}</span>

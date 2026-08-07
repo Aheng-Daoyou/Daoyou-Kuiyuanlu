@@ -28,7 +28,21 @@ export interface RoundCommandSetV1 {
 export interface PlanningAbilityViewV1 {
   abilityId: string;
   name: string;
+  /** Safe presentation metadata; battle rules never consume these fields. */
+  description?: string;
+  costs?: ReadonlyArray<{
+    resource: 'mp' | 'hp';
+    amount: number;
+    mode?: string;
+  }>;
+  cooldown?: { current: number; max: number };
   ready: boolean;
+  unavailableReason?:
+    | 'cooldown'
+    | 'resource'
+    | 'no_target'
+    | 'condition'
+    | 'unknown';
   targetTeam: 'enemy' | 'ally' | 'self' | 'any';
   targetScope: 'single' | 'aoe' | 'random';
   legalTargetIds: UnitId[];

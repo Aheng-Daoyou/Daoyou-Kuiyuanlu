@@ -234,7 +234,6 @@ function toPublicResolution(
     round: resolution.round,
     outcome: resolution.outcome,
     sequences: resolution.sequences,
-    stateTimeline: resolution.stateTimeline,
   };
 }
 

@@ -185,4 +185,25 @@ describe('BattleRoundResolver', () => {
     expect(result.nextPlanningView?.units).toHaveLength(8);
     expect(result.checkpoint.units).toHaveProperty('beta-3');
   });
+
+  it('reports resource shortage separately from other trigger conditions', () => {
+    const restored = restoreBattleSave(initialSave());
+    try {
+      restored.roster.getUnit('a0').setMp(0);
+      const view = createBattlePlanningView({
+        roster: restored.roster,
+        round: 1,
+        checkpointRevision: 0,
+        teamId: 'alpha',
+      });
+
+      expect(view.units[0].abilities[0]).toMatchObject({
+        abilityId: 'team-flame',
+        ready: false,
+        unavailableReason: 'resource',
+      });
+    } finally {
+      restored.runtime.dispose();
+    }
+  });
 });

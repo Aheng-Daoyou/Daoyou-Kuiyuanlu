@@ -3,18 +3,28 @@ import type { BattleSaveV1 } from '../engine/battle-v5/persistence/types';
 import type { RoundCommandSetV1 } from '../engine/battle-v5/round/types';
 import type {
   BattleControllerV1,
-  BattleRoundResolutionPublicV1,
 } from '../engine/battle-v5/match/types';
 import type { BattlePublicSnapshotV1 } from '../engine/battle-v5/match/BattlePublicSnapshot';
+import type { BattleRoundResolutionV1 } from '../engine/battle-v5/round/types';
 import type { TeamVictoryResult } from '../engine/battle-v5/systems/TeamVictorySystem';
 
 export const BATTLE_REPLAY_STREAM = 'DAOYOU_BATTLE_REPLAY_ARCHIVES';
 export const BATTLE_REPLAY_SUBJECT = 'daoyou.battle.replay.archive.v1';
 
+/** Full round material for durable replay only; never expose this through playerView. */
+export interface BattleReplayRoundResolutionV1 {
+  readonly version: 'battle_replay_round_resolution_v1';
+  readonly commandSetId: string;
+  readonly round: number;
+  readonly outcome: BattleRoundResolutionV1['outcome'];
+  readonly sequences: BattleRoundResolutionV1['sequences'];
+  readonly stateTimeline: BattleRoundResolutionV1['stateTimeline'];
+}
+
 export interface BattleReplayRoundV1 {
   readonly round: number;
   readonly commandSet: RoundCommandSetV1;
-  readonly resolution: BattleRoundResolutionPublicV1;
+  readonly resolution: BattleReplayRoundResolutionV1;
 }
 
 export interface BattleReplayV1 {
@@ -69,8 +79,8 @@ const BattleReplaySchema = z
             'Invalid round command set version',
           ),
           resolution: VersionedObjectSchema.refine(
-            (value) => value.version === 'battle_round_resolution_public_v1',
-            'Invalid public resolution version',
+            (value) => value.version === 'battle_replay_round_resolution_v1',
+            'Invalid replay resolution version',
           ),
         })
         .strict(),

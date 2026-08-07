@@ -5,66 +5,39 @@ import {
   type CombatVisualFact,
   type CombatVisualTimeline,
 } from '@shared/engine/battle-v5/presentation';
+import type {
+  BattlePresentationActionStateV1,
+  BattlePresentationEffectV1,
+  BattlePresentationEntityV1,
+  BattlePresentationResourceV1,
+  BattlePresentationSnapshotV1,
+} from '@shared/online-battle/BattlePresentation';
 import { resolveRealtimeBattleVisualSpec } from './realtimeBattleVisualRegistry';
 
 export type RealtimeBattleTeam = 'allies' | 'enemies';
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
 
-export interface RealtimeBattleEffect {
-  id: string;
-  label: string;
-  tone: 'buff' | 'debuff';
-  statusType: 'buff' | 'debuff' | 'control';
+export type RealtimeBattleEffect = Mutable<BattlePresentationEffectV1> & {
   controlVisual?: CombatControlVisual;
-  layers: number;
-  until: number;
-}
-
-export interface RealtimeBattleResource {
-  id: string;
-  name: string;
-  icon: string;
+};
+export type RealtimeBattleResource = Mutable<BattlePresentationResourceV1> & {
   iconHueRotation?: number;
-  current: number;
-  max: number;
-}
-
-export interface RealtimeBattleActionState {
-  id: string;
-  label: string;
-  tone: 'preparing' | 'control' | 'mode';
-  until: number;
-}
+};
+export type RealtimeBattleActionState = Mutable<BattlePresentationActionStateV1>;
 
 export type RealtimeBattleCommand =
   'split-light' | 'moon-step' | 'hold-origin' | 'fox-hunt';
 
-export interface RealtimeBattleEntity {
-  id: string;
-  name: string;
-  team: RealtimeBattleTeam;
-  kind: 'cultivator' | 'spirit-pet';
-  ownerId?: string;
-  x: number;
-  y: number;
-  hp: number;
-  maxHp: number;
-  qi: number;
-  maxQi: number;
-  shield: number;
-  alive: boolean;
+export type RealtimeBattleEntity = Mutable<
+  Omit<BattlePresentationEntityV1, 'effects' | 'combatResources' | 'actionStates'>
+> & {
   effects: RealtimeBattleEffect[];
   combatResources: RealtimeBattleResource[];
   actionStates: RealtimeBattleActionState[];
-}
-
-export interface RealtimeBattleSnapshot {
-  elapsedMs: number;
-  cycle: number;
-  phase: string;
-  focusedEntityId: string;
-  latestAction?: CombatVisualActionInput;
+};
+export type RealtimeBattleSnapshot = Mutable<Omit<BattlePresentationSnapshotV1, 'entities'>> & {
   entities: RealtimeBattleEntity[];
-}
+};
 
 type RealtimeBattleFactDraft = CombatVisualFact extends infer T
   ? T extends CombatVisualFact
@@ -941,6 +914,7 @@ export class RealtimeBattleSimulation {
 
   snapshot(): RealtimeBattleSnapshot {
     return {
+      version: 'battle_presentation_snapshot_v1',
       elapsedMs: this.elapsedMs,
       cycle: this.cycle,
       phase:
@@ -1177,6 +1151,7 @@ export class RealtimeBattleSimulation {
 
 export function createInitialRealtimeBattleSnapshot(): RealtimeBattleSnapshot {
   return {
+    version: 'battle_presentation_snapshot_v1',
     elapsedMs: 0,
     cycle: 1,
     phase: '阵势交错',

@@ -8,10 +8,12 @@ import {
 import { resolveBattleRound } from '@shared/engine/battle-v5/round/BattleRoundResolver';
 import type {
   BattleMatchStateV1,
-  BattleRoundResolutionPublicV1,
   ClientBattleIntentV1,
 } from '@shared/engine/battle-v5/match/types';
-import type { BattleReplayRoundV1 } from '@shared/contracts/battleReplay';
+import type {
+  BattleReplayRoundResolutionV1,
+  BattleReplayRoundV1,
+} from '@shared/contracts/battleReplay';
 import type { BattleSaveV1 } from '@shared/engine/battle-v5/persistence/types';
 
 export interface BattleBoardgameSetupDataV1 {
@@ -295,9 +297,9 @@ function appendReplayRound(
 
 function toPublicResolution(
   resolution: import('@shared/engine/battle-v5/round/types').BattleRoundResolutionV1,
-): BattleRoundResolutionPublicV1 {
+): BattleReplayRoundResolutionV1 {
   return {
-    version: 'battle_round_resolution_public_v1',
+    version: 'battle_replay_round_resolution_v1',
     commandSetId: resolution.commandSetId,
     round: resolution.round,
     outcome: resolution.outcome,

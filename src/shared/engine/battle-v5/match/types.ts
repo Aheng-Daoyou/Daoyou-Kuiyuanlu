@@ -137,5 +137,4 @@ export interface BattleRoundResolutionPublicV1 {
   readonly round: number;
   readonly outcome: BattleRoundResolutionV1['outcome'];
   readonly sequences: BattleRoundResolutionV1['sequences'];
-  readonly stateTimeline: BattleRoundResolutionV1['stateTimeline'];
 }

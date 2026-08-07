@@ -7,13 +7,15 @@ import type {
   CombatVisualTimeline,
 } from '@shared/engine/battle-v5/presentation';
 import * as Phaser from 'phaser';
-import {
-  RealtimeBattleSimulation,
-  type RealtimeBattleCommand,
-  type RealtimeBattleEntity,
-  type RealtimeBattleSnapshot,
-  type RealtimeBattleTeam,
-} from './realtimeBattleSimulation';
+import type {
+  BattlePresentationEntityV1,
+  BattlePresentationSnapshotV1,
+  BattlePresentationTeamV1,
+} from '@shared/online-battle/BattlePresentation';
+
+type RealtimeBattleEntity = BattlePresentationEntityV1;
+type RealtimeBattleSnapshot = BattlePresentationSnapshotV1;
+type RealtimeBattleTeam = BattlePresentationTeamV1;
 
 const DESKTOP_STAGE = { width: 1280, height: 720 } as const;
 const MOBILE_STAGE = { width: 720, height: 1080 } as const;
@@ -41,12 +43,16 @@ const FORMATION_OWNER_ORDER = [
 
 interface RealtimeBattlePhaserArguments {
   root: HTMLElement;
+  initialSnapshot: RealtimeBattleSnapshot;
   onState: (snapshot: RealtimeBattleSnapshot) => void;
   onFocus: (entityId: string) => void;
 }
 
 export interface RealtimeBattlePhaserController {
-  command: (command: RealtimeBattleCommand) => void;
+  syncSnapshot: (snapshot: RealtimeBattleSnapshot) => void;
+  playTimeline: (timeline: CombatVisualTimeline) => void;
+  focus: (entityId: string) => void;
+  setLegalTargets: (entityIds: readonly string[]) => void;
   setPaused: (paused: boolean) => void;
   setSpeed: (speed: number) => void;
   destroy: () => void;
@@ -151,12 +157,12 @@ function formationPetOffset(team: RealtimeBattleTeam, stage: StageSize) {
   };
 }
 
-function formationSlotX(slot: number, stage: StageSize) {
+function formationSlotX(slot: number, count: number, stage: StageSize) {
   const sideInset = stage.width * 0.235;
-  return sideInset + ((stage.width - sideInset * 2) * slot) / 2;
+  return sideInset + ((stage.width - sideInset * 2) * slot) / Math.max(count - 1, 1);
 }
 
-function projectFormation(entities: RealtimeBattleEntity[], stage: StageSize) {
+function projectFormation(entities: readonly RealtimeBattleEntity[], stage: StageSize) {
   const positions = new Map<string, FormationPoint>();
   for (const team of ['enemies', 'allies'] as const) {
     const teamEntities = entities.filter((entity) => entity.team === team);
@@ -164,10 +170,10 @@ function projectFormation(entities: RealtimeBattleEntity[], stage: StageSize) {
       .filter((entity) => entity.kind === 'cultivator')
       .sort(
         (left, right) =>
-          FORMATION_OWNER_ORDER.indexOf(left.id) -
-          FORMATION_OWNER_ORDER.indexOf(right.id),
+          (left.slot ?? FORMATION_OWNER_ORDER.indexOf(left.id)) -
+          (right.slot ?? FORMATION_OWNER_ORDER.indexOf(right.id)),
       )
-      .slice(0, 3);
+      .slice(0, 4);
     const ownerIds = new Set(owners.map((owner) => owner.id));
     const groups: Array<{
       owner?: RealtimeBattleEntity;
@@ -183,14 +189,14 @@ function projectFormation(entities: RealtimeBattleEntity[], stage: StageSize) {
     );
     groups.push(
       ...unownedPets
-        .slice(0, Math.max(0, 3 - groups.length))
+        .slice(0, Math.max(0, 4 - groups.length))
         .map((pet) => ({ owner: undefined, pet })),
     );
 
     const backY = formationBackY(team, stage);
     const petOffset = formationPetOffset(team, stage);
     groups.forEach(({ owner, pet }, slot) => {
-      const x = formationSlotX(slot, stage);
+      const x = formationSlotX(slot, groups.length, stage);
       if (owner) positions.set(owner.id, { x, y: backY });
       if (pet) {
         positions.set(pet.id, {
@@ -220,16 +226,12 @@ export function attachRealtimeBattlePhaser(
     2,
   );
   let scene: RealtimeBattleScene | undefined;
+  let currentSnapshot = args.initialSnapshot;
   let paused = false;
   let speed = 1;
   let destroyed = false;
-  let lastReportAt = 0;
-
-  const simulation = new RealtimeBattleSimulation((timeline) => {
-    scene?.playTimeline(timeline);
-  });
   const formationPositions = projectFormation(
-    simulation.snapshot().entities,
+    currentSnapshot.entities,
     stage,
   );
 
@@ -243,6 +245,7 @@ export function attachRealtimeBattlePhaser(
     private resourceCues = new Map<string, ResourceCueState>();
     private impactQueues = new Map<string, QueuedImpactCue[]>();
     private activeImpactTargets = new Set<string>();
+    private legalTargetIds = new Set<string>();
 
     create() {
       registerScene(this);
@@ -251,29 +254,16 @@ export function attachRealtimeBattlePhaser(
         .centerOn(stage.width / 2, stage.height / 2);
       this.createPaperField();
       this.createFormationInk();
-      for (const entity of simulation.snapshot().entities) {
+      for (const entity of currentSnapshot.entities) {
         this.createEntity(entity);
       }
-      this.renderSnapshot(simulation.snapshot());
+      this.renderSnapshot(currentSnapshot);
       this.game.canvas.setAttribute(
         'aria-label',
         '多人实时字阵战场。点击文字单位选择目标，使用下方文字指令施展招式。',
       );
       this.game.canvas.setAttribute('role', 'application');
-      args.onState(simulation.snapshot());
-    }
-
-    update(_time: number, delta: number) {
-      if (!paused) simulation.step(delta * speed);
-      const snapshot = simulation.snapshot();
-      this.renderSnapshot(snapshot);
-      if (
-        snapshot.elapsedMs - lastReportAt >= 100 ||
-        snapshot.elapsedMs < lastReportAt
-      ) {
-        lastReportAt = snapshot.elapsedMs;
-        args.onState(snapshot);
-      }
+      args.onState(currentSnapshot);
     }
 
     setPlaybackState(nextPaused: boolean, nextSpeed: number) {
@@ -281,6 +271,11 @@ export function attachRealtimeBattlePhaser(
       this.time.timeScale = nextSpeed;
       this.tweens.paused = nextPaused;
       this.tweens.timeScale = nextSpeed;
+    }
+
+    setLegalTargets(entityIds: readonly string[]) {
+      this.legalTargetIds = new Set(entityIds);
+      this.renderSnapshot(currentSnapshot);
     }
 
     playTimeline(timeline: CombatVisualTimeline) {
@@ -887,9 +882,10 @@ export function attachRealtimeBattlePhaser(
         .setInteractive({ useHandCursor: true })
         .setDepth(3);
       container.on('pointerdown', () => {
-        simulation.focus(entity.id);
+        currentSnapshot = { ...currentSnapshot, focusedEntityId: entity.id };
+        this.renderSnapshot(currentSnapshot);
         args.onFocus(entity.id);
-        args.onState(simulation.snapshot());
+        args.onState(currentSnapshot);
       });
 
       this.visuals.set(entity.id, {
@@ -916,7 +912,7 @@ export function attachRealtimeBattlePhaser(
       });
     }
 
-    private renderSnapshot(snapshot: RealtimeBattleSnapshot) {
+    renderSnapshot(snapshot: RealtimeBattleSnapshot) {
       for (const entity of snapshot.entities) {
         const visual = this.visuals.get(entity.id);
         if (!visual) continue;
@@ -987,11 +983,12 @@ export function attachRealtimeBattlePhaser(
             ? (controls[0].controlVisual ?? 'generic')
             : undefined,
         );
-        visual.selection.setAlpha(isFocused ? 0.68 : 0);
+        const isLegalTarget = this.legalTargetIds.has(entity.id);
+        visual.selection.setAlpha(isFocused ? 0.68 : isLegalTarget ? 0.38 : 0);
         visual.selection.setStrokeStyle(
-          isFocused ? 2 : 0,
+          isFocused || isLegalTarget ? 2 : 0,
           entity.team === 'allies' ? 0x3f6b56 : 0x9d303a,
-          isFocused ? 0.62 : 0,
+          isFocused ? 0.62 : isLegalTarget ? 0.5 : 0,
         );
         visual.resourceRings.setAlpha(entity.alive ? 1 : 0.18);
         visual.resourceLeaders.setAlpha(entity.alive ? 1 : 0.18);
@@ -1171,8 +1168,7 @@ export function attachRealtimeBattlePhaser(
       fact: Extract<CombatVisualFact, { kind: 'resource' }>,
     ) {
       const visual = this.visuals.get(entityId);
-      const entity = simulation
-        .snapshot()
+      const entity = currentSnapshot
         .entities.find((entry) => entry.id === entityId);
       const resource = entity?.combatResources.find(
         (entry) => entry.id === fact.resourceId,
@@ -1613,9 +1609,23 @@ export function attachRealtimeBattlePhaser(
   });
 
   return {
-    command: (command) => {
-      simulation.command(command);
-      args.onState(simulation.snapshot());
+    syncSnapshot: (snapshot) => {
+      currentSnapshot = snapshot;
+      scene?.renderSnapshot(snapshot);
+      args.onState(snapshot);
+    },
+    playTimeline: (timeline) => {
+      scene?.playTimeline(timeline);
+    },
+    focus: (entityId) => {
+      if (!currentSnapshot.entities.some((entity) => entity.id === entityId)) return;
+      currentSnapshot = { ...currentSnapshot, focusedEntityId: entityId };
+      scene?.renderSnapshot(currentSnapshot);
+      args.onFocus(entityId);
+      args.onState(currentSnapshot);
+    },
+    setLegalTargets: (entityIds) => {
+      scene?.setLegalTargets(entityIds);
     },
     setPaused: (nextPaused) => {
       paused = nextPaused;

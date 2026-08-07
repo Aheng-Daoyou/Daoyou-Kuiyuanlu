@@ -1,6 +1,31 @@
 import { restoreBattleSave } from '../persistence/BattleStateCodec';
 import type { BattleSaveV1 } from '../persistence/types';
 import type { TeamId, TeamSlot, UnitId } from '../core/types';
+import { getActionStateViews } from '../core/runtimeState';
+
+export interface BattlePublicEffectStateV1 {
+  readonly id: string;
+  readonly label: string;
+  readonly statusType: 'buff' | 'debuff' | 'control';
+  readonly layers: number;
+  readonly remainingActions: number;
+  readonly permanent: boolean;
+}
+
+export interface BattlePublicCombatResourceStateV1 {
+  readonly id: string;
+  readonly name: string;
+  readonly icon?: string;
+  readonly current: number;
+  readonly max: number;
+}
+
+export interface BattlePublicActionStateV1 {
+  readonly id: string;
+  readonly type: 'rest' | 'queued_action' | 'ability_mode';
+  readonly label: string;
+  readonly remainingActions: number;
+}
 
 export interface BattlePublicUnitStateV1 {
   readonly unitId: UnitId;
@@ -11,6 +36,9 @@ export interface BattlePublicUnitStateV1 {
   readonly hp: { readonly current: number; readonly max: number; readonly percent: number };
   readonly mp: { readonly current: number; readonly max: number; readonly percent: number };
   readonly shield: number;
+  readonly effects: readonly BattlePublicEffectStateV1[];
+  readonly combatResources: readonly BattlePublicCombatResourceStateV1[];
+  readonly actionStates: readonly BattlePublicActionStateV1[];
 }
 
 export interface BattlePublicSnapshotV1 {
@@ -63,6 +91,33 @@ export function createBattlePublicSnapshot(
             percent: Math.round(snapshot.mpPercent * 10000) / 100,
           },
           shield: Math.round(snapshot.currentShield),
+          effects: unit.buffs
+            .getAllBuffs()
+            .filter((buff) => buff.statusVisibility === 'player')
+            .map((buff) => ({
+              id: buff.id,
+              label: buff.name,
+              statusType: buff.type,
+              layers: buff.getLayer(),
+              remainingActions: buff.isPermanent() ? -1 : buff.getDuration(),
+              permanent: buff.isPermanent(),
+            })),
+          combatResources: snapshot.combatResources.map((resource) => ({
+            id: resource.id,
+            name: resource.name,
+            ...(resource.icon ? { icon: resource.icon } : {}),
+            current: resource.current,
+            max: resource.max,
+          })),
+          actionStates: getActionStateViews(unit).map((state) => ({
+            id: [
+              state.type,
+              state.sourceAbility?.id ?? state.ability?.id ?? state.name,
+            ].join(':'),
+            type: state.type,
+            label: state.name,
+            remainingActions: state.remainingActions,
+          })),
         };
       }),
     };
