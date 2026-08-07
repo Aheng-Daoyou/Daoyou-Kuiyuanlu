@@ -1,7 +1,7 @@
 import { defineConfig, tierPresets } from 'sponsorkit';
 
 const usdToCny = Number.parseFloat(
-  process.env.SPONSORKIT_AFDIAN_EXCHANGE_RATE ?? '6.5',
+  process.env.SPONSORKIT_AFDIAN_EXCHANGE_RATE ?? '6.75',
 );
 
 if (!Number.isFinite(usdToCny) || usdToCny <= 0) {
@@ -33,17 +33,17 @@ export default defineConfig({
     },
     {
       title: '共证长生',
-      monthlyDollars: cny(1000),
+      monthlyDollars: cny(188),
       preset: tierPresets.xl,
     },
     {
       title: '长夜护道',
-      monthlyDollars: cny(500),
+      monthlyDollars: cny(98),
       preset: tierPresets.large,
     },
     {
       title: '山水同程',
-      monthlyDollars: cny(100),
+      monthlyDollars: cny(38),
       preset: tierPresets.medium,
     },
     {
