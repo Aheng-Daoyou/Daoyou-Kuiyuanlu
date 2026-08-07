@@ -16,7 +16,9 @@
     "dev:web": "vite",
     "lint": "eslint .",
     "sponsors:check": "bun run scripts/render-sponsors.ts --check",
+    "sponsors:fetch": "node ./node_modules/sponsorkit/dist/cli.mjs --force",
     "sponsors:render": "bun run scripts/render-sponsors.ts",
+    "sponsors:sync": "bun run sponsors:fetch && bun run sponsors:render && bun run sponsors:check",
     "test": "vitest run"
   },
   "dependencies": {
@@ -69,6 +71,7 @@
     "prettier-plugin-organize-imports": "^4.3.0",
     "prettier-plugin-packagejson": "^3.0.2",
     "prettier-plugin-tailwindcss": "^0.8.1",
+    "sponsorkit": "^18.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "8.65.0",
     "vite": "^8.2.0",

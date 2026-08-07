@@ -204,4 +204,8 @@ dist-battle
 .antigravitycli
 output/
 
+# SponsorKit raw API response and local cache may contain amounts/provider data.
+sponsorkit/.cache*.json
+sponsorkit/sponsors.json
+
 .venv*
