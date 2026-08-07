@@ -22,7 +22,7 @@ type Sponsor = {
 type SponsorData = {
   version: 1;
   updatedAt: string;
-  sponsorUrl: string | null;
+  sponsorUrl: string;
   tiers: SponsorTier[];
   sponsors: Sponsor[];
   anonymous: {
@@ -97,7 +97,7 @@ function parseSponsorData(value: unknown): SponsorData {
     fail('updatedAt 必须使用 YYYY-MM-DD 格式');
   }
 
-  const sponsorUrl = requireNullableString(value, 'sponsorUrl');
+  const sponsorUrl = requireString(value, 'sponsorUrl');
   validateUrl(sponsorUrl, 'sponsorUrl');
 
   if (!Array.isArray(value.tiers)) fail('tiers 必须是数组');
@@ -185,7 +185,7 @@ function escapeMarkdown(value: string): string {
 
 function sponsorLabel(sponsor: Sponsor): string {
   const name = escapeMarkdown(sponsor.name);
-  return sponsor.url ? `[${name}](<${sponsor.url}>)` : name;
+  return sponsor.url ? `[${name}](${sponsor.url})` : name;
 }
 
 function escapeHtmlAttribute(value: string): string {
@@ -251,24 +251,24 @@ function renderSponsorGroups(
 }
 
 function renderSponsors(data: SponsorData): string {
-  const activeSponsors = data.sponsors.filter(
-    (sponsor) => sponsor.endedAt === null,
-  );
-  const formerSponsors = data.sponsors.filter(
-    (sponsor) => sponsor.endedAt !== null,
-  );
   const lines = [
     '# 赞助与鸣谢',
     '',
-    '感谢每一位帮助《万界道友》持续维护与成长的道友。',
+    '感谢每一位帮助《万界道友》持续维护与成长的道友。新的赞助统一通过爱发电进行，既有历史记录继续保留。',
     '',
-    '> 本页由 [`docs/sponsors.json`](docs/sponsors.json) 生成，请勿直接编辑。更新数据后运行 `bun run sponsors:render`。',
+    '> 本页自动生成，请勿直接编辑。同步爱发电运行 `bun run sponsors:sync`；仅更新历史名单时运行 `bun run sponsors:render`。',
     '',
     `最后更新：${data.updatedAt}`,
     '',
-    '## 当前赞助人',
+    '## 爱发电赞助人',
     '',
-    ...renderSponsorGroups(activeSponsors, data.tiers),
+    `[![爱发电赞助人名单](sponsorkit/sponsors.svg)](${data.sponsorUrl})`,
+    '',
+    '爱发电记录由 SponsorKit 同步；当前赞助与“此间有名”会按状态自动分组。',
+    '',
+    '## 此间有名 · 历史赞助',
+    '',
+    ...renderSponsorGroups(data.sponsors, data.tiers),
   ];
 
   if (data.anonymous.activeCount > 0) {
@@ -280,22 +280,15 @@ function renderSponsors(data: SponsorData): string {
 
   lines.push(
     '',
-    '## 历年鸣谢',
-    '',
-    ...renderSponsorGroups(formerSponsors, data.tiers),
-  );
-
-  lines.push(
-    '',
     '## 赞助项目',
     '',
-    '如果你愿意帮助项目承担服务器、AI 服务和持续开发成本，欢迎了解赞助流程。赞助不会影响游戏数值、账号权益或项目决策权。',
+    '如果你愿意帮助项目承担服务器、AI 服务和持续开发成本，请通过爱发电支持。项目不再提供或推荐其他单独打赏渠道。',
     '',
   );
 
   if (data.sponsorUrl) {
     lines.push(
-      `[前往赞助页面](<${data.sponsorUrl}>) · [了解赞助流程](SPONSORING.md)`,
+      `[前往赞助页面](${data.sponsorUrl}) · [了解赞助流程](SPONSORING.md)`,
     );
   } else {
     lines.push('[了解赞助流程](SPONSORING.md)');
@@ -305,10 +298,10 @@ function renderSponsors(data: SponsorData): string {
     '',
     '## 展示与隐私',
     '',
-    '- 名单仅收录明确同意公开展示的赞助人。',
-    '- 匿名赞助只显示汇总人数，不公开真实姓名、支付账号、支付记录或赞助金额。',
+    '- 爱发电赞助人按平台提供的公开昵称和头像展示；历史名单只保留既有公开记录。',
+    '- 不公开真实姓名、支付账号、订单号、支付记录或赞助金额。',
     '- 同一档位内按开始赞助时间排序，不按金额排名。',
-    '- 如需修改展示名称、链接或申请匿名，请按赞助说明中的私密联系方式联系管理员。',
+    '- 如需修改或移除公开信息，请联系项目维护者。',
     '',
   );
 
