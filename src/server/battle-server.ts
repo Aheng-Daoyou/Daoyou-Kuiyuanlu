@@ -67,6 +67,25 @@ battleServer.router.get(
   },
 );
 
+battleServer.router.get(
+  '/internal/battle-matches/find-arena',
+  async (context) => {
+    const roomId = Array.isArray(context.query.roomId)
+      ? context.query.roomId[0]
+      : context.query.roomId;
+    const startRequestId = Array.isArray(context.query.startRequestId)
+      ? context.query.startRequestId[0]
+      : context.query.startRequestId;
+    if (!roomId || !startRequestId) {
+      context.throw(400, 'roomId and startRequestId are required');
+      return;
+    }
+    context.body = {
+      matchID: await battleStorage.findArenaMatch(roomId, startRequestId),
+    };
+  },
+);
+
 battleServer.router.post(
   '/internal/battle-matches/:matchID/accept',
   async (context) => {

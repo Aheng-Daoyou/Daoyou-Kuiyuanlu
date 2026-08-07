@@ -1,5 +1,7 @@
 import { getJetStreamClient } from '@server/lib/nats';
 import { archiveBattleReplay } from '@server/lib/repositories/battleReplayArchiveRepository';
+import { ArenaRoomService } from '@server/lib/services/ArenaRoomService';
+import { publishArenaRoomChanges } from '@server/lib/services/arenaRoomBroadcaster';
 import {
   BATTLE_REPLAY_STREAM,
   BATTLE_REPLAY_SUBJECT,
@@ -23,6 +25,7 @@ const activeHandlers = new Set<Promise<void>>();
 let cancelRestartWait: (() => void) | undefined;
 
 const RESTART_DELAYS_MS = [1_000, 5_000, 15_000, 60_000] as const;
+const arenaRooms = new ArenaRoomService();
 
 async function deadLetterInvalidMessage(message: JsMsg, error: unknown): Promise<void> {
   const jetStream = await getJetStreamClient();
@@ -66,6 +69,18 @@ async function processMessage(message: JsMsg): Promise<void> {
   }
   try {
     await archiveBattleReplay(archiveMessage.replay);
+    const arenaRoom = await arenaRooms.finishByBattleMatch(archiveMessage.replay.matchId);
+    if (arenaRoom) {
+      publishArenaRoomChanges(
+        arenaRoom.teams.alpha.concat(arenaRoom.teams.beta).map((seat) => seat.userId),
+        {
+          roomId: arenaRoom.roomId,
+          revision: arenaRoom.revision,
+          status: arenaRoom.status,
+          room: arenaRoom,
+        },
+      );
+    }
     const acknowledged = await message.ackAck({ timeout: 5_000 });
     if (!acknowledged) throw new Error('Battle replay JetStream ACK was not confirmed');
   } catch (error) {

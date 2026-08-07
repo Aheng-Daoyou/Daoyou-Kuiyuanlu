@@ -11,6 +11,11 @@ export interface CreateBattleOnlineMatchInput {
   /** By default all slots are prejoined for trusted smoke/admin callers. */
   readonly prejoinControllerIndexes?: readonly number[];
   readonly acceptedControllerIndexes?: readonly number[];
+  readonly orchestration?: {
+    readonly kind: 'arena_sparring_v1';
+    readonly roomId: string;
+    readonly startRequestId: string;
+  };
 }
 
 export interface CreatedBattleOnlineMatchV1 {
@@ -36,6 +41,15 @@ export class BattleMatchmakerService {
   ): Promise<CreatedBattleOnlineMatchV1> {
     if (!this.token) throw new Error('BATTLE_SERVER_API_TOKEN is not configured');
     const controllers = input.state.controllers;
+    if (input.orchestration) {
+      const existing = await this.findArenaMatch(input.orchestration);
+      if (existing) {
+        return {
+          matchID: existing,
+          sessions: await this.ensurePlayers(existing, input),
+        };
+      }
+    }
     const playerIdByBoardgameId = Object.fromEntries(
       controllers.map((controller, index) => [String(index), controller.playerId]),
     );
@@ -47,8 +61,9 @@ export class BattleMatchmakerService {
           numPlayers: controllers.length,
           unlisted: true,
           setupData: {
-            state: input.state,
-            playerIdByBoardgameId,
+          state: input.state,
+          playerIdByBoardgameId,
+          ...(input.orchestration ? { orchestration: input.orchestration } : {}),
             acceptedBoardgamePlayerIds: (
               input.acceptedControllerIndexes ??
               input.prejoinControllerIndexes ??
@@ -65,8 +80,12 @@ export class BattleMatchmakerService {
       for (const index of indexes) {
         const controller = controllers[index];
         if (!controller) throw new Error(`Unknown battle controller index: ${index}`);
-        const joined = await this.joinPlayer(created.matchID, String(index),
-          input.playerNames?.[controller.playerId] ?? controller.playerId);
+        const joined = await this.ensurePlayer(
+          created.matchID,
+          String(index),
+          input.playerNames?.[controller.playerId] ?? controller.playerId,
+          controller.playerId,
+        );
         sessions.push({
           gameName: GAME_NAME,
           matchID: created.matchID,
@@ -80,6 +99,71 @@ export class BattleMatchmakerService {
       throw error;
     }
     return { matchID: created.matchID, sessions };
+  }
+
+  private async ensurePlayers(
+    matchID: string,
+    input: CreateBattleOnlineMatchInput,
+  ): Promise<BattleMatchSessionV1[]> {
+    const sessions: BattleMatchSessionV1[] = [];
+    for (const [index, controller] of input.state.controllers.entries()) {
+      sessions.push(
+        await this.ensurePlayer(
+          matchID,
+          String(index),
+          input.playerNames?.[controller.playerId] ?? controller.playerId,
+          controller.playerId,
+        ),
+      );
+    }
+    return sessions;
+  }
+
+  private async ensurePlayer(
+    matchID: string,
+    playerID: string,
+    playerName: string,
+    applicationPlayerId: string,
+  ): Promise<BattleMatchSessionV1> {
+    try {
+      return await this.joinPlayer(matchID, playerID, playerName);
+    } catch (error) {
+      const existing = await this.getPlayerSession(matchID, applicationPlayerId);
+      if (existing) return existing;
+      throw error;
+    }
+  }
+
+  async findArenaMatch(input: {
+    readonly kind: 'arena_sparring_v1';
+    readonly roomId: string;
+    readonly startRequestId: string;
+  }): Promise<string | null> {
+    const query = new URLSearchParams({
+      roomId: input.roomId,
+      startRequestId: input.startRequestId,
+    });
+    const result = await this.request<{ matchID: string | null }>(
+      `/internal/battle-matches/find-arena?${query.toString()}`,
+      { method: 'GET' },
+    );
+    return result.matchID;
+  }
+
+  private async getPlayerSession(
+    matchID: string,
+    applicationPlayerId: string,
+  ): Promise<BattleMatchSessionV1 | null> {
+    try {
+      const session = await this.request<BattleMatchSessionV1>(
+        `/internal/battle-matches/${encodeURIComponent(matchID)}/session?playerId=${encodeURIComponent(applicationPlayerId)}`,
+        { method: 'GET' },
+      );
+      return session;
+    } catch (error) {
+      if (error instanceof Error && /404/.test(error.message)) return null;
+      throw error;
+    }
   }
 
   async joinPlayer(matchID: string, playerID: string, playerName: string): Promise<BattleMatchSessionV1> {

@@ -22,9 +22,11 @@ const WAITING_KEY = 'battle:online:waiting';
 const ARCHIVE_PENDING_KEY = 'battle:replay:archive:pending';
 const ARCHIVED_MATCH_TTL_SECONDS = 30 * 60;
 const MATCH_ACCEPT_TIMEOUT_MS = 10 * 60 * 1_000;
+const ARENA_START_INDEX_TTL_SECONDS = 2 * 60 * 60;
 
 const CREATE_MATCH_LUA = `
 if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
+if ARGV[10] ~= '' and redis.call('EXISTS', KEYS[6]) == 1 then return -1 end
 redis.call('HSET', KEYS[1],
   'state_id', ARGV[1],
   'state', ARGV[2],
@@ -38,6 +40,7 @@ redis.call('SADD', KEYS[4], ARGV[7])
 if ARGV[5] ~= '' then redis.call('ZADD', KEYS[2], ARGV[5], ARGV[7]) end
   if ARGV[4] == 'resolving' then redis.call('SADD', KEYS[3], ARGV[7]) end
 if ARGV[8] ~= '' then redis.call('ZADD', KEYS[5], ARGV[8], ARGV[7]) end
+if ARGV[10] ~= '' then redis.call('SET', KEYS[6], ARGV[7], 'EX', ARGV[11]) end
 return 1
 `;
 
@@ -150,14 +153,19 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     const deadlineAt = indexedDeadline(state.G);
     const acceptDeadlineAt = indexedAcceptDeadline(state.G);
     const storedState = stripReplayRounds(state);
+    const orchestration = arenaOrchestrationFromMetadata(opts.metadata);
+    const orchestrationKey = orchestration
+      ? arenaStartIndexKey(orchestration.roomId, orchestration.startRequestId)
+      : `${MATCH_PREFIX}arena-start-disabled:${matchID}`;
     const result = Number(await getRedisClient().eval(
       CREATE_MATCH_LUA,
-      5,
+      6,
       battleOnlineMatchKey(matchID),
       DEADLINES_KEY,
       RESOLVING_KEY,
       ALL_MATCHES_KEY,
       WAITING_KEY,
+      orchestrationKey,
       String(state._stateID),
       JSON.stringify(storedState),
       JSON.stringify(opts.metadata ?? {}),
@@ -167,8 +175,22 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       matchID,
       acceptDeadlineAt === null ? '' : String(acceptDeadlineAt),
       JSON.stringify(state.G.replay.initialBattle),
+      orchestration ? '1' : '',
+      String(ARENA_START_INDEX_TTL_SECONDS),
     ));
+    if (result === -1) {
+      throw new Error(`Battle arena orchestration already exists: ${matchID}`);
+    }
     if (result !== 1) throw new Error(`Battle boardgame match already exists: ${matchID}`);
+  }
+
+  async findArenaMatch(roomId: string, startRequestId: string): Promise<string | null> {
+    const key = arenaStartIndexKey(roomId, startRequestId);
+    const matchID = await redis.get(key);
+    if (!matchID) return null;
+    if ((await redis.exists(battleOnlineMatchKey(matchID))) === 1) return matchID;
+    await redis.del(key);
+    return null;
   }
 
   async setState(
@@ -521,5 +543,56 @@ function normalizeBoardgameState(matchID: string, state: StoredState): StoredSta
   if (!matchID || state.G.version !== 'battle_match_state_v1') {
     throw new Error('Invalid boardgame battle state');
   }
-  return { ...state, G: { ...state.G, matchId: matchID } };
+  const battle = normalizeBattleSaveId(state.G.battle, matchID);
+  return {
+    ...state,
+    G: {
+      ...state.G,
+      matchId: matchID,
+      battle,
+      replay: {
+        ...state.G.replay,
+        initialBattle: normalizeBattleSaveId(state.G.replay.initialBattle, matchID),
+      },
+    },
+  };
+}
+
+function normalizeBattleSaveId(
+  battle: BattleBoardgameG['replay']['initialBattle'],
+  battleId: string,
+) {
+  return {
+    ...battle,
+    blueprint: { ...battle.blueprint, battleId },
+    checkpoint: { ...battle.checkpoint, battleId },
+  };
+}
+
+function arenaOrchestrationFromMetadata(metadata: Server.MatchData | undefined) {
+  const value = (metadata as { setupData?: unknown } | undefined)?.setupData;
+  if (!value || typeof value !== 'object') return null;
+  const orchestration = (value as { orchestration?: unknown }).orchestration;
+  if (!orchestration || typeof orchestration !== 'object') return null;
+  const parsed = orchestration as {
+    kind?: unknown;
+    roomId?: unknown;
+    startRequestId?: unknown;
+  };
+  if (
+    parsed.kind !== 'arena_sparring_v1' ||
+    typeof parsed.roomId !== 'string' ||
+    typeof parsed.startRequestId !== 'string'
+  ) return null;
+  return {
+    roomId: parsed.roomId,
+    startRequestId: parsed.startRequestId,
+  };
+}
+
+function arenaStartIndexKey(roomId: string, startRequestId: string): string {
+  if (!/^[A-Za-z0-9_-]{1,120}$/.test(roomId) || !/^[A-Za-z0-9_-]{1,120}$/.test(startRequestId)) {
+    throw new Error('Invalid arena orchestration key');
+  }
+  return `battle:arena:start:${roomId}:${startRequestId}`;
 }

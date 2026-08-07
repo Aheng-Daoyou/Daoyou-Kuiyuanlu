@@ -76,6 +76,34 @@ export async function createBattleMatchParticipants(
   if (result === 0) throw new Error(`Battle participants already exist: ${matchId}`);
 }
 
+export async function ensureBattleMatchParticipants(
+  participants: readonly BattleMatchParticipantInput[],
+): Promise<void> {
+  try {
+    await createBattleMatchParticipants(participants);
+  } catch (error) {
+    if (!(error instanceof Error) || !/already exist/.test(error.message)) {
+      throw error;
+    }
+    const existing = await loadParticipants(participants[0]!.matchId);
+    const expected = participants.map((participant) => ({
+      userId: participant.userId,
+      teamId: participant.teamId,
+      boardgamePlayerId: participant.boardgamePlayerId,
+      cultivatorIds: [...participant.cultivatorIds],
+      status: participant.status ?? 'invited',
+    }));
+    const actual = existing.map((participant) => ({
+      userId: participant.userId,
+      teamId: participant.teamId,
+      boardgamePlayerId: participant.boardgamePlayerId,
+      cultivatorIds: [...participant.cultivatorIds],
+      status: participant.status,
+    }));
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) throw error;
+  }
+}
+
 export async function getBattleMatchParticipant(matchId: string, userId: string) {
   const participants = await loadParticipants(matchId);
   return participants.find((participant) => participant.userId === userId) ?? null;

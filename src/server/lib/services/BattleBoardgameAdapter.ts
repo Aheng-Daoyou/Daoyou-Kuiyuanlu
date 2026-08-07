@@ -22,6 +22,11 @@ export interface BattleBoardgameSetupDataV1 {
   readonly playerIdByBoardgameId: Readonly<Record<string, string>>;
   /** Slots whose invite has been accepted. Missing means legacy all-ready. */
   readonly acceptedBoardgamePlayerIds?: readonly string[];
+  readonly orchestration?: {
+    readonly kind: 'arena_sparring_v1';
+    readonly roomId: string;
+    readonly startRequestId: string;
+  };
 }
 
 export interface BattleBoardgameMovePayloadV1 {

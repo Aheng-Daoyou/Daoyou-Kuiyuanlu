@@ -839,6 +839,18 @@ export const router = createBrowserRouter(
               )}
             />
             <Route
+              path="arena"
+              lazy={lazyRoute(() => import('@app/routes/game/arena/route'))}
+              handle={scene(
+                {
+                  id: 'arena-sparring',
+                  presentation: 'workflow',
+                  summary: '凭六位数字邀请码自由组队，进行无消耗的实时切磋。',
+                },
+                '擂台切磋',
+              )}
+            />
+            <Route
               path="dungeon/history"
               lazy={lazyRoute(
                 () => import('@app/routes/game/dungeon/history/route'),
