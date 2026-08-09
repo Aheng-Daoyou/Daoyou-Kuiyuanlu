@@ -18,10 +18,11 @@ import { SocketIO } from 'boardgame.io/multiplayer';
 import type { BattleMatchPlayerViewV1 } from '@shared/engine/battle-v5/match/types';
 import { battleBoardgameClientGame } from '@shared/online-battle/BattleBoardgameClientGame';
 
-function createSave(matchId: string, teamSize: number): BattleSaveV1 {
+function createSave(matchId: string, teamSize: number | readonly [number, number]): BattleSaveV1 {
   const runtime = new BattleRuntime();
-  const units = ['a', 'b'].flatMap((teamId) =>
-    Array.from({ length: teamSize }, (_, slot) =>
+  const teamSizes = typeof teamSize === 'number' ? [teamSize, teamSize] : teamSize;
+  const units = ['a', 'b'].flatMap((teamId, teamIndex) =>
+    Array.from({ length: teamSizes[teamIndex] }, (_, slot) =>
       new Unit(
         `${teamId}${slot}`,
         `${teamId}${slot}`,
@@ -50,8 +51,17 @@ function runSmoke(
   onePlayerPerUnit: boolean,
   resolveByTimeout = false,
 ): void {
-  const matchId = `boardgame-smoke-${teamSize}v${teamSize}-${resolveByTimeout ? 'timeout' : 'locked'}`;
-  const save = createSave(matchId, teamSize);
+  runSmokeTeamSizes([teamSize, teamSize], onePlayerPerUnit, resolveByTimeout);
+}
+
+function runSmokeTeamSizes(
+  teamSizes: readonly [number, number],
+  onePlayerPerUnit: boolean,
+  resolveByTimeout = false,
+): void {
+  const label = `${teamSizes[0]}v${teamSizes[1]}`;
+  const matchId = `boardgame-smoke-${label}-${resolveByTimeout ? 'timeout' : 'locked'}`;
+  const save = createSave(matchId, teamSizes);
   const units = save.blueprint.teams.flatMap((team) =>
     team.units.map((unit) => ({ teamId: team.id, unitId: unit.id })),
   );
@@ -131,12 +141,12 @@ function runSmoke(
     }
   }
   if (G.status !== 'planning' || G.battle.checkpoint.checkpointRevision !== 1) {
-    throw new Error(`${teamSize}v${teamSize} smoke did not resolve one round`);
+    throw new Error(`${label} smoke did not resolve one round`);
   }
   if (G.latestResolution?.round !== 1) {
-    throw new Error(`${teamSize}v${teamSize} smoke is missing resolution`);
+    throw new Error(`${label} smoke is missing resolution`);
   }
-  console.log(`battle boardgame ${teamSize}v${teamSize} ${resolveByTimeout ? 'timeout' : 'locked'} smoke passed`, {
+  console.log(`battle boardgame ${label} ${resolveByTimeout ? 'timeout' : 'locked'} smoke passed`, {
     controllers: controllers.length,
     revision: G.revision,
     checkpointRevision: G.battle.checkpoint.checkpointRevision,
@@ -144,6 +154,9 @@ function runSmoke(
 }
 
 runSmoke(2, false);
+runSmoke(1, false);
+runSmokeTeamSizes([1, 2], true);
+runSmokeTeamSizes([2, 4], true);
 runSmoke(4, true);
 runSmoke(4, true, true);
 

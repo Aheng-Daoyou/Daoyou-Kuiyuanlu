@@ -15,10 +15,10 @@ import type {
   ClientBattleIntentV1,
 } from '@shared/engine/battle-v5/match/types';
 import {
-  createBattlePresentationRound,
   createBattlePresentationSnapshot,
-  type BattlePresentationRoundV1,
+  createBattlePresentationSnapshotFromPublic,
 } from '@shared/online-battle/BattlePresentation';
+import { BattlePresentationDirector } from '@app/components/feature/battle/realtime/BattlePresentationDirector';
 import type {
   PlanningAbilityViewV1,
 } from '@shared/engine/battle-v5/round/types';
@@ -71,6 +71,22 @@ interface PendingSubmission {
   readonly checkpointRevision: number;
 }
 
+type BattleCommandMode =
+  | 'select_unit'
+  | 'select_ability'
+  | 'select_target'
+  | 'review_intent'
+  | 'submitted'
+  | 'locked'
+  | 'presenting';
+
+interface BattleCommandDraft {
+  readonly unitId: string;
+  readonly intent: ClientBattleIntentV1;
+  readonly ability?: PlanningAbilityViewV1;
+  readonly stage: 'select_target' | 'review_intent';
+}
+
 export default function LiveBattleMatchPage() {
   const { matchId } = useParams<{ matchId: string }>();
   const { view, viewReceivedAt, connectionStatus, error, actions } = useBattleMatchClient(matchId ?? null);
@@ -78,17 +94,17 @@ export default function LiveBattleMatchPage() {
   const [activeUnitId, setActiveUnitId] = useState<string | null>(null);
   const [inspectedUnitId, setInspectedUnitId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [targetAbility, setTargetAbility] = useState<PlanningAbilityViewV1 | null>(null);
+  const [commandDrafts, setCommandDrafts] = useState<Record<string, BattleCommandDraft>>({});
   const [pendingSubmission, setPendingSubmission] = useState<PendingSubmission | null>(null);
   const [lockPending, setLockPending] = useState(false);
+  const [lockConfirmOpen, setLockConfirmOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [quickbarOverrides, setQuickbarOverrides] = useState<Record<string, string[]>>({});
   const [revealedResultMatchId, setRevealedResultMatchId] = useState<string | null>(null);
+  const [phaserReady, setPhaserReady] = useState(false);
   const phaserRootRef = useRef<HTMLDivElement>(null);
   const phaserControllerRef = useRef<RealtimeBattlePhaserController | null>(null);
-  const presentedCommandSetIdRef = useRef<string | null>(null);
-  const pendingPresentationRoundRef = useRef<BattlePresentationRoundV1 | null>(null);
-  const lastPresentationCheckpointRef = useRef<number | null>(null);
+  const presentationDirectorRef = useRef<BattlePresentationDirector | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 250);
@@ -107,7 +123,11 @@ export default function LiveBattleMatchPage() {
   const activeAbilities = activeUnit?.abilities ?? [];
   const ownSubmissions = view?.ownSubmissions ?? {};
   const allPlayersReady = view?.orchestration.allPlayersReady ?? false;
-  const isPlanning = Boolean(view && connectionStatus === 'connected' && allPlayersReady && view.status === 'planning');
+  const serverNow = view?.serverNow !== undefined && viewReceivedAt !== null
+    ? view.serverNow + (now - viewReceivedAt)
+    : now;
+  const presentationActive = Boolean(view?.presentation && serverNow < view.presentation.endsAt);
+  const isPlanning = Boolean(view && connectionStatus === 'connected' && allPlayersReady && view.status === 'planning' && !presentationActive);
   const isLocked = Boolean(view?.lockedPlayerIds.includes(view.playerId ?? ''));
   const inspectedUnit = view?.publicSnapshot.units.find(
     (unit) => unit.unitId === (inspectedUnitId ?? resolvedActiveUnitId),
@@ -116,9 +136,6 @@ export default function LiveBattleMatchPage() {
   const quickbar = quickbarOverrides[quickbarScope] ?? (
     view && resolvedActiveUnitId ? loadBattleQuickbar(view.playerId, resolvedActiveUnitId) : []
   );
-  const serverNow = view?.serverNow !== undefined && viewReceivedAt !== null
-    ? view.serverNow + (now - viewReceivedAt)
-    : now;
   const pendingConfirmed = Boolean(
     pendingSubmission
       && intentMatches(
@@ -126,6 +143,21 @@ export default function LiveBattleMatchPage() {
         pendingSubmission.intent,
       ),
   );
+  const activeDraft = resolvedActiveUnitId ? commandDrafts[resolvedActiveUnitId] : undefined;
+  const targetAbility = activeDraft?.stage === 'select_target' ? activeDraft.ability ?? null : null;
+  const commandMode: BattleCommandMode = presentationActive
+    ? 'presenting'
+    : isLocked
+      ? 'locked'
+      : activeDraft?.stage === 'select_target'
+        ? 'select_target'
+        : activeDraft?.stage === 'review_intent'
+          ? 'review_intent'
+          : resolvedActiveUnitId && ownSubmissions[resolvedActiveUnitId]
+            ? 'submitted'
+            : resolvedActiveUnitId
+              ? 'select_ability'
+              : 'select_unit';
   const presentationSnapshot = useMemo(
     () => view ? createBattlePresentationSnapshot(view, inspectedUnitId ?? undefined) : null,
     [view, inspectedUnitId],
@@ -149,7 +181,6 @@ export default function LiveBattleMatchPage() {
     });
     try {
       actions.submitIntent(unitId, intent);
-      setTargetAbility(null);
       setDrawerOpen(false);
     } catch {
       setPendingSubmission(null);
@@ -163,6 +194,7 @@ export default function LiveBattleMatchPage() {
     setLockPending(true);
     try {
       actions.lock();
+      setLockConfirmOpen(false);
     } catch {
       setLockPending(false);
       setActionError('锁定请求未能发出，请重试。');
@@ -188,6 +220,19 @@ export default function LiveBattleMatchPage() {
   }, [connectionStatus, pendingConfirmed, pendingSubmission, view?.checkpointRevision, view?.status]);
 
   useEffect(() => {
+    if (!pendingSubmission || !pendingConfirmed) return;
+    const timer = window.setTimeout(() => {
+      setCommandDrafts((current) => {
+        if (!current[pendingSubmission.unitId]) return current;
+        const next = { ...current };
+        delete next[pendingSubmission.unitId];
+        return next;
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [pendingConfirmed, pendingSubmission]);
+
+  useEffect(() => {
     if (!lockPending) return;
     if (isLocked || connectionStatus !== 'connected' || view?.status !== 'planning') {
       const clearTimer = window.setTimeout(() => setLockPending(false), 0);
@@ -202,30 +247,72 @@ export default function LiveBattleMatchPage() {
 
   const chooseAbility = (ability: PlanningAbilityViewV1) => {
     if (!ability.ready || !isPlanning || !activeUnit) return;
-    if (ability.targetTeam === 'self') {
-      submit(activeUnit.unitId, {
-        kind: 'ability',
-        abilityId: ability.abilityId,
-        targetUnitId: activeUnit.unitId,
-      });
-      return;
-    }
-    if (ability.targetScope === 'random' || ability.legalTargetIds.length === 0) {
-      submit(activeUnit.unitId, { kind: 'ability', abilityId: ability.abilityId });
-      return;
-    }
-    setTargetAbility(ability);
+    const intent: ClientBattleIntentV1 = {
+      kind: 'ability',
+      abilityId: ability.abilityId,
+      ...(ability.targetTeam === 'self' ? { targetUnitId: activeUnit.unitId } : {}),
+    };
+    const needsTarget = ability.targetTeam !== 'self'
+      && ability.targetScope === 'single'
+      && ability.legalTargetIds.length > 0;
+    setCommandDrafts((current) => ({
+      ...current,
+      [activeUnit.unitId]: {
+        unitId: activeUnit.unitId,
+        intent,
+        ability,
+        stage: needsTarget ? 'select_target' : 'review_intent',
+      },
+    }));
+    setActionError(null);
     setDrawerOpen(false);
   };
 
+  const choosePass = () => {
+    if (!activeUnit || !isPlanning || isLocked) return;
+    setCommandDrafts((current) => ({
+      ...current,
+      [activeUnit.unitId]: {
+        unitId: activeUnit.unitId,
+        intent: { kind: 'pass' },
+        stage: 'review_intent',
+      },
+    }));
+  };
+
+  const confirmActiveDraft = () => {
+    if (!activeDraft || activeDraft.stage !== 'review_intent') return;
+    submit(activeDraft.unitId, activeDraft.intent);
+  };
+
+  const clearActiveDraft = () => {
+    if (!resolvedActiveUnitId) return;
+    setCommandDrafts((current) => {
+      const next = { ...current };
+      delete next[resolvedActiveUnitId];
+      return next;
+    });
+    setActionError(null);
+  };
+
+  const submittedIntentLabel = (unitId: string) => {
+    const intent = ownSubmissions[unitId];
+    if (!intent) return '待选';
+    if (intent.kind === 'pass') return '已提交：观望';
+    const ability = ownUnits.find((unit) => unit.unitId === unitId)?.abilities
+      .find((entry) => entry.abilityId === intent.abilityId);
+    const target = intent.targetUnitId ? unitName(view!, intent.targetUnitId) : '自动目标';
+    return `已提交：${ability?.name ?? intent.abilityId} → ${target}`;
+  };
+
   useEffect(() => {
-    presentedCommandSetIdRef.current = null;
-    pendingPresentationRoundRef.current = null;
-    lastPresentationCheckpointRef.current = null;
+    presentationDirectorRef.current?.cancel();
     const clearTimer = window.setTimeout(() => {
       setPendingSubmission(null);
       setLockPending(false);
       setActionError(null);
+      setCommandDrafts({});
+      setLockConfirmOpen(false);
     }, 0);
     return () => window.clearTimeout(clearTimer);
   }, [matchId]);
@@ -235,11 +322,20 @@ export default function LiveBattleMatchPage() {
     entityClickRef.current = (entityId) => {
       const target = targetAbility?.legalTargetIds.includes(entityId);
       if (target && resolvedActiveUnitId && targetAbility) {
-        submit(resolvedActiveUnitId, {
-          kind: 'ability',
-          abilityId: targetAbility.abilityId,
-          targetUnitId: entityId,
-        });
+        setCommandDrafts((current) => ({
+          ...current,
+          [resolvedActiveUnitId]: {
+            unitId: resolvedActiveUnitId,
+            ability: targetAbility,
+            intent: { kind: 'ability', abilityId: targetAbility.abilityId, targetUnitId: entityId },
+            stage: 'review_intent',
+          },
+        }));
+        setActionError(null);
+        return;
+      }
+      if (targetAbility) {
+        setActionError('该单位不是此术法的合法目标，可取消后重新选招。');
         return;
       }
       setInspectedUnitId(entityId);
@@ -248,7 +344,7 @@ export default function LiveBattleMatchPage() {
         setActiveUnitId(entityId);
       }
     };
-  }, [targetAbility, resolvedActiveUnitId, view, submit]);
+  }, [targetAbility, resolvedActiveUnitId, view]);
 
   useEffect(() => {
     if (
@@ -275,21 +371,22 @@ export default function LiveBattleMatchPage() {
         onFocus: (entityId) => entityClickRef.current(entityId),
       });
       phaserControllerRef.current = controller;
-      const pendingRound = pendingPresentationRoundRef.current;
-      if (pendingRound) {
-        for (const timeline of pendingRound.timelines) controller.playTimeline(timeline);
-        pendingPresentationRoundRef.current = null;
-      }
+      presentationDirectorRef.current = new BattlePresentationDirector(controller);
+      setPhaserReady(true);
     };
     void mount();
     return () => {
       cancelled = true;
+      setPhaserReady(false);
+      presentationDirectorRef.current?.destroy();
+      presentationDirectorRef.current = null;
       controller?.destroy();
       if (phaserControllerRef.current === controller) phaserControllerRef.current = null;
     };
   }, [matchId, hasPresentationSnapshot]);
 
   useEffect(() => {
+    if (presentationActive) return;
     phaserControllerRef.current?.syncSnapshot(presentationSnapshot ?? {
       version: 'battle_presentation_snapshot_v1',
       elapsedMs: 0,
@@ -298,54 +395,44 @@ export default function LiveBattleMatchPage() {
       focusedEntityId: '',
       entities: [],
     });
-  }, [presentationSnapshot]);
+  }, [presentationActive, presentationSnapshot]);
 
   useEffect(() => {
     phaserControllerRef.current?.setLegalTargets(targetAbility?.legalTargetIds ?? []);
   }, [targetAbility]);
 
   useEffect(() => {
-    const round = view ? createBattlePresentationRound(view) : null;
-    if (!round || round.commandSetId === presentedCommandSetIdRef.current) return;
-    const previousCheckpoint = lastPresentationCheckpointRef.current;
-    lastPresentationCheckpointRef.current = view?.checkpointRevision ?? null;
-    presentedCommandSetIdRef.current = round.commandSetId;
-    if (
-      previousCheckpoint !== null &&
-      view &&
-      view.checkpointRevision > previousCheckpoint + 1
-    ) {
-      // The latest authoritative snapshot is rendered, but missed rounds are
-      // not fabricated on the client after a reconnect.
-      pendingPresentationRoundRef.current = null;
-      return;
-    }
-    const controller = phaserControllerRef.current;
-    if (!controller) {
-      pendingPresentationRoundRef.current = round;
-      return;
-    }
-    for (const timeline of round.timelines) controller.playTimeline(timeline);
-  }, [view?.latestResolution?.commandSetId, view]);
+    if (!phaserReady || !view?.presentation || !presentationSnapshot) return;
+    const startSnapshot = createBattlePresentationSnapshotFromPublic(
+      view.presentation.startingPublicSnapshot,
+      view.teamId,
+      {
+        cycle: view.presentation.plan.round,
+        phase: '回合演算',
+        focusedEntityId: inspectedUnitId ?? undefined,
+      },
+    );
+    presentationDirectorRef.current?.play({
+      window: view.presentation,
+      startingSnapshot: startSnapshot,
+      finalSnapshot: presentationSnapshot,
+      serverNow: view.serverNow + (viewReceivedAt === null ? 0 : Date.now() - viewReceivedAt),
+    });
+    return () => presentationDirectorRef.current?.cancel();
+  }, [inspectedUnitId, phaserReady, presentationSnapshot, view?.presentation, view?.serverNow, view?.teamId, viewReceivedAt]);
 
   useEffect(() => {
     if (view?.status !== 'finished' || !matchId) return;
-    const round = createBattlePresentationRound(view);
-    const presentationMs = Math.min(
-      6_000,
-      Math.max(
-        0,
-        ...(round?.timelines.flatMap((timeline) =>
-          timeline.commands.map((command) => command.at + ('duration' in command ? command.duration : 0)),
-        ) ?? []),
-      ) + 250,
-    );
+    const currentServerNow = view.serverNow + (viewReceivedAt === null ? 0 : Date.now() - viewReceivedAt);
+    const presentationMs = view.presentation
+      ? Math.max(0, view.presentation.endsAt - currentServerNow) + 250
+      : 0;
     const timer = window.setTimeout(
       () => setRevealedResultMatchId(matchId),
       presentationMs,
     );
     return () => window.clearTimeout(timer);
-  }, [matchId, view?.status, view?.latestResolution?.commandSetId, view]);
+  }, [matchId, view?.presentation, view?.serverNow, view?.status, viewReceivedAt]);
 
   return (
     <main className="flex min-h-dvh flex-col overflow-hidden bg-[#eee7d6] text-[#2c1810]">
@@ -363,8 +450,8 @@ export default function LiveBattleMatchPage() {
           </div>
         </div>
         <div className="text-center text-xs text-[#2c1810]/70">
-          <strong className="block tracking-[0.12em]">第 {view?.round ?? '—'} 回合 · {view?.status ?? '连接中'}</strong>
-          <span className="mt-1 block">{allPlayersReady ? `剩余 ${formatRemaining(view?.deadlineAt, serverNow)}` : '等待玩家接受邀请'}</span>
+          <strong className="block tracking-[0.12em]">第 {presentationActive ? view?.presentation?.plan.round : view?.round ?? '—'} 回合 · {presentationActive ? '行动演算' : view?.status ?? '连接中'}</strong>
+          <span className="mt-1 block">{presentationActive ? '按出手顺序播放中' : allPlayersReady ? `剩余 ${formatRemaining(view?.deadlineAt, serverNow)}` : '等待玩家接受邀请'}</span>
         </div>
         <div className="flex items-center gap-2 text-[0.65rem] text-[#3f6b56]">
           <span className={`h-2 w-2 rounded-full ${connectionStatus === 'connected' ? 'bg-current' : connectionStatus === 'disconnected' ? 'bg-[#8f2433]' : 'bg-[#946718]'}`} aria-hidden="true" />
@@ -400,8 +487,27 @@ export default function LiveBattleMatchPage() {
       {targetAbility && (
         <div className="pointer-events-none fixed inset-x-0 bottom-28 z-30 flex justify-center px-4">
           <div className="pointer-events-auto flex items-center gap-3 border border-[#8f2433]/40 bg-[#eee7d6]/95 px-4 py-2 text-xs shadow-lg backdrop-blur">
-            <span>为「{targetAbility.name}」选择{abilityTargetLabel(targetAbility)}目标</span>
-            <button type="button" className="border-b border-dashed border-[#2c1810]/40 px-1 text-[#2c1810]/65" onClick={() => setTargetAbility(null)}>取消</button>
+            <span><strong>第 3 步：</strong>点击战场中高亮单位，为「{targetAbility.name}」选择{abilityTargetLabel(targetAbility)}目标</span>
+            <button type="button" className="border-b border-dashed border-[#2c1810]/40 px-1 text-[#2c1810]/65" onClick={clearActiveDraft}>取消选招</button>
+          </div>
+        </div>
+      )}
+
+      {activeDraft?.stage === 'review_intent' && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-28 z-30 flex justify-center px-4">
+          <div className="pointer-events-auto w-full max-w-xl border border-[#3f6b56]/45 bg-[#eee7d6]/97 px-4 py-3 shadow-lg backdrop-blur">
+            <p className="text-[0.65rem] tracking-[0.16em] text-[#3f6b56]"><strong>第 4 步：确认指令</strong></p>
+            <div className="mt-1 flex items-center justify-between gap-4">
+              <span className="text-sm">
+                {unitName(view!, activeDraft.unitId)} · {activeDraft.intent.kind === 'pass'
+                  ? '观望'
+                  : `${activeDraft.ability?.name ?? activeDraft.intent.abilityId} → ${activeDraft.intent.targetUnitId ? unitName(view!, activeDraft.intent.targetUnitId) : '自动目标'}`}
+              </span>
+              <div className="flex shrink-0 gap-2">
+                <button type="button" onClick={clearActiveDraft} className="border-b border-dashed border-[#2c1810]/40 px-2 py-1 text-xs">重选</button>
+                <button type="button" disabled={Boolean(pendingSubmission)} onClick={confirmActiveDraft} className="border border-[#3f6b56]/50 px-3 py-1.5 text-xs text-[#3f6b56] disabled:opacity-40">{pendingSubmission ? '提交中' : '确认提交'}</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -426,15 +532,15 @@ export default function LiveBattleMatchPage() {
           <button
             type="button"
             disabled={!actions || !isPlanning || isLocked}
-            onClick={() => activeUnit && submit(activeUnit.unitId, { kind: 'pass' })}
-            className="hidden border border-[#2c1810]/25 px-3 py-2 text-xs disabled:opacity-40 sm:block"
+            onClick={choosePass}
+            className="border border-[#2c1810]/25 px-3 py-2 text-xs disabled:opacity-40"
           >
             观望
           </button>
           <button
             type="button"
             disabled={!actions || !isPlanning || isLocked || lockPending || !ownUnits.every((unit) => !unit.alive || ownSubmissions[unit.unitId])}
-            onClick={lock}
+            onClick={() => setLockConfirmOpen(true)}
             className="border border-[#8f2433]/50 px-4 py-2 text-xs text-[#8f2433] disabled:cursor-not-allowed disabled:opacity-40"
           >
             {isLocked ? '已锁定' : lockPending ? '锁定中' : '锁定本方'}
@@ -443,17 +549,39 @@ export default function LiveBattleMatchPage() {
         <div className="mx-auto mt-2 flex max-w-7xl gap-2 overflow-x-auto" aria-label="受控单位">
           {ownUnits.map((unit) => (
             <button key={unit.unitId} type="button" onClick={() => setActiveUnitId(unit.unitId)} className={`whitespace-nowrap border-b px-2 py-1 text-[0.68rem] ${unit.unitId === resolvedActiveUnitId ? 'border-[#8f2433] text-[#8f2433]' : 'border-transparent text-[#2c1810]/55'}`}>
-              {unitName(view!, unit.unitId)} · {pendingSubmission?.unitId === unit.unitId && !pendingConfirmed ? '提交中' : ownSubmissions[unit.unitId] ? '已提交' : '待选'}
+              {unitName(view!, unit.unitId)} · {pendingSubmission?.unitId === unit.unitId && !pendingConfirmed ? '提交中' : commandDrafts[unit.unitId] ? commandDrafts[unit.unitId].stage === 'select_target' ? '选择目标' : '待确认' : submittedIntentLabel(unit.unitId)}
             </button>
           ))}
         </div>
+        <div className="mx-auto mt-1 max-w-7xl text-[0.62rem] text-[#2c1810]/55">
+          {commandMode === 'select_ability' && '第 2 步：从快捷栏或全部术法中选择技能。已提交指令在本方锁定前仍可修改。'}
+          {commandMode === 'submitted' && `${submittedIntentLabel(resolvedActiveUnitId!)}。如需反悔，直接重新选择技能并提交覆盖。`}
+          {commandMode === 'locked' && '本方指令已锁定，等待其他玩家；锁定后不可修改。'}
+          {commandMode === 'presenting' && '本回合已统一结算，正在按出手顺序播放。'}
+        </div>
       </footer>
+
+      {lockConfirmOpen && (
+        <div className="fixed inset-0 z-[55] grid place-items-center bg-[#2c1810]/30 px-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setLockConfirmOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-label="确认锁定本方指令" className="w-full max-w-sm border border-[#8f2433]/35 bg-[#eee7d6] p-5 shadow-2xl">
+            <p className="text-[0.65rem] tracking-[0.18em] text-[#8f2433]">最终确认</p>
+            <h2 className="mt-2 text-base font-semibold">锁定后本回合不能再修改</h2>
+            <div className="mt-3 space-y-1 text-xs text-[#2c1810]/65">
+              {ownUnits.filter((unit) => unit.alive).map((unit) => <p key={unit.unitId}>{unitName(view!, unit.unitId)} · {submittedIntentLabel(unit.unitId)}</p>)}
+            </div>
+            <div className="mt-5 flex justify-end gap-3">
+              <button type="button" onClick={() => setLockConfirmOpen(false)} className="border-b border-dashed border-[#2c1810]/40 px-2 py-1 text-xs">继续修改</button>
+              <button type="button" disabled={lockPending} onClick={lock} className="border border-[#8f2433]/50 px-3 py-2 text-xs text-[#8f2433] disabled:opacity-40">{lockPending ? '锁定中' : '确认锁定'}</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {drawerOpen && (
         <div className="fixed inset-0 z-50 bg-[#2c1810]/20" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDrawerOpen(false); }}>
           <aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-[#2c1810]/20 bg-[#eee7d6] shadow-2xl sm:w-[25rem]" role="dialog" aria-modal="true" aria-label="选择战斗技能">
             <div className="flex items-center justify-between border-b border-[#2c1810]/15 px-5 py-4">
-              <div><p className="text-[0.65rem] tracking-[0.18em] text-[#2c1810]/55">第 {view?.round ?? '—'} 回合</p><h2 className="mt-1 text-base font-semibold">{activeUnit ? unitName(view!, activeUnit.unitId) : '选择单位'} · 术法</h2></div>
+              <div><p className="text-[0.65rem] tracking-[0.18em] text-[#2c1810]/55">第 2 步 · 第 {view?.round ?? '—'} 回合</p><h2 className="mt-1 text-base font-semibold">为 {activeUnit ? unitName(view!, activeUnit.unitId) : '当前单位'} 选择术法</h2><p className="mt-1 text-[0.65rem] text-[#2c1810]/50">选择后仍会进入目标与指令确认，不会立即锁定。</p></div>
               <button type="button" onClick={() => setDrawerOpen(false)} className="border-b border-dashed border-[#2c1810]/35 px-1 py-1 text-xs text-[#2c1810]/65">关闭</button>
             </div>
             <div className="flex-1 space-y-2 overflow-y-auto p-4">

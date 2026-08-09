@@ -12,7 +12,7 @@ import type {
   BattlePresentationResourceV1,
   BattlePresentationSnapshotV1,
 } from '@shared/online-battle/BattlePresentation';
-import { resolveRealtimeBattleVisualSpec } from './realtimeBattleVisualRegistry';
+import { resolveBattleAbilityVisual } from '@shared/engine/battle-v5/presentation';
 
 export type RealtimeBattleTeam = 'allies' | 'enemies';
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
@@ -958,7 +958,7 @@ export class RealtimeBattleSimulation {
       targetIds: [...draft.targetIds],
       ability: { ...draft.ability },
       annotation: draft.annotation,
-      visual: resolveRealtimeBattleVisualSpec(draft.ability.id),
+      visual: resolveBattleAbilityVisual(draft.ability.id),
       facts: [
         costFact,
         ...draft.facts.map(

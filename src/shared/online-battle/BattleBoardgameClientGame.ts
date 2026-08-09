@@ -1,7 +1,9 @@
 import type { Game } from 'boardgame.io';
 import type { BattleMatchPlayerViewV1 } from '@shared/engine/battle-v5/match/types';
+import type { BattlePresentationWindowV1 } from './BattlePresentation';
 
 export type BattleBoardgamePlayerViewV1 = BattleMatchPlayerViewV1 & {
+  readonly presentation?: BattlePresentationWindowV1;
   readonly orchestration: {
     readonly readyPlayerCount: number;
     readonly totalPlayerCount: number;

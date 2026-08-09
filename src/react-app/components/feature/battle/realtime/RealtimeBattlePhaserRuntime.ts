@@ -50,7 +50,7 @@ interface RealtimeBattlePhaserArguments {
 
 export interface RealtimeBattlePhaserController {
   syncSnapshot: (snapshot: RealtimeBattleSnapshot) => void;
-  playTimeline: (timeline: CombatVisualTimeline) => void;
+  playTimeline: (timeline: CombatVisualTimeline, offsetMs?: number) => void;
   focus: (entityId: string) => void;
   setLegalTargets: (entityIds: readonly string[]) => void;
   setPaused: (paused: boolean) => void;
@@ -278,9 +278,10 @@ export function attachRealtimeBattlePhaser(
       this.renderSnapshot(currentSnapshot);
     }
 
-    playTimeline(timeline: CombatVisualTimeline) {
+    playTimeline(timeline: CombatVisualTimeline, offsetMs = 0) {
       for (const command of timeline.commands) {
-        this.time.delayedCall(command.at, () => {
+        if (command.at + command.duration <= offsetMs) continue;
+        this.time.delayedCall(Math.max(0, command.at - offsetMs), () => {
           if (!this.sys.isActive()) return;
           if (command.kind === 'cast') this.playCast(timeline.action);
           if (command.kind === 'delivery') {
@@ -1614,8 +1615,8 @@ export function attachRealtimeBattlePhaser(
       scene?.renderSnapshot(snapshot);
       args.onState(snapshot);
     },
-    playTimeline: (timeline) => {
-      scene?.playTimeline(timeline);
+    playTimeline: (timeline, offsetMs = 0) => {
+      scene?.playTimeline(timeline, offsetMs);
     },
     focus: (entityId) => {
       if (!currentSnapshot.entities.some((entity) => entity.id === entityId)) return;

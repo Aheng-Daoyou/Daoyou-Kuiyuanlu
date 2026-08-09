@@ -42,6 +42,7 @@ export function createBattlePlanningView(input: {
                 abilityId: ability.id,
                 name: ability.name,
                 description: ability.description,
+                visual: ability.getSerializableConfig()?.presentation?.visual,
                 costs: ability.resourceCosts.map((cost) => ({
                   resource: cost.type,
                   amount: cost.amount,

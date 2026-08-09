@@ -15,6 +15,13 @@ import type {
   BattleReplayRoundV1,
 } from '@shared/contracts/battleReplay';
 import type { BattleSaveV1 } from '@shared/engine/battle-v5/persistence/types';
+import { createBattlePublicSnapshot } from '@shared/engine/battle-v5/match/BattlePublicSnapshot';
+import {
+  createBattleRoundPlaybackPlan,
+  type BattlePresentationWindowV1,
+} from '@shared/online-battle/BattlePresentation';
+import { ROUND_PLANNING_TIMEOUT_MS } from '@shared/engine/battle-v5/round/types';
+import { resolveBattleAbilityVisual } from '@shared/engine/battle-v5/presentation';
 
 export interface BattleBoardgameSetupDataV1 {
   readonly state: BattleMatchStateV1;
@@ -42,6 +49,7 @@ export interface BattleBoardgameLockPayloadV1 {
 export type BattleBoardgameG = BattleMatchStateV1 & {
   readonly playerIdByBoardgameId: Readonly<Record<string, string>>;
   readonly acceptedBoardgamePlayerIds: readonly string[];
+  readonly presentation?: BattlePresentationWindowV1;
   readonly replay: {
     readonly version: 'battle_replay_accumulator_v1';
     readonly initialBattle: BattleSaveV1;
@@ -89,6 +97,7 @@ export function createBattleBoardgameGame(): Game<
         playerIdByBoardgameId: setupData.playerIdByBoardgameId,
         acceptedBoardgamePlayerIds:
           setupData.acceptedBoardgamePlayerIds ?? Object.keys(setupData.playerIdByBoardgameId),
+        presentation: undefined,
         replay: {
           version: 'battle_replay_accumulator_v1',
           initialBattle: structuredClone(setupData.state.battle),
@@ -131,6 +140,7 @@ export function createBattleBoardgameGame(): Game<
             // ownership, locking, and request idempotency.
             ignoreStaleStateID: true,
           move: ({ G, playerID }, payload: BattleBoardgameMovePayloadV1) => {
+            if (isPresentationActive(G, serverNow())) return INVALID_MOVE;
             const appId = appPlayerId(G, playerID);
             if (!appId || !playerID || !acceptedPlayerIds(G).includes(playerID) || !isIntentPayload(payload)) return INVALID_MOVE;
               try {
@@ -157,6 +167,7 @@ export function createBattleBoardgameGame(): Game<
             client: false,
             ignoreStaleStateID: true,
           move: ({ G, playerID }, payload: BattleBoardgameLockPayloadV1) => {
+            if (isPresentationActive(G, serverNow())) return INVALID_MOVE;
             const appId = appPlayerId(G, playerID);
             if (!appId || !playerID || !acceptedPlayerIds(G).includes(playerID) || !payload || typeof payload.requestId !== 'string') {
                 return INVALID_MOVE;
@@ -183,7 +194,9 @@ export function createBattleBoardgameGame(): Game<
       },
     },
     endIf: ({ G }) =>
-      G.status === 'finished' ? { result: G.latestResolution?.outcome } : undefined,
+      G.status === 'finished' && !G.presentation
+        ? { result: G.latestResolution?.outcome }
+        : undefined,
     playerView: ({ G, playerID }) => {
       const appId = appPlayerId(G, playerID);
       if (!appId) {
@@ -197,6 +210,7 @@ export function createBattleBoardgameGame(): Game<
       const ready = acceptedPlayerIds(G);
       return {
         ...createBattleMatchPlayerView(G, appId, Date.now()),
+        presentation: G.presentation,
         orchestration: {
           readyPlayerCount: ready.length,
           totalPlayerCount: G.controllers.length,
@@ -213,6 +227,7 @@ export function resolveBoardgameTimeout(
   now: number,
 ): BattleBoardgameG {
   if (!Number.isFinite(now)) throw new Error('Boardgame timeout time must be finite');
+  if (G.presentation) return G;
   if (acceptedPlayerIds(G).length < G.controllers.length) return G;
   return transitionAndResolve(
     G,
@@ -227,6 +242,20 @@ export function resolveBoardgameTimeout(
   );
 }
 
+/** Trusted scheduler hook: closes the server presentation gate. */
+export function completeBoardgamePresentation(
+  G: BattleBoardgameG,
+  now: number,
+): BattleBoardgameG {
+  if (!G.presentation || now < G.presentation.endsAt) return G;
+  return {
+    ...G,
+    presentation: undefined,
+    revision: G.revision + 1,
+    updatedAt: now,
+  };
+}
+
 /** Trusted recovery hook for a match persisted in `resolving` before a crash. */
 export function resumeBoardgameResolution(
   G: BattleBoardgameG,
@@ -235,8 +264,13 @@ export function resumeBoardgameResolution(
   if (G.status !== 'resolving' || !G.resolving) return G;
   const resolution = resolveBattleRound(G.battle, G.resolving.commandSet);
   const resolved = applyBattleRoundResolution(G, resolution, now);
+  const presentation = createPresentationWindow(G, resolution, now);
   return {
     ...resolved,
+    planning: resolved.planning
+      ? { ...resolved.planning, deadlineAt: presentation.endsAt + ROUND_PLANNING_TIMEOUT_MS }
+      : undefined,
+    presentation,
     revision: G.revision + 1,
     playerIdByBoardgameId: G.playerIdByBoardgameId,
     acceptedBoardgamePlayerIds: acceptedPlayerIds(G),
@@ -268,15 +302,57 @@ function transitionAndResolve(
     resolution,
     now,
   );
+  const presentation = createPresentationWindow(G, resolution, now);
   // A boardgame move is one externally visible revision even though the
   // internal transition first seals and then applies the round resolution.
   return {
     ...resolved,
+    planning: resolved.planning
+      ? { ...resolved.planning, deadlineAt: presentation.endsAt + ROUND_PLANNING_TIMEOUT_MS }
+      : undefined,
+    presentation,
     revision: G.revision + 1,
     playerIdByBoardgameId: G.playerIdByBoardgameId,
     acceptedBoardgamePlayerIds: acceptedPlayerIds(G),
     replay: appendReplayRound(G, effect.commandSet, resolution),
   };
+}
+
+function createPresentationWindow(
+  G: BattleBoardgameG,
+  resolution: import('@shared/engine/battle-v5/round/types').BattleRoundResolutionV1,
+  now: number,
+): BattlePresentationWindowV1 {
+  const publicResolution = {
+    version: 'battle_round_resolution_public_v1' as const,
+    commandSetId: resolution.commandSetId,
+    round: resolution.round,
+    outcome: resolution.outcome,
+    sequences: resolution.sequences,
+  };
+  const abilityConfigs = new Map(
+    G.battle.blueprint.teams.flatMap((team) =>
+      team.units.flatMap((unit) => unit.abilityConfigs.map((config) => [config.slug, config] as const)),
+    ),
+  );
+  const plan = createBattleRoundPlaybackPlan(publicResolution, (sequence) => {
+    const abilityId = sequence.ability?.id
+      ?? sequence.facts.find((fact) => fact.origin.carrier.kind === 'ability')?.origin.carrier.id;
+    return abilityId
+      ? resolveBattleAbilityVisual(abilityId, abilityConfigs.get(abilityId))
+      : undefined;
+  });
+  return {
+    commandSetId: resolution.commandSetId,
+    startedAt: now,
+    endsAt: now + plan.durationMs,
+    startingPublicSnapshot: createBattlePublicSnapshot(G.battle),
+    plan,
+  };
+}
+
+function isPresentationActive(G: BattleBoardgameG, now: number): boolean {
+  return Boolean(G.presentation && now < G.presentation.endsAt);
 }
 
 function appendReplayRound(

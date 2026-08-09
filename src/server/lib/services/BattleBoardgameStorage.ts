@@ -6,6 +6,7 @@ import type { BattleMatchSessionV1 } from '@shared/contracts/battle-matches';
 import { getRedisClient, redis } from '@server/lib/redis';
 import type { BattleBoardgameG } from './BattleBoardgameAdapter';
 import {
+  completeBoardgamePresentation,
   resolveBoardgameTimeout,
   resumeBoardgameResolution,
 } from './BattleBoardgameAdapter';
@@ -355,6 +356,11 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
   async resolveExpired(matchID: string, now = Date.now()): Promise<boolean> {
     const fetched = await this.fetch(matchID, { state: true });
     const current = fetched.state as StoredState;
+    if (current.G.presentation) {
+      if (current.G.presentation.endsAt > now) return false;
+      const next = completeBoardgamePresentation(current.G, now);
+      return this.compareAndSetState(matchID, withGameState(current, next));
+    }
     if (
       current.G.status !== 'planning' ||
       !current.G.planning ||
@@ -401,7 +407,9 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     const replayRound = appendedRoundCount === 1
       ? JSON.stringify(nextRounds[nextRounds.length - 1])
       : '';
-    const archive = state.G.status === 'finished' ? buildReplay(state.G) : null;
+    const archive = state.G.status === 'finished' && !state.G.presentation
+      ? buildReplay(state.G)
+      : null;
     const result = Number(await getRedisClient().eval(
       SET_STATE_LUA,
       7,
@@ -434,6 +442,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
 
 function indexedDeadline(G: BattleBoardgameG): number | null {
   const allAccepted = G.acceptedBoardgamePlayerIds.length === G.controllers.length;
+  if (G.presentation) return G.presentation.endsAt;
   return G.status === 'planning' && G.planning && allAccepted
     ? G.planning.deadlineAt
     : null;
@@ -505,7 +514,7 @@ function withGameState(current: StoredState, G: BattleBoardgameG): StoredState {
     ...current,
     G,
     _stateID: current._stateID + 1,
-    ctx: G.status === 'finished'
+    ctx: G.status === 'finished' && !G.presentation
       ? { ...current.ctx, gameover: { result: G.latestResolution?.outcome } }
       : current.ctx,
   };

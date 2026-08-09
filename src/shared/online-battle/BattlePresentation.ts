@@ -7,6 +7,10 @@ import {
 import type { CombatControlVisual } from '@shared/engine/battle-v5/presentation';
 import type { BattleMatchPlayerViewV1 } from '@shared/engine/battle-v5/match/types';
 import type { BattlePublicUnitStateV1 } from '@shared/engine/battle-v5/match/BattlePublicSnapshot';
+import type { BattlePublicSnapshotV1 } from '@shared/engine/battle-v5/match/BattlePublicSnapshot';
+import type { BattleRoundResolutionPublicV1 } from '@shared/engine/battle-v5/match/types';
+import type { CombatSequenceV3 } from '@shared/engine/battle-v5/v3/types';
+import type { CombatVisualFact, CombatVisualSpec } from '@shared/engine/battle-v5/presentation';
 
 export type BattlePresentationTeamV1 = 'allies' | 'enemies';
 
@@ -70,12 +74,32 @@ export interface BattlePresentationSnapshotV1 {
   readonly entities: readonly BattlePresentationEntityV1[];
 }
 
-export interface BattlePresentationRoundV1 {
+export interface BattlePlaybackBeatV1 {
+  readonly index: number;
+  readonly actorId: string;
+  readonly actionId: string;
+  readonly startAt: number;
+  readonly duration: number;
+  readonly timeline: CombatVisualTimeline;
+}
+
+export interface BattleRoundPlaybackPlanV1 {
+  readonly version: 'battle_round_playback_plan_v1';
   readonly commandSetId: string;
   readonly round: number;
-  readonly actions: readonly CombatVisualActionInput[];
-  readonly timelines: readonly CombatVisualTimeline[];
+  readonly durationMs: number;
+  readonly beats: readonly BattlePlaybackBeatV1[];
 }
+
+export interface BattlePresentationWindowV1 {
+  readonly commandSetId: string;
+  readonly startedAt: number;
+  readonly endsAt: number;
+  readonly startingPublicSnapshot: BattlePublicSnapshotV1;
+  readonly plan: BattleRoundPlaybackPlanV1;
+}
+
+const BEAT_GAP_MS = 220;
 
 function teamForViewer(
   unit: BattlePublicUnitStateV1,
@@ -178,18 +202,167 @@ export function createBattlePresentationSnapshot(
   };
 }
 
-export function createBattlePresentationRound(
-  view: BattleMatchPlayerViewV1,
-): BattlePresentationRoundV1 | null {
-  const resolution = view.latestResolution;
-  if (!resolution) return null;
-  const actions = resolution.sequences
-    .map((sequence) => adaptCombatSequenceV3ToVisualAction(sequence))
-    .filter((action): action is CombatVisualActionInput => Boolean(action));
+/**
+ * Creates one deterministic, serializable playback plan. Consecutive engine
+ * sequences belonging to the same actor turn are folded into one visual beat;
+ * beats never overlap, while targets inside an AOE beat still resolve together.
+ */
+export function createBattleRoundPlaybackPlan(
+  resolution: BattleRoundResolutionPublicV1,
+  resolveVisual?: (sequence: CombatSequenceV3) => CombatVisualSpec | undefined,
+): BattleRoundPlaybackPlanV1 {
+  const groups: Array<{
+    turn: number;
+    actorId: string;
+    actions: CombatVisualActionInput[];
+    primaryAction?: CombatVisualActionInput;
+  }> = [];
+  for (const sequence of resolution.sequences) {
+    const action = adaptCombatSequenceV3ToVisualAction(sequence, resolveVisual);
+    if (!action) continue;
+    const actorId = sequence.actor?.id ?? action.sourceId;
+    const previous = groups[groups.length - 1];
+    if (previous && previous.turn === sequence.turn && previous.actorId === actorId) {
+      previous.actions.push(action);
+      if (sequence.phase === 'action') previous.primaryAction = action;
+    } else {
+      groups.push({
+        turn: sequence.turn,
+        actorId,
+        actions: [action],
+        primaryAction: sequence.phase === 'action' ? action : undefined,
+      });
+    }
+  }
+
+  let cursor = 0;
+  const beats = groups.map((group, index): BattlePlaybackBeatV1 => {
+    const action = mergeVisualActions(group.actions, index, group.primaryAction);
+    const timeline = projectCombatVisualAction(action);
+    const beat = {
+      index,
+      actorId: group.actorId,
+      actionId: action.id,
+      startAt: cursor,
+      duration: timeline.duration,
+      timeline,
+    };
+    cursor += timeline.duration + BEAT_GAP_MS;
+    return beat;
+  });
   return {
+    version: 'battle_round_playback_plan_v1',
     commandSetId: resolution.commandSetId,
     round: resolution.round,
-    actions,
-    timelines: actions.map((action) => projectCombatVisualAction(action)),
+    durationMs: Math.max(0, cursor - (beats.length > 0 ? BEAT_GAP_MS : 0)),
+    beats,
+  };
+}
+
+function mergeVisualActions(
+  actions: readonly CombatVisualActionInput[],
+  index: number,
+  explicitPrimary?: CombatVisualActionInput,
+): CombatVisualActionInput {
+  const primary = explicitPrimary ?? actions.find((action) => action.facts.length > 0) ?? actions[0];
+  return {
+    ...primary,
+    id: `${primary.id}:beat-${index}`,
+    targetIds: [...new Set(actions.flatMap((action) => action.targetIds))],
+    facts: actions.flatMap((action) => action.facts),
+  };
+}
+
+export function createBattlePresentationSnapshotFromPublic(
+  publicSnapshot: BattlePublicSnapshotV1,
+  viewerTeamId: string,
+  options: {
+    elapsedMs?: number;
+    cycle?: number;
+    phase?: string;
+    focusedEntityId?: string;
+  } = {},
+): BattlePresentationSnapshotV1 {
+  const elapsedMs = options.elapsedMs ?? 0;
+  const units = publicSnapshot.units;
+  const fallbackFocus = units.find(
+    (unit) => unit.teamId === viewerTeamId && unit.alive,
+  )?.unitId ?? units[0]?.unitId ?? '';
+  return {
+    version: 'battle_presentation_snapshot_v1',
+    elapsedMs,
+    cycle: options.cycle ?? publicSnapshot.round,
+    phase: options.phase ?? '回合演算',
+    focusedEntityId:
+      options.focusedEntityId && units.some((unit) => unit.unitId === options.focusedEntityId)
+        ? options.focusedEntityId
+        : fallbackFocus,
+    entities: units.map((unit) => toEntity(unit, viewerTeamId, elapsedMs)),
+  };
+}
+
+/** Applies one already-resolved public fact to the renderer's temporary state. */
+export function applyCombatVisualFactToSnapshot(
+  snapshot: BattlePresentationSnapshotV1,
+  fact: CombatVisualFact,
+  elapsedMs: number,
+): BattlePresentationSnapshotV1 {
+  const targets = new Set(fact.targetIds);
+  return {
+    ...snapshot,
+    elapsedMs,
+    entities: snapshot.entities.map((entity) => {
+      if (!targets.has(entity.id)) return entity;
+      switch (fact.kind) {
+        case 'damage': {
+          const absorbed = Math.min(entity.shield, Math.max(0, fact.shieldAbsorbed ?? 0));
+          const hpDamage = Math.max(0, fact.hpDamage ?? fact.amount - absorbed);
+          return { ...entity, shield: Math.max(0, entity.shield - absorbed), hp: Math.max(0, entity.hp - hpDamage) };
+        }
+        case 'recovery':
+          return fact.resource === 'hp'
+            ? { ...entity, hp: Math.min(entity.maxHp, entity.hp + fact.amount) }
+            : { ...entity, qi: Math.min(entity.maxQi, entity.qi + fact.amount) };
+        case 'shield':
+          return { ...entity, shield: fact.operation === 'break' ? 0 : fact.operation === 'gain' ? entity.shield + fact.amount : Math.max(0, entity.shield - fact.amount) };
+        case 'resource': {
+          if (fact.resourceId === 'mp') return { ...entity, qi: Math.max(0, Math.min(entity.maxQi, fact.after)) };
+          return {
+            ...entity,
+            combatResources: entity.combatResources.map((resource) =>
+              resource.id === fact.resourceId ? { ...resource, current: fact.after } : resource,
+            ),
+          };
+        }
+        case 'status': {
+          const effects = entity.effects.filter((effect) => effect.id !== fact.statusId);
+          if (fact.operation === 'remove' || fact.operation === 'immune') return { ...entity, effects };
+          return {
+            ...entity,
+            effects: [...effects, {
+              id: fact.statusId,
+              label: fact.statusName,
+              tone: fact.statusType === 'buff' ? 'buff' : 'debuff',
+              statusType: fact.statusType,
+              layers: fact.layers ?? 1,
+              until: elapsedMs + (fact.durationMs ?? 30_000),
+              controlVisual: fact.controlVisual,
+            }],
+          };
+        }
+        case 'action_state': {
+          const id = `${fact.stateType}:${fact.stateName}`;
+          const actionStates = entity.actionStates.filter((state) => state.id !== id);
+          if (fact.phase !== 'entered') return { ...entity, actionStates };
+          return { ...entity, actionStates: [...actionStates, { id, label: fact.stateName, tone: fact.stateType === 'rest' ? 'control' : fact.stateType === 'queued_action' ? 'preparing' : 'mode', until: elapsedMs + (fact.durationMs ?? 30_000) }] };
+        }
+        case 'unit_died':
+          return { ...entity, hp: 0, shield: 0, alive: false, actionStates: [] };
+        case 'death_prevented':
+          return { ...entity, alive: true, hp: Math.max(1, entity.hp) };
+        default:
+          return entity;
+      }
+    }),
   };
 }

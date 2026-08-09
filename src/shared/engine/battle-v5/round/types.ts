@@ -2,6 +2,7 @@ import type { TeamId, UnitId } from '../core/types';
 import type { BattleCheckpointV1, BattleSaveV1 } from '../persistence/types';
 import type { BattleStateTimelineV3, CombatSequenceV3 } from '../v3/types';
 import type { TeamVictoryResult } from '../systems/TeamVictorySystem';
+import type { CombatVisualSpec } from '../presentation/CombatVisualProtocol';
 
 export const ROUND_PLANNING_TIMEOUT_MS = 30_000;
 
@@ -30,6 +31,7 @@ export interface PlanningAbilityViewV1 {
   name: string;
   /** Safe presentation metadata; battle rules never consume these fields. */
   description?: string;
+  visual?: CombatVisualSpec;
   costs?: ReadonlyArray<{
     resource: 'mp' | 'hp';
     amount: number;

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { BattleMatchPlayerViewV1 } from '@shared/engine/battle-v5/match/types';
 import {
+  applyCombatVisualFactToSnapshot,
+  createBattleRoundPlaybackPlan,
   createBattlePresentationSnapshot,
 } from './BattlePresentation';
 
@@ -82,6 +84,60 @@ describe('BattlePresentation', () => {
     });
     expect(snapshot.elapsedMs).toBe(5_000);
     expect(snapshot.focusedEntityId).toBe('a0');
+  });
+
+  it('builds non-overlapping beats and folds one actor turn together', () => {
+    const origin = {
+      kind: 'owned' as const,
+      owner: { id: 'a0', name: '甲' },
+      carrier: { kind: 'ability' as const, id: 'slash', name: '斩击' },
+    };
+    const fact = (id: string, targetId: string) => ({
+      id,
+      type: 'damage' as const,
+      trace: { eventId: id, sequenceId: id, ordinal: 1 },
+      origin,
+      target: { id: targetId, name: targetId },
+      amount: 10,
+      beforeHp: 100,
+      afterHp: 90,
+      damageType: 'physical' as const,
+      critical: false,
+      shieldAbsorbed: 0,
+    });
+    const plan = createBattleRoundPlaybackPlan({
+      version: 'battle_round_resolution_public_v1',
+      commandSetId: 'set-1',
+      round: 1,
+      outcome: { battleEnded: false },
+      sequences: [
+        { id: 'pre', turn: 1, phase: 'action_pre', actor: origin.owner, facts: [fact('f1', 'b0')] },
+        { id: 'action', turn: 1, phase: 'action', actor: origin.owner, ability: { id: 'slash', name: '斩击' }, facts: [fact('f2', 'b0')] },
+        { id: 'other', turn: 2, phase: 'action', actor: { id: 'b0', name: '乙' }, ability: { id: 'counter', name: '反击' }, facts: [{ ...fact('f3', 'a0'), origin: { ...origin, owner: { id: 'b0', name: '乙' } } }] },
+      ],
+    });
+
+    expect(plan.beats).toHaveLength(2);
+    expect(plan.beats[0].timeline.action.facts).toHaveLength(2);
+    expect(plan.beats[0].timeline.action.ability).toEqual({ id: 'slash', name: '斩击' });
+    expect(plan.beats[1].startAt).toBeGreaterThanOrEqual(plan.beats[0].duration);
+    expect(plan.durationMs).toBe(plan.beats[1].startAt + plan.beats[1].duration);
+  });
+
+  it('updates renderer state only when a visual fact resolves', () => {
+    const initial = createBattlePresentationSnapshot(view());
+    const next = applyCombatVisualFactToSnapshot(initial, {
+      id: 'hit',
+      kind: 'damage',
+      sourceId: 'b0',
+      targetIds: ['a0'],
+      amount: 25,
+      hpDamage: 20,
+      shieldAbsorbed: 5,
+      damageType: 'physical',
+    }, 1_500);
+    expect(next.entities[0]).toMatchObject({ hp: 70, shield: 0 });
+    expect(initial.entities[0]).toMatchObject({ hp: 90, shield: 5 });
   });
 
   it('preserves a valid focus while falling back to a live owned unit', () => {
