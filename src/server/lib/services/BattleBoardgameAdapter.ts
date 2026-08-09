@@ -1,27 +1,32 @@
-import type { Game, PlayerID } from 'boardgame.io';
-import { INVALID_MOVE } from './boardgameio-core';
-import {
-  applyBattleRoundResolution,
-  createBattleMatchPlayerView,
-  transitionBattleMatch,
-} from '@shared/engine/battle-v5/match/BattleMatchStateMachine';
-import { resolveBattleRound } from '@shared/engine/battle-v5/round/BattleRoundResolver';
-import type {
-  BattleMatchStateV1,
-  ClientBattleIntentV1,
-} from '@shared/engine/battle-v5/match/types';
 import type {
   BattleReplayRoundResolutionV1,
   BattleReplayRoundV1,
 } from '@shared/contracts/battleReplay';
-import type { BattleSaveV1 } from '@shared/engine/battle-v5/persistence/types';
+import {
+  applyBattleRoundResolution,
+  cancelBattleResolution,
+  createBattleMatchPlayerView,
+  markBattleResolutionFailed,
+  retryFailedBattleResolution,
+  transitionBattleMatch,
+} from '@shared/engine/battle-v5/match/BattleMatchStateMachine';
 import { createBattlePublicSnapshot } from '@shared/engine/battle-v5/match/BattlePublicSnapshot';
+import type {
+  BattleCommandReceiptV1,
+  BattleCommandRejectionReasonV1,
+  BattleMatchStateV1,
+  ClientBattleIntentV1,
+} from '@shared/engine/battle-v5/match/types';
+import type { BattleSaveV1 } from '@shared/engine/battle-v5/persistence/types';
+import { resolveBattleAbilityVisual } from '@shared/engine/battle-v5/presentation';
+import { resolveBattleRound } from '@shared/engine/battle-v5/round/BattleRoundResolver';
+import { ROUND_PLANNING_TIMEOUT_MS } from '@shared/engine/battle-v5/round/types';
 import {
   createBattleRoundPlaybackPlan,
   type BattlePresentationWindowV1,
 } from '@shared/online-battle/BattlePresentation';
-import { ROUND_PLANNING_TIMEOUT_MS } from '@shared/engine/battle-v5/round/types';
-import { resolveBattleAbilityVisual } from '@shared/engine/battle-v5/presentation';
+import type { Game, PlayerID } from 'boardgame.io';
+import { INVALID_MOVE } from './boardgameio-core';
 
 export interface BattleBoardgameSetupDataV1 {
   readonly state: BattleMatchStateV1;
@@ -38,18 +43,18 @@ export interface BattleBoardgameSetupDataV1 {
 
 export interface BattleBoardgameMovePayloadV1 {
   readonly requestId: string;
-  readonly unitId: string;
-  readonly intent: ClientBattleIntentV1;
-}
-
-export interface BattleBoardgameLockPayloadV1 {
-  readonly requestId: string;
+  readonly round: number;
+  readonly checkpointRevision: number;
+  readonly intents: Readonly<Record<string, ClientBattleIntentV1>>;
 }
 
 export type BattleBoardgameG = BattleMatchStateV1 & {
   readonly playerIdByBoardgameId: Readonly<Record<string, string>>;
   readonly acceptedBoardgamePlayerIds: readonly string[];
   readonly presentation?: BattlePresentationWindowV1;
+  readonly commandReceiptsByPlayerId: Readonly<
+    Record<string, BattleCommandReceiptV1>
+  >;
   readonly replay: {
     readonly version: 'battle_replay_accumulator_v1';
     readonly initialBattle: BattleSaveV1;
@@ -57,9 +62,12 @@ export type BattleBoardgameG = BattleMatchStateV1 & {
   };
 };
 
-function appPlayerId(G: BattleBoardgameG, playerID: PlayerID | null): string | null {
+function appPlayerId(
+  G: BattleBoardgameG,
+  playerID: PlayerID | null,
+): string | null {
   return playerID && G.playerIdByBoardgameId
-    ? G.playerIdByBoardgameId[playerID] ?? null
+    ? (G.playerIdByBoardgameId[playerID] ?? null)
     : null;
 }
 
@@ -91,13 +99,16 @@ export function createBattleBoardgameGame(): Game<
     maxPlayers: 8,
     disableUndo: true,
     setup: (_context, setupData) => {
-      if (!setupData) throw new Error('Battle boardgame setup data is required');
+      if (!setupData)
+        throw new Error('Battle boardgame setup data is required');
       return {
         ...setupData.state,
         playerIdByBoardgameId: setupData.playerIdByBoardgameId,
         acceptedBoardgamePlayerIds:
-          setupData.acceptedBoardgamePlayerIds ?? Object.keys(setupData.playerIdByBoardgameId),
+          setupData.acceptedBoardgamePlayerIds ??
+          Object.keys(setupData.playerIdByBoardgameId),
         presentation: undefined,
+        commandReceiptsByPlayerId: {},
         replay: {
           version: 'battle_replay_accumulator_v1',
           initialBattle: structuredClone(setupData.state.battle),
@@ -132,61 +143,67 @@ export function createBattleBoardgameGame(): Game<
       planning: {
         start: true,
         moves: {
-          submitIntent: {
+          commitIntents: {
             client: false,
-            // Simultaneous planners legitimately submit against the same
-            // client state. The server still applies each move to its latest
-            // authoritative G and the domain transition enforces revisions,
-            // ownership, locking, and request idempotency.
+            // Match revision may advance when another simultaneous planner
+            // commits, so boardgame.io's transport stateID is not the domain
+            // epoch. The payload still carries round + checkpoint revision,
+            // preventing a delayed command from leaking into a later round.
             ignoreStaleStateID: true,
-          move: ({ G, playerID }, payload: BattleBoardgameMovePayloadV1) => {
-            if (isPresentationActive(G, serverNow())) return INVALID_MOVE;
-            const appId = appPlayerId(G, playerID);
-            if (!appId || !playerID || !acceptedPlayerIds(G).includes(playerID) || !isIntentPayload(payload)) return INVALID_MOVE;
+            move: ({ G, playerID }, payload: BattleBoardgameMovePayloadV1) => {
+              if (isPresentationActive(G, serverNow())) return INVALID_MOVE;
+              const appId = appPlayerId(G, playerID);
+              if (
+                !appId ||
+                !playerID ||
+                !acceptedPlayerIds(G).includes(playerID) ||
+                !isIntentPayload(payload)
+              )
+                return INVALID_MOVE;
+              const receivedAt = serverNow();
               try {
-                return transitionAndResolve(
+                if (payload.round !== G.planning?.round) {
+                  throw new Error('Battle planning round is stale');
+                }
+                const duplicate = G.processedRequestIds.includes(
+                  payload.requestId,
+                );
+                const next = transitionAndSeal(
                   G,
                   {
-                    type: 'submit_unit_intent',
+                    type: 'commit_player_intents',
                     matchId: G.matchId,
                     requestId: payload.requestId,
                     playerId: appId,
                     expectedMatchRevision: G.revision,
-                    expectedCheckpointRevision: G.battle.checkpoint.checkpointRevision,
-                    unitId: payload.unitId,
-                    intent: payload.intent,
+                    expectedCheckpointRevision: payload.checkpointRevision,
+                    intents: payload.intents,
                   },
-                  serverNow(),
+                  receivedAt,
                 );
-              } catch {
-                return INVALID_MOVE;
-              }
-            },
-          },
-          lockPlayer: {
-            client: false,
-            ignoreStaleStateID: true,
-          move: ({ G, playerID }, payload: BattleBoardgameLockPayloadV1) => {
-            if (isPresentationActive(G, serverNow())) return INVALID_MOVE;
-            const appId = appPlayerId(G, playerID);
-            if (!appId || !playerID || !acceptedPlayerIds(G).includes(playerID) || !payload || typeof payload.requestId !== 'string') {
-                return INVALID_MOVE;
-              }
-              try {
-                return transitionAndResolve(
+                return withCommandReceipt(next, appId, {
+                  requestId: payload.requestId,
+                  status: duplicate ? 'duplicate' : 'accepted',
+                  matchRevision: next.revision,
+                  checkpointRevision: next.battle.checkpoint.checkpointRevision,
+                  receivedAt,
+                });
+              } catch (error) {
+                logRejectedMove(
+                  'commitIntents',
                   G,
-                  {
-                    type: 'lock_player',
-                    matchId: G.matchId,
-                    requestId: payload.requestId,
-                    playerId: appId,
-                    expectedMatchRevision: G.revision,
-                    expectedCheckpointRevision: G.battle.checkpoint.checkpointRevision,
-                  },
-                  serverNow(),
+                  playerID,
+                  payload?.requestId,
+                  error,
                 );
-              } catch {
-                return INVALID_MOVE;
+                return withCommandReceipt(G, appId, {
+                  requestId: payload.requestId,
+                  status: 'rejected',
+                  reason: rejectionReason(error),
+                  matchRevision: G.revision,
+                  checkpointRevision: G.battle.checkpoint.checkpointRevision,
+                  receivedAt,
+                });
               }
             },
           },
@@ -196,7 +213,9 @@ export function createBattleBoardgameGame(): Game<
     endIf: ({ G }) =>
       G.status === 'finished' && !G.presentation
         ? { result: G.latestResolution?.outcome }
-        : undefined,
+        : G.status === 'cancelled'
+          ? { cancelled: true }
+          : undefined,
     playerView: ({ G, playerID }) => {
       const appId = appPlayerId(G, playerID);
       if (!appId) {
@@ -210,6 +229,7 @@ export function createBattleBoardgameGame(): Game<
       const ready = acceptedPlayerIds(G);
       return {
         ...createBattleMatchPlayerView(G, appId, Date.now()),
+        commandReceipt: G.commandReceiptsByPlayerId?.[appId],
         presentation: G.presentation,
         orchestration: {
           readyPlayerCount: ready.length,
@@ -226,10 +246,11 @@ export function resolveBoardgameTimeout(
   G: BattleBoardgameG,
   now: number,
 ): BattleBoardgameG {
-  if (!Number.isFinite(now)) throw new Error('Boardgame timeout time must be finite');
+  if (!Number.isFinite(now))
+    throw new Error('Boardgame timeout time must be finite');
   if (G.presentation) return G;
   if (acceptedPlayerIds(G).length < G.controllers.length) return G;
-  return transitionAndResolve(
+  return transitionAndSeal(
     G,
     {
       type: 'resolve_planning_timeout',
@@ -268,54 +289,101 @@ export function resumeBoardgameResolution(
   return {
     ...resolved,
     planning: resolved.planning
-      ? { ...resolved.planning, deadlineAt: presentation.endsAt + ROUND_PLANNING_TIMEOUT_MS }
+      ? {
+          ...resolved.planning,
+          deadlineAt: presentation.endsAt + ROUND_PLANNING_TIMEOUT_MS,
+        }
       : undefined,
     presentation,
     revision: G.revision + 1,
     playerIdByBoardgameId: G.playerIdByBoardgameId,
     acceptedBoardgamePlayerIds: acceptedPlayerIds(G),
+    commandReceiptsByPlayerId: G.commandReceiptsByPlayerId ?? {},
     replay: appendReplayRound(G, G.resolving.commandSet, resolution),
   };
 }
 
-function transitionAndResolve(
+export function failBoardgameResolution(
+  G: BattleBoardgameG,
+  error: unknown,
+  now: number,
+): BattleBoardgameG {
+  if (G.status !== 'resolving' || !G.resolving) return G;
+  const failed = markBattleResolutionFailed(G, error, now);
+  return {
+    ...G,
+    ...failed,
+  };
+}
+
+export function retryBoardgameResolution(
+  G: BattleBoardgameG,
+  now: number,
+): BattleBoardgameG {
+  if (G.status !== 'resolution_failed' || !G.resolving) return G;
+  const retried = retryFailedBattleResolution(G, now);
+  return {
+    ...G,
+    ...retried,
+  };
+}
+
+export function technicalAbortBoardgameMatch(
+  G: BattleBoardgameG,
+  now: number,
+): BattleBoardgameG {
+  if (G.status !== 'resolution_failed' && G.status !== 'resolving') return G;
+  const cancelled = cancelBattleResolution(G, now);
+  return {
+    ...G,
+    ...cancelled,
+    planning: undefined,
+    resolving: undefined,
+    presentation: undefined,
+  };
+}
+
+function transitionAndSeal(
   G: BattleBoardgameG,
   command: Parameters<typeof transitionBattleMatch>[1],
   now: number,
 ): BattleBoardgameG {
   const transition = transitionBattleMatch(G, command, now);
-  const effect = transition.effects[0];
-  if (!effect) {
-    return {
-      ...transition.state,
-      playerIdByBoardgameId: G.playerIdByBoardgameId,
-      acceptedBoardgamePlayerIds: acceptedPlayerIds(G),
-      replay: G.replay,
-    };
-  }
-  const resolution = resolveBattleRound(
-    transition.state.battle,
-    effect.commandSet,
-  );
-  const resolved = applyBattleRoundResolution(
-    transition.state,
-    resolution,
-    now,
-  );
-  const presentation = createPresentationWindow(G, resolution, now);
-  // A boardgame move is one externally visible revision even though the
-  // internal transition first seals and then applies the round resolution.
+  // Sealing is the durable boundary. Resolution is deliberately deferred to
+  // the trusted worker so a crash cannot leave an expired planning state.
   return {
-    ...resolved,
-    planning: resolved.planning
-      ? { ...resolved.planning, deadlineAt: presentation.endsAt + ROUND_PLANNING_TIMEOUT_MS }
-      : undefined,
-    presentation,
-    revision: G.revision + 1,
+    ...transition.state,
+    revision: transition.changed ? G.revision + 1 : G.revision,
     playerIdByBoardgameId: G.playerIdByBoardgameId,
     acceptedBoardgamePlayerIds: acceptedPlayerIds(G),
-    replay: appendReplayRound(G, effect.commandSet, resolution),
+    commandReceiptsByPlayerId: G.commandReceiptsByPlayerId ?? {},
+    replay: G.replay,
   };
+}
+
+function withCommandReceipt(
+  G: BattleBoardgameG,
+  playerId: string,
+  receipt: BattleCommandReceiptV1,
+): BattleBoardgameG {
+  return {
+    ...G,
+    commandReceiptsByPlayerId: {
+      ...G.commandReceiptsByPlayerId,
+      [playerId]: receipt,
+    },
+  };
+}
+
+function rejectionReason(error: unknown): BattleCommandRejectionReasonV1 {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('deadline')) return 'deadline_reached';
+  if (message.includes('Committed player')) return 'already_committed';
+  if (message.includes('checkpoint revision')) return 'stale_checkpoint';
+  if (message.includes('planning round')) return 'stale_checkpoint';
+  if (message.includes('match revision')) return 'stale_match';
+  if (message.includes('not planning')) return 'match_not_planning';
+  return 'invalid_intents';
 }
 
 function createPresentationWindow(
@@ -332,12 +400,16 @@ function createPresentationWindow(
   };
   const abilityConfigs = new Map(
     G.battle.blueprint.teams.flatMap((team) =>
-      team.units.flatMap((unit) => unit.abilityConfigs.map((config) => [config.slug, config] as const)),
+      team.units.flatMap((unit) =>
+        unit.abilityConfigs.map((config) => [config.slug, config] as const),
+      ),
     ),
   );
   const plan = createBattleRoundPlaybackPlan(publicResolution, (sequence) => {
-    const abilityId = sequence.ability?.id
-      ?? sequence.facts.find((fact) => fact.origin.carrier.kind === 'ability')?.origin.carrier.id;
+    const abilityId =
+      sequence.ability?.id ??
+      sequence.facts.find((fact) => fact.origin.carrier.kind === 'ability')
+        ?.origin.carrier.id;
     return abilityId
       ? resolveBattleAbilityVisual(abilityId, abilityConfigs.get(abilityId))
       : undefined;
@@ -360,7 +432,11 @@ function appendReplayRound(
   commandSet: import('@shared/engine/battle-v5/round/types').RoundCommandSetV1,
   resolution: import('@shared/engine/battle-v5/round/types').BattleRoundResolutionV1,
 ): BattleBoardgameG['replay'] {
-  if (G.replay.rounds.some((round) => round.commandSet.commandSetId === commandSet.commandSetId)) {
+  if (
+    G.replay.rounds.some(
+      (round) => round.commandSet.commandSetId === commandSet.commandSetId,
+    )
+  ) {
     return G.replay;
   }
   return {
@@ -389,15 +465,46 @@ function toPublicResolution(
   };
 }
 
-function isIntentPayload(value: unknown): value is BattleBoardgameMovePayloadV1 {
+function isIntentPayload(
+  value: unknown,
+): value is BattleBoardgameMovePayloadV1 {
   if (!value || typeof value !== 'object') return false;
   const payload = value as Partial<BattleBoardgameMovePayloadV1>;
   return (
     typeof payload.requestId === 'string' &&
     payload.requestId.length > 0 &&
-    typeof payload.unitId === 'string' &&
-    Boolean(payload.intent) &&
-    typeof payload.intent === 'object' &&
-    (payload.intent.kind === 'pass' || payload.intent.kind === 'ability')
+    Number.isSafeInteger(payload.round) &&
+    payload.round! > 0 &&
+    Number.isSafeInteger(payload.checkpointRevision) &&
+    payload.checkpointRevision! >= 0 &&
+    Boolean(payload.intents) &&
+    typeof payload.intents === 'object' &&
+    Object.values(payload.intents).every(
+      (intent) =>
+        Boolean(intent) &&
+        typeof intent === 'object' &&
+        (intent.kind === 'basic_attack' || intent.kind === 'ability'),
+    )
   );
+}
+
+function logRejectedMove(
+  moveType: string,
+  G: BattleBoardgameG,
+  playerID: PlayerID | null,
+  requestId: string | undefined,
+  error: unknown,
+  details: Record<string, unknown> = {},
+): void {
+  console.warn('[battle-server] rejected battle move', {
+    moveType,
+    matchId: G.matchId,
+    playerID,
+    requestId,
+    round: G.planning?.round ?? G.battle.checkpoint.round,
+    matchRevision: G.revision,
+    checkpointRevision: G.battle.checkpoint.checkpointRevision,
+    reason: error instanceof Error ? error.message : String(error),
+    ...details,
+  });
 }

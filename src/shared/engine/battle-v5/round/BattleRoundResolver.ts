@@ -1,9 +1,11 @@
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import { ActiveSkill } from '../abilities/ActiveSkill';
 import type { TargetPolicy } from '../abilities/TargetPolicy';
+import { executeEffectConfigs } from '../core/effectExecutor';
 import {
   ActionPostEvent,
   ActionPreEvent,
+  ActionStateEvent,
   ControlledSkipEvent,
   RoundPostEvent,
   RoundPreEvent,
@@ -15,10 +17,14 @@ import {
 import {
   beginRuntimeAction,
   clearPendingActionStates,
+  consumeQueuedAction,
   consumeSkippedAction,
+  peekQueuedAction,
   setRuntimeRound,
   shouldTickBuffDuration,
 } from '../core/runtimeState';
+import { EffectExecutionContextV3 } from '../effects/Effect';
+import { AbilityFactory } from '../factories/AbilityFactory';
 import {
   captureBattleCheckpoint,
   restoreBattleSave,
@@ -30,15 +36,16 @@ import { InitiativeSystem } from '../systems/InitiativeSystem';
 import { BattleStateRecorder } from '../systems/state/BattleStateRecorder';
 import { TargetSelectionSystem } from '../systems/TargetSelectionSystem';
 import { TeamVictorySystem } from '../systems/TeamVictorySystem';
-import { CombatRecordBuilderV3 } from '../v3/CombatRecordBuilderV3';
+import type { Unit } from '../units/Unit';
 import { toBattleStateTimelineV3 } from '../v3/BattleRecordV3';
+import { CombatSystemSourceV3 } from '../v3/origin';
 import { createBattlePlanningView } from './BattlePlanningView';
+import { BattleResolutionContext } from './BattleResolutionContext';
 import type {
   BattleActionIntentV1,
   BattleRoundResolutionV1,
   RoundCommandSetV1,
 } from './types';
-import type { Unit } from '../units/Unit';
 
 export function sealRoundCommandSet(
   save: BattleSaveV1,
@@ -48,11 +55,7 @@ export function sealRoundCommandSet(
   try {
     const livingUnits = restored.roster.getLivingUnits();
     validateRoundCommandSet(save, livingUnits, commandSet);
-    validateAllIntents(
-      restored.roster.getAllUnits(),
-      livingUnits,
-      commandSet,
-    );
+    validateAllIntents(restored.roster.getAllUnits(), livingUnits, commandSet);
     return deepFreeze(
       JSON.parse(JSON.stringify(commandSet)) as RoundCommandSetV1,
     );
@@ -84,187 +87,246 @@ function resolveRestoredBattleRound(
   validateAllIntents(roster.getAllUnits(), livingAtPlanning, commandSet);
 
   const eventBus = runtime.events;
-  const recordBuilder = new CombatRecordBuilderV3(eventBus);
+  const resolutionContext = new BattleResolutionContext(runtime);
   const actionSystem = new ActionExecutionSystem(eventBus);
   const damageSystem = new DamageSystem(eventBus, runtime.random);
-  const stateRecorder = new BattleStateRecorder();
-  const targetSystem = new TargetSelectionSystem();
-  const allUnits = roster.getAllUnits();
-  const round = commandSet.round;
-  for (const unit of allUnits) setRuntimeRound(unit, round);
+  try {
+    const stateRecorder = new BattleStateRecorder();
+    const targetSystem = new TargetSelectionSystem();
+    const allUnits = roster.getAllUnits();
+    const round = commandSet.round;
+    for (const unit of allUnits) setRuntimeRound(unit, round);
 
-  recordBuilder.runInSequence({ phase: 'round_start', turn: round }, () => {
-    eventBus.publish<RoundStartEvent>({
-      type: 'RoundStartEvent',
-      timestamp: runtime.clock.now(),
-      turn: round,
-    });
-    eventBus.publish<RoundPreEvent>({
-      type: 'RoundPreEvent',
-      timestamp: runtime.clock.now(),
-      turn: round,
-    });
-  });
-
-  const order = InitiativeSystem.order(roster.getLivingUnits(), runtime.random);
-  eventBus.publish<TurnOrderEvent>({
-    type: 'TurnOrderEvent',
-    timestamp: runtime.clock.now(),
-    turn: round,
-    units: order,
-  });
-
-  for (const actor of order) {
-    if (!actor.isAlive()) {
-      clearPendingActionStates(actor);
-      continue;
-    }
-    beginRuntimeAction(actor);
-    recordBuilder.runInSequence(
-      {
-        phase: 'action_pre',
+    let order: Unit[] = [];
+    resolutionContext.runFrame({ phase: 'round_start', turn: round }, () => {
+      eventBus.publish<RoundStartEvent>({
+        type: 'RoundStartEvent',
+        timestamp: runtime.clock.now(),
         turn: round,
-        actor: { id: actor.id, name: actor.name },
-      },
-      (sequence) => {
-        eventBus.publish<ActionPreEvent>({
-          type: 'ActionPreEvent',
-          timestamp: runtime.clock.now(),
-          caster: actor,
-        });
-        stateRecorder.record(
-          'action_pre',
-          round,
-          allUnits,
-          actor.id,
-          sequence.id,
-        );
-      },
-    );
+      });
+      eventBus.publish<RoundPreEvent>({
+        type: 'RoundPreEvent',
+        timestamp: runtime.clock.now(),
+        turn: round,
+      });
+      order = InitiativeSystem.order(roster.getLivingUnits(), runtime.random);
+      eventBus.publish<TurnOrderEvent>({
+        type: 'TurnOrderEvent',
+        timestamp: runtime.clock.now(),
+        turn: round,
+        units: order,
+      });
+    });
 
-    let controlledSkip = false;
-    if (actor.isAlive()) {
-      actor.combatResources.beginAction();
-      const skipState = consumeSkippedAction(actor);
-      const controlTag = getSkipControlTag(actor);
-      controlledSkip = Boolean(controlTag);
-      if (skipState || controlTag) {
-        if (controlTag) {
-          eventBus.publish<ControlledSkipEvent>({
-            type: 'ControlledSkipEvent',
-            timestamp: runtime.clock.now(),
-            unit: actor,
-            controlTag,
-          });
-        }
-      } else {
-        executeIntent(
-          actor,
-          commandSet.intents[actor.id],
-          allUnits,
-          targetSystem,
-          recordBuilder,
-          round,
-        );
+    for (const actor of order) {
+      if (!actor.isAlive()) {
+        clearPendingActionStates(actor);
+        continue;
       }
-    }
-
-    recordBuilder.runInSequence(
-      {
-        phase: 'action_after',
-        turn: round,
-        actor: { id: actor.id, name: actor.name },
-      },
-      (sequence) => {
-        if (actor.isAlive()) {
-          eventBus.publish<ActionPostEvent>({
-            type: 'ActionPostEvent',
+      beginRuntimeAction(actor);
+      resolutionContext.runFrame(
+        {
+          phase: 'action_pre',
+          turn: round,
+          actor: { id: actor.id, name: actor.name },
+        },
+        (sequence) => {
+          eventBus.publish<ActionPreEvent>({
+            type: 'ActionPreEvent',
             timestamp: runtime.clock.now(),
             caster: actor,
           });
-          actor.combatResources.finishAction(
-            controlledSkip,
-            actor.getCurrentShield() > 0,
+          stateRecorder.record(
+            'action_pre',
+            round,
+            allUnits,
+            actor.id,
+            sequence.id,
           );
-          processBuffDurations(actor);
-          actor.abilities.tickAbilitiesCooldown();
-        }
-        stateRecorder.record(
-          'action_post',
-          round,
-          allUnits,
-          actor.id,
-          sequence.id,
-        );
-      },
-    );
-  }
+        },
+      );
 
-  recordBuilder.runInSequence({ phase: 'round_post', turn: round }, () => {
-    eventBus.publish<RoundPostEvent>({
-      type: 'RoundPostEvent',
-      timestamp: runtime.clock.now(),
-      turn: round,
-    });
-  });
-  const outcome = TeamVictorySystem.check(roster, round);
-  eventBus.publish<VictoryCheckEvent>({
-    type: 'VictoryCheckEvent',
-    timestamp: runtime.clock.now(),
-    turn: round,
-    battleEnded: outcome.battleEnded,
-    winner: outcome.winnerTeamId ?? null,
-  });
+      let controlledSkip = false;
+      resolutionContext.runFrame(
+        {
+          phase: 'action',
+          turn: round,
+          actor: { id: actor.id, name: actor.name },
+        },
+        () => {
+          if (!actor.isAlive()) return;
+          actor.combatResources.beginAction();
+          const skipState = consumeSkippedAction(actor);
+          const controlTag = getSkipControlTag(actor);
+          controlledSkip = Boolean(controlTag);
+          if (skipState || controlTag) {
+            if (controlTag) {
+              eventBus.publish<ControlledSkipEvent>({
+                type: 'ControlledSkipEvent',
+                timestamp: runtime.clock.now(),
+                unit: actor,
+                controlTag,
+              });
+            }
+            return;
+          }
+          executePlannedAction(
+            actor,
+            commandSet.intents[actor.id],
+            allUnits,
+            targetSystem,
+          );
+        },
+      );
 
-  const sequences = recordBuilder.getSequences();
-  const stateTimeline = toBattleStateTimelineV3(
-    stateRecorder.getTimeline(allUnits),
-  );
-  actionSystem.destroy();
-  damageSystem.destroy();
-  recordBuilder.destroy();
+      resolutionContext.runFrame(
+        {
+          phase: 'action_after',
+          turn: round,
+          actor: { id: actor.id, name: actor.name },
+        },
+        (sequence) => {
+          if (actor.isAlive()) {
+            eventBus.publish<ActionPostEvent>({
+              type: 'ActionPostEvent',
+              timestamp: runtime.clock.now(),
+              caster: actor,
+            });
+            actor.combatResources.finishAction(
+              controlledSkip,
+              actor.getCurrentShield() > 0,
+            );
+            processBuffDurations(actor);
+            actor.abilities.tickAbilitiesCooldown();
+          }
+          stateRecorder.record(
+            'action_post',
+            round,
+            allUnits,
+            actor.id,
+            sequence.id,
+          );
+        },
+      );
+    }
 
-  const checkpoint = captureBattleCheckpoint({
-    blueprint: save.blueprint,
-    roster,
-    runtime,
-    round,
-    checkpointRevision: commandSet.checkpointRevision + 1,
-  });
-  const nextSave: BattleSaveV1 = {
-    version: 'battle_save_v1',
-    blueprint: save.blueprint,
-    checkpoint,
-  };
-  const nextPlanningView = outcome.battleEnded
-    ? undefined
-    : createBattlePlanningView({
-        roster,
-        round: round + 1,
-        checkpointRevision: checkpoint.checkpointRevision,
+    let outcome!: ReturnType<typeof TeamVictorySystem.check>;
+    resolutionContext.runFrame({ phase: 'round_post', turn: round }, () => {
+      eventBus.publish<RoundPostEvent>({
+        type: 'RoundPostEvent',
+        timestamp: runtime.clock.now(),
+        turn: round,
       });
-  return {
-    version: 'battle_round_resolution_v1',
-    commandSetId: commandSet.commandSetId,
-    round,
-    outcome,
-    sequences,
-    stateTimeline,
-    checkpoint,
-    save: nextSave,
-    nextPlanningView,
-  };
+      outcome = TeamVictorySystem.check(roster, round);
+      eventBus.publish<VictoryCheckEvent>({
+        type: 'VictoryCheckEvent',
+        timestamp: runtime.clock.now(),
+        turn: round,
+        battleEnded: outcome.battleEnded,
+        winner: outcome.winnerTeamId ?? null,
+      });
+    });
+
+    const sequences = resolutionContext.getSequences();
+    const stateTimeline = toBattleStateTimelineV3(
+      stateRecorder.getTimeline(allUnits),
+    );
+    const checkpoint = captureBattleCheckpoint({
+      blueprint: save.blueprint,
+      roster,
+      runtime,
+      round,
+      checkpointRevision: commandSet.checkpointRevision + 1,
+    });
+    const nextSave: BattleSaveV1 = {
+      version: 'battle_save_v1',
+      blueprint: save.blueprint,
+      checkpoint,
+    };
+    const nextPlanningView = outcome.battleEnded
+      ? undefined
+      : createBattlePlanningView({
+          roster,
+          round: round + 1,
+          checkpointRevision: checkpoint.checkpointRevision,
+        });
+    return {
+      version: 'battle_round_resolution_v1',
+      commandSetId: commandSet.commandSetId,
+      round,
+      outcome,
+      sequences,
+      stateTimeline,
+      checkpoint,
+      save: nextSave,
+      nextPlanningView,
+    };
+  } finally {
+    actionSystem.destroy();
+    damageSystem.destroy();
+    resolutionContext.destroy();
+  }
 }
 
-function executeIntent(
+function executePlannedAction(
   actor: Unit,
   intent: BattleActionIntentV1,
   allUnits: Unit[],
   targetSystem: TargetSelectionSystem,
-  recordBuilder: CombatRecordBuilderV3,
-  round: number,
 ): void {
-  if (intent.kind === 'pass') return;
+  const queued = consumeQueuedAction(actor);
+  if (queued) {
+    if (
+      queued.interruptPolicy !== 'uninterruptible' &&
+      actor.tags.hasTag(GameplayTags.STATUS.CONTROL.NO_SKILL)
+    ) {
+      cancelQueuedAction(actor, queued);
+      return;
+    }
+    const ability = AbilityFactory.create(queued.ability);
+    if (!(ability instanceof ActiveSkill)) {
+      throw new Error(
+        `Queued action ${queued.ability.slug} is not an active skill`,
+      );
+    }
+    const targets = resolveTargets(
+      actor,
+      ability.targetPolicy,
+      intent.targetUnitId,
+      allUnits,
+      targetSystem,
+      true,
+    );
+    const primary = targets[0];
+    if (!primary) return;
+    castAbility(actor, ability, primary, targets, {
+      interruptPolicy: queued.interruptPolicy,
+      hitPolicy: queued.hitPolicy,
+      queuedActionState: {
+        name: '蓄势',
+        sourceAbility: queued.sourceAbility,
+      },
+    });
+    return;
+  }
+  if (intent.kind === 'basic_attack') {
+    if (actor.tags.hasTag(GameplayTags.STATUS.CONTROL.NO_BASIC)) return;
+    const basicAttack = actor.abilities.getDefaultAttack();
+    if (!(basicAttack instanceof ActiveSkill)) return;
+    const targets = resolveTargets(
+      actor,
+      basicAttack.targetPolicy,
+      intent.targetUnitId,
+      allUnits,
+      targetSystem,
+      true,
+    );
+    const primary = targets[0];
+    if (!primary || !basicAttack.canTrigger({ caster: actor, target: primary }))
+      return;
+    castAbility(actor, basicAttack, primary, targets);
+    return;
+  }
   const ability = actor.abilities.getAbility(intent.abilityId);
   if (!(ability instanceof ActiveSkill)) {
     throw new Error(`Unit ${actor.id} cannot use ability ${intent.abilityId}`);
@@ -282,27 +344,70 @@ function executeIntent(
   if (!primary || !ability.canTrigger({ caster: actor, target: primary })) {
     return;
   }
+  castAbility(actor, ability, primary, targets);
+}
+
+function castAbility(
+  actor: Unit,
+  ability: ActiveSkill,
+  primary: Unit,
+  targets: Unit[],
+  options: {
+    interruptPolicy?: 'normal' | 'uninterruptible';
+    hitPolicy?: 'normal' | 'guaranteed';
+    queuedActionState?: {
+      name: string;
+      sourceAbility?: { id: string; name: string };
+    };
+  } = {},
+): void {
   ability.prepareCast({ caster: actor, target: primary });
-  recordBuilder.runInSequence(
-    {
-      phase: 'action',
-      turn: round,
-      actor: { id: actor.id, name: actor.name },
-      ability: { id: ability.id, name: ability.name },
-    },
-    () => {
-      actor.runtime.events.publish<SkillPreCastEvent>({
-        type: 'SkillPreCastEvent',
-        timestamp: actor.runtime.clock.now(),
-        caster: actor,
-        target: primary,
-        targets,
-        ability,
-        isInterrupted: false,
-        hitPolicy: ability.hitPolicy,
-      });
-    },
-  );
+  actor.runtime.events.publish<SkillPreCastEvent>({
+    type: 'SkillPreCastEvent',
+    timestamp: actor.runtime.clock.now(),
+    caster: actor,
+    target: primary,
+    targets,
+    ability,
+    isInterrupted: false,
+    interruptPolicy: options.interruptPolicy,
+    hitPolicy: options.hitPolicy ?? ability.hitPolicy,
+    queuedActionState: options.queuedActionState,
+  });
+}
+
+function cancelQueuedAction(
+  actor: Unit,
+  queued: NonNullable<ReturnType<typeof consumeQueuedAction>>,
+): void {
+  const context = EffectExecutionContextV3.system({
+    owner: actor,
+    caster: actor,
+    target: actor,
+    source: CombatSystemSourceV3.ACTION_FLOW,
+    trace: actor.runtime.events.reserveTrace(),
+  });
+  executeEffectConfigs(queued.cancelEffects, context);
+  context.commit(actor, {
+    type: 'action_state',
+    stateType: 'queued_action',
+    phase: 'cancelled',
+    name: '蓄势',
+    remainingActions: 0,
+    ability: { id: queued.ability.slug, name: queued.ability.name },
+  });
+  context.emit<ActionStateEvent>({
+    type: 'ActionStateEvent',
+    timestamp: actor.runtime.clock.now(),
+    unit: actor,
+    stateType: 'queued_action',
+    phase: 'cancelled',
+    name: '蓄势',
+    remainingActions: 0,
+    sourceAbility: queued.sourceAbility,
+    ability: { id: queued.ability.slug, name: queued.ability.name },
+    reason: GameplayTags.STATUS.CONTROL.NO_SKILL,
+  });
 }
 
 function resolveTargets(
@@ -316,7 +421,9 @@ function resolveTargets(
   const candidates = targetSystem.getTargetCandidates(actor, policy, allUnits);
   if (policy.scope === 'single') {
     if (targetUnitId) {
-      const target = candidates.find((candidate) => candidate.id === targetUnitId);
+      const target = candidates.find(
+        (candidate) => candidate.id === targetUnitId,
+      );
       if (!target) {
         if (retargetMissing) return candidates.slice(0, 1);
         throw new Error(`Illegal target ${targetUnitId} for unit ${actor.id}`);
@@ -338,10 +445,51 @@ function validateAllIntents(
   const targetSystem = new TargetSelectionSystem();
   for (const actor of livingUnits) {
     const intent = commandSet.intents[actor.id];
-    if (intent.kind === 'pass') continue;
+    const queued = peekQueuedAction(actor);
+    if (queued) {
+      const ability = AbilityFactory.create(queued.ability);
+      if (!(ability instanceof ActiveSkill) || intent.kind !== 'basic_attack') {
+        throw new Error(
+          `Unit ${actor.id} must select a target for its queued action`,
+        );
+      }
+      const candidates = targetSystem.getTargetCandidates(
+        actor,
+        ability.targetPolicy,
+        allUnits,
+      );
+      if (
+        !candidates.some((candidate) => candidate.id === intent.targetUnitId)
+      ) {
+        throw new Error(
+          `Queued action target is not legal for unit ${actor.id}`,
+        );
+      }
+      continue;
+    }
+    if (intent.kind === 'basic_attack') {
+      const ability = actor.abilities.getDefaultAttack();
+      if (!(ability instanceof ActiveSkill)) {
+        throw new Error(`Unit ${actor.id} has no basic attack`);
+      }
+      const candidates = targetSystem.getTargetCandidates(
+        actor,
+        ability.targetPolicy,
+        allUnits,
+      );
+      const target = candidates.find(
+        (candidate) => candidate.id === intent.targetUnitId,
+      );
+      if (!target || !ability.canTrigger({ caster: actor, target })) {
+        throw new Error(`Basic attack is not legal for unit ${actor.id}`);
+      }
+      continue;
+    }
     const ability = actor.abilities.getAbility(intent.abilityId);
     if (!(ability instanceof ActiveSkill)) {
-      throw new Error(`Unit ${actor.id} cannot use ability ${intent.abilityId}`);
+      throw new Error(
+        `Unit ${actor.id} cannot use ability ${intent.abilityId}`,
+      );
     }
     const candidates = targetSystem.getTargetCandidates(
       actor,
@@ -363,7 +511,9 @@ function validateAllIntents(
       (intent.targetUnitId && !candidates.includes(target)) ||
       !ability.canTrigger({ caster: actor, target })
     ) {
-      throw new Error(`Ability ${ability.id} is not legal for unit ${actor.id}`);
+      throw new Error(
+        `Ability ${ability.id} is not legal for unit ${actor.id}`,
+      );
     }
   }
 }
@@ -388,12 +538,14 @@ function validateRoundCommandSet(
     actual.length !== expected.size ||
     actual.some((unitId) => !expected.has(unitId))
   ) {
-    throw new Error('Round command set must contain every living unit exactly once');
+    throw new Error(
+      'Round command set must contain every living unit exactly once',
+    );
   }
   for (const intent of Object.values(commandSet.intents)) {
     if (
       !intent ||
-      (intent.kind !== 'ability' && intent.kind !== 'pass') ||
+      (intent.kind !== 'ability' && intent.kind !== 'basic_attack') ||
       (intent.submittedBy !== 'player' && intent.submittedBy !== 'timeout')
     ) {
       throw new Error('Round command set contains an invalid intent');

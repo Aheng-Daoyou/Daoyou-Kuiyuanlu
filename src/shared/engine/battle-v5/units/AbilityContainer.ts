@@ -229,6 +229,10 @@ export class AbilityContainer {
     return this._defaultAttack;
   }
 
+  getDefaultAttack(): Ability {
+    return this._getDefaultAttack();
+  }
+
   getFallbackBasicAttack(): Ability {
     if (!this._fallbackBasicAttack) {
       this._fallbackBasicAttack = new BasicAttack();

@@ -69,6 +69,12 @@ function createSave(): BattleSaveV1 {
     { runtime, teamId: 'beta', slot: 0 },
   );
   left.abilities.addAbility(AbilityFactory.create(abilityConfig));
+  left.abilities.setDefaultAttack(AbilityFactory.create({
+    ...abilityConfig,
+    slug: 'checkpoint-basic',
+    name: '存档普攻',
+    cooldown: 0,
+  }));
   left.combatResources.define({
     id: 'focus',
     name: '专注',
@@ -124,6 +130,7 @@ describe('BattleStateCodec', () => {
     expect(restoredBuff?.getDuration()).toBe(2);
     expect(restoredAbility).toBeInstanceOf(ActiveSkill);
     expect((restoredAbility as ActiveSkill).currentCooldown).toBe(4);
+    expect(left.abilities.getDefaultAttack().id).toBe('checkpoint-basic');
     expect(restored.runtime.exportCursor()).toEqual(save.checkpoint.runtime);
 
     const recaptured = captureBattleCheckpoint({

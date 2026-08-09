@@ -2,6 +2,7 @@ import { resolveBattleRound } from '../round/BattleRoundResolver';
 import type { BattleRoundResolutionV1 } from '../round/types';
 import {
   applyBattleRoundResolution,
+  markBattleResolutionFailed,
   transitionBattleMatch,
 } from './BattleMatchStateMachine';
 import type {
@@ -110,13 +111,16 @@ export class BattleMatchCoordinator {
         state.resolving.commandSet,
       );
     } catch (error) {
+      const failed = markBattleResolutionFailed(state, error, this.now());
+      await this.saveOrThrow(failed, state.revision);
+      await this.publishState(failed);
       await this.options.publisher?.publish({
         type: 'resolution_failed',
         matchId: state.matchId,
         commandSetId: state.resolving.commandSet.commandSetId,
         error: error instanceof Error ? error.message : String(error),
       });
-      throw error;
+      return failed;
     }
     const next = applyBattleRoundResolution(state, resolution, this.now());
     await this.saveOrThrow(next, state.revision);

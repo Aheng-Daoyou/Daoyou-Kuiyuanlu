@@ -52,7 +52,12 @@ export interface RealtimeBattlePhaserController {
   syncSnapshot: (snapshot: RealtimeBattleSnapshot) => void;
   playTimeline: (timeline: CombatVisualTimeline, offsetMs?: number) => void;
   focus: (entityId: string) => void;
-  setLegalTargets: (entityIds: readonly string[]) => void;
+  setCommandSelection: (state: {
+    actorUnitId?: string;
+    legalTargetIds: readonly string[];
+    lockedUnitIds: readonly string[];
+    submitting: boolean;
+  }) => void;
   setPaused: (paused: boolean) => void;
   setSpeed: (speed: number) => void;
   destroy: () => void;
@@ -61,6 +66,9 @@ export interface RealtimeBattlePhaserController {
 interface EntityVisual {
   container: Phaser.GameObjects.Container;
   selection: Phaser.GameObjects.Arc;
+  actorSelection: Phaser.GameObjects.Arc;
+  targetSelection: Phaser.GameObjects.Arc;
+  commandStateText: Phaser.GameObjects.Text;
   resourceRings: Phaser.GameObjects.Graphics;
   resourceLeaders: Phaser.GameObjects.Graphics;
   name: Phaser.GameObjects.Text;
@@ -246,6 +254,9 @@ export function attachRealtimeBattlePhaser(
     private impactQueues = new Map<string, QueuedImpactCue[]>();
     private activeImpactTargets = new Set<string>();
     private legalTargetIds = new Set<string>();
+    private lockedUnitIds = new Set<string>();
+    private actorUnitId: string | undefined;
+    private commandSubmitting = false;
 
     create() {
       registerScene(this);
@@ -273,8 +284,16 @@ export function attachRealtimeBattlePhaser(
       this.tweens.timeScale = nextSpeed;
     }
 
-    setLegalTargets(entityIds: readonly string[]) {
-      this.legalTargetIds = new Set(entityIds);
+    setCommandSelection(state: {
+      actorUnitId?: string;
+      legalTargetIds: readonly string[];
+      lockedUnitIds: readonly string[];
+      submitting: boolean;
+    }) {
+      this.actorUnitId = state.actorUnitId;
+      this.legalTargetIds = new Set(state.legalTargetIds);
+      this.lockedUnitIds = new Set(state.lockedUnitIds);
+      this.commandSubmitting = state.submitting;
       this.renderSnapshot(currentSnapshot);
     }
 
@@ -363,14 +382,18 @@ export function attachRealtimeBattlePhaser(
       const color = visualColor(action.visual);
       switch (action.visual.delivery) {
         case 'melee':
-          this.playMeleeDelivery(
-            source,
-            targets[0],
-            action,
-            color,
-            duration,
-            impactOffset,
-          );
+          {
+            const impactTargets = targets.filter((target) => target !== source);
+            if (impactTargets.length === 0) break;
+            this.playMeleeDelivery(
+              source,
+              impactTargets,
+              action,
+              color,
+              duration,
+              impactOffset,
+            );
+          }
           break;
         case 'projectile':
           this.playProjectileDelivery(
@@ -395,33 +418,43 @@ export function attachRealtimeBattlePhaser(
 
     private playMeleeDelivery(
       source: EntityVisual,
-      target: EntityVisual,
+      targets: EntityVisual[],
       action: CombatVisualActionInput,
       color: number,
       duration: number,
       impactOffset: number,
     ) {
       const origin = { x: source.container.x, y: source.container.y };
+      const targetCenter = targets.reduce(
+        (point, target) => ({
+          x: point.x + target.container.x / targets.length,
+          y: point.y + target.container.y / targets.length,
+        }),
+        { x: 0, y: 0 },
+      );
+      const targetRadius = Math.max(...targets.map((target) => target.radius));
       const distance = Phaser.Math.Distance.Between(
         origin.x,
         origin.y,
-        target.container.x,
-        target.container.y,
+        targetCenter.x,
+        targetCenter.y,
       );
       const ratio = Phaser.Math.Clamp(
-        (distance - source.radius * 0.5 - target.radius * 0.72) /
+        (distance - source.radius * 0.5 - targetRadius * 0.72) /
           Math.max(distance, 1),
         0.58,
         0.87,
       );
       this.tweens.add({
         targets: source.container,
-        x: origin.x + (target.container.x - origin.x) * ratio,
-        y: origin.y + (target.container.y - origin.y) * ratio,
+        x: origin.x + (targetCenter.x - origin.x) * ratio,
+        y: origin.y + (targetCenter.y - origin.y) * ratio,
         duration: Math.max(260, impactOffset),
         ease: action.visual.weight === 'heavy' ? 'Expo.In' : 'Cubic.In',
         onComplete: () => {
-          this.playImpactBurst(target.container, action.visual, color);
+          targets.forEach((target) =>
+            this.playImpactBurst(target.container, action.visual, color),
+          );
           this.cameras.main.shake(
             action.visual.weight === 'heavy' ? 190 : 120,
             action.visual.weight === 'heavy' ? 0.0026 : 0.0012,
@@ -737,6 +770,22 @@ export function attachRealtimeBattlePhaser(
         .circle(0, 0, radius + 18, teamColor, 0)
         .setStrokeStyle(2, teamColor, 0)
         .setAlpha(0);
+      const actorSelection = this.add
+        .circle(0, 0, radius + 12, 0x3f6b56, 0.025)
+        .setStrokeStyle(4, 0x3f6b56, 0)
+        .setAlpha(0);
+      const targetSelection = this.add
+        .circle(0, 0, radius + 24, teamColor, 0.035)
+        .setStrokeStyle(4, teamColor, 0)
+        .setAlpha(0);
+      this.tweens.add({
+        targets: targetSelection,
+        scale: 1.08,
+        duration: 680,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.InOut',
+      });
       const name = this.add
         .text(0, isPet ? -9 : -12, entity.name, {
           fontFamily: FONT_FAMILY,
@@ -864,10 +913,23 @@ export function attachRealtimeBattlePhaser(
         })
         .setOrigin(0.5)
         .setResolution(renderScale);
+      const commandStateText = this.add
+        .text(0, -radius - 38, '', {
+          fontFamily: FONT_FAMILY,
+          fontSize: compact ? '10px' : '12px',
+          fontStyle: 'bold',
+          color: '#3f6b56',
+          ...outlinedText(3),
+          letterSpacing: 2,
+        })
+        .setOrigin(0.5)
+        .setResolution(renderScale);
 
       const container = this.add
         .container(position.x, position.y, [
           selection,
+          actorSelection,
+          targetSelection,
           resourceRings,
           resourceLeaders,
           nameControlFx,
@@ -878,11 +940,16 @@ export function attachRealtimeBattlePhaser(
           actionStateText,
           buffText,
           debuffText,
+          commandStateText,
         ])
         .setSize((radius + 54) * 2, (radius + 48) * 2)
         .setInteractive({ useHandCursor: true })
         .setDepth(3);
       container.on('pointerdown', () => {
+        if (this.legalTargetIds.size > 0 && !this.legalTargetIds.has(entity.id)) {
+          args.onFocus(entity.id);
+          return;
+        }
         currentSnapshot = { ...currentSnapshot, focusedEntityId: entity.id };
         this.renderSnapshot(currentSnapshot);
         args.onFocus(entity.id);
@@ -892,6 +959,9 @@ export function attachRealtimeBattlePhaser(
       this.visuals.set(entity.id, {
         container,
         selection,
+        actorSelection,
+        targetSelection,
+        commandStateText,
         resourceRings,
         resourceLeaders,
         name,
@@ -985,12 +1055,35 @@ export function attachRealtimeBattlePhaser(
             : undefined,
         );
         const isLegalTarget = this.legalTargetIds.has(entity.id);
-        visual.selection.setAlpha(isFocused ? 0.68 : isLegalTarget ? 0.38 : 0);
+        const isActor = this.actorUnitId === entity.id;
+        const isLocked = this.lockedUnitIds.has(entity.id);
+        visual.selection.setAlpha(isFocused && !isLegalTarget ? 0.28 : 0);
         visual.selection.setStrokeStyle(
-          isFocused || isLegalTarget ? 2 : 0,
+          isFocused && !isLegalTarget ? 2 : 0,
           entity.team === 'allies' ? 0x3f6b56 : 0x9d303a,
-          isFocused ? 0.62 : isLegalTarget ? 0.5 : 0,
+          isFocused && !isLegalTarget ? 0.42 : 0,
         );
+        visual.actorSelection
+          .setAlpha(isActor ? 0.86 : 0)
+          .setStrokeStyle(isActor ? 4 : 0, 0x3f6b56, isActor ? 0.9 : 0);
+        visual.targetSelection
+          .setAlpha(isLegalTarget ? 0.82 : 0)
+          .setStrokeStyle(
+            isLegalTarget ? 4 : 0,
+            entity.team === 'allies' ? 0x3f6b56 : 0x9d303a,
+            isLegalTarget ? 0.92 : 0,
+          );
+        visual.commandStateText
+          .setText(
+            isLocked
+              ? '已定'
+              : isActor && this.commandSubmitting
+                ? '提交中'
+                : isActor
+                  ? '当前出招'
+                  : '',
+          )
+          .setColor(isLocked ? '#735080' : '#3f6b56');
         visual.resourceRings.setAlpha(entity.alive ? 1 : 0.18);
         visual.resourceLeaders.setAlpha(entity.alive ? 1 : 0.18);
         visual.hpValue.setVisible(entity.alive);
@@ -1625,8 +1718,8 @@ export function attachRealtimeBattlePhaser(
       args.onFocus(entityId);
       args.onState(currentSnapshot);
     },
-    setLegalTargets: (entityIds) => {
-      scene?.setLegalTargets(entityIds);
+    setCommandSelection: (state) => {
+      scene?.setCommandSelection(state);
     },
     setPaused: (nextPaused) => {
       paused = nextPaused;

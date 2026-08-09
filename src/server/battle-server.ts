@@ -6,6 +6,7 @@ import { Server } from './lib/services/boardgameio-server';
 import { timingSafeEqual } from 'node:crypto';
 import { closeNatsConnection, getNatsConnection } from './lib/nats';
 import { ensureBattleReplayStream } from './lib/mq/natsTopology';
+import { BattleMatchCoordinator } from './lib/services/BattleMatchCoordinator';
 
 const port = Number(process.env.BATTLE_SERVER_PORT ?? 3100);
 if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
@@ -36,7 +37,21 @@ const battleStorage = new RedisBattleBoardgameStorage();
 await battleStorage.connect();
 await getNatsConnection();
 await ensureBattleReplayStream();
-const battleTransport = new BattleBoardgameTransport();
+const battleTransport = new BattleBoardgameTransport(async (conflict) => {
+  console.warn('[battle-server] move lost Redis CAS', {
+    code: conflict.code,
+    matchId: conflict.matchID,
+  });
+  try {
+    const latest = await battleStorage.fetch(conflict.matchID, { state: true });
+    battleTransport.publishMatchState(conflict.matchID, latest.state);
+  } catch (error) {
+    console.warn('[battle-server] failed to resync after Redis CAS conflict', {
+      matchId: conflict.matchID,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
 const battleServer = Server({
   games: [createBattleBoardgameGame()],
   db: battleStorage,
@@ -46,6 +61,7 @@ const battleServer = Server({
   // production; client traffic uses the Socket.IO transport origin only.
   apiOrigins: apiOrigins.length > 0 ? apiOrigins : ['http://localhost:3000'],
 });
+const battleCoordinator = new BattleMatchCoordinator(battleStorage, battleTransport);
 
 battleServer.router.get(
   '/internal/battle-matches/:matchID/session',
@@ -95,8 +111,26 @@ battleServer.router.post(
       context.throw(400, 'playerID is required');
       return;
     }
-    await battleStorage.acceptPlayer(matchID, body.playerID);
-    context.body = { accepted: true };
+    const accepted = await battleCoordinator.acceptPlayer(matchID, body.playerID);
+    context.body = { accepted: accepted !== undefined };
+  },
+);
+
+battleServer.router.post(
+  '/internal/battle-matches/:matchID/resolution/retry',
+  async (context) => {
+    const matchID = context.params.matchID;
+    const retried = await battleCoordinator.retryResolution(matchID);
+    context.body = { retried: Boolean(retried) };
+  },
+);
+
+battleServer.router.post(
+  '/internal/battle-matches/:matchID/technical-abort',
+  async (context) => {
+    const matchID = context.params.matchID;
+    const aborted = await battleCoordinator.technicalAbort(matchID);
+    context.body = { aborted: Boolean(aborted) };
   },
 );
 
@@ -124,30 +158,44 @@ const servers = await battleServer.run(port, () => {
   console.info(`[battle-server] listening on ${port}`);
 });
 
-let timeoutWorkerBackoffUntil = 0;
 const runTimeoutWorker = async () => {
-  if (Date.now() < timeoutWorkerBackoffUntil) return;
   try {
     for (const matchId of await battleStorage.listExpiredMatchIds()) {
-      if (await battleStorage.resolveExpired(matchId)) {
-        const next = await battleStorage.fetch(matchId, { state: true });
-        battleTransport.publishMatchState(matchId, next.state);
-      }
+      await runIsolatedMatchTask(matchId, 'resolve_expired', async () => {
+        await battleCoordinator.resolveExpired(matchId);
+      });
     }
     for (const matchId of await battleStorage.listResolvingMatchIds()) {
-      if (await battleStorage.resumeResolving(matchId)) {
-        const next = await battleStorage.fetch(matchId, { state: true });
-        battleTransport.publishMatchState(matchId, next.state);
-      }
+      await runIsolatedMatchTask(matchId, 'resume_resolving', async () => {
+        await battleCoordinator.resumeResolving(matchId);
+      });
     }
     for (const matchId of await battleStorage.listExpiredWaitingMatchIds()) {
-      await battleStorage.expireWaiting(matchId);
+      await runIsolatedMatchTask(matchId, 'expire_waiting', () =>
+        battleCoordinator.expireWaiting(matchId).then(() => undefined));
     }
   } catch (error) {
-    timeoutWorkerBackoffUntil = Date.now() + 5_000;
-    console.warn('[battle-server] timeout worker failed', { error });
+    console.warn('[battle-server] timeout worker scan failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 };
+
+async function runIsolatedMatchTask(
+  matchId: string,
+  operation: 'resolve_expired' | 'resume_resolving' | 'expire_waiting',
+  task: () => Promise<void>,
+): Promise<void> {
+  try {
+    await task();
+  } catch (error) {
+    console.warn('[battle-server] isolated match task failed', {
+      matchId,
+      operation,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 const timeoutWorker = setInterval(() => void runTimeoutWorker(), 1_000);
 timeoutWorker.unref();
 

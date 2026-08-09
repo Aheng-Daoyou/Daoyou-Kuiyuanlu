@@ -216,6 +216,58 @@ describe('CombatVisualProjector', () => {
     });
   });
 
+  it('does not allow an explicit projectile profile to override direct physical delivery', () => {
+    const sequence: CombatSequenceV3 = {
+      id: 'sequence-physical-override',
+      turn: 1,
+      phase: 'action',
+      actor: { id: 'caster', name: '甲' },
+      ability: { id: 'body-breaker', name: '撼岳式' },
+      facts: [
+        {
+          id: 'fact-physical-override',
+          trace: {
+            eventId: 'event-physical-override',
+            sequenceId: 'sequence-physical-override',
+            ordinal: 1,
+          },
+          origin: {
+            kind: 'owned',
+            owner: { id: 'caster', name: '甲' },
+            carrier: { kind: 'ability', id: 'body-breaker', name: '撼岳式' },
+          },
+          target: { id: 'target', name: '乙' },
+          type: 'damage',
+          amount: 80,
+          beforeHp: 100,
+          afterHp: 20,
+          damageType: 'physical',
+          damageSource: 'direct',
+          critical: false,
+          shieldAbsorbed: 0,
+        },
+      ],
+    };
+
+    expect(
+      adaptCombatSequenceV3ToVisualAction(sequence, () => ({
+        discipline: 'spell',
+        delivery: 'projectile',
+        element: 'earth',
+        impact: 'break',
+        weight: 'heavy',
+      })),
+    ).toMatchObject({
+      visual: {
+        discipline: 'physical',
+        delivery: 'melee',
+        element: 'earth',
+        impact: 'break',
+        weight: 'heavy',
+      },
+    });
+  });
+
   it('keeps ability-less system sequences projectable as ambient actions', () => {
     const sequence: CombatSequenceV3 = {
       id: 'sequence-system',
@@ -253,7 +305,7 @@ describe('CombatVisualProjector', () => {
     });
   });
 
-  it('projects multi-target fallback actions as independent fanout trajectories', () => {
+  it('projects multi-target physical actions as one melee area delivery', () => {
     const sequence: CombatSequenceV3 = {
       id: 'sequence-fanout',
       turn: 3,
@@ -291,7 +343,7 @@ describe('CombatVisualProjector', () => {
       targetIds: ['target-a', 'target-b'],
       visual: {
         discipline: 'physical',
-        delivery: 'projectile',
+        delivery: 'melee',
         distribution: 'fanout',
       },
     });

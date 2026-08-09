@@ -2,6 +2,8 @@ import { ActiveSkill } from '../abilities/ActiveSkill';
 import type { BattleRoster } from '../core/BattleRoster';
 import type { TeamId } from '../core/types';
 import { TargetSelectionSystem } from '../systems/TargetSelectionSystem';
+import { AbilityFactory } from '../factories/AbilityFactory';
+import { peekQueuedAction } from '../core/runtimeState';
 import type {
   BattlePlanningViewV1,
   PlanningAbilityViewV1,
@@ -17,11 +19,47 @@ export function createBattlePlanningView(input: {
   const allUnits = input.roster.getAllUnits();
   const units = allUnits
     .filter((unit) => !input.teamId || unit.teamId === input.teamId)
-    .map((unit) => ({
-      unitId: unit.id,
-      teamId: unit.teamId,
-      alive: unit.isAlive(),
-      abilities: unit.isAlive()
+    .map((unit) => {
+      const queued = unit.isAlive() ? peekQueuedAction(unit) : undefined;
+      const queuedAbility = queued ? AbilityFactory.create(queued.ability) : undefined;
+      const forcedTargets = queuedAbility instanceof ActiveSkill
+        ? targetSystem.getTargetCandidates(unit, queuedAbility.targetPolicy, allUnits)
+        : [];
+      const defaultAttack = unit.isAlive() ? unit.abilities.getDefaultAttack() : undefined;
+      const basicTargets = defaultAttack instanceof ActiveSkill
+        ? targetSystem.getTargetCandidates(unit, defaultAttack.targetPolicy, allUnits)
+        : [];
+      const basicReady = basicTargets.some((target) =>
+        defaultAttack instanceof ActiveSkill
+          ? defaultAttack.canTrigger({ caster: unit, target })
+          : false,
+      );
+      return {
+        unitId: unit.id,
+        teamId: unit.teamId,
+        alive: unit.isAlive(),
+        basicAttack: unit.isAlive()
+          ? {
+              abilityId: 'basic_attack' as const,
+              name: defaultAttack?.name ?? '普攻',
+              ready: basicReady,
+              unavailableReason: basicTargets.length === 0
+                ? 'no_target' as const
+                : basicReady
+                  ? undefined
+                  : 'condition' as const,
+              legalTargetIds: basicTargets.map((target) => target.id),
+            }
+          : undefined,
+        forcedAction: queuedAbility instanceof ActiveSkill
+          ? {
+              kind: 'queued_action_target' as const,
+              abilityId: queuedAbility.id,
+              abilityName: queuedAbility.name,
+              legalTargetIds: forcedTargets.map((target) => target.id),
+            }
+          : undefined,
+        abilities: unit.isAlive() && !queued
         ? unit.abilities
             .getAllAbilities()
             .filter(
@@ -71,7 +109,8 @@ export function createBattlePlanningView(input: {
               };
             })
         : [],
-    }));
+      };
+    });
   return {
     version: 'battle_planning_view_v1',
     round: input.round,

@@ -14,7 +14,8 @@ export type BattleActionIntentV1 =
       submittedBy: 'player' | 'timeout';
     }
   | {
-      kind: 'pass';
+      kind: 'basic_attack';
+      targetUnitId: UnitId;
       submittedBy: 'player' | 'timeout';
     };
 
@@ -54,7 +55,24 @@ export interface PlanningUnitViewV1 {
   unitId: UnitId;
   teamId: TeamId;
   alive: boolean;
+  basicAttack?: PlanningBasicAttackViewV1;
+  forcedAction?: PlanningForcedActionViewV1;
   abilities: PlanningAbilityViewV1[];
+}
+
+export interface PlanningBasicAttackViewV1 {
+  abilityId: 'basic_attack';
+  name: string;
+  ready: boolean;
+  unavailableReason?: 'no_target' | 'condition';
+  legalTargetIds: UnitId[];
+}
+
+export interface PlanningForcedActionViewV1 {
+  kind: 'queued_action_target';
+  abilityId: string;
+  abilityName: string;
+  legalTargetIds: UnitId[];
 }
 
 export interface BattlePlanningViewV1 {

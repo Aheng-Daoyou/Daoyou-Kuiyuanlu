@@ -1,6 +1,7 @@
 export * from './BattleRecordV3';
 export * from './CombatFactNarratorV3';
 export * from './CombatFactProjectorV3';
+export * from './CombatFactSinkV3';
 export * from './CombatNarrativeCatalogV3';
 export * from './CombatNarrativePolicyV3';
 export * from './CombatPresenterV3';

@@ -19,8 +19,7 @@ export const battleBoardgameClientGame: Game = {
     planning: {
       start: true,
       moves: {
-        submitIntent: { client: false, move: () => undefined },
-        lockPlayer: { client: false, move: () => undefined },
+        commitIntents: { client: false, move: () => undefined },
       },
     },
   },

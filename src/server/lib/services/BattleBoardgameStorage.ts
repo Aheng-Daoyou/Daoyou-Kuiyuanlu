@@ -7,8 +7,11 @@ import { getRedisClient, redis } from '@server/lib/redis';
 import type { BattleBoardgameG } from './BattleBoardgameAdapter';
 import {
   completeBoardgamePresentation,
+  failBoardgameResolution,
   resolveBoardgameTimeout,
+  retryBoardgameResolution,
   resumeBoardgameResolution,
+  technicalAbortBoardgameMatch,
 } from './BattleBoardgameAdapter';
 
 type StoredState = State<BattleBoardgameG>;
@@ -51,7 +54,12 @@ if not current then return -2 end
 local currentNumber = tonumber(current)
 local expected = tonumber(ARGV[1])
 local incoming = tonumber(ARGV[2])
-if incoming <= currentNumber then return 0 end
+if incoming == currentNumber then
+  local currentState = redis.call('HGET', KEYS[1], 'state')
+  if currentState == ARGV[3] then return 2 end
+  return -4
+end
+if incoming < currentNumber then return -1 end
 if currentNumber ~= expected or incoming ~= currentNumber + 1 then return -1 end
 if redis.call('LLEN', KEYS[7]) ~= tonumber(ARGV[11]) then return -3 end
 redis.call('HSET', KEYS[1],
@@ -199,7 +207,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     state: State,
   ): Promise<void> {
     const updated = await this.compareAndSetState(matchID, state as StoredState);
-    if (!updated) throw new Error('Battle boardgame state conflict');
+    if (!updated) throw new BattleBoardgameStateConflictError(matchID);
   }
 
   async setMetadata(matchID: string, metadata: Server.MatchData): Promise<void> {
@@ -381,8 +389,48 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       await redis.srem(RESOLVING_KEY, matchID);
       return false;
     }
-    const next = resumeBoardgameResolution(current.G, now);
+    let next: BattleBoardgameG;
+    try {
+      next = resumeBoardgameResolution(current.G, now);
+    } catch (error) {
+      next = failBoardgameResolution(current.G, error, now);
+      console.error('[battle-storage] deterministic round resolution failed', {
+        matchId: matchID,
+        round: current.G.resolving.commandSet.round,
+        commandSetId: current.G.resolving.commandSet.commandSetId,
+        checkpointRevision: current.G.battle.checkpoint.checkpointRevision,
+        fingerprint: next.resolving?.failure?.fingerprint,
+      });
+    }
     return this.compareAndSetState(matchID, withGameState(current, next));
+  }
+
+  async retryResolution(matchID: string, now = Date.now()): Promise<boolean> {
+    const fetched = await this.fetch(matchID, { state: true });
+    const current = fetched.state as StoredState;
+    const next = retryBoardgameResolution(current.G, now);
+    if (next === current.G) return false;
+    return this.compareAndSetState(matchID, withGameState(current, next));
+  }
+
+  async technicalAbort(matchID: string, now = Date.now()): Promise<boolean> {
+    const fetched = await this.fetch(matchID, { state: true });
+    const current = fetched.state as StoredState;
+    const next = technicalAbortBoardgameMatch(current.G, now);
+    if (next === current.G) return false;
+    const updated = await this.compareAndSetState(matchID, withGameState(current, next));
+    if (!updated) return false;
+    await redis
+      .multi()
+      .expire(battleOnlineMatchKey(matchID), ARCHIVED_MATCH_TTL_SECONDS)
+      .expire(replayRoundsKey(matchID), ARCHIVED_MATCH_TTL_SECONDS)
+      .srem(ALL_MATCHES_KEY, matchID)
+      .zrem(DEADLINES_KEY, matchID)
+      .zrem(WAITING_KEY, matchID)
+      .srem(RESOLVING_KEY, matchID)
+      .srem(ARCHIVE_PENDING_KEY, matchID)
+      .exec();
+    return true;
   }
 
   private async compareAndSetState(matchID: string, state: StoredState): Promise<boolean> {
@@ -433,10 +481,22 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       String(storedRoundCount),
     ));
     if (result === 1) return true;
-    if (result === 0) return false;
+    // boardgame.io persists the unchanged state after INVALID_MOVE. Treat only
+    // byte-identical, equal-stateID writes as a successful idempotent no-op.
+    if (result === 2) return true;
     if (result === -2) throw new Error(`Unknown boardgame match: ${matchID}`);
     if (result === -3) throw new Error('Battle replay accumulator conflict');
-    throw new Error('Battle boardgame state id conflict');
+    if (result === -1 || result === -4) return false;
+    throw new Error(`Unexpected battle boardgame CAS result: ${result}`);
+  }
+}
+
+export class BattleBoardgameStateConflictError extends Error {
+  readonly code = 'BATTLE_BOARDGAME_STATE_CONFLICT';
+
+  constructor(readonly matchID: string) {
+    super(`Battle boardgame state conflict: ${matchID}`);
+    this.name = 'BattleBoardgameStateConflictError';
   }
 }
 
@@ -516,7 +576,9 @@ function withGameState(current: StoredState, G: BattleBoardgameG): StoredState {
     _stateID: current._stateID + 1,
     ctx: G.status === 'finished' && !G.presentation
       ? { ...current.ctx, gameover: { result: G.latestResolution?.outcome } }
-      : current.ctx,
+      : G.status === 'cancelled'
+        ? { ...current.ctx, gameover: { cancelled: true } }
+        : current.ctx,
   };
 }
 

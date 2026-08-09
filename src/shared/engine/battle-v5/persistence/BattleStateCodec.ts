@@ -246,6 +246,11 @@ function createUnitBlueprint(unit: Unit): BattleUnitBlueprintV1 {
     };
   });
   const meta = unit.getRealmMeta();
+  const defaultAttack = unit.abilities.getDefaultAttackForSnapshot();
+  const defaultAttackConfig = defaultAttack?.getSerializableConfig();
+  if (defaultAttack && !defaultAttackConfig) {
+    throw new Error(`Default attack ${defaultAttack.id} is not serializable`);
+  }
   return {
     id: unit.id,
     name: unit.name,
@@ -253,6 +258,7 @@ function createUnitBlueprint(unit: Unit): BattleUnitBlueprintV1 {
     baseAttributes: unit.attributes.getAllBaseValues(),
     modifiers,
     abilityConfigs,
+    ...(defaultAttackConfig ? { defaultAttackConfig } : {}),
     combatResources: unit.combatResources.exportDefinitions(),
     tags: unit.tags.getTags(),
     spiritualRoots: unit.getSpiritualRoots(),
@@ -291,6 +297,9 @@ function instantiateUnit(
   }
   for (const config of blueprint.abilityConfigs) {
     unit.abilities.addAbility(AbilityFactory.create(config));
+  }
+  if (blueprint.defaultAttackConfig) {
+    unit.abilities.setDefaultAttack(AbilityFactory.create(blueprint.defaultAttackConfig));
   }
   unit.tags.clear();
   unit.tags.addTags(blueprint.tags);

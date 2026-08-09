@@ -61,7 +61,7 @@ function view(): BattleMatchPlayerViewV1 {
       ],
     },
     ownSubmissions: {},
-    lockedPlayerIds: [],
+    committedPlayerIds: [],
   };
 }
 

@@ -10,6 +10,8 @@ export interface BattlePresentationDirectorInput {
   readonly startingSnapshot: BattlePresentationSnapshotV1;
   readonly finalSnapshot: BattlePresentationSnapshotV1;
   readonly serverNow: number;
+  readonly onBeatStart?: (beat: BattlePresentationWindowV1['plan']['beats'][number]) => void;
+  readonly onFactResolved?: (fact: Parameters<typeof applyCombatVisualFactToSnapshot>[1]) => void;
   readonly onComplete?: () => void;
 }
 
@@ -46,6 +48,7 @@ export class BattlePresentationDirector {
       const delay = Math.max(0, beat.startAt - elapsed);
       const offset = Math.max(0, elapsed - beat.startAt);
       this.schedule(delay, generation, () => {
+        input.onBeatStart?.(beat);
         this.controller.playTimeline(beat.timeline, offset);
       });
     }
@@ -53,6 +56,7 @@ export class BattlePresentationDirector {
     for (const command of resolveCommands) {
       if (command.at <= elapsed) continue;
       this.schedule(command.at - elapsed, generation, () => {
+        input.onFactResolved?.(command.fact);
         displayed = applyCombatVisualFactToSnapshot(displayed, command.fact, command.at);
         this.controller.syncSnapshot({ ...displayed, phase: '回合演算' });
       });

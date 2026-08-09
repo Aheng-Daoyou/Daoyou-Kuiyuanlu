@@ -505,14 +505,15 @@ function inferFallbackVisual(
     };
   }
   if (targetIds.length > 1) {
+    const physical = damage?.type === 'damage' && damage.damageType === 'physical';
     return {
       discipline:
-        damage?.type === 'damage' && damage.damageType === 'physical'
+        physical
           ? 'physical'
           : damage?.type === 'damage' && damage.damageType === 'true'
             ? 'true'
             : 'spell',
-      delivery: 'projectile',
+      delivery: physical ? 'melee' : 'projectile',
       distribution: 'fanout',
       weight: 'heavy',
     };
@@ -534,6 +535,24 @@ function inferFallbackVisual(
     distribution: 'single',
     weight: 'normal',
   };
+}
+
+function hasDirectPhysicalDelivery(
+  sequence: CombatSequenceV3,
+  sourceId: string,
+  abilityId: string,
+) {
+  if (sequence.phase !== 'action') return false;
+  return sequence.facts.some((fact) =>
+    fact.type === 'damage'
+    && fact.damageType === 'physical'
+    && (fact.damageSource === undefined || fact.damageSource === 'direct')
+    && fact.target.id !== sourceId
+    && fact.origin.kind === 'owned'
+    && fact.origin.owner.id === sourceId
+    && fact.origin.carrier.kind === 'ability'
+    && fact.origin.carrier.id === abilityId,
+  );
 }
 
 export function adaptCombatSequenceV3ToVisualAction(
@@ -563,9 +582,12 @@ export function adaptCombatSequenceV3ToVisualAction(
   const facts = sequence.facts.map((fact) =>
     adaptFact(fact, sourceId, ability.id),
   );
-  const resolvedVisual =
+  const authoredVisual =
     resolveVisual?.(sequence) ??
     inferFallbackVisual(sequence, sourceId, targetIds);
+  const resolvedVisual = hasDirectPhysicalDelivery(sequence, sourceId, ability.id)
+    ? { ...authoredVisual, discipline: 'physical' as const, delivery: 'melee' as const }
+    : authoredVisual;
   return {
     id: sequence.id,
     sourceId,

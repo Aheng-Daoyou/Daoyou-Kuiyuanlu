@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { BattleBoardgamePlayerViewV1 } from '@shared/online-battle/BattleBoardgameClientGame';
 import type { BattleMatchSessionV1 } from '@shared/contracts/battle-matches';
+import type { BattleBoardgamePlayerViewV1 } from '@shared/online-battle/BattleBoardgameClientGame';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  commitBattleIntents,
   createBattleMatchClient,
-  lockBattlePlayer,
-  submitBattleIntent,
 } from './battleMatchClient';
 
 type BattleClient = ReturnType<typeof createBattleMatchClient>;
-export type BattleMatchConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+export type BattleMatchConnectionStatus =
+  'connecting' | 'connected' | 'disconnected';
 
 export function useBattleMatchClient(matchId: string | null) {
   const [session, setSession] = useState<BattleMatchSessionV1 | null>(null);
@@ -17,8 +17,7 @@ export function useBattleMatchClient(matchId: string | null) {
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] =
     useState<BattleMatchConnectionStatus>('connecting');
-  const activeSession =
-    session && session.matchID === matchId ? session : null;
+  const activeSession = session && session.matchID === matchId ? session : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -28,7 +27,10 @@ export function useBattleMatchClient(matchId: string | null) {
       cache: 'no-store',
     })
       .then(async (response) => {
-        const body = (await response.json()) as { session?: BattleMatchSessionV1; error?: string };
+        const body = (await response.json()) as {
+          session?: BattleMatchSessionV1;
+          error?: string;
+        };
         if (!response.ok || !body.session) {
           throw new Error(body.error ?? '无法加入战斗对局');
         }
@@ -38,7 +40,10 @@ export function useBattleMatchClient(matchId: string | null) {
         }
       })
       .catch((reason: unknown) => {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : '无法加入战斗对局');
+        if (!cancelled)
+          setError(
+            reason instanceof Error ? reason.message : '无法加入战斗对局',
+          );
       });
     return () => {
       cancelled = true;
@@ -74,9 +79,19 @@ export function useBattleMatchClient(matchId: string | null) {
     () =>
       client
         ? {
-            submitIntent: (unitId: string, intent: Parameters<typeof submitBattleIntent>[2]) =>
-              submitBattleIntent(client, unitId, intent),
-            lock: () => lockBattlePlayer(client),
+            commitIntents: (
+              intents: Parameters<typeof commitBattleIntents>[1],
+              round: number,
+              checkpointRevision: number,
+              requestId?: string,
+            ) =>
+              commitBattleIntents(
+                client,
+                intents,
+                round,
+                checkpointRevision,
+                requestId,
+              ),
           }
         : null,
     [client],

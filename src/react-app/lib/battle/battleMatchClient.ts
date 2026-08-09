@@ -1,8 +1,11 @@
+import type { BattleMatchSessionV1 } from '@shared/contracts/battle-matches';
+import type {
+  BattleMatchPlayerViewV1,
+  ClientBattleIntentV1,
+} from '@shared/engine/battle-v5/match/types';
+import { battleBoardgameClientGame } from '@shared/online-battle/BattleBoardgameClientGame';
 import { Client } from 'boardgame.io/client';
 import { SocketIO } from 'boardgame.io/multiplayer';
-import type { BattleMatchPlayerViewV1, ClientBattleIntentV1 } from '@shared/engine/battle-v5/match/types';
-import { battleBoardgameClientGame } from '@shared/online-battle/BattleBoardgameClientGame';
-import type { BattleMatchSessionV1 } from '@shared/contracts/battle-matches';
 
 export type BattleMatchClientState = {
   readonly G?: BattleMatchPlayerViewV1;
@@ -25,18 +28,18 @@ export function createBattleMatchClient(
   }) as unknown as BattleClient;
 }
 
-export function submitBattleIntent(
+export function commitBattleIntents(
   client: BattleClient,
-  unitId: string,
-  intent: ClientBattleIntentV1,
-): void {
-  client.moves.submitIntent({
-    requestId: crypto.randomUUID(),
-    unitId,
-    intent,
+  intents: Readonly<Record<string, ClientBattleIntentV1>>,
+  round: number,
+  checkpointRevision: number,
+  requestId: string = crypto.randomUUID(),
+): string {
+  client.moves.commitIntents({
+    requestId,
+    round,
+    checkpointRevision,
+    intents,
   });
-}
-
-export function lockBattlePlayer(client: BattleClient): void {
-  client.moves.lockPlayer({ requestId: crypto.randomUUID() });
+  return requestId;
 }

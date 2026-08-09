@@ -78,6 +78,7 @@ export interface BattlePlaybackBeatV1 {
   readonly index: number;
   readonly actorId: string;
   readonly actionId: string;
+  readonly sequenceIds: readonly string[];
   readonly startAt: number;
   readonly duration: number;
   readonly timeline: CombatVisualTimeline;
@@ -116,6 +117,8 @@ function phaseLabel(view: BattleMatchPlayerViewV1): string {
       return '选招';
     case 'resolving':
       return '统一结算';
+    case 'resolution_failed':
+      return '结算冻结';
     case 'finished':
       return '战局已定';
     case 'cancelled':
@@ -215,6 +218,7 @@ export function createBattleRoundPlaybackPlan(
     turn: number;
     actorId: string;
     actions: CombatVisualActionInput[];
+    sequenceIds: string[];
     primaryAction?: CombatVisualActionInput;
   }> = [];
   for (const sequence of resolution.sequences) {
@@ -224,12 +228,14 @@ export function createBattleRoundPlaybackPlan(
     const previous = groups[groups.length - 1];
     if (previous && previous.turn === sequence.turn && previous.actorId === actorId) {
       previous.actions.push(action);
+      previous.sequenceIds.push(sequence.id);
       if (sequence.phase === 'action') previous.primaryAction = action;
     } else {
       groups.push({
         turn: sequence.turn,
         actorId,
         actions: [action],
+        sequenceIds: [sequence.id],
         primaryAction: sequence.phase === 'action' ? action : undefined,
       });
     }
@@ -243,6 +249,7 @@ export function createBattleRoundPlaybackPlan(
       index,
       actorId: group.actorId,
       actionId: action.id,
+      sequenceIds: group.sequenceIds,
       startAt: cursor,
       duration: timeline.duration,
       timeline,

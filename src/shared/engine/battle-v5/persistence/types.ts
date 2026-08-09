@@ -26,6 +26,8 @@ export interface BattleUnitBlueprintV1 {
   baseAttributes: Partial<Record<AttributeType, number>>;
   modifiers: AttributeModifierConfig[];
   abilityConfigs: AbilityConfig[];
+  /** Configured sect/basic attack. Missing legacy saves use BasicAttack. */
+  defaultAttackConfig?: AbilityConfig;
   combatResources: CombatResourceDefinition[];
   tags: string[];
   spiritualRoots: SpiritualRoot[];

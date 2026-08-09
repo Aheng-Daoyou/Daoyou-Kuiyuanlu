@@ -6,6 +6,7 @@ import type {
   BattleControllerV1,
   BattleMatchCommandV1,
   BattleMatchPlayerViewV1,
+  BattleResolutionFailureV1,
   BattleMatchStateV1,
   BattleMatchTransitionV1,
   BattleRoundResolutionPublicV1,
@@ -19,6 +20,10 @@ import {
   validateBattleSave,
 } from '../persistence/BattleStateCodec';
 import { createBattlePublicSnapshot } from './BattlePublicSnapshot';
+import { peekQueuedAction } from '../core/runtimeState';
+import { AbilityFactory } from '../factories/AbilityFactory';
+import { ActiveSkill } from '../abilities/ActiveSkill';
+import { TargetSelectionSystem } from '../systems/TargetSelectionSystem';
 
 export function createBattleMatchState(
   input: CreateBattleMatchInput,
@@ -45,7 +50,7 @@ export function createBattleMatchState(
       checkpointRevision: input.battle.checkpoint.checkpointRevision,
       deadlineAt: input.now + timeout,
       submissions: {},
-      lockedPlayerIds: [],
+      committedPlayerIds: [],
     },
     createdAt: input.now,
     updatedAt: input.now,
@@ -82,52 +87,52 @@ export function transitionBattleMatch(
     throw new Error('Battle planning deadline has been reached');
   }
 
-  if (command.type === 'submit_unit_intent') {
+  if (command.type === 'commit_player_intents') {
     const controller = getController(current, command.playerId);
-    if (current.planning.lockedPlayerIds.includes(command.playerId)) {
-      throw new Error('Locked player cannot change intents');
+    if (current.planning.committedPlayerIds.includes(command.playerId)) {
+      throw new Error('Committed player cannot change intents');
     }
-    if (!controller.unitIds.includes(command.unitId)) {
-      throw new Error('Player does not control this unit');
-    }
-    const intent = normalizeClientIntent(command.intent);
     const restored = restoreBattleSave(current.battle);
+    let livingUnitIds: string[];
     try {
-      const unit = restored.roster.getUnit(command.unitId);
-      if (!unit.isAlive()) throw new Error('Dead unit cannot submit an intent');
+      livingUnitIds = controller.unitIds.filter((unitId) =>
+        restored.roster.getUnit(unitId).isAlive(),
+      );
     } finally {
       restored.runtime.dispose();
     }
+    const submittedUnitIds = Object.keys(command.intents).sort();
+    if (
+      submittedUnitIds.length !== livingUnitIds.length ||
+      submittedUnitIds.some((unitId) => !livingUnitIds.includes(unitId))
+    ) {
+      throw new Error('Player must commit every living controlled unit exactly once');
+    }
+    const normalized = Object.fromEntries(
+      livingUnitIds.map((unitId) => [
+        unitId,
+        normalizeClientIntent(command.intents[unitId]),
+      ]),
+    );
     const submissions = {
       ...current.planning.submissions,
-      [command.unitId]: intent,
+      ...normalized,
     };
+    const committed = [...current.planning.committedPlayerIds, command.playerId].sort();
+    const candidate = {
+      ...current,
+      planning: {
+        ...current.planning,
+        submissions,
+        committedPlayerIds: committed,
+      },
+    };
+    // Validate the complete prospective round now, filling other players with
+    // deterministic timeout attacks. Invalid targets never remain latent until
+    // the final player commits.
+    sealRoundCommandSet(candidate.battle, buildCommandSet(candidate));
     return transition(current, {
-      planning: { ...current.planning, submissions },
-      updatedAt: now,
-    }, now, command.requestId);
-  }
-
-  if (command.type === 'lock_player') {
-    const controller = getController(current, command.playerId);
-    const restored = restoreBattleSave(current.battle);
-    try {
-      const missingUnitIds = controller.unitIds.filter((unitId) => {
-        const unit = restored.roster.getUnit(unitId);
-        return unit.isAlive() && !current.planning!.submissions[unitId];
-      });
-      if (missingUnitIds.length > 0) {
-        throw new Error(
-          `Player must submit every living unit intent before locking: ${missingUnitIds.join(',')}`,
-        );
-      }
-    } finally {
-      restored.runtime.dispose();
-    }
-    const locked = new Set(current.planning.lockedPlayerIds);
-    locked.add(controller.playerId);
-    return transition(current, {
-      planning: { ...current.planning, lockedPlayerIds: [...locked].sort() },
+      planning: candidate.planning,
       updatedAt: now,
     }, now, command.requestId);
   }
@@ -135,10 +140,10 @@ export function transitionBattleMatch(
   if (now < current.planning.deadlineAt) {
     throw new Error('Battle planning deadline has not been reached');
   }
-  const lockedPlayerIds = current.controllers.map((controller) => controller.playerId);
+  const committedPlayerIds = current.controllers.map((controller) => controller.playerId);
   const submissions = fillTimeouts(current);
   return transition(current, {
-    planning: { ...current.planning, submissions, lockedPlayerIds },
+    planning: { ...current.planning, submissions, committedPlayerIds },
     updatedAt: now,
   }, now, command.requestId);
 }
@@ -163,7 +168,7 @@ export function applyBattleRoundResolution(
           checkpointRevision: resolution.checkpoint.checkpointRevision,
           deadlineAt: now + ROUND_PLANNING_TIMEOUT_MS,
           submissions: {},
-          lockedPlayerIds: [],
+          committedPlayerIds: [],
         },
         resolving: undefined,
       };
@@ -175,6 +180,82 @@ export function applyBattleRoundResolution(
     revision: state.revision + 1,
     updatedAt: now,
   });
+}
+
+export function markBattleResolutionFailed(
+  state: BattleMatchStateV1,
+  error: unknown,
+  now: number,
+): BattleMatchStateV1 {
+  if (state.status !== 'resolving' || !state.resolving) return clone(state);
+  const failure = createBattleResolutionFailure(error, now);
+  return clone({
+    ...state,
+    status: 'resolution_failed',
+    resolving: { ...state.resolving, failure },
+    revision: state.revision + 1,
+    updatedAt: now,
+  });
+}
+
+export function retryFailedBattleResolution(
+  state: BattleMatchStateV1,
+  now: number,
+): BattleMatchStateV1 {
+  if (state.status !== 'resolution_failed' || !state.resolving) return clone(state);
+  return clone({
+    ...state,
+    status: 'resolving',
+    resolving: { commandSet: state.resolving.commandSet, startedAt: now },
+    revision: state.revision + 1,
+    updatedAt: now,
+  });
+}
+
+export function cancelBattleResolution(
+  state: BattleMatchStateV1,
+  now: number,
+): BattleMatchStateV1 {
+  if (state.status !== 'resolution_failed' && state.status !== 'resolving') {
+    return clone(state);
+  }
+  return clone({
+    ...state,
+    status: 'cancelled',
+    planning: undefined,
+    resolving: undefined,
+    revision: state.revision + 1,
+    updatedAt: now,
+  });
+}
+
+function createBattleResolutionFailure(
+  error: unknown,
+  failedAt: number,
+): BattleResolutionFailureV1 {
+  const message = error instanceof Error ? error.message : String(error);
+  const code =
+    error && typeof error === 'object' &&
+    'code' in error && error.code === 'BATTLE_RESOLUTION_LIMIT_EXCEEDED'
+      ? 'BATTLE_RESOLUTION_LIMIT_EXCEEDED' as const
+      : 'BATTLE_ROUND_RESOLUTION_FAILED' as const;
+  return {
+    code,
+    fingerprint: stableErrorFingerprint(
+      `${error instanceof Error ? error.name : 'Error'}:${message}`,
+    ),
+    message,
+    failedAt,
+  };
+}
+
+function stableErrorFingerprint(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `resolution-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
 export function createBattleMatchPlayerView(
@@ -206,9 +287,14 @@ export function createBattleMatchPlayerView(
     playerId,
     teamId: controller.teamId,
     controlledUnitIds: controller.unitIds,
-    round: planning?.round ?? state.battle.checkpoint.round,
+    round:
+      planning?.round ??
+      state.resolving?.commandSet.round ??
+      state.battle.checkpoint.round,
     checkpointRevision:
-      planning?.checkpointRevision ?? state.battle.checkpoint.checkpointRevision,
+      planning?.checkpointRevision ??
+      state.resolving?.commandSet.checkpointRevision ??
+      state.battle.checkpoint.checkpointRevision,
     deadlineAt: planning?.deadlineAt,
     serverNow: now,
     publicSnapshot: createBattlePublicSnapshot(state.battle),
@@ -218,9 +304,16 @@ export function createBattleMatchPlayerView(
         .filter((unitId) => planning?.submissions[unitId])
         .map((unitId) => [unitId, planning!.submissions[unitId]]),
     ),
-    lockedPlayerIds: planning?.lockedPlayerIds ?? [],
+    committedPlayerIds: planning?.committedPlayerIds ?? [],
     latestResolution: state.latestResolution
       ? toPublicResolution(state.latestResolution)
+      : undefined,
+    resolutionFailure: state.resolving?.failure
+      ? {
+          code: state.resolving.failure.code,
+          fingerprint: state.resolving.failure.fingerprint,
+          failedAt: state.resolving.failure.failedAt,
+        }
       : undefined,
   });
 }
@@ -246,12 +339,12 @@ function transition(
   let next = clone({
     ...state,
     ...patch,
-    processedRequestIds: [...state.processedRequestIds, requestId],
+    processedRequestIds: [...state.processedRequestIds, requestId].slice(-128),
     revision: state.revision + 1,
     updatedAt: now,
   });
   const planning = next.planning;
-  if (planning && allControllersLocked(next)) {
+  if (planning && allControllersCommitted(next)) {
     const commandSet = buildCommandSet(next);
     const sealed = sealRoundCommandSet(next.battle, commandSet);
     next = clone({
@@ -281,8 +374,26 @@ function fillTimeouts(state: BattleMatchStateV1): Record<string, BattleActionInt
   const restored = restoreBattleSave(state.battle);
   try {
     const result: Record<string, BattleActionIntentV1> = { ...state.planning!.submissions };
+    const allUnits = restored.roster.getAllUnits();
+    const targetSystem = new TargetSelectionSystem();
     for (const unit of restored.roster.getLivingUnits()) {
-      if (!result[unit.id]) result[unit.id] = { kind: 'pass', submittedBy: 'timeout' };
+      if (result[unit.id]) continue;
+      const queued = peekQueuedAction(unit);
+      const ability = queued
+        ? AbilityFactory.create(queued.ability)
+        : unit.abilities.getDefaultAttack();
+      if (!(ability instanceof ActiveSkill)) {
+        throw new Error(`Unit ${unit.id} has no timeout attack`);
+      }
+      const target = targetSystem
+        .getTargetCandidates(unit, ability.targetPolicy, allUnits)
+        .find((candidate) => ability.canTrigger({ caster: unit, target: candidate }));
+      if (!target) throw new Error(`Unit ${unit.id} has no legal timeout attack target`);
+      result[unit.id] = {
+        kind: 'basic_attack',
+        targetUnitId: target.id,
+        submittedBy: 'timeout',
+      };
     }
     return result;
   } finally {
@@ -290,9 +401,9 @@ function fillTimeouts(state: BattleMatchStateV1): Record<string, BattleActionInt
   }
 }
 
-function allControllersLocked(state: BattleMatchStateV1): boolean {
+function allControllersCommitted(state: BattleMatchStateV1): boolean {
   return state.controllers.every((controller) =>
-    state.planning!.lockedPlayerIds.includes(controller.playerId),
+    state.planning!.committedPlayerIds.includes(controller.playerId),
   );
 }
 
@@ -303,7 +414,13 @@ function getController(state: BattleMatchStateV1, playerId: string): BattleContr
 }
 
 function normalizeClientIntent(intent: ClientBattleIntentV1): BattleActionIntentV1 {
-  if (intent.kind === 'pass') return { kind: 'pass', submittedBy: 'player' };
+  if (intent.kind === 'basic_attack' && intent.targetUnitId) {
+    return {
+      kind: 'basic_attack',
+      targetUnitId: intent.targetUnitId,
+      submittedBy: 'player',
+    };
+  }
   if (intent.kind !== 'ability' || !intent.abilityId) throw new Error('Invalid ability intent');
   return {
     kind: 'ability',
