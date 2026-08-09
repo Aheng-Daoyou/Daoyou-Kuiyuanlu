@@ -117,6 +117,7 @@ function runSmokeTeamSizes(
       updatedAt: 0,
     },
     playerIdByBoardgameId,
+    acceptedBoardgamePlayerIds: Object.keys(playerIdByBoardgameId),
   }) as BattleBoardgameG;
   const commitConfig = game.phases?.planning?.moves?.commitIntents;
   const commit = (typeof commitConfig === 'function'
@@ -264,6 +265,7 @@ async function runOnlineSmoke(teamSize: number): Promise<void> {
         controller.playerId,
       ]),
     ),
+    acceptedBoardgamePlayerIds: controllers.map((_, index) => String(index)),
   };
   const port = 32_799;
   const server = Server({ games: [game], origins: ['http://localhost'] });

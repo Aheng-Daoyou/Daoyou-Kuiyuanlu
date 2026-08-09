@@ -5,7 +5,6 @@ export * from './CombatFactSinkV3';
 export * from './CombatNarrativeCatalogV3';
 export * from './CombatNarrativePolicyV3';
 export * from './CombatPresenterV3';
-export * from './CombatRecordBuilderV3';
 export * from './CombatResultEmitterV3';
 export * from './events';
 export * from './mechanics';

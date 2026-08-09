@@ -30,7 +30,7 @@ const ARENA_START_INDEX_TTL_SECONDS = 2 * 60 * 60;
 
 const CREATE_MATCH_LUA = `
 if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
-if ARGV[10] ~= '' and redis.call('EXISTS', KEYS[6]) == 1 then return -1 end
+if ARGV[9] ~= '' and redis.call('EXISTS', KEYS[6]) == 1 then return -1 end
 redis.call('HSET', KEYS[1],
   'state_id', ARGV[1],
   'state', ARGV[2],
@@ -38,13 +38,12 @@ redis.call('HSET', KEYS[1],
   'metadata', ARGV[3],
   'status', ARGV[4],
   'deadline_at', ARGV[5],
-  'updated_at', ARGV[6],
-  'replay_initial', ARGV[9])
+  'updated_at', ARGV[6])
 redis.call('SADD', KEYS[4], ARGV[7])
 if ARGV[5] ~= '' then redis.call('ZADD', KEYS[2], ARGV[5], ARGV[7]) end
   if ARGV[4] == 'resolving' then redis.call('SADD', KEYS[3], ARGV[7]) end
 if ARGV[8] ~= '' then redis.call('ZADD', KEYS[5], ARGV[8], ARGV[7]) end
-if ARGV[10] ~= '' then redis.call('SET', KEYS[6], ARGV[7], 'EX', ARGV[11]) end
+if ARGV[9] ~= '' then redis.call('SET', KEYS[6], ARGV[7], 'EX', ARGV[10]) end
 return 1
 `;
 
@@ -183,7 +182,6 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       String(state.G.updatedAt),
       matchID,
       acceptDeadlineAt === null ? '' : String(acceptDeadlineAt),
-      JSON.stringify(state.G.replay.initialBattle),
       orchestration ? '1' : '',
       String(ARENA_START_INDEX_TTL_SECONDS),
     ));
@@ -225,7 +223,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       const fetched = await this.fetch(matchID, { state: true });
       const current = fetched.state as StoredState;
       if (!current.G.playerIdByBoardgameId[playerID]) throw new Error('Unknown battle player slot');
-      const accepted = current.G.acceptedBoardgamePlayerIds ?? [];
+      const accepted = current.G.acceptedBoardgamePlayerIds;
       if (accepted.includes(playerID)) return false;
       const acceptedBoardgamePlayerIds = [...accepted, playerID].sort();
       const allAccepted = acceptedBoardgamePlayerIds.length === current.G.controllers.length;
@@ -252,14 +250,14 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     opts: O,
   ): Promise<StorageAPI.FetchResult<O>> {
     const [fields, replayRounds] = await Promise.all([
-      redis.hmget(battleOnlineMatchKey(matchID), 'state', 'initial_state', 'metadata', 'replay_initial'),
+      redis.hmget(battleOnlineMatchKey(matchID), 'state', 'initial_state', 'metadata'),
       redis.lrange(replayRoundsKey(matchID), 0, -1),
     ]);
     if (!fields[0]) throw new Error(`Unknown boardgame match: ${matchID}`);
     const result: Record<string, unknown> = {};
-    if (opts.state) result.state = hydrateReplay(parseState(fields[0], matchID), fields[3], replayRounds);
+    if (opts.state) result.state = hydrateReplay(parseState(fields[0], matchID), replayRounds);
     if (opts.initialState) result.initialState = fields[1]
-      ? hydrateReplay(parseState(fields[1], matchID), fields[3], replayRounds)
+      ? hydrateReplay(parseState(fields[1], matchID), replayRounds)
       : undefined;
     if (opts.metadata) result.metadata = fields[2] ? JSON.parse(fields[2]) : {};
     // boardgame.io internal move logs are intentionally not persisted.
@@ -434,12 +432,16 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
   }
 
   private async compareAndSetState(matchID: string, state: StoredState): Promise<boolean> {
-    const [currentJson, storedRoundCount] = await Promise.all([
+    const [currentJson, initialStateJson, storedRoundCount] = await Promise.all([
       redis.hget(battleOnlineMatchKey(matchID), 'state'),
+      redis.hget(battleOnlineMatchKey(matchID), 'initial_state'),
       redis.llen(replayRoundsKey(matchID)),
     ]);
-    if (!currentJson) throw new Error(`Unknown boardgame match: ${matchID}`);
+    if (!currentJson || !initialStateJson) {
+      throw new Error(`Unknown boardgame match: ${matchID}`);
+    }
     parseState(currentJson, matchID);
+    const initialBattle = parseState(initialStateJson, matchID).G.battle;
     if (state.G.matchId !== matchID) throw new Error('Boardgame match id does not match battle state');
     if (state._stateID < 1) {
       throw new Error('Battle boardgame state id conflict');
@@ -456,7 +458,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       ? JSON.stringify(nextRounds[nextRounds.length - 1])
       : '';
     const archive = state.G.status === 'finished' && !state.G.presentation
-      ? buildReplay(state.G)
+      ? buildReplay(state.G, initialBattle)
       : null;
     const result = Number(await getRedisClient().eval(
       SET_STATE_LUA,
@@ -527,11 +529,8 @@ function stripReplayRounds(state: StoredState): StoredState {
 
 function hydrateReplay(
   state: StoredState,
-  initialBattleJson: string | null,
   roundJson: readonly string[] = [],
 ): StoredState {
-  if (!initialBattleJson) return state;
-  const initialBattle = JSON.parse(initialBattleJson) as BattleBoardgameG['replay']['initialBattle'];
   const rounds = roundJson.map((value) => JSON.parse(value) as BattleBoardgameG['replay']['rounds'][number]);
   return {
     ...state,
@@ -539,7 +538,6 @@ function hydrateReplay(
       ...state.G,
       replay: {
         version: 'battle_replay_accumulator_v1',
-        initialBattle,
         rounds,
       },
     },
@@ -561,9 +559,11 @@ function parseInvitationUserIds(value: string): string[] {
 function parseInvitationUserIdsFromState(value: string): string[] {
   try {
     const state = JSON.parse(value) as StoredState;
-    return state.G.controllers
-      .map((controller) => controller.playerId)
-      .filter((playerId) => !state.G.acceptedBoardgamePlayerIds.includes(playerId));
+    return Object.entries(state.G.playerIdByBoardgameId)
+      .filter(([boardgamePlayerId]) =>
+        !state.G.acceptedBoardgamePlayerIds.includes(boardgamePlayerId),
+      )
+      .map(([, applicationPlayerId]) => applicationPlayerId);
   } catch {
     return [];
   }
@@ -582,7 +582,10 @@ function withGameState(current: StoredState, G: BattleBoardgameG): StoredState {
   };
 }
 
-function buildReplay(G: BattleBoardgameG): BattleReplayV1 {
+function buildReplay(
+  G: BattleBoardgameG,
+  initialBattle: BattleBoardgameG['battle'],
+): BattleReplayV1 {
   const outcome = G.latestResolution?.outcome;
   if (!outcome?.battleEnded || G.replay.rounds.length === 0) {
     throw new Error('Finished battle is missing replay material');
@@ -595,7 +598,7 @@ function buildReplay(G: BattleBoardgameG): BattleReplayV1 {
     startedAt: G.createdAt,
     finishedAt: G.updatedAt,
     participants: G.controllers,
-    initialBattle: G.replay.initialBattle,
+    initialBattle,
     rounds: G.replay.rounds,
     finalSnapshot: createBattlePublicSnapshot(G.battle),
     outcome,
@@ -621,16 +624,12 @@ function normalizeBoardgameState(matchID: string, state: StoredState): StoredSta
       ...state.G,
       matchId: matchID,
       battle,
-      replay: {
-        ...state.G.replay,
-        initialBattle: normalizeBattleSaveId(state.G.replay.initialBattle, matchID),
-      },
     },
   };
 }
 
 function normalizeBattleSaveId(
-  battle: BattleBoardgameG['replay']['initialBattle'],
+  battle: BattleBoardgameG['battle'],
   battleId: string,
 ) {
   return {

@@ -1,8 +1,8 @@
 import type { TeamId, UnitId } from '../core/types';
 import type { BattleCheckpointV1, BattleSaveV1 } from '../persistence/types';
-import type { BattleStateTimelineV3, CombatSequenceV3 } from '../v3/types';
-import type { TeamVictoryResult } from '../systems/TeamVictorySystem';
 import type { CombatVisualSpec } from '../presentation/CombatVisualProtocol';
+import type { TeamVictoryResult } from '../systems/TeamVictorySystem';
+import type { BattleStateTimelineV3, CombatSequenceV3 } from '../v3/types';
 
 export const ROUND_PLANNING_TIMEOUT_MS = 30_000;
 
@@ -41,11 +41,7 @@ export interface PlanningAbilityViewV1 {
   cooldown?: { current: number; max: number };
   ready: boolean;
   unavailableReason?:
-    | 'cooldown'
-    | 'resource'
-    | 'no_target'
-    | 'condition'
-    | 'unknown';
+    'cooldown' | 'resource' | 'no_target' | 'condition' | 'unknown';
   targetTeam: 'enemy' | 'ally' | 'self' | 'any';
   targetScope: 'single' | 'aoe' | 'random';
   legalTargetIds: UnitId[];
@@ -91,5 +87,4 @@ export interface BattleRoundResolutionV1 {
   stateTimeline: BattleStateTimelineV3;
   checkpoint: BattleCheckpointV1;
   save: BattleSaveV1;
-  nextPlanningView?: BattlePlanningViewV1;
 }

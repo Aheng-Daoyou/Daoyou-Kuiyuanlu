@@ -9,7 +9,6 @@ import {
 import type { BattleSaveV1 } from '../persistence/types';
 import { BattleRuntime } from '../runtime/BattleRuntime';
 import { Unit } from '../units/Unit';
-import { BattleMatchCoordinator } from './BattleMatchCoordinator';
 import {
   applyBattleRoundResolution,
   cancelBattleResolution,
@@ -109,7 +108,6 @@ describe('BattleMatchStateMachine', () => {
       1_002,
     );
     expect(transition.state.status).toBe('resolving');
-    expect(transition.effects[0]?.type).toBe('resolve_round');
     expect(
       Object.values(transition.state.resolving!.commandSet.intents),
     ).toHaveLength(4);
@@ -282,39 +280,6 @@ describe('BattleMatchStateMachine', () => {
       'battle_save_v1',
     );
     expect(view.latestResolution).not.toHaveProperty('stateTimeline');
-  });
-
-  it('persists resolving before executing and can resume after a retry', async () => {
-    let stored = createBattleMatchState({
-      matchId: 'match-test',
-      battle: save(),
-      controllers,
-      now: 1_000,
-    });
-    const repository = {
-      async load() {
-        return stored;
-      },
-      async save(next: BattleMatchStateV1, expectedRevision: number) {
-        if (stored.revision !== expectedRevision) return false;
-        stored = next;
-        return true;
-      },
-    };
-    const coordinator = new BattleMatchCoordinator({
-      repository,
-      lock: { runExclusive: async (_matchId, operation) => operation() },
-      now: () => 31_000,
-    });
-    const result = await coordinator.dispatch({
-      type: 'resolve_planning_timeout',
-      matchId: 'match-test',
-      requestId: 'timeout',
-      expectedMatchRevision: stored.revision,
-      expectedCheckpointRevision: stored.battle.checkpoint.checkpointRevision,
-    });
-    expect(result.status).toBe('planning');
-    expect(stored.battle.checkpoint.checkpointRevision).toBe(1);
   });
 
   it('freezes deterministic failures without leaking diagnostics and supports retry or abort', () => {

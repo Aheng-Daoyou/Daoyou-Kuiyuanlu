@@ -1,5 +1,10 @@
-import { BattleEngineV5 } from '@shared/engine/battle-v5/BattleEngineV5';
-import type { BattleRandomSource } from '@shared/engine/battle-v5/core/BattleRandom';
+import {
+  SeededBattleRandomSource,
+  type BattleRandomSource,
+  type BattleRandomStateV1,
+} from '@shared/engine/battle-v5/core/BattleRandom';
+import { BattleRoster } from '@shared/engine/battle-v5/core/BattleRoster';
+import { resolveBattleToCompletion } from '@shared/engine/battle-v5/round/BattleAutoResolver';
 import { createBattleUnitsWithInit } from '@shared/engine/battle-v5/setup/BattleInitApplier';
 import {
   assertPreparedBattleContext,
@@ -15,7 +20,7 @@ export function simulateBattleV5(
 ): BattleRecordV3 {
   assertPreparedBattleContext(context);
   const runtime = new BattleRuntime({
-    random: randomSource ?? { next: () => Math.random() },
+    random: toCheckpointRandomSource(randomSource),
   });
 
   try {
@@ -27,14 +32,24 @@ export function simulateBattleV5(
       runtime,
     );
 
-    const engine = new BattleEngineV5(playerUnit, opponentUnit, runtime);
-
     try {
-      const battleResult = engine.execute();
+      const battleResult = resolveBattleToCompletion({
+        battleId: `pve:${playerUnit.id}:${opponentUnit.id}`,
+        roster: BattleRoster.fromDuel(playerUnit, opponentUnit),
+        runtime,
+      });
 
       const winnerUnit =
-        battleResult.winner === playerUnit.id ? playerUnit : opponentUnit;
+        battleResult.outcome.winnerTeamId === playerUnit.teamId ||
+        !battleResult.outcome.winnerTeamId
+          ? playerUnit
+          : opponentUnit;
       const loserUnit = winnerUnit === playerUnit ? opponentUnit : playerUnit;
+      const winnerSnapshot = battleResult.finalSnapshots[winnerUnit.id];
+      const loserSnapshot = battleResult.finalSnapshots[loserUnit.id];
+      if (!winnerSnapshot || !loserSnapshot) {
+        throw new Error('战斗终态缺少参战单位状态快照');
+      }
 
       const record: BattleRecordV3 = {
         participants: {
@@ -50,23 +65,44 @@ export function simulateBattleV5(
             id: loserUnit.id,
             name: loserUnit.name,
           },
-          turns: battleResult.turns,
+          turns: battleResult.rounds,
         },
         sequences: battleResult.sequences,
         stateTimeline: battleResult.stateTimeline,
         finalSnapshots: {
-          winner: battleResult.winnerSnapshot,
-          loser: battleResult.loserSnapshot,
+          winner: winnerSnapshot,
+          loser: loserSnapshot,
         },
       };
       validateBattleRecordV3(record);
       return record;
     } finally {
-      engine.destroy();
       runtime.dispose();
     }
   } catch (error) {
     runtime.dispose();
     throw error;
   }
+}
+
+type CheckpointRandomSource = BattleRandomSource & {
+  exportState(): BattleRandomStateV1;
+  restoreState(state: BattleRandomStateV1): void;
+};
+
+function toCheckpointRandomSource(
+  source?: BattleRandomSource,
+): CheckpointRandomSource {
+  const checkpointSource = source as Partial<CheckpointRandomSource> | undefined;
+  if (
+    source &&
+    typeof checkpointSource?.exportState === 'function' &&
+    typeof checkpointSource.restoreState === 'function'
+  ) {
+    return source as CheckpointRandomSource;
+  }
+  const sample = source?.next() ?? Math.random();
+  return new SeededBattleRandomSource(
+    Math.floor(Math.min(Math.max(sample, 0), 1 - Number.EPSILON) * 0x1_0000_0000),
+  );
 }

@@ -286,10 +286,6 @@ export const gameDockGroups: GameNavGroup[] = [
         sceneLabel: '挑战天骄',
       },
       {
-        id: 'battle-realtime-demo',
-        sceneLabel: '实时字阵演武',
-      },
-      {
         id: 'battle-live-lobby',
         sceneLabel: '多人战斗邀请',
         href: '/game/battle/live',

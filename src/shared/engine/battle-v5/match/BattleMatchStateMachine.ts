@@ -1,29 +1,29 @@
-import { ROUND_PLANNING_TIMEOUT_MS } from '../round/types';
+import { ActiveSkill } from '../abilities/ActiveSkill';
+import { peekQueuedAction } from '../core/runtimeState';
+import { AbilityFactory } from '../factories/AbilityFactory';
+import {
+  restoreBattleSave,
+  validateBattleSave,
+} from '../persistence/BattleStateCodec';
+import type { BattleSaveV1 } from '../persistence/types';
+import { createBattlePlanningView } from '../round/BattlePlanningView';
 import { sealRoundCommandSet } from '../round/BattleRoundResolver';
 import type { BattleActionIntentV1, RoundCommandSetV1 } from '../round/types';
-import type { BattleSaveV1 } from '../persistence/types';
+import { ROUND_PLANNING_TIMEOUT_MS } from '../round/types';
+import { TargetSelectionSystem } from '../systems/TargetSelectionSystem';
+import { createBattlePublicSnapshot } from './BattlePublicSnapshot';
 import type {
   BattleControllerV1,
   BattleMatchCommandV1,
   BattleMatchPlayerViewV1,
-  BattleResolutionFailureV1,
   BattleMatchStateV1,
   BattleMatchTransitionV1,
+  BattleResolutionFailureV1,
   BattleRoundResolutionPublicV1,
   ClientBattleIntentV1,
   CreateBattleMatchInput,
   PlayerId,
 } from './types';
-import { createBattlePlanningView } from '../round/BattlePlanningView';
-import {
-  restoreBattleSave,
-  validateBattleSave,
-} from '../persistence/BattleStateCodec';
-import { createBattlePublicSnapshot } from './BattlePublicSnapshot';
-import { peekQueuedAction } from '../core/runtimeState';
-import { AbilityFactory } from '../factories/AbilityFactory';
-import { ActiveSkill } from '../abilities/ActiveSkill';
-import { TargetSelectionSystem } from '../systems/TargetSelectionSystem';
 
 export function createBattleMatchState(
   input: CreateBattleMatchInput,
@@ -64,16 +64,19 @@ export function transitionBattleMatch(
   now: number,
 ): BattleMatchTransitionV1 {
   const current = clone(state);
-  if (!command.requestId) throw new Error('Battle match command requires requestId');
-  if (!Number.isFinite(now)) throw new Error('Battle match time must be finite');
+  if (!command.requestId)
+    throw new Error('Battle match command requires requestId');
+  if (!Number.isFinite(now))
+    throw new Error('Battle match time must be finite');
   if (current.processedRequestIds.includes(command.requestId)) {
-    return { state: current, effects: [], changed: false, duplicateRequest: true };
+    return { state: current, changed: false, duplicateRequest: true };
   }
   if (command.expectedMatchRevision !== current.revision) {
     throw new Error('Battle match revision is stale');
   }
   if (
-    command.expectedCheckpointRevision !== current.battle.checkpoint.checkpointRevision
+    command.expectedCheckpointRevision !==
+    current.battle.checkpoint.checkpointRevision
   ) {
     throw new Error('Battle checkpoint revision is stale');
   }
@@ -83,7 +86,10 @@ export function transitionBattleMatch(
   if (current.status !== 'planning' || !current.planning) {
     throw new Error(`Battle match is not planning: ${current.status}`);
   }
-  if (command.type !== 'resolve_planning_timeout' && now >= current.planning.deadlineAt) {
+  if (
+    command.type !== 'resolve_planning_timeout' &&
+    now >= current.planning.deadlineAt
+  ) {
     throw new Error('Battle planning deadline has been reached');
   }
 
@@ -106,7 +112,9 @@ export function transitionBattleMatch(
       submittedUnitIds.length !== livingUnitIds.length ||
       submittedUnitIds.some((unitId) => !livingUnitIds.includes(unitId))
     ) {
-      throw new Error('Player must commit every living controlled unit exactly once');
+      throw new Error(
+        'Player must commit every living controlled unit exactly once',
+      );
     }
     const normalized = Object.fromEntries(
       livingUnitIds.map((unitId) => [
@@ -118,7 +126,10 @@ export function transitionBattleMatch(
       ...current.planning.submissions,
       ...normalized,
     };
-    const committed = [...current.planning.committedPlayerIds, command.playerId].sort();
+    const committed = [
+      ...current.planning.committedPlayerIds,
+      command.playerId,
+    ].sort();
     const candidate = {
       ...current,
       planning: {
@@ -131,21 +142,33 @@ export function transitionBattleMatch(
     // deterministic timeout attacks. Invalid targets never remain latent until
     // the final player commits.
     sealRoundCommandSet(candidate.battle, buildCommandSet(candidate));
-    return transition(current, {
-      planning: candidate.planning,
-      updatedAt: now,
-    }, now, command.requestId);
+    return transition(
+      current,
+      {
+        planning: candidate.planning,
+        updatedAt: now,
+      },
+      now,
+      command.requestId,
+    );
   }
 
   if (now < current.planning.deadlineAt) {
     throw new Error('Battle planning deadline has not been reached');
   }
-  const committedPlayerIds = current.controllers.map((controller) => controller.playerId);
+  const committedPlayerIds = current.controllers.map(
+    (controller) => controller.playerId,
+  );
   const submissions = fillTimeouts(current);
-  return transition(current, {
-    planning: { ...current.planning, submissions, committedPlayerIds },
-    updatedAt: now,
-  }, now, command.requestId);
+  return transition(
+    current,
+    {
+      planning: { ...current.planning, submissions, committedPlayerIds },
+      updatedAt: now,
+    },
+    now,
+    command.requestId,
+  );
 }
 
 export function applyBattleRoundResolution(
@@ -176,7 +199,7 @@ export function applyBattleRoundResolution(
     ...state,
     ...next,
     battle: resolution.save,
-    latestResolution: resolution,
+    latestResolution: toPublicResolution(resolution),
     revision: state.revision + 1,
     updatedAt: now,
   });
@@ -202,7 +225,8 @@ export function retryFailedBattleResolution(
   state: BattleMatchStateV1,
   now: number,
 ): BattleMatchStateV1 {
-  if (state.status !== 'resolution_failed' || !state.resolving) return clone(state);
+  if (state.status !== 'resolution_failed' || !state.resolving)
+    return clone(state);
   return clone({
     ...state,
     status: 'resolving',
@@ -235,10 +259,12 @@ function createBattleResolutionFailure(
 ): BattleResolutionFailureV1 {
   const message = error instanceof Error ? error.message : String(error);
   const code =
-    error && typeof error === 'object' &&
-    'code' in error && error.code === 'BATTLE_RESOLUTION_LIMIT_EXCEEDED'
-      ? 'BATTLE_RESOLUTION_LIMIT_EXCEEDED' as const
-      : 'BATTLE_ROUND_RESOLUTION_FAILED' as const;
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    error.code === 'BATTLE_RESOLUTION_LIMIT_EXCEEDED'
+      ? ('BATTLE_RESOLUTION_LIMIT_EXCEEDED' as const)
+      : ('BATTLE_ROUND_RESOLUTION_FAILED' as const);
   return {
     code,
     fingerprint: stableErrorFingerprint(
@@ -305,9 +331,7 @@ export function createBattleMatchPlayerView(
         .map((unitId) => [unitId, planning!.submissions[unitId]]),
     ),
     committedPlayerIds: planning?.committedPlayerIds ?? [],
-    latestResolution: state.latestResolution
-      ? toPublicResolution(state.latestResolution)
-      : undefined,
+    latestResolution: state.latestResolution,
     resolutionFailure: state.resolving?.failure
       ? {
           code: state.resolving.failure.code,
@@ -354,9 +378,9 @@ function transition(
       resolving: { commandSet: sealed, startedAt: now },
       revision: next.revision + 1,
     });
-    return { state: next, effects: [{ type: 'resolve_round', commandSet: sealed }], changed: true, duplicateRequest: false };
+    return { state: next, changed: true, duplicateRequest: false };
   }
-  return { state: next, effects: [], changed: true, duplicateRequest: false };
+  return { state: next, changed: true, duplicateRequest: false };
 }
 
 function buildCommandSet(state: BattleMatchStateV1): RoundCommandSetV1 {
@@ -370,10 +394,14 @@ function buildCommandSet(state: BattleMatchStateV1): RoundCommandSetV1 {
   };
 }
 
-function fillTimeouts(state: BattleMatchStateV1): Record<string, BattleActionIntentV1> {
+function fillTimeouts(
+  state: BattleMatchStateV1,
+): Record<string, BattleActionIntentV1> {
   const restored = restoreBattleSave(state.battle);
   try {
-    const result: Record<string, BattleActionIntentV1> = { ...state.planning!.submissions };
+    const result: Record<string, BattleActionIntentV1> = {
+      ...state.planning!.submissions,
+    };
     const allUnits = restored.roster.getAllUnits();
     const targetSystem = new TargetSelectionSystem();
     for (const unit of restored.roster.getLivingUnits()) {
@@ -387,8 +415,11 @@ function fillTimeouts(state: BattleMatchStateV1): Record<string, BattleActionInt
       }
       const target = targetSystem
         .getTargetCandidates(unit, ability.targetPolicy, allUnits)
-        .find((candidate) => ability.canTrigger({ caster: unit, target: candidate }));
-      if (!target) throw new Error(`Unit ${unit.id} has no legal timeout attack target`);
+        .find((candidate) =>
+          ability.canTrigger({ caster: unit, target: candidate }),
+        );
+      if (!target)
+        throw new Error(`Unit ${unit.id} has no legal timeout attack target`);
       result[unit.id] = {
         kind: 'basic_attack',
         targetUnitId: target.id,
@@ -407,13 +438,20 @@ function allControllersCommitted(state: BattleMatchStateV1): boolean {
   );
 }
 
-function getController(state: BattleMatchStateV1, playerId: string): BattleControllerV1 {
-  const controller = state.controllers.find((entry) => entry.playerId === playerId);
+function getController(
+  state: BattleMatchStateV1,
+  playerId: string,
+): BattleControllerV1 {
+  const controller = state.controllers.find(
+    (entry) => entry.playerId === playerId,
+  );
   if (!controller) throw new Error('Player is not a battle controller');
   return controller;
 }
 
-function normalizeClientIntent(intent: ClientBattleIntentV1): BattleActionIntentV1 {
+function normalizeClientIntent(
+  intent: ClientBattleIntentV1,
+): BattleActionIntentV1 {
   if (intent.kind === 'basic_attack' && intent.targetUnitId) {
     return {
       kind: 'basic_attack',
@@ -421,7 +459,8 @@ function normalizeClientIntent(intent: ClientBattleIntentV1): BattleActionIntent
       submittedBy: 'player',
     };
   }
-  if (intent.kind !== 'ability' || !intent.abilityId) throw new Error('Invalid ability intent');
+  if (intent.kind !== 'ability' || !intent.abilityId)
+    throw new Error('Invalid ability intent');
   return {
     kind: 'ability',
     abilityId: intent.abilityId,
@@ -430,23 +469,41 @@ function normalizeClientIntent(intent: ClientBattleIntentV1): BattleActionIntent
   };
 }
 
-function validateControllers(save: BattleSaveV1, controllers: readonly BattleControllerV1[]): void {
-  if (controllers.length < 2 || new Set(controllers.map((entry) => entry.playerId)).size !== controllers.length) {
+function validateControllers(
+  save: BattleSaveV1,
+  controllers: readonly BattleControllerV1[],
+): void {
+  if (
+    controllers.length < 2 ||
+    new Set(controllers.map((entry) => entry.playerId)).size !==
+      controllers.length
+  ) {
     throw new Error('Battle match requires at least two unique controllers');
   }
   const units = new Set(Object.keys(save.checkpoint.units));
   const controlled = new Set<string>();
   for (const controller of controllers) {
-    if (!controller.playerId || !controller.teamId || controller.unitIds.length < 1) throw new Error('Invalid battle controller');
-    if (!save.blueprint.teams.some((team) => team.id === controller.teamId)) throw new Error('Controller references unknown team');
+    if (
+      !controller.playerId ||
+      !controller.teamId ||
+      controller.unitIds.length < 1
+    )
+      throw new Error('Invalid battle controller');
+    if (!save.blueprint.teams.some((team) => team.id === controller.teamId))
+      throw new Error('Controller references unknown team');
     for (const unitId of controller.unitIds) {
-      if (!units.has(unitId) || controlled.has(unitId)) throw new Error('Controller references invalid or duplicate unit');
+      if (!units.has(unitId) || controlled.has(unitId))
+        throw new Error('Controller references invalid or duplicate unit');
       controlled.add(unitId);
-      const team = save.blueprint.teams.find((entry) => entry.units.some((unit) => unit.id === unitId));
-      if (team?.id !== controller.teamId) throw new Error('Controller unit is not on the declared team');
+      const team = save.blueprint.teams.find((entry) =>
+        entry.units.some((unit) => unit.id === unitId),
+      );
+      if (team?.id !== controller.teamId)
+        throw new Error('Controller unit is not on the declared team');
     }
   }
-  if (controlled.size !== units.size) throw new Error('Every battle unit must have a controller');
+  if (controlled.size !== units.size)
+    throw new Error('Every battle unit must have a controller');
 }
 
 function clone<T>(value: T): T {

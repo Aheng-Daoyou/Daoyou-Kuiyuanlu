@@ -110,8 +110,6 @@ describe('BattleRoundResolver', () => {
     expect(restored.roster.getUnit('b0').getHpPercent()).toBeLessThan(1);
     expect(restored.roster.getUnit('b1').getHpPercent()).toBeLessThan(1);
     expect(a0.getMaxMp() - a0.getCurrentMp()).toBe(10);
-    expect(result.nextPlanningView?.units).toHaveLength(4);
-    expect(JSON.stringify(result.nextPlanningView)).not.toContain('intents');
   });
 
   it('is deterministic for the same checkpoint and sealed command set', () => {
@@ -186,7 +184,6 @@ describe('BattleRoundResolver', () => {
     const result = resolveBattleRound(save, sealRoundCommandSet(save, commandSet));
 
     expect(teamView.units).toHaveLength(4);
-    expect(result.nextPlanningView?.units).toHaveLength(8);
     expect(result.checkpoint.units).toHaveProperty('beta-3');
   });
 

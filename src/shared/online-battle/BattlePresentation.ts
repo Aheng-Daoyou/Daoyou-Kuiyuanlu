@@ -1,16 +1,23 @@
+import type {
+  BattlePublicSnapshotV1,
+  BattlePublicUnitStateV1,
+} from '@shared/engine/battle-v5/match/BattlePublicSnapshot';
+import type {
+  BattleMatchPlayerViewV1,
+  BattleRoundResolutionPublicV1,
+} from '@shared/engine/battle-v5/match/types';
+import type {
+  CombatControlVisual,
+  CombatVisualFact,
+  CombatVisualSpec,
+} from '@shared/engine/battle-v5/presentation';
 import {
   adaptCombatSequenceV3ToVisualAction,
   projectCombatVisualAction,
   type CombatVisualActionInput,
   type CombatVisualTimeline,
 } from '@shared/engine/battle-v5/presentation';
-import type { CombatControlVisual } from '@shared/engine/battle-v5/presentation';
-import type { BattleMatchPlayerViewV1 } from '@shared/engine/battle-v5/match/types';
-import type { BattlePublicUnitStateV1 } from '@shared/engine/battle-v5/match/BattlePublicSnapshot';
-import type { BattlePublicSnapshotV1 } from '@shared/engine/battle-v5/match/BattlePublicSnapshot';
-import type { BattleRoundResolutionPublicV1 } from '@shared/engine/battle-v5/match/types';
 import type { CombatSequenceV3 } from '@shared/engine/battle-v5/v3/types';
-import type { CombatVisualFact, CombatVisualSpec } from '@shared/engine/battle-v5/presentation';
 
 export type BattlePresentationTeamV1 = 'allies' | 'enemies';
 
@@ -111,8 +118,6 @@ function teamForViewer(
 
 function phaseLabel(view: BattleMatchPlayerViewV1): string {
   switch (view.status) {
-    case 'waiting':
-      return '等待入阵';
     case 'planning':
       return '选招';
     case 'resolving':
@@ -128,7 +133,10 @@ function phaseLabel(view: BattleMatchPlayerViewV1): string {
 
 function elapsedPlanningMs(view: BattleMatchPlayerViewV1): number {
   if (!view.deadlineAt || view.status !== 'planning') return 0;
-  return Math.max(0, Math.min(30_000, view.serverNow - (view.deadlineAt - 30_000)));
+  return Math.max(
+    0,
+    Math.min(30_000, view.serverNow - (view.deadlineAt - 30_000)),
+  );
 }
 
 function toEntity(
@@ -173,11 +181,12 @@ function toEntity(
     actionStates: unit.actionStates.map((state) => ({
       id: state.id,
       label: state.label,
-      tone: state.type === 'rest'
-        ? 'control'
-        : state.type === 'queued_action'
-          ? 'preparing'
-          : 'mode',
+      tone:
+        state.type === 'rest'
+          ? 'control'
+          : state.type === 'queued_action'
+            ? 'preparing'
+            : 'mode',
       until: elapsedMs + state.remainingActions * 30_000,
     })),
   };
@@ -189,9 +198,10 @@ export function createBattlePresentationSnapshot(
 ): BattlePresentationSnapshotV1 {
   const units = view.publicSnapshot.units;
   const elapsedMs = elapsedPlanningMs(view);
-  const fallbackFocus = units.find(
-    (unit) => unit.teamId === view.teamId && unit.alive,
-  )?.unitId ?? units[0]?.unitId ?? '';
+  const fallbackFocus =
+    units.find((unit) => unit.teamId === view.teamId && unit.alive)?.unitId ??
+    units[0]?.unitId ??
+    '';
   return {
     version: 'battle_presentation_snapshot_v1',
     elapsedMs,
@@ -226,7 +236,11 @@ export function createBattleRoundPlaybackPlan(
     if (!action) continue;
     const actorId = sequence.actor?.id ?? action.sourceId;
     const previous = groups[groups.length - 1];
-    if (previous && previous.turn === sequence.turn && previous.actorId === actorId) {
+    if (
+      previous &&
+      previous.turn === sequence.turn &&
+      previous.actorId === actorId
+    ) {
       previous.actions.push(action);
       previous.sequenceIds.push(sequence.id);
       if (sequence.phase === 'action') previous.primaryAction = action;
@@ -243,7 +257,11 @@ export function createBattleRoundPlaybackPlan(
 
   let cursor = 0;
   const beats = groups.map((group, index): BattlePlaybackBeatV1 => {
-    const action = mergeVisualActions(group.actions, index, group.primaryAction);
+    const action = mergeVisualActions(
+      group.actions,
+      index,
+      group.primaryAction,
+    );
     const timeline = projectCombatVisualAction(action);
     const beat = {
       index,
@@ -271,7 +289,10 @@ function mergeVisualActions(
   index: number,
   explicitPrimary?: CombatVisualActionInput,
 ): CombatVisualActionInput {
-  const primary = explicitPrimary ?? actions.find((action) => action.facts.length > 0) ?? actions[0];
+  const primary =
+    explicitPrimary ??
+    actions.find((action) => action.facts.length > 0) ??
+    actions[0];
   return {
     ...primary,
     id: `${primary.id}:beat-${index}`,
@@ -292,16 +313,18 @@ export function createBattlePresentationSnapshotFromPublic(
 ): BattlePresentationSnapshotV1 {
   const elapsedMs = options.elapsedMs ?? 0;
   const units = publicSnapshot.units;
-  const fallbackFocus = units.find(
-    (unit) => unit.teamId === viewerTeamId && unit.alive,
-  )?.unitId ?? units[0]?.unitId ?? '';
+  const fallbackFocus =
+    units.find((unit) => unit.teamId === viewerTeamId && unit.alive)?.unitId ??
+    units[0]?.unitId ??
+    '';
   return {
     version: 'battle_presentation_snapshot_v1',
     elapsedMs,
     cycle: options.cycle ?? publicSnapshot.round,
     phase: options.phase ?? '回合演算',
     focusedEntityId:
-      options.focusedEntityId && units.some((unit) => unit.unitId === options.focusedEntityId)
+      options.focusedEntityId &&
+      units.some((unit) => unit.unitId === options.focusedEntityId)
         ? options.focusedEntityId
         : fallbackFocus,
     entities: units.map((unit) => toEntity(unit, viewerTeamId, elapsedMs)),
@@ -322,49 +345,103 @@ export function applyCombatVisualFactToSnapshot(
       if (!targets.has(entity.id)) return entity;
       switch (fact.kind) {
         case 'damage': {
-          const absorbed = Math.min(entity.shield, Math.max(0, fact.shieldAbsorbed ?? 0));
+          const absorbed = Math.min(
+            entity.shield,
+            Math.max(0, fact.shieldAbsorbed ?? 0),
+          );
           const hpDamage = Math.max(0, fact.hpDamage ?? fact.amount - absorbed);
-          return { ...entity, shield: Math.max(0, entity.shield - absorbed), hp: Math.max(0, entity.hp - hpDamage) };
+          return {
+            ...entity,
+            shield: Math.max(0, entity.shield - absorbed),
+            hp: Math.max(0, entity.hp - hpDamage),
+          };
         }
         case 'recovery':
           return fact.resource === 'hp'
             ? { ...entity, hp: Math.min(entity.maxHp, entity.hp + fact.amount) }
-            : { ...entity, qi: Math.min(entity.maxQi, entity.qi + fact.amount) };
+            : {
+                ...entity,
+                qi: Math.min(entity.maxQi, entity.qi + fact.amount),
+              };
         case 'shield':
-          return { ...entity, shield: fact.operation === 'break' ? 0 : fact.operation === 'gain' ? entity.shield + fact.amount : Math.max(0, entity.shield - fact.amount) };
+          return {
+            ...entity,
+            shield:
+              fact.operation === 'break'
+                ? 0
+                : fact.operation === 'gain'
+                  ? entity.shield + fact.amount
+                  : Math.max(0, entity.shield - fact.amount),
+          };
         case 'resource': {
-          if (fact.resourceId === 'mp') return { ...entity, qi: Math.max(0, Math.min(entity.maxQi, fact.after)) };
+          if (fact.resourceId === 'mp')
+            return {
+              ...entity,
+              qi: Math.max(0, Math.min(entity.maxQi, fact.after)),
+            };
           return {
             ...entity,
             combatResources: entity.combatResources.map((resource) =>
-              resource.id === fact.resourceId ? { ...resource, current: fact.after } : resource,
+              resource.id === fact.resourceId
+                ? { ...resource, current: fact.after }
+                : resource,
             ),
           };
         }
         case 'status': {
-          const effects = entity.effects.filter((effect) => effect.id !== fact.statusId);
-          if (fact.operation === 'remove' || fact.operation === 'immune') return { ...entity, effects };
+          const effects = entity.effects.filter(
+            (effect) => effect.id !== fact.statusId,
+          );
+          if (fact.operation === 'remove' || fact.operation === 'immune')
+            return { ...entity, effects };
           return {
             ...entity,
-            effects: [...effects, {
-              id: fact.statusId,
-              label: fact.statusName,
-              tone: fact.statusType === 'buff' ? 'buff' : 'debuff',
-              statusType: fact.statusType,
-              layers: fact.layers ?? 1,
-              until: elapsedMs + (fact.durationMs ?? 30_000),
-              controlVisual: fact.controlVisual,
-            }],
+            effects: [
+              ...effects,
+              {
+                id: fact.statusId,
+                label: fact.statusName,
+                tone: fact.statusType === 'buff' ? 'buff' : 'debuff',
+                statusType: fact.statusType,
+                layers: fact.layers ?? 1,
+                until: elapsedMs + (fact.durationMs ?? 30_000),
+                controlVisual: fact.controlVisual,
+              },
+            ],
           };
         }
         case 'action_state': {
           const id = `${fact.stateType}:${fact.stateName}`;
-          const actionStates = entity.actionStates.filter((state) => state.id !== id);
+          const actionStates = entity.actionStates.filter(
+            (state) => state.id !== id,
+          );
           if (fact.phase !== 'entered') return { ...entity, actionStates };
-          return { ...entity, actionStates: [...actionStates, { id, label: fact.stateName, tone: fact.stateType === 'rest' ? 'control' : fact.stateType === 'queued_action' ? 'preparing' : 'mode', until: elapsedMs + (fact.durationMs ?? 30_000) }] };
+          return {
+            ...entity,
+            actionStates: [
+              ...actionStates,
+              {
+                id,
+                label: fact.stateName,
+                tone:
+                  fact.stateType === 'rest'
+                    ? 'control'
+                    : fact.stateType === 'queued_action'
+                      ? 'preparing'
+                      : 'mode',
+                until: elapsedMs + (fact.durationMs ?? 30_000),
+              },
+            ],
+          };
         }
         case 'unit_died':
-          return { ...entity, hp: 0, shield: 0, alive: false, actionStates: [] };
+          return {
+            ...entity,
+            hp: 0,
+            shield: 0,
+            alive: false,
+            actionStates: [],
+          };
         case 'death_prevented':
           return { ...entity, alive: true, hp: Math.max(1, entity.hp) };
         default:

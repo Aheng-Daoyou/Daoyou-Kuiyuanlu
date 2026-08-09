@@ -48,7 +48,6 @@ function getDefaultScope(eventType: string): ListenerScope {
       return 'owner_as_target';
     case 'ActionPreEvent':
     case 'ActionPostEvent':
-    case 'ActionEvent':
       return 'owner_as_actor';
     case 'SkillCastEvent':
     case 'SkillPreCastEvent':

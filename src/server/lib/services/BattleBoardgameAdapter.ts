@@ -17,7 +17,6 @@ import type {
   BattleMatchStateV1,
   ClientBattleIntentV1,
 } from '@shared/engine/battle-v5/match/types';
-import type { BattleSaveV1 } from '@shared/engine/battle-v5/persistence/types';
 import { resolveBattleAbilityVisual } from '@shared/engine/battle-v5/presentation';
 import { resolveBattleRound } from '@shared/engine/battle-v5/round/BattleRoundResolver';
 import { ROUND_PLANNING_TIMEOUT_MS } from '@shared/engine/battle-v5/round/types';
@@ -32,8 +31,8 @@ export interface BattleBoardgameSetupDataV1 {
   readonly state: BattleMatchStateV1;
   /** boardgame.io playerID → authenticated application playerId */
   readonly playerIdByBoardgameId: Readonly<Record<string, string>>;
-  /** Slots whose invite has been accepted. Missing means legacy all-ready. */
-  readonly acceptedBoardgamePlayerIds?: readonly string[];
+  /** Slots whose invite has been accepted. */
+  readonly acceptedBoardgamePlayerIds: readonly string[];
   readonly orchestration?: {
     readonly kind: 'arena_sparring_v1';
     readonly roomId: string;
@@ -57,7 +56,6 @@ export type BattleBoardgameG = BattleMatchStateV1 & {
   >;
   readonly replay: {
     readonly version: 'battle_replay_accumulator_v1';
-    readonly initialBattle: BattleSaveV1;
     readonly rounds: readonly BattleReplayRoundV1[];
   };
 };
@@ -72,7 +70,7 @@ function appPlayerId(
 }
 
 function acceptedPlayerIds(G: BattleBoardgameG): readonly string[] {
-  return G.acceptedBoardgamePlayerIds ?? Object.keys(G.playerIdByBoardgameId);
+  return G.acceptedBoardgamePlayerIds;
 }
 
 function serverNow(): number {
@@ -104,14 +102,11 @@ export function createBattleBoardgameGame(): Game<
       return {
         ...setupData.state,
         playerIdByBoardgameId: setupData.playerIdByBoardgameId,
-        acceptedBoardgamePlayerIds:
-          setupData.acceptedBoardgamePlayerIds ??
-          Object.keys(setupData.playerIdByBoardgameId),
+        acceptedBoardgamePlayerIds: setupData.acceptedBoardgamePlayerIds,
         presentation: undefined,
         commandReceiptsByPlayerId: {},
         replay: {
           version: 'battle_replay_accumulator_v1',
-          initialBattle: structuredClone(setupData.state.battle),
           rounds: [],
         },
       };
@@ -123,6 +118,14 @@ export function createBattleBoardgameGame(): Game<
       }
       if (Object.keys(setupData.playerIdByBoardgameId).length !== numPlayers) {
         return 'Battle player mapping does not match the lobby player count';
+      }
+      const playerSlots = new Set(Object.keys(setupData.playerIdByBoardgameId));
+      if (
+        new Set(setupData.acceptedBoardgamePlayerIds).size !==
+          setupData.acceptedBoardgamePlayerIds.length ||
+        setupData.acceptedBoardgamePlayerIds.some((slot) => !playerSlots.has(slot))
+      ) {
+        return 'Battle accepted player slots are invalid';
       }
       const controllerIds = new Set(
         setupData.state.controllers.map((controller) => controller.playerId),
@@ -229,7 +232,7 @@ export function createBattleBoardgameGame(): Game<
       const ready = acceptedPlayerIds(G);
       return {
         ...createBattleMatchPlayerView(G, appId, Date.now()),
-        commandReceipt: G.commandReceiptsByPlayerId?.[appId],
+        commandReceipt: G.commandReceiptsByPlayerId[appId],
         presentation: G.presentation,
         orchestration: {
           readyPlayerCount: ready.length,
@@ -298,7 +301,7 @@ export function resumeBoardgameResolution(
     revision: G.revision + 1,
     playerIdByBoardgameId: G.playerIdByBoardgameId,
     acceptedBoardgamePlayerIds: acceptedPlayerIds(G),
-    commandReceiptsByPlayerId: G.commandReceiptsByPlayerId ?? {},
+    commandReceiptsByPlayerId: G.commandReceiptsByPlayerId,
     replay: appendReplayRound(G, G.resolving.commandSet, resolution),
   };
 }
@@ -356,7 +359,7 @@ function transitionAndSeal(
     revision: transition.changed ? G.revision + 1 : G.revision,
     playerIdByBoardgameId: G.playerIdByBoardgameId,
     acceptedBoardgamePlayerIds: acceptedPlayerIds(G),
-    commandReceiptsByPlayerId: G.commandReceiptsByPlayerId ?? {},
+    commandReceiptsByPlayerId: G.commandReceiptsByPlayerId,
     replay: G.replay,
   };
 }

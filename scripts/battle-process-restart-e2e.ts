@@ -90,7 +90,7 @@ try {
   const initial = makeState(`restart-fixture-${Date.now()}`);
   const mapping = Object.fromEntries(initial.controllers.map((controller, index) => [String(index), controller.playerId]));
   const created = await request<{ matchID: string }>(`/games/${gameName}/create`, {
-    method: 'POST', body: JSON.stringify({ numPlayers: initial.controllers.length, unlisted: true, setupData: { state: initial, playerIdByBoardgameId: mapping } }),
+    method: 'POST', body: JSON.stringify({ numPlayers: initial.controllers.length, unlisted: true, setupData: { state: initial, playerIdByBoardgameId: mapping, acceptedBoardgamePlayerIds: [] } }),
   });
   const joined: { playerID: string; playerCredentials: string }[] = [];
   for (const [index, controller] of initial.controllers.entries()) {
@@ -100,19 +100,28 @@ try {
   }
 
   const resolvingSeed = makeState(created.matchID);
-  const defeatedBeta = {
+  // Keep one enemy at 1 HP so timeout intent sealing still has a legal target;
+  // the first faster alpha action then finishes the battle after restart.
+  const nearDefeatedBeta = {
     ...resolvingSeed,
     battle: {
       ...resolvingSeed.battle,
       checkpoint: {
         ...resolvingSeed.battle.checkpoint,
         units: Object.fromEntries(Object.entries(resolvingSeed.battle.checkpoint.units).map(
-          ([unitId, unit]) => [unitId, unitId.startsWith('b') ? { ...unit, hp: 0 } : unit],
+          ([unitId, unit]) => [
+            unitId,
+            unitId === 'b0'
+              ? { ...unit, hp: 1 }
+              : unitId === 'b1'
+                ? { ...unit, hp: 0 }
+                : unit,
+          ],
         )),
       },
     },
   };
-  const resolving = transitionBattleMatch(defeatedBeta, {
+  const resolving = transitionBattleMatch(nearDefeatedBeta, {
     type: 'resolve_planning_timeout', matchId: created.matchID, requestId: 'restart-fixture-timeout',
     expectedMatchRevision: 0, expectedCheckpointRevision: 0,
   }, Date.now() + 31_000).state;
@@ -127,6 +136,7 @@ try {
       ...resolving,
       playerIdByBoardgameId: mapping,
       acceptedBoardgamePlayerIds: Object.keys(mapping),
+      commandReceiptsByPlayerId: currentG.commandReceiptsByPlayerId,
       replay: currentG.replay,
     },
     _stateID: currentGame._stateID + 1,

@@ -16,18 +16,6 @@ export interface CombatEvent {
   readonly origin?: CombatOriginV3;
 }
 
-// ===== 战斗阶段枚举 =====
-export enum CombatPhase {
-  INIT = 'init',
-  ROUND_START = 'round_start',
-  ROUND_PRE = 'round_pre',
-  TURN_ORDER = 'turn_order',
-  ACTION = 'action',
-  ROUND_POST = 'round_post',
-  VICTORY_CHECK = 'victory_check',
-  END = 'end',
-}
-
 // ===== 六维属性类型 =====
 export enum AttributeType {
   // ── 主属性（六维）──
@@ -157,13 +145,6 @@ export enum BuffType {
   BUFF = 'buff',
   DEBUFF = 'debuff',
   CONTROL = 'control',
-}
-
-// ===== 回合快照 =====
-export interface TurnSnapshot {
-  turn: number;
-  phase: CombatPhase;
-  units: Map<UnitId, UnitSnapshot>;
 }
 
 // ===== 单元快照 =====

@@ -1,13 +1,13 @@
+import type { BattleResolutionErrorCode } from '../core/BattleResolutionError';
+import type { TeamId, UnitId } from '../core/types';
+import type { BattleSaveV1 } from '../persistence/types';
 import type {
   BattleActionIntentV1,
   BattlePlanningViewV1,
   BattleRoundResolutionV1,
   RoundCommandSetV1,
 } from '../round/types';
-import type { BattleSaveV1 } from '../persistence/types';
-import type { TeamId, UnitId } from '../core/types';
 import type { BattlePublicSnapshotV1 } from './BattlePublicSnapshot';
-import type { BattleResolutionErrorCode } from '../core/BattleResolutionError';
 
 export type PlayerId = string;
 
@@ -18,12 +18,7 @@ export interface BattleControllerV1 {
 }
 
 export type BattleMatchStatusV1 =
-  | 'waiting'
-  | 'planning'
-  | 'resolving'
-  | 'resolution_failed'
-  | 'finished'
-  | 'cancelled';
+  'planning' | 'resolving' | 'resolution_failed' | 'finished' | 'cancelled';
 
 export interface BattleMatchPlanningV1 {
   readonly round: number;
@@ -51,7 +46,8 @@ export type BattleResolutionFailurePublicV1 = Omit<
   'message'
 >;
 
-export type BattleCommandReceiptStatusV1 = 'accepted' | 'duplicate' | 'rejected';
+export type BattleCommandReceiptStatusV1 =
+  'accepted' | 'duplicate' | 'rejected';
 
 export type BattleCommandRejectionReasonV1 =
   | 'deadline_reached'
@@ -80,7 +76,7 @@ export interface BattleMatchStateV1 {
   readonly controllers: readonly BattleControllerV1[];
   readonly planning?: BattleMatchPlanningV1;
   readonly resolving?: BattleMatchResolvingV1;
-  readonly latestResolution?: BattleRoundResolutionV1;
+  readonly latestResolution?: BattleRoundResolutionPublicV1;
   readonly createdAt: number;
   readonly updatedAt: number;
 }
@@ -118,19 +114,10 @@ export interface ResolvePlanningTimeoutCommandV1 {
 }
 
 export type BattleMatchCommandV1 =
-  | CommitPlayerIntentsCommandV1
-  | ResolvePlanningTimeoutCommandV1;
-
-export interface ResolveRoundEffectV1 {
-  readonly type: 'resolve_round';
-  readonly commandSet: RoundCommandSetV1;
-}
-
-export type BattleMatchEffectV1 = ResolveRoundEffectV1;
+  CommitPlayerIntentsCommandV1 | ResolvePlanningTimeoutCommandV1;
 
 export interface BattleMatchTransitionV1 {
   readonly state: BattleMatchStateV1;
-  readonly effects: readonly BattleMatchEffectV1[];
   readonly changed: boolean;
   readonly duplicateRequest: boolean;
 }

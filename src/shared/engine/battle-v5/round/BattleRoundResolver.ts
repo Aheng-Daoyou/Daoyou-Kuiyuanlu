@@ -39,7 +39,6 @@ import { TeamVictorySystem } from '../systems/TeamVictorySystem';
 import type { Unit } from '../units/Unit';
 import { toBattleStateTimelineV3 } from '../v3/BattleRecordV3';
 import { CombatSystemSourceV3 } from '../v3/origin';
-import { createBattlePlanningView } from './BattlePlanningView';
 import { BattleResolutionContext } from './BattleResolutionContext';
 import type {
   BattleActionIntentV1,
@@ -146,6 +145,11 @@ function resolveRestoredBattleRound(
         },
       );
 
+      if (!actor.isAlive()) {
+        clearPendingActionStates(actor);
+        continue;
+      }
+
       let controlledSkip = false;
       resolutionContext.runFrame(
         {
@@ -243,13 +247,6 @@ function resolveRestoredBattleRound(
       blueprint: save.blueprint,
       checkpoint,
     };
-    const nextPlanningView = outcome.battleEnded
-      ? undefined
-      : createBattlePlanningView({
-          roster,
-          round: round + 1,
-          checkpointRevision: checkpoint.checkpointRevision,
-        });
     return {
       version: 'battle_round_resolution_v1',
       commandSetId: commandSet.commandSetId,
@@ -259,7 +256,6 @@ function resolveRestoredBattleRound(
       stateTimeline,
       checkpoint,
       save: nextSave,
-      nextPlanningView,
     };
   } finally {
     actionSystem.destroy();
