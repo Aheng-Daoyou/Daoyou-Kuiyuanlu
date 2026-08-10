@@ -73,12 +73,12 @@ export function BattleRoundHud({
 
   return (
     <section
-      className="pointer-events-none absolute top-[calc(env(safe-area-inset-top)+0.75rem)] left-1/2 z-30 -translate-x-1/2 text-center text-[#2c1810]"
+      className="battle-round-hud pointer-events-none absolute top-[calc(env(safe-area-inset-top)+0.75rem)] left-1/2 z-30 -translate-x-1/2 text-center"
       aria-label={`第 ${round ?? '未知'} 回合，${phaseLabel(phase)}${phase === 'planning' && remainingSeconds !== undefined ? `，剩余 ${remainingSeconds} 秒` : ''}`}
     >
       <p
         key={round}
-        className="battle-round-caption mb-1 text-[0.68rem] font-semibold tracking-[0.24em] text-[#2c1810]/65 sm:text-xs"
+        className="battle-round-caption mb-1 text-[0.68rem] font-semibold tracking-[0.24em] sm:text-xs"
       >
         第 {round ?? '—'} 回合
       </p>
@@ -86,7 +86,7 @@ export function BattleRoundHud({
         className={`battle-round-seal battle-round-seal--${urgency} relative grid size-[4.75rem] place-items-center rounded-full shadow-[0_8px_30px_rgba(44,24,16,0.16)] sm:size-[5.75rem]`}
         style={style}
       >
-        <div className="battle-round-seal__inner relative z-[1] grid size-[calc(100%_-_6px)] place-items-center rounded-full bg-[#eee7d6]/92 shadow-inner backdrop-blur-md">
+        <div className="battle-round-seal__inner relative z-[1] grid size-[calc(100%_-_6px)] place-items-center rounded-full shadow-inner backdrop-blur-md">
           <strong
             className={`battle-round-seal__mark ${numericMark ? 'battle-round-seal__mark--numeric' : 'battle-round-seal__mark--phase'}`}
           >
@@ -94,7 +94,7 @@ export function BattleRoundHud({
           </strong>
         </div>
       </div>
-      <p className="mt-1.5 text-[0.68rem] font-semibold tracking-[0.18em] text-[#2c1810]/72 sm:text-xs">
+      <p className="battle-round-phase mt-1.5 text-[0.68rem] font-semibold tracking-[0.18em] sm:text-xs">
         {phaseLabel(phase)}
       </p>
     </section>
@@ -124,7 +124,7 @@ export function BattleUtilityHud({
       <div className="absolute top-[calc(env(safe-area-inset-top)+0.85rem)] left-[calc(env(safe-area-inset-left)+0.85rem)] z-30">
         <Link
           to="/game/battle/history"
-          className="inline-flex min-h-10 items-center rounded-full border border-[#2c1810]/18 bg-[#eee7d6]/78 px-3 text-xs text-[#2c1810]/72 shadow-sm backdrop-blur-md transition-colors hover:bg-[#eee7d6]/95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8f2433]"
+          className="battle-utility-chip inline-flex min-h-10 items-center rounded-full px-3 text-xs shadow-sm backdrop-blur-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#efbf04]"
         >
           离阵
         </Link>
@@ -134,12 +134,12 @@ export function BattleUtilityHud({
         <button
           type="button"
           onClick={onToggleDebug}
-          className="inline-flex min-h-10 items-center rounded-full border border-[#2c1810]/18 bg-[#eee7d6]/78 px-3 text-xs text-[#2c1810]/72 shadow-sm backdrop-blur-md transition-colors hover:bg-[#eee7d6]/95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8f2433]"
+          className="battle-utility-chip inline-flex min-h-10 items-center rounded-full px-3 text-xs shadow-sm backdrop-blur-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#efbf04]"
         >
           {debugOpen ? '收起日志' : '战斗日志'}
         </button>
         <span
-          className="grid size-10 place-items-center rounded-full border border-[#2c1810]/18 bg-[#eee7d6]/78 shadow-sm backdrop-blur-md"
+          className="battle-utility-chip grid size-10 place-items-center rounded-full shadow-sm backdrop-blur-md"
           title={connectionLabel}
           aria-label={connectionLabel}
         >
@@ -174,7 +174,7 @@ export function BattleCommandDock({
       aria-label="战斗指令台"
       data-expanded={expanded}
     >
-      <div className="battle-command-dock__surface pointer-events-auto w-full max-w-[72rem] overflow-hidden rounded-t-2xl border border-b-0 border-[#2c1810]/18 bg-[linear-gradient(180deg,rgba(238,231,214,0.9),rgba(232,223,202,0.97))] px-3 pt-2.5 pb-2 shadow-[0_-12px_40px_rgba(44,24,16,0.16)] backdrop-blur-lg sm:rounded-2xl sm:border-b sm:px-4">
+      <div className="battle-command-dock__surface pointer-events-auto w-full max-w-[72rem] overflow-hidden rounded-t-2xl border border-b-0 px-3 pt-2.5 pb-2 backdrop-blur-lg sm:rounded-2xl sm:border-b sm:px-4">
         <div className="flex min-h-10 items-center justify-between gap-3">
           <div className="min-w-0 flex-1">{summary}</div>
           {!expanded && (
@@ -219,7 +219,7 @@ export function BattleTargetPrompt({
 }: BattleTargetPromptProps) {
   return (
     <div className="battle-target-prompt pointer-events-none absolute inset-x-0 bottom-[var(--battle-command-safe)] z-30 flex justify-center px-4 transition-[bottom] duration-300 motion-reduce:transition-none">
-      <div className="pointer-events-auto flex max-w-[min(92vw,36rem)] items-center gap-3 rounded-full border border-[#8f2433]/35 bg-[#eee7d6]/92 px-4 py-2.5 text-sm shadow-lg backdrop-blur-md">
+      <div className="battle-floating-panel pointer-events-auto flex max-w-[min(92vw,36rem)] items-center gap-3 rounded-full px-4 py-2.5 text-sm shadow-lg backdrop-blur-md">
         <span className="min-w-0 truncate">
           <strong>「{abilityName}」</strong> · 请选择{targetLabel}目标
         </span>
@@ -246,7 +246,7 @@ export function BattleStatusNotice({
 }: BattleStatusNoticeProps) {
   return (
     <div
-      className={`battle-status-notice pointer-events-auto absolute top-[calc(env(safe-area-inset-top)+7.75rem)] left-1/2 z-40 w-[min(92vw,42rem)] -translate-x-1/2 rounded-lg border bg-[#eee7d6]/94 px-4 py-2 text-center text-sm shadow-lg backdrop-blur-md ${tone === 'danger' ? 'border-[#8f2433]/30 text-[#8f2433]' : 'border-[#946718]/30 text-[#694d1d]'}`}
+      className={`battle-status-notice battle-floating-panel pointer-events-auto absolute top-[calc(env(safe-area-inset-top)+7.75rem)] left-1/2 z-40 w-[min(92vw,42rem)] -translate-x-1/2 rounded-lg px-4 py-2 text-center text-sm shadow-lg backdrop-blur-md ${tone === 'danger' ? 'battle-floating-panel--danger' : 'battle-floating-panel--warning'}`}
       role="status"
     >
       {children}
@@ -267,7 +267,7 @@ export function BattleUnitInspector({
 }: BattleUnitInspectorProps) {
   const visibleEffects = unit.effects.slice(-4);
   return (
-    <aside className="battle-unit-inspector absolute right-[calc(env(safe-area-inset-right)+0.85rem)] bottom-[calc(var(--battle-command-safe)+0.7rem)] z-30 w-[min(18rem,calc(100vw-1.7rem))] rounded-xl border border-[#2c1810]/15 bg-[#eee7d6]/88 px-3 py-3 shadow-lg backdrop-blur-md transition-[bottom] duration-300 motion-reduce:transition-none">
+    <aside className="battle-unit-inspector battle-floating-panel absolute right-[calc(env(safe-area-inset-right)+0.85rem)] bottom-[calc(var(--battle-command-safe)+0.7rem)] z-30 w-[min(18rem,calc(100vw-1.7rem))] rounded-xl px-3 py-3 shadow-lg backdrop-blur-md transition-[bottom] duration-300 motion-reduce:transition-none">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className="text-[0.65rem] tracking-[0.16em] text-[#2c1810]/48">

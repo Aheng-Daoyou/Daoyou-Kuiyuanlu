@@ -711,7 +711,7 @@ export default function LiveBattleMatchPage() {
 
   return (
     <main
-      className="relative h-[100dvh] min-h-0 overflow-hidden bg-[#eee7d6] text-[#2c1810]"
+      className="battle-live-shell relative h-[100dvh] min-h-0 overflow-hidden text-[#2c1810]"
       style={commandDockStyle}
     >
       <section
@@ -723,8 +723,7 @@ export default function LiveBattleMatchPage() {
           className="absolute inset-0 overflow-hidden"
           aria-label="多人实时战斗场景"
         />
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-36 bg-gradient-to-b from-[#eee7d6]/72 via-[#eee7d6]/24 to-transparent" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-56 bg-gradient-to-t from-[#d8ccb2]/60 via-[#eee7d6]/18 to-transparent" />
+        <div className="battle-arena-vignette pointer-events-none absolute inset-0 z-10" />
         {!view && (
           <p className="absolute inset-0 z-20 grid place-items-center text-sm text-[#2c1810]/50">
             正在建立战斗服务连接…
@@ -761,7 +760,7 @@ export default function LiveBattleMatchPage() {
 
       {debugOpen && (
         <aside
-          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-[#2c1810]/20 bg-[#eee7d6]/98 p-4 pt-[calc(env(safe-area-inset-top)+1rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-2xl backdrop-blur sm:w-[26rem]"
+          className="battle-debug-panel fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col p-4 pt-[calc(env(safe-area-inset-top)+1rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-2xl backdrop-blur sm:w-[26rem]"
           aria-label="Debug 战斗日志"
         >
           <div className="mb-2 flex items-start justify-between gap-3 border-b border-[#2c1810]/15 pb-3 text-[0.65rem] text-[#2c1810]/55">

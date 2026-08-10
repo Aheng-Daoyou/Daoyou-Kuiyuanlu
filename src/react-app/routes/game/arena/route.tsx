@@ -34,7 +34,7 @@ const ACTORS: readonly RoomActorView[] = [
   },
   {
     id: 'ring',
-    sigil: '擂',
+    sigil: '🥁',
     name: '擂台',
     identity: '切磋设施',
     responsibility: '创建房间，或凭六位数字邀请码加入切磋。',
@@ -173,6 +173,8 @@ export default function ArenaPage() {
 }
 
 function WangHuConversation({ onExit }: { onExit(): void }) {
+  const [topic, setTopic] = useState<'rules'>();
+
   return (
     <NpcConversation
       actor={ACTORS[0]!}
@@ -182,22 +184,26 @@ function WangHuConversation({ onExit }: { onExit(): void }) {
           speaker: '王虎',
           body: '这里是无消耗的自由切磋，双方到齐并准备后即可开始。',
         },
+        ...(topic === 'rules'
+          ? [
+              {
+                id: 'rules',
+                speaker: '王虎',
+                body: '双方人数不必相同，每方最多四人。所有人准备后，由房主开始切磋，每回合有三十息同时定招。此间不消耗费用、物资或战斗外状态。',
+              },
+            ]
+          : []),
       ]}
-      options={[{ id: 'leave', label: '我明白了', tone: 'muted' }]}
-      onSelectOption={onExit}
-    >
-      <details className="bg-ink/[0.025] text-ink-secondary px-4 py-3 text-sm leading-7">
-        <summary className="hover:text-crimson cursor-pointer select-none">
-          查看规则
-        </summary>
-        <ul className="mt-3 list-disc space-y-1 pl-5">
-          <li>双方人数不必相同，每方最多四人。</li>
-          <li>所有人准备后，由房主开始切磋。</li>
-          <li>每回合有三十息同时定招。</li>
-          <li>切磋不消耗费用、物资或战斗外状态。</li>
-        </ul>
-      </details>
-    </NpcConversation>
+      options={[
+        { id: 'rules', label: '请讲讲切磋规矩' },
+        { id: 'leave', label: '我明白了', tone: 'muted' },
+      ]}
+      selectedOptionId={topic}
+      onSelectOption={(optionId) => {
+        if (optionId === 'leave') onExit();
+        else if (optionId === 'rules') setTopic('rules');
+      }}
+    />
   );
 }
 
