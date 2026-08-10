@@ -38,8 +38,11 @@ import { TargetSelectionSystem } from '../systems/TargetSelectionSystem';
 import { TeamVictorySystem } from '../systems/TeamVictorySystem';
 import type { Unit } from '../units/Unit';
 import { toBattleStateTimelineV3 } from '../v3/BattleRecordV3';
+import { CombatMechanicCodeV3 } from '../v3/mechanics';
 import { CombatSystemSourceV3 } from '../v3/origin';
 import { BattleResolutionContext } from './BattleResolutionContext';
+import { recordBattleEnd } from './BattleLifecycleResolver';
+import { resolveLegalBasicAttack } from './BasicAttackResolver';
 import type {
   BattleActionIntentV1,
   BattleRoundResolutionV1,
@@ -160,19 +163,23 @@ function resolveRestoredBattleRound(
         () => {
           if (!actor.isAlive()) return;
           actor.combatResources.beginAction();
-          const skipState = consumeSkippedAction(actor);
+          const queued = peekQueuedAction(actor);
+          const hasUninterruptibleQueue =
+            queued?.interruptPolicy === 'uninterruptible';
           const controlTag = getSkipControlTag(actor);
-          controlledSkip = Boolean(controlTag);
-          if (skipState || controlTag) {
+          if (!hasUninterruptibleQueue) {
+            const skipState = consumeSkippedAction(actor);
+            if (skipState) emitSkippedAction(actor, skipState);
             if (controlTag) {
-              eventBus.publish<ControlledSkipEvent>({
-                type: 'ControlledSkipEvent',
-                timestamp: runtime.clock.now(),
-                unit: actor,
-                controlTag,
-              });
+              const cancelledQueue = consumeQueuedAction(actor);
+              if (cancelledQueue) {
+                cancelQueuedAction(actor, cancelledQueue, controlTag);
+              }
+              emitControlledSkip(actor, controlTag);
+              controlledSkip = true;
+              return;
             }
-            return;
+            if (skipState) return;
           }
           executePlannedAction(
             actor,
@@ -221,15 +228,26 @@ function resolveRestoredBattleRound(
         timestamp: runtime.clock.now(),
         turn: round,
       });
-      outcome = TeamVictorySystem.check(roster, round);
+      outcome = TeamVictorySystem.check(roster, runtime.random, round);
       eventBus.publish<VictoryCheckEvent>({
         type: 'VictoryCheckEvent',
         timestamp: runtime.clock.now(),
         turn: round,
         battleEnded: outcome.battleEnded,
-        winner: outcome.winnerTeamId ?? null,
+        winner: outcome.battleEnded ? outcome.winnerTeamId : null,
       });
     });
+
+    if (outcome.battleEnded) {
+      recordBattleEnd({
+        context: resolutionContext,
+        recorder: stateRecorder,
+        roster,
+        runtime,
+        outcome,
+        round,
+      });
+    }
 
     const sequences = resolutionContext.getSequences();
     const stateTimeline = toBattleStateTimelineV3(
@@ -246,6 +264,14 @@ function resolveRestoredBattleRound(
       version: 'battle_save_v1',
       blueprint: save.blueprint,
       checkpoint,
+      ...(save.lifecycle
+        ? {
+            lifecycle: {
+              ...save.lifecycle,
+              ended: outcome.battleEnded,
+            },
+          }
+        : {}),
     };
     return {
       version: 'battle_round_resolution_v1',
@@ -276,7 +302,12 @@ function executePlannedAction(
       queued.interruptPolicy !== 'uninterruptible' &&
       actor.tags.hasTag(GameplayTags.STATUS.CONTROL.NO_SKILL)
     ) {
-      cancelQueuedAction(actor, queued);
+      cancelQueuedAction(
+        actor,
+        queued,
+        GameplayTags.STATUS.CONTROL.NO_SKILL,
+      );
+      executeBasicAttack(actor, intent.targetUnitId, allUnits);
       return;
     }
     const ability = AbilityFactory.create(queued.ability);
@@ -306,21 +337,7 @@ function executePlannedAction(
     return;
   }
   if (intent.kind === 'basic_attack') {
-    if (actor.tags.hasTag(GameplayTags.STATUS.CONTROL.NO_BASIC)) return;
-    const basicAttack = actor.abilities.getDefaultAttack();
-    if (!(basicAttack instanceof ActiveSkill)) return;
-    const targets = resolveTargets(
-      actor,
-      basicAttack.targetPolicy,
-      intent.targetUnitId,
-      allUnits,
-      targetSystem,
-      true,
-    );
-    const primary = targets[0];
-    if (!primary || !basicAttack.canTrigger({ caster: actor, target: primary }))
-      return;
-    castAbility(actor, basicAttack, primary, targets);
+    executeBasicAttack(actor, intent.targetUnitId, allUnits);
     return;
   }
   const ability = actor.abilities.getAbility(intent.abilityId);
@@ -341,6 +358,81 @@ function executePlannedAction(
     return;
   }
   castAbility(actor, ability, primary, targets);
+}
+
+function executeBasicAttack(
+  actor: Unit,
+  targetUnitId: string | undefined,
+  allUnits: Unit[],
+): void {
+  if (actor.tags.hasTag(GameplayTags.STATUS.CONTROL.NO_BASIC)) return;
+  const resolved = resolveLegalBasicAttack(actor, allUnits, targetUnitId);
+  if (!resolved) return;
+  castAbility(
+    actor,
+    resolved.ability,
+    resolved.target,
+    resolved.legalTargets,
+  );
+}
+
+function emitSkippedAction(
+  actor: Unit,
+  skipped: NonNullable<ReturnType<typeof consumeSkippedAction>>,
+): void {
+  const context = actionFlowContext(actor);
+  context.commit(actor, {
+    type: 'action_state',
+    stateType: 'rest',
+    phase: 'skipped',
+    name: skipped.name,
+    remainingActions: 0,
+  });
+  context.emit<ActionStateEvent>({
+    type: 'ActionStateEvent',
+    timestamp: actor.runtime.clock.now(),
+    unit: actor,
+    stateType: 'rest',
+    phase: 'skipped',
+    name: skipped.name,
+    remainingActions: 0,
+    sourceAbility: skipped.sourceAbility,
+    reason: skipped.reason,
+  });
+}
+
+function emitControlledSkip(actor: Unit, controlTag: string): void {
+  const context = actionFlowContext(actor);
+  context.commit(actor, {
+    type: 'mechanic',
+    code: CombatMechanicCodeV3.CONTROL_SKIP,
+    payload: {
+      kind: 'control_skip',
+      controlName: getControlName(actor, controlTag),
+    },
+  });
+  context.emit<ControlledSkipEvent>({
+    type: 'ControlledSkipEvent',
+    timestamp: actor.runtime.clock.now(),
+    unit: actor,
+    controlTag,
+  });
+}
+
+function actionFlowContext(actor: Unit): EffectExecutionContextV3 {
+  return EffectExecutionContextV3.system({
+    owner: actor,
+    caster: actor,
+    target: actor,
+    source: CombatSystemSourceV3.ACTION_FLOW,
+    trace: actor.runtime.events.reserveTrace(),
+  });
+}
+
+function getControlName(actor: Unit, controlTag: string): string {
+  return actor.buffs
+    .getAllBuffs()
+    .find((buff) => buff.tags.hasTag(controlTag))?.name ?? '控制效果';
 }
 
 function castAbility(
@@ -375,6 +467,7 @@ function castAbility(
 function cancelQueuedAction(
   actor: Unit,
   queued: NonNullable<ReturnType<typeof consumeQueuedAction>>,
+  reason: string,
 ): void {
   const context = EffectExecutionContextV3.system({
     owner: actor,
@@ -402,7 +495,7 @@ function cancelQueuedAction(
     remainingActions: 0,
     sourceAbility: queued.sourceAbility,
     ability: { id: queued.ability.slug, name: queued.ability.name },
-    reason: GameplayTags.STATUS.CONTROL.NO_SKILL,
+    reason,
   });
 }
 
@@ -464,19 +557,12 @@ function validateAllIntents(
       continue;
     }
     if (intent.kind === 'basic_attack') {
-      const ability = actor.abilities.getDefaultAttack();
-      if (!(ability instanceof ActiveSkill)) {
-        throw new Error(`Unit ${actor.id} has no basic attack`);
-      }
-      const candidates = targetSystem.getTargetCandidates(
+      const resolved = resolveLegalBasicAttack(
         actor,
-        ability.targetPolicy,
         allUnits,
+        intent.targetUnitId,
       );
-      const target = candidates.find(
-        (candidate) => candidate.id === intent.targetUnitId,
-      );
-      if (!target || !ability.canTrigger({ caster: actor, target })) {
+      if (!resolved || resolved.target.id !== intent.targetUnitId) {
         throw new Error(`Basic attack is not legal for unit ${actor.id}`);
       }
       continue;

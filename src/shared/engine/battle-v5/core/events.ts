@@ -27,6 +27,7 @@ import {
   type DamageComponent,
   type DamageCalculationMode,
   type LogCauseRef,
+  type TeamId,
   DamageSource,
   DamageType,
 } from './types';
@@ -444,6 +445,8 @@ export interface BattleInitEvent extends CombatEvent {
   type: 'BattleInitEvent';
   player: Unit;
   opponent: Unit;
+  /** Complete roster for Team/Roster-aware listeners. */
+  units?: Unit[];
 }
 
 // ===== 回合开始事件（状态机驱动） =====
@@ -476,7 +479,9 @@ export interface VictoryCheckEvent extends CombatEvent {
 // ===== 战斗结束事件 =====
 export interface BattleEndEvent extends CombatEvent {
   type: 'BattleEndEvent';
+  /** Legacy winner unit id; the first surviving winner-team unit in team battles. */
   winner: string | null;
+  winnerTeamId?: TeamId;
   turns: number;
 }
 

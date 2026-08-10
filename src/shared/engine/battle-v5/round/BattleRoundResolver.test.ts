@@ -23,7 +23,10 @@ import {
 } from './BattleRoundResolver';
 import type { RoundCommandSetV1 } from './types';
 import { createBattlePlanningView } from './BattlePlanningView';
-import { setQueuedAction } from '../core/runtimeState';
+import {
+  queueSkippedActions,
+  setQueuedAction,
+} from '../core/runtimeState';
 
 const aoeAbility: AbilityConfig = {
   slug: 'team-flame',
@@ -208,6 +211,68 @@ describe('BattleRoundResolver', () => {
     }
   });
 
+  it('falls back to the engine basic attack when the configured attack is unavailable', () => {
+    const runtime = new BattleRuntime();
+    const actor = new Unit('fallback-actor', '攻击者', {}, {
+      runtime,
+      teamId: 'alpha',
+      slot: 0,
+    });
+    const target = new Unit('fallback-target', '目标', {}, {
+      runtime,
+      teamId: 'beta',
+      slot: 0,
+    });
+    actor.abilities.setDefaultAttack(AbilityFactory.create({
+      slug: 'unavailable-basic',
+      name: '耗尽的招式',
+      type: AbilityType.ACTIVE_SKILL,
+      mpCost: 999,
+      tags: [
+        GameplayTags.ABILITY.KIND.SKILL,
+        GameplayTags.ABILITY.FUNCTION.DAMAGE,
+        GameplayTags.ABILITY.CHANNEL.TRUE,
+      ],
+      targetPolicy: { team: 'enemy', scope: 'single' },
+      effects: [],
+    }));
+    const roster = BattleRoster.fromDuel(actor, target);
+    const blueprint = createBattleBlueprint('fallback-round', roster);
+    const save: BattleSaveV1 = {
+      version: 'battle_save_v1',
+      blueprint,
+      checkpoint: captureBattleCheckpoint({
+        blueprint,
+        roster,
+        runtime,
+        round: 0,
+        checkpointRevision: 0,
+      }),
+    };
+    const result = resolveBattleRound(save, {
+      version: 'round_command_set_v1',
+      commandSetId: 'fallback-round:1:0',
+      round: 1,
+      checkpointRevision: 0,
+      intents: {
+        'fallback-actor': {
+          kind: 'basic_attack',
+          targetUnitId: 'fallback-target',
+          submittedBy: 'timeout',
+        },
+        'fallback-target': {
+          kind: 'basic_attack',
+          targetUnitId: 'fallback-actor',
+          submittedBy: 'timeout',
+        },
+      },
+    });
+
+    expect(result.checkpoint.units['fallback-target'].hp).toBeLessThan(
+      target.getMaxHp(),
+    );
+  });
+
   it('forces a queued action to use the selected basic-attack target next round', () => {
     const runtime = new BattleRuntime();
     const actor = new Unit(
@@ -241,6 +306,8 @@ describe('BattleRoundResolver', () => {
         },
       }],
     }, { interruptPolicy: 'uninterruptible', hitPolicy: 'guaranteed' });
+    queueSkippedActions(actor, 1, 'test-rest', '调息');
+    actor.tags.addTags([GameplayTags.STATUS.CONTROL.NO_ACTION]);
     const roster = BattleRoster.fromDuel(actor, target);
     const blueprint = createBattleBlueprint('queued-round', roster);
     const save: BattleSaveV1 = {
@@ -295,6 +362,7 @@ describe('BattleRoundResolver', () => {
       after.roster.getUnit('queued-target').getMaxHp(),
     );
     expect(result.checkpoint.units['queued-actor'].runtimeState.queuedAction).toBeUndefined();
+    expect(result.checkpoint.units['queued-actor'].runtimeState.skippedActions).toHaveLength(1);
     after.runtime.dispose();
   });
 
@@ -346,6 +414,7 @@ describe('BattleRoundResolver', () => {
         }],
       }],
     }), opponent);
+    queueSkippedActions(actor, 1, 'test-rest', '调息');
     const roster = BattleRoster.fromDuel(actor, opponent);
     const blueprint = createBattleBlueprint('controlled-skip-round', roster);
     const save: BattleSaveV1 = {
@@ -391,6 +460,25 @@ describe('BattleRoundResolver', () => {
     });
     expect(layerFact?.trace.sequenceId).not.toBe('sequence_v3_unscoped');
     expect(sequenceIds.has(layerFact?.trace.sequenceId ?? '')).toBe(true);
+    expect(
+      result.sequences
+        .flatMap((sequence) => sequence.facts)
+        .some(
+          (fact) =>
+            fact.type === 'action_state' &&
+            fact.stateType === 'rest' &&
+            fact.phase === 'skipped',
+        ),
+    ).toBe(true);
+    expect(
+      result.sequences
+        .flatMap((sequence) => sequence.facts)
+        .some(
+          (fact) =>
+            fact.type === 'mechanic' &&
+            fact.payload.kind === 'control_skip',
+        ),
+    ).toBe(true);
   });
 
   it('records queued-action cancellation inside the actor action sequence', () => {
@@ -463,5 +551,8 @@ describe('BattleRoundResolver', () => {
     });
     expect(fact?.trace.sequenceId).not.toBe('sequence_v3_unscoped');
     expect(result.sequences.some((sequence) => sequence.id === fact?.trace.sequenceId)).toBe(true);
+    const after = restoreBattleSave(result.save);
+    expect(after.roster.getUnit('queued-cancel-target').getHpPercent()).toBeLessThan(1);
+    after.runtime.dispose();
   });
 });

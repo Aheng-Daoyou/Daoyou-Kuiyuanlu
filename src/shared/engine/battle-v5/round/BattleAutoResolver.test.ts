@@ -9,6 +9,7 @@ import { restoreBattleSave } from '../persistence/BattleStateCodec';
 import { BattleRuntime } from '../runtime/BattleRuntime';
 import { Unit } from '../units/Unit';
 import { resolveBattleToCompletion } from './BattleAutoResolver';
+import { initializeBattle } from './BattleLifecycleResolver';
 
 function createDuel(seed = 'auto-duel') {
   const runtime = new BattleRuntime({
@@ -55,8 +56,71 @@ function createDuel(seed = 'auto-duel') {
 }
 
 describe('BattleAutoResolver', () => {
+  it('applies battle-init listeners before the first checkpoint', () => {
+    const { runtime, attacker, defender } = createDuel('battle-init');
+    attacker.abilities.addAbility(AbilityFactory.create({
+      slug: 'opening-shield',
+      name: '开场护体',
+      type: AbilityType.PASSIVE_SKILL,
+      tags: [
+        GameplayTags.ABILITY.KIND.SKILL,
+        GameplayTags.ABILITY.FUNCTION.BUFF,
+      ],
+      listeners: [{
+        id: 'opening-shield-listener',
+        eventType: 'BattleInitEvent',
+        scope: GameplayTags.SCOPE.GLOBAL,
+        priority: 0,
+        mapping: { caster: 'owner', target: 'owner' },
+        budget: { maxTriggers: 1, reset: 'battle' },
+        effects: [{
+          type: 'shield',
+          params: { value: { base: 25 }, target: 'caster' },
+        }],
+      }],
+    }));
+
+    const initialized = initializeBattle({
+      battleId: 'battle-init',
+      roster: BattleRoster.fromDuel(attacker, defender),
+      runtime,
+    });
+    const restored = restoreBattleSave(initialized.save);
+
+    expect(initialized.sequences[0].phase).toBe('battle_init');
+    expect(
+      initialized.sequences[0].facts.some((fact) => fact.type === 'shield'),
+    ).toBe(true);
+    expect(restored.roster.getUnit(attacker.id).getCurrentShield()).toBe(25);
+    expect(
+      initialized.stateTimeline.frames[0].units[attacker.id].shield,
+    ).toBe(25);
+    restored.runtime.dispose();
+  });
+
   it('uses the Team/Roster round resolver until a duel ends', () => {
     const { runtime, attacker, defender } = createDuel();
+    attacker.abilities.addAbility(AbilityFactory.create({
+      slug: 'ending-shield',
+      name: '收势护体',
+      type: AbilityType.PASSIVE_SKILL,
+      tags: [
+        GameplayTags.ABILITY.KIND.SKILL,
+        GameplayTags.ABILITY.FUNCTION.BUFF,
+      ],
+      listeners: [{
+        id: 'ending-shield-listener',
+        eventType: 'BattleEndEvent',
+        scope: GameplayTags.SCOPE.GLOBAL,
+        priority: 0,
+        mapping: { caster: 'owner', target: 'owner' },
+        budget: { maxTriggers: 1, reset: 'battle' },
+        effects: [{
+          type: 'shield',
+          params: { value: { base: 7 }, target: 'caster' },
+        }],
+      }],
+    }));
     const result = resolveBattleToCompletion({
       battleId: 'auto-duel',
       roster: BattleRoster.fromDuel(attacker, defender),
@@ -69,6 +133,11 @@ describe('BattleAutoResolver', () => {
     expect(result.sequences.at(-1)?.phase).toBe('battle_end');
     expect(result.stateTimeline.frames[0].phase).toBe('battle_init');
     expect(result.stateTimeline.frames.at(-1)?.phase).toBe('battle_end');
+    expect(result.finalSave.lifecycle?.ended).toBe(true);
+    expect(result.finalSave.checkpoint.units[attacker.id].shield).toBe(7);
+    expect(
+      result.sequences.at(-1)?.facts.some((fact) => fact.type === 'shield'),
+    ).toBe(true);
     expect(
       result.sequences.some((sequence) =>
         sequence.facts.some(
@@ -92,6 +161,48 @@ describe('BattleAutoResolver', () => {
       });
 
     expect(resolve(left)).toEqual(resolve(right));
+  });
+
+  it('uses the deterministic decider for an equal round-limit result', () => {
+    const runtime = new BattleRuntime({
+      random: new SeededBattleRandomSource('draw'),
+    });
+    const player = new Unit('draw-player', '甲', {}, {
+      runtime,
+      teamId: 'alpha',
+      slot: 0,
+    });
+    const opponent = new Unit('draw-opponent', '乙', {}, {
+      runtime,
+      teamId: 'beta',
+      slot: 0,
+    });
+    const idleAttack = (slug: string) => AbilityFactory.create({
+      slug,
+      name: '试探',
+      type: AbilityType.ACTIVE_SKILL,
+      tags: [GameplayTags.ABILITY.KIND.SKILL],
+      targetPolicy: { team: 'enemy', scope: 'single' },
+      effects: [],
+    });
+    player.abilities.setDefaultAttack(idleAttack('player-idle'));
+    opponent.abilities.setDefaultAttack(idleAttack('opponent-idle'));
+
+    const result = resolveBattleToCompletion({
+      battleId: 'draw-duel',
+      roster: BattleRoster.fromDuel(player, opponent),
+      runtime,
+    });
+    expect(result.outcome).toMatchObject({
+      battleEnded: true,
+      reachedMaxRounds: true,
+    });
+    expect(result.outcome.winnerTeamId).toMatch(/^(alpha|beta)$/);
+    expect(result.outcome.loserTeamId).not.toBe(result.outcome.winnerTeamId);
+    expect(result.sequences.at(-1)).toMatchObject({
+      phase: 'battle_end',
+    });
+    expect(result.sequences.at(-1)?.actor).toBeDefined();
   });
 
   it('forces a queued release through a basic-attack target intent', () => {

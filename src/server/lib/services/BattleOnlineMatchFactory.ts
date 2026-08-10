@@ -1,7 +1,7 @@
 import { createCombatUnitFromCultivator } from '@shared/engine/battle-v5/adapters/CultivatorCombatAdapter';
 import { BattleRoster } from '@shared/engine/battle-v5/core/BattleRoster';
-import { createBattleBlueprint, captureBattleCheckpoint } from '@shared/engine/battle-v5/persistence/BattleStateCodec';
 import { BattleRuntime } from '@shared/engine/battle-v5/runtime/BattleRuntime';
+import { initializeBattle } from '@shared/engine/battle-v5/round/BattleLifecycleResolver';
 import { createBattleMatchState } from '@shared/engine/battle-v5/match/BattleMatchStateMachine';
 import type { BattleControllerV1, BattleMatchStateV1 } from '@shared/engine/battle-v5/match/types';
 import { loadCultivatorCombatInput } from './cultivator/CultivatorCombatProjectionReader';
@@ -40,12 +40,11 @@ export async function buildOnlineBattleMatchState(input: {
       }),
     );
     const roster = new BattleRoster(units);
-    const blueprint = createBattleBlueprint(input.matchId, roster);
-    const battle = {
-      version: 'battle_save_v1' as const,
-      blueprint,
-      checkpoint: captureBattleCheckpoint({ blueprint, roster, runtime, round: 0, checkpointRevision: 0 }),
-    };
+    const battle = initializeBattle({
+      battleId: input.matchId,
+      roster,
+      runtime,
+    }).save;
     const controllerMap = new Map<string, BattleControllerV1>();
     const alphaIds = input.teams[0]!.cultivatorIds;
     for (const entry of entries) {

@@ -10,7 +10,11 @@ import type {
 import type { SerializableBattleRuntimeStateV1 } from '../core/runtimeState';
 import type { AttributeType, TeamId, TeamSlot, UnitId } from '../core/types';
 import type { BattleRuntimeCursorV1 } from '../runtime/BattleRuntime';
-import type { CombatOriginV3 } from '../v3/types';
+import type {
+  BattleStateTimelineV3,
+  CombatOriginV3,
+  CombatSequenceV3,
+} from '../v3/types';
 
 export interface BattleBuffBlueprintV1 {
   config: BuffConfig;
@@ -95,4 +99,12 @@ export interface BattleSaveV1 {
   version: 'battle_save_v1';
   blueprint: BattleBlueprintV1;
   checkpoint: BattleCheckpointV1;
+  /** Missing only on legacy/test saves created before lifecycle initialization. */
+  lifecycle?: {
+    version: 'battle_lifecycle_v1';
+    initialized: true;
+    ended: boolean;
+    initialSequences: CombatSequenceV3[];
+    initialStateTimeline: BattleStateTimelineV3;
+  };
 }

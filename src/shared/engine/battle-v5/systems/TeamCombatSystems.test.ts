@@ -84,12 +84,47 @@ describe('team combat systems', () => {
     const roster = new BattleRoster([a0, a1, b0, b1]);
 
     b0.setHp(0);
-    expect(TeamVictorySystem.check(roster)).toEqual({ battleEnded: false });
+    expect(TeamVictorySystem.check(roster, runtime.random)).toEqual({ battleEnded: false });
     b1.setHp(0);
-    expect(TeamVictorySystem.check(roster)).toEqual({
+    expect(TeamVictorySystem.check(roster, runtime.random)).toEqual({
       battleEnded: true,
       winnerTeamId: 'alpha',
       loserTeamId: 'beta',
+    });
+  });
+
+  it('uses combat-state scores before the deterministic random tiebreaker', () => {
+    const runtime = new BattleRuntime();
+    const alpha = unit('alpha-unit', 'alpha', 0, runtime);
+    const beta = unit('beta-unit', 'beta', 0, runtime);
+    const roster = new BattleRoster([alpha, beta]);
+
+    alpha.setHp(alpha.getMaxHp() / 2);
+    beta.setHp(beta.getMaxHp() / 4);
+
+    expect(
+      TeamVictorySystem.check(roster, sequenceRandom([0.99]), 30),
+    ).toMatchObject({
+      battleEnded: true,
+      winnerTeamId: 'alpha',
+      loserTeamId: 'beta',
+      reachedMaxRounds: true,
+    });
+  });
+
+  it('deterministically resolves an otherwise exact tie', () => {
+    const runtime = new BattleRuntime();
+    const alpha = unit('alpha-unit', 'alpha', 0, runtime);
+    const beta = unit('beta-unit', 'beta', 0, runtime);
+    const roster = new BattleRoster([alpha, beta]);
+
+    alpha.setHp(0);
+    beta.setHp(0);
+
+    expect(TeamVictorySystem.check(roster, sequenceRandom([0.75]))).toEqual({
+      battleEnded: true,
+      winnerTeamId: 'beta',
+      loserTeamId: 'alpha',
     });
   });
 });

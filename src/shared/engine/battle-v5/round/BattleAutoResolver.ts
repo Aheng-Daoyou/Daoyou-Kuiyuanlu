@@ -4,25 +4,19 @@ import { ActiveSkill } from '../abilities/ActiveSkill';
 import { AbilityFactory } from '../factories/AbilityFactory';
 import { BattleRoster } from '../core/BattleRoster';
 import { peekQueuedAction } from '../core/runtimeState';
-import type { TeamId } from '../core/types';
-import {
-  captureBattleCheckpoint,
-  createBattleBlueprint,
-  restoreBattleSave,
-} from '../persistence/BattleStateCodec';
+import { restoreBattleSave } from '../persistence/BattleStateCodec';
 import type { BattleSaveV1 } from '../persistence/types';
 import type { BattleRuntime } from '../runtime/BattleRuntime';
-import { BattleStateRecorder } from '../systems/state/BattleStateRecorder';
 import type { UnitStateSnapshot } from '../systems/state/types';
 import { TargetSelectionSystem } from '../systems/TargetSelectionSystem';
-import type { TeamVictoryResult } from '../systems/TeamVictorySystem';
-import type { Unit } from '../units/Unit';
 import type {
-  BattleStateFrameV3,
-  BattleStateTimelineV3,
-  CombatSequenceV3,
-} from '../v3/types';
-import { BattleResolutionContext } from './BattleResolutionContext';
+  TeamVictoryResult,
+  TerminalTeamVictoryResult,
+} from '../systems/TeamVictorySystem';
+import type { Unit } from '../units/Unit';
+import type { BattleStateTimelineV3, CombatSequenceV3 } from '../v3/types';
+import { initializeBattle } from './BattleLifecycleResolver';
+import { resolveLegalBasicAttack } from './BasicAttackResolver';
 import { resolveBattleRound, sealRoundCommandSet } from './BattleRoundResolver';
 import type {
   BattleActionIntentV1,
@@ -30,7 +24,7 @@ import type {
 } from './types';
 
 export interface AutomaticBattleResolutionV1 {
-  readonly outcome: TeamVictoryResult;
+  readonly outcome: TerminalTeamVictoryResult;
   readonly rounds: number;
   readonly sequences: CombatSequenceV3[];
   readonly stateTimeline: BattleStateTimelineV3;
@@ -101,26 +95,14 @@ export function resolveBattleToCompletion(input: {
       unit.abilities.getSelectionStrategy(),
     ]),
   );
-  const blueprint = createBattleBlueprint(input.battleId, input.roster);
-  const initialBoundary = captureBoundary({
+  const initialized = initializeBattle({
+    battleId: input.battleId,
     roster: input.roster,
     runtime: input.runtime,
-    phase: 'battle_init',
-    round: 0,
   });
-  let save: BattleSaveV1 = {
-    version: 'battle_save_v1',
-    blueprint,
-    checkpoint: captureBattleCheckpoint({
-      blueprint,
-      roster: input.roster,
-      runtime: input.runtime,
-      round: 0,
-      checkpointRevision: 0,
-    }),
-  };
-  const sequences: CombatSequenceV3[] = [...initialBoundary.sequences];
-  const frames: BattleStateFrameV3[] = [...initialBoundary.frames];
+  let save: BattleSaveV1 = initialized.save;
+  const sequences: CombatSequenceV3[] = [...initialized.sequences];
+  const frames = [...initialized.stateTimeline.frames];
   let outcome: TeamVictoryResult = { battleEnded: false };
 
   while (!outcome.battleEnded) {
@@ -134,46 +116,27 @@ export function resolveBattleToCompletion(input: {
     outcome = resolution.outcome;
     save = resolution.save;
   }
+  const terminalOutcome: TerminalTeamVictoryResult = outcome;
 
-  const restored = restoreBattleSave(save);
-  try {
-    const winnerTeamId = resolveAutomaticWinnerTeam(
-      outcome,
-      restored.roster,
-    );
-    const winner = restored.roster.getLivingUnits(winnerTeamId)[0]
-      ?? restored.roster.getUnit(restored.roster.getTeam(winnerTeamId).unitIds[0]);
-    const finalBoundary = captureBoundary({
-      roster: restored.roster,
-      runtime: restored.runtime,
-      phase: 'battle_end',
-      round: save.checkpoint.round,
-      actor: winner,
-    });
-    sequences.push(...finalBoundary.sequences);
-    frames.push(...finalBoundary.frames);
-    const normalizedFrames = frames.map((frame, index) => ({
-      ...frame,
-      frameId: index + 1,
-    }));
-    const finalFrame = normalizedFrames[normalizedFrames.length - 1];
-    return {
-      outcome,
-      rounds: save.checkpoint.round,
-      sequences,
-      stateTimeline: {
-        unitIds: allUnits.map((unit) => unit.id),
-        unitNames: Object.fromEntries(
-          allUnits.map((unit) => [unit.id, unit.name]),
-        ),
-        frames: normalizedFrames,
-      },
-      finalSnapshots: finalFrame.units,
-      finalSave: save,
-    };
-  } finally {
-    restored.runtime.dispose();
-  }
+  const normalizedFrames = frames.map((frame, index) => ({
+    ...frame,
+    frameId: index + 1,
+  }));
+  const finalFrame = normalizedFrames[normalizedFrames.length - 1];
+  return {
+    outcome: terminalOutcome,
+    rounds: save.checkpoint.round,
+    sequences,
+    stateTimeline: {
+      unitIds: allUnits.map((unit) => unit.id),
+      unitNames: Object.fromEntries(
+        allUnits.map((unit) => [unit.id, unit.name]),
+      ),
+      frames: normalizedFrames,
+    },
+    finalSnapshots: finalFrame.units,
+    finalSave: save,
+  };
 }
 
 function createAutomaticCommandSet(
@@ -261,69 +224,15 @@ function createAutomaticIntent(
     }
   }
 
-  const basicAttack = unit.abilities.getDefaultAttack();
-  if (!(basicAttack instanceof ActiveSkill)) {
-    throw new Error(`Unit ${unit.id} has no basic attack`);
+  const basicAttack = resolveLegalBasicAttack(unit, allUnits);
+  if (!basicAttack) {
+    throw new Error(`Unit ${unit.id} has no legal automatic action`);
   }
-  const target = targetSystem
-    .getTargetCandidates(unit, basicAttack.targetPolicy, allUnits)
-    .find((candidate) =>
-      basicAttack.canTrigger({ caster: unit, target: candidate }),
-    );
-  if (!target) throw new Error(`Unit ${unit.id} has no legal automatic action`);
   return {
     kind: 'basic_attack',
-    targetUnitId: target.id,
+    targetUnitId: basicAttack.target.id,
     submittedBy: 'timeout',
   };
-}
-
-function captureBoundary(input: {
-  roster: BattleRoster;
-  runtime: BattleRuntime;
-  phase: 'battle_init' | 'battle_end';
-  round: number;
-  actor?: Unit;
-}): { sequences: CombatSequenceV3[]; frames: BattleStateFrameV3[] } {
-  const context = new BattleResolutionContext(input.runtime);
-  const recorder = new BattleStateRecorder();
-  try {
-    context.runFrame(
-      {
-        phase: input.phase,
-        turn: input.round,
-        actor: input.actor
-          ? { id: input.actor.id, name: input.actor.name }
-          : undefined,
-      },
-      (sequence) => {
-        recorder.record(
-          input.phase,
-          input.round,
-          input.roster.getAllUnits(),
-          undefined,
-          sequence.id,
-        );
-      },
-    );
-    return {
-      sequences: context.getSequences(),
-      frames: recorder.getFrames().map((frame) => ({
-        ...frame,
-        sourceSequenceId: frame.sourceSequenceId!,
-      })),
-    };
-  } finally {
-    context.destroy();
-  }
-}
-
-function resolveAutomaticWinnerTeam(
-  outcome: TeamVictoryResult,
-  roster: BattleRoster,
-): TeamId {
-  if (outcome.winnerTeamId) return outcome.winnerTeamId;
-  return [...roster.teams.keys()][0];
 }
 
 function assertRuntimeMatchesRoster(

@@ -997,11 +997,10 @@ export default function LiveBattleMatchPage() {
               战局已定
             </p>
             <h2 className="mt-2 text-xl font-semibold tracking-[0.14em]">
-              {view.latestResolution?.outcome.draw
-                ? '两阵平分秋色'
-                : view.latestResolution?.outcome.winnerTeamId === view.teamId
-                  ? '此阵得胜'
-                  : '此阵惜败'}
+              {view.latestResolution?.outcome.battleEnded &&
+              view.latestResolution.outcome.winnerTeamId === view.teamId
+                ? '此阵得胜'
+                : '此阵惜败'}
             </h2>
             <p className="mt-3 text-sm text-[#2c1810]/60">
               战斗结果已确认，完整回放正在归档。

@@ -4,6 +4,7 @@ import type { TeamId } from '../core/types';
 import { TargetSelectionSystem } from '../systems/TargetSelectionSystem';
 import { AbilityFactory } from '../factories/AbilityFactory';
 import { peekQueuedAction } from '../core/runtimeState';
+import { resolveLegalBasicAttack } from './BasicAttackResolver';
 import type {
   BattlePlanningViewV1,
   PlanningAbilityViewV1,
@@ -25,15 +26,12 @@ export function createBattlePlanningView(input: {
       const forcedTargets = queuedAbility instanceof ActiveSkill
         ? targetSystem.getTargetCandidates(unit, queuedAbility.targetPolicy, allUnits)
         : [];
-      const defaultAttack = unit.isAlive() ? unit.abilities.getDefaultAttack() : undefined;
-      const basicTargets = defaultAttack instanceof ActiveSkill
-        ? targetSystem.getTargetCandidates(unit, defaultAttack.targetPolicy, allUnits)
-        : [];
-      const basicReady = basicTargets.some((target) =>
-        defaultAttack instanceof ActiveSkill
-          ? defaultAttack.canTrigger({ caster: unit, target })
-          : false,
-      );
+      const defaultAttack = unit.isAlive()
+        ? unit.abilities.getDefaultAttack()
+        : undefined;
+      const basicAttack = unit.isAlive()
+        ? resolveLegalBasicAttack(unit, allUnits)
+        : null;
       return {
         unitId: unit.id,
         teamId: unit.teamId,
@@ -42,13 +40,12 @@ export function createBattlePlanningView(input: {
           ? {
               abilityId: 'basic_attack' as const,
               name: defaultAttack?.name ?? '普攻',
-              ready: basicReady,
-              unavailableReason: basicTargets.length === 0
-                ? 'no_target' as const
-                : basicReady
-                  ? undefined
-                  : 'condition' as const,
-              legalTargetIds: basicTargets.map((target) => target.id),
+              ready: Boolean(basicAttack),
+              unavailableReason: basicAttack
+                ? undefined
+                : ('no_target' as const),
+              legalTargetIds:
+                basicAttack?.legalTargets.map((target) => target.id) ?? [],
             }
           : undefined,
         forcedAction: queuedAbility instanceof ActiveSkill

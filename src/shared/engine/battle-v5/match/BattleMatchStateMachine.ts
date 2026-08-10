@@ -11,6 +11,7 @@ import { sealRoundCommandSet } from '../round/BattleRoundResolver';
 import type { BattleActionIntentV1, RoundCommandSetV1 } from '../round/types';
 import { ROUND_PLANNING_TIMEOUT_MS } from '../round/types';
 import { TargetSelectionSystem } from '../systems/TargetSelectionSystem';
+import { resolveLegalBasicAttack } from '../round/BasicAttackResolver';
 import { createBattlePublicSnapshot } from './BattlePublicSnapshot';
 import type {
   BattleControllerV1,
@@ -407,17 +408,14 @@ function fillTimeouts(
     for (const unit of restored.roster.getLivingUnits()) {
       if (result[unit.id]) continue;
       const queued = peekQueuedAction(unit);
-      const ability = queued
-        ? AbilityFactory.create(queued.ability)
-        : unit.abilities.getDefaultAttack();
-      if (!(ability instanceof ActiveSkill)) {
-        throw new Error(`Unit ${unit.id} has no timeout attack`);
-      }
-      const target = targetSystem
-        .getTargetCandidates(unit, ability.targetPolicy, allUnits)
-        .find((candidate) =>
-          ability.canTrigger({ caster: unit, target: candidate }),
-        );
+      const ability = queued ? AbilityFactory.create(queued.ability) : null;
+      const target = ability instanceof ActiveSkill
+        ? targetSystem
+            .getTargetCandidates(unit, ability.targetPolicy, allUnits)
+            .find((candidate) =>
+              ability.canTrigger({ caster: unit, target: candidate }),
+            )
+        : resolveLegalBasicAttack(unit, allUnits)?.target;
       if (!target)
         throw new Error(`Unit ${unit.id} has no legal timeout attack target`);
       result[unit.id] = {
