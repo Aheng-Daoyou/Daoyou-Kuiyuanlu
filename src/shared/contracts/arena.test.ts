@@ -4,6 +4,7 @@ import {
   ArenaInviteCodeSchema,
   freezeArenaRoster,
   hasBothArenaTeams,
+  selectArenaJoinTeam,
   type ArenaRoomSeatV1,
   type ArenaRoomV1,
 } from './arena';
@@ -72,6 +73,26 @@ describe('arena room contract', () => {
     expect(allArenaSeatsReady(waiting)).toBe(false);
   });
 
+  it('assigns new participants to the smaller team and uses beta as the tie-breaker', () => {
+    expect(selectArenaJoinTeam(room([seat('alpha')], []))).toBe('beta');
+    expect(selectArenaJoinTeam(room([seat('alpha')], [seat('beta')]))).toBe(
+      'beta',
+    );
+    expect(
+      selectArenaJoinTeam(
+        room([seat('alpha')], [seat('beta-1'), seat('beta-2')]),
+      ),
+    ).toBe('alpha');
+  });
+
+  it('rejects joining when both teams are full', () => {
+    const fullTeam = (prefix: string) =>
+      Array.from({ length: 4 }, (_, index) => seat(`${prefix}-${index}`));
+    expect(() =>
+      selectArenaJoinTeam(room(fullTeam('alpha'), fullTeam('beta'))),
+    ).toThrow('房间已满');
+  });
+
   it('freezes an asymmetric roster with stable team and slot ownership', () => {
     const asymmetric = room(
       [{ ...seat('alpha'), slot: 2 }],
@@ -86,7 +107,9 @@ describe('arena room contract', () => {
       startRequestId: 'request-1',
       frozenAt: 1_000,
     });
-    expect(frozen.seats.map((entry) => [entry.teamId, entry.slot, entry.userId])).toEqual([
+    expect(
+      frozen.seats.map((entry) => [entry.teamId, entry.slot, entry.userId]),
+    ).toEqual([
       ['alpha', 2, 'alpha'],
       ['beta', 0, 'beta-1'],
       ['beta', 3, 'beta-2'],

@@ -75,9 +75,8 @@ async function processMessage(message: JsMsg): Promise<void> {
         arenaRoom.teams.alpha.concat(arenaRoom.teams.beta).map((seat) => seat.userId),
         {
           roomId: arenaRoom.roomId,
-          revision: arenaRoom.revision,
+          revision: arenaRoom.revision + 1,
           status: arenaRoom.status,
-          room: arenaRoom,
         },
       );
     }

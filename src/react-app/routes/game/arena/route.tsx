@@ -9,8 +9,8 @@ import { usePlayerSession } from '@app/lib/resources/player';
 import type {
   ArenaRoomResponseV1,
   ArenaRoomSeatV1,
-  ArenaStartResponseV1,
   ArenaRoomV1,
+  ArenaStartResponseV1,
   ArenaTeamIdV1,
 } from '@shared/contracts/arena';
 import {
@@ -29,7 +29,7 @@ const ACTORS: readonly RoomActorView[] = [
     sigil: '虎',
     name: '王虎',
     identity: '擂台切磋主持人',
-    responsibility: '介绍擂台切磋的规矩与入场方式。',
+    responsibility: '简要说明切磋规则。',
     appearance: 'person',
   },
   {
@@ -53,10 +53,7 @@ export default function ArenaPage() {
   const applyRoom = useCallback((next: ArenaRoomV1 | null) => {
     setRoom((current) => {
       if (!next) return null;
-      if (
-        current?.roomId === next.roomId &&
-        current.revision > next.revision
-      ) {
+      if (current?.roomId === next.roomId && current.revision > next.revision) {
         return current;
       }
       return next;
@@ -123,7 +120,11 @@ export default function ArenaPage() {
   }, [applyRoom, refreshRoom, room]);
 
   useEffect(() => {
-    if (!room?.battleMatchId || (room.status !== 'starting' && room.status !== 'in_battle')) return;
+    if (
+      !room?.battleMatchId ||
+      (room.status !== 'starting' && room.status !== 'in_battle')
+    )
+      return;
     navigate(`/game/battle/live/${encodeURIComponent(room.battleMatchId)}`);
   }, [navigate, room?.battleMatchId, room?.status]);
 
@@ -139,11 +140,11 @@ export default function ArenaPage() {
   return (
     <GameSceneFrame
       variant="workflow"
-      description="王虎主持的公共擂台切磋。凭六位数字邀请码自由组队，双方准备完毕后即可开始无消耗的实时对局。"
+      description="无消耗的公共擂台切磋。创建房间或凭邀请码入场，准备完毕后即可开始。"
     >
       <RoomView
         eyebrow="擂台场"
-        description="青石擂台立在场中，来客可在此自行结队，不论人数多寡，只以切磋招法为意。"
+        description="青石擂台立在场中，来客可创建房间或凭邀请码入场切磋。"
         actors={ACTORS.map((actor) =>
           actor.id === 'ring' && room
             ? { ...actor, status: { label: '已有候场房间', tone: 'active' } }
@@ -151,8 +152,8 @@ export default function ArenaPage() {
         )}
         selectedId={selectedId}
         onSelect={setSelectedId}
-        prompt="找王虎了解规矩，或直接点击擂台入场"
-        promptDetail="切磋不收取费用，也不会消耗战斗外资源。"
+        prompt="点击擂台入场；若想了解细则，可问王虎"
+        promptDetail="这里是无消耗的自由切磋，双方到齐并准备后即可开始。"
         detail={
           selectedId === 'wang-hu' ? (
             <WangHuConversation onExit={() => setSelectedId(undefined)} />
@@ -179,22 +180,24 @@ function WangHuConversation({ onExit }: { onExit(): void }) {
         {
           id: 'greeting',
           speaker: '王虎',
-          body: '这里不论门第，也不押注输赢。你若想试招，开一间房，邀人分到擂台两边便是。',
-        },
-        {
-          id: 'rules',
-          speaker: '王虎',
-          body: '双方人数不必相同。人都到齐并各自准备后，由房主开擂；入场后每回合有三十息同时定招。',
-        },
-        {
-          id: 'cost',
-          speaker: '王虎',
-          body: '此处只作切磋，不收费用，不动你在擂台之外的气血、物资与修行状态。',
+          body: '这里是无消耗的自由切磋，双方到齐并准备后即可开始。',
         },
       ]}
       options={[{ id: 'leave', label: '我明白了', tone: 'muted' }]}
       onSelectOption={onExit}
-    />
+    >
+      <details className="bg-ink/[0.025] text-ink-secondary px-4 py-3 text-sm leading-7">
+        <summary className="hover:text-crimson cursor-pointer select-none">
+          查看规则
+        </summary>
+        <ul className="mt-3 list-disc space-y-1 pl-5">
+          <li>双方人数不必相同，每方最多四人。</li>
+          <li>所有人准备后，由房主开始切磋。</li>
+          <li>每回合有三十息同时定招。</li>
+          <li>切磋不消耗费用、物资或战斗外状态。</li>
+        </ul>
+      </details>
+    </NpcConversation>
   );
 }
 
@@ -212,7 +215,7 @@ function ArenaFacility({
   onExit(): void;
 }) {
   const [inviteCode, setInviteCode] = useState('');
-  const [teamId, setTeamId] = useState<ArenaTeamIdV1>('beta');
+  const [joining, setJoining] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [startRequestId] = useState(() => crypto.randomUUID());
@@ -226,9 +229,7 @@ function ArenaFacility({
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(
-            action === 'create' ? {} : { inviteCode, teamId },
-          ),
+          body: JSON.stringify(action === 'create' ? {} : { inviteCode }),
         },
       );
       onRoom(response.room);
@@ -247,7 +248,7 @@ function ArenaFacility({
           id: 'facility',
           body: room
             ? `你的候场房间邀请码为 ${room.inviteCode}。`
-            : '擂台阵纹尚空。你可以开一间新房，或输入六位数字邀请码加入他人的房间。',
+            : '创建一间房，或凭六位数字邀请码加入已有房间。入房后将自动分队。',
         },
       ]}
       busy={busy || loading}
@@ -266,7 +267,7 @@ function ArenaFacility({
           startRequestId={startRequestId}
         />
       ) : (
-        <div className="border-ink/15 mt-2 space-y-5 border-t pt-5">
+        <div className="mt-4 space-y-2">
           <button
             type="button"
             disabled={busy || loading}
@@ -276,47 +277,34 @@ function ArenaFacility({
             创建一间切磋房
           </button>
 
-          <div className="border-ink/10 border-t pt-5">
-            <label className="text-ink-secondary block text-sm" htmlFor="arena-invite-code">
-              六位数字邀请码
-            </label>
-            <input
-              id="arena-invite-code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              value={inviteCode}
-              onChange={(event) =>
-                setInviteCode(event.target.value.replace(/\D/g, '').slice(0, 6))
-              }
-              placeholder="000000"
-              className="border-ink/20 focus:border-crimson mt-2 w-full border bg-transparent px-4 py-3 font-mono text-xl tracking-[0.45em] outline-none"
-            />
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {(['alpha', 'beta'] as const).map((candidate) => (
-                <button
-                  key={candidate}
-                  type="button"
-                  aria-pressed={teamId === candidate}
-                  onClick={() => setTeamId(candidate)}
-                  className={`border px-3 py-2 text-sm ${
-                    teamId === candidate
-                      ? 'border-crimson/45 text-crimson bg-crimson/6'
-                      : 'border-ink/15 text-ink-secondary'
-                  }`}
-                >
-                  加入{candidate === 'alpha' ? '青方' : '赤方'}
-                </button>
-              ))}
-            </div>
+          <div>
             <button
               type="button"
-              disabled={busy || inviteCode.length !== 6}
-              onClick={() => void perform('join')}
-              className="border-crimson/45 text-crimson hover:bg-crimson/6 mt-3 w-full border-l-2 px-5 py-3 text-left disabled:opacity-50"
+              disabled={busy || loading}
+              onClick={() => setJoining((current) => !current)}
+              aria-expanded={joining}
+              className="border-ink/20 text-ink-secondary hover:border-crimson/40 hover:text-crimson w-full border-l-2 px-5 py-3 text-left disabled:opacity-50"
             >
-              凭邀请码入房
+              已有邀请码？加入房间
             </button>
+
+            {joining ? (
+              <div className="bg-ink/[0.018] mt-3 space-y-3 px-4 py-4 sm:px-5">
+                <ArenaInviteCodeInput
+                  value={inviteCode}
+                  onChange={setInviteCode}
+                  disabled={busy}
+                />
+                <button
+                  type="button"
+                  disabled={busy || inviteCode.length !== 6}
+                  onClick={() => void perform('join')}
+                  className="border-crimson/45 text-crimson hover:bg-crimson/6 w-full border-l-2 px-5 py-3 text-left disabled:opacity-50"
+                >
+                  加入房间
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       )}
@@ -354,7 +342,7 @@ function ArenaRoomWorkspace({
     allArenaSeatsReady(room);
 
   const mutate = async (
-    action: 'team' | 'ready' | 'leave',
+    action: 'ready' | 'leave',
     body: Record<string, unknown>,
   ) => {
     onBusy(true);
@@ -399,10 +387,12 @@ function ArenaRoomWorkspace({
   };
 
   return (
-    <div className="border-ink/15 space-y-4 border-t pt-5">
-      <div className="border-ink/15 flex flex-wrap items-center justify-between gap-3 border px-4 py-3">
+    <div className="mt-4 space-y-4">
+      <div className="bg-ink/[0.025] flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div>
-          <p className="text-ink-secondary text-xs tracking-[0.18em]">六位邀请码</p>
+          <p className="text-ink-secondary text-xs tracking-[0.18em]">
+            六位邀请码
+          </p>
           <p className="mt-1 font-mono text-2xl tracking-[0.35em]">
             {room.inviteCode}
           </p>
@@ -430,24 +420,7 @@ function ArenaRoomWorkspace({
       </div>
 
       {current ? (
-        <div className="grid gap-2 sm:grid-cols-3">
-          <button
-            type="button"
-            disabled={
-              busy ||
-              !isArenaRoomActive(room.status) ||
-              room.teams[current.teamId === 'alpha' ? 'beta' : 'alpha']
-                .length >= 4
-            }
-            onClick={() =>
-              void mutate('team', {
-                teamId: current.teamId === 'alpha' ? 'beta' : 'alpha',
-              })
-            }
-            className="border-ink/20 hover:border-crimson/40 hover:text-crimson border px-4 py-3 text-sm disabled:opacity-45"
-          >
-            换到{current.teamId === 'alpha' ? '赤方' : '青方'}
-          </button>
+        <div className="grid gap-2 sm:grid-cols-2">
           <button
             type="button"
             disabled={busy || !isArenaRoomActive(room.status)}
@@ -466,7 +439,9 @@ function ArenaRoomWorkspace({
           </button>
         </div>
       ) : (
-        <p className="text-crimson text-sm">当前修士不在此房间中，请刷新页面。</p>
+        <p className="text-crimson text-sm">
+          当前修士不在此房间中，请刷新页面。
+        </p>
       )}
 
       {isHost ? (
@@ -485,9 +460,42 @@ function ArenaRoomWorkspace({
       <p className="text-ink-secondary text-xs leading-6">
         {room.status === 'starting'
           ? '阵容已冻结，正在创建实时战斗对局。'
-          : '双方至少各有一人且全员准备后，房主才能开擂。双方人数不必相同，每方最多四人。'}
+          : canStart
+            ? '双方已准备完毕，房主现在可以开始切磋。'
+            : '等待双方到齐并准备完毕。'}
       </p>
     </div>
+  );
+}
+
+function ArenaInviteCodeInput({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange(value: string): void;
+  disabled: boolean;
+}) {
+  return (
+    <label className="block cursor-text">
+      <span className="text-ink-secondary text-sm">六位数字邀请码</span>
+      <input
+        id="arena-invite-code"
+        aria-label="六位数字邀请码"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        autoFocus
+        maxLength={6}
+        value={value}
+        disabled={disabled}
+        onChange={(event) =>
+          onChange(event.target.value.replace(/\D/g, '').slice(0, 6))
+        }
+        placeholder="000000"
+        className="border-ink/20 focus:border-crimson/55 focus:ring-crimson/10 placeholder:text-ink-secondary/30 mt-2 w-full border bg-transparent px-4 py-3 text-center font-mono text-xl tracking-[0.45em] outline-none transition-colors focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+      />
+    </label>
   );
 }
 
@@ -515,7 +523,7 @@ function ArenaTeamPanel({
           seats.map((seat) => (
             <div
               key={seat.userId}
-              className="border-ink/10 flex items-center justify-between gap-3 border-b pb-2 text-sm last:border-b-0"
+              className="bg-ink/[0.025] flex items-center justify-between gap-3 px-3 py-2 text-sm"
             >
               <span className="min-w-0 truncate">
                 {seat.displayName}
@@ -526,9 +534,7 @@ function ArenaTeamPanel({
                   <span className="text-crimson ml-2 text-xs">你</span>
                 ) : null}
               </span>
-              <span
-                className={seat.ready ? 'text-teal' : 'text-ink-secondary'}
-              >
+              <span className={seat.ready ? 'text-teal' : 'text-ink-secondary'}>
                 {seat.ready ? '已准备' : '未准备'}
               </span>
             </div>

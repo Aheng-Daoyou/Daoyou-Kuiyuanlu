@@ -838,7 +838,7 @@ export const router = createBrowserRouter(
                 {
                   id: 'arena-sparring',
                   presentation: 'workflow',
-                  summary: '凭六位数字邀请码自由组队，进行无消耗的实时切磋。',
+                  summary: '创建房间或凭邀请码入场，自动分队后进行无消耗切磋。',
                 },
                 '擂台切磋',
               )}

@@ -76,20 +76,11 @@ export const ArenaInviteCodeSchema = z
 
 export const ArenaTeamIdSchema = z.enum(['alpha', 'beta']);
 
-export const ArenaCreateRoomSchema = z
-  .object({})
-  .strict();
+export const ArenaCreateRoomSchema = z.object({}).strict();
 
 export const ArenaJoinRoomSchema = z
   .object({
     inviteCode: ArenaInviteCodeSchema,
-    teamId: ArenaTeamIdSchema,
-  })
-  .strict();
-
-export const ArenaSeatCommandSchema = z
-  .object({
-    teamId: ArenaTeamIdSchema,
   })
   .strict();
 
@@ -106,12 +97,23 @@ export const ArenaStartCommandSchema = z
   .strict();
 
 export type ArenaRoomCommandV1 =
-  | { readonly type: 'join'; readonly userId: string; readonly cultivatorId: string; readonly teamId: ArenaTeamIdV1 }
+  | {
+      readonly type: 'join';
+      readonly userId: string;
+      readonly cultivatorId: string;
+    }
   | { readonly type: 'leave'; readonly userId: string }
-  | { readonly type: 'set_team'; readonly userId: string; readonly teamId: ArenaTeamIdV1 }
-  | { readonly type: 'set_ready'; readonly userId: string; readonly ready: boolean }
+  | {
+      readonly type: 'set_ready';
+      readonly userId: string;
+      readonly ready: boolean;
+    }
   | { readonly type: 'touch'; readonly userId: string }
-  | { readonly type: 'start'; readonly userId: string; readonly requestId: string };
+  | {
+      readonly type: 'start';
+      readonly userId: string;
+      readonly requestId: string;
+    };
 
 export interface ArenaRoomResponseV1 {
   readonly room: ArenaRoomV1;
@@ -144,13 +146,27 @@ export function hasBothArenaTeams(room: ArenaRoomV1): boolean {
   return room.teams.alpha.length > 0 && room.teams.beta.length > 0;
 }
 
+export function selectArenaJoinTeam(room: ArenaRoomV1): ArenaTeamIdV1 {
+  const alphaCount = room.teams.alpha.length;
+  const betaCount = room.teams.beta.length;
+  if (
+    alphaCount >= ARENA_ROOM_MAX_SEATS_PER_TEAM &&
+    betaCount >= ARENA_ROOM_MAX_SEATS_PER_TEAM
+  ) {
+    throw new Error('房间已满');
+  }
+  return alphaCount < betaCount ? 'alpha' : 'beta';
+}
+
 export function freezeArenaRoster(
   room: ArenaRoomV1,
   startRequestId: string,
   frozenAt: number,
 ): ArenaFrozenRosterV1 {
   if (!startRequestId || !Number.isFinite(frozenAt)) {
-    throw new Error('Arena roster freeze requires a request id and finite time');
+    throw new Error(
+      'Arena roster freeze requires a request id and finite time',
+    );
   }
   return {
     version: 'arena_frozen_roster_v1',

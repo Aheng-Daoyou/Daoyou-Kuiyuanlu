@@ -6,17 +6,15 @@ import {
   validateJson,
 } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
-import { ArenaRoomService } from '@server/lib/services/ArenaRoomService';
 import { ArenaBattleStartOrchestrator } from '@server/lib/services/ArenaBattleStartOrchestrator';
 import { publishArenaRoomChanges } from '@server/lib/services/arenaRoomBroadcaster';
+import { ArenaRoomService } from '@server/lib/services/ArenaRoomService';
 import {
   ArenaCreateRoomSchema,
   ArenaJoinRoomSchema,
   ArenaReadyCommandSchema,
-  ArenaSeatCommandSchema,
   ArenaStartCommandSchema,
   type ArenaRoomV1,
-  type ArenaTeamIdV1,
 } from '@shared/contracts/arena';
 import { and, eq } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
@@ -36,7 +34,9 @@ const EmptyCommandSchema = z.object({}).strict();
 router.get('/room', requireActiveCultivatorRef(), async (c) => {
   const identity = await requireArenaIdentity(c);
   if (identity instanceof Response) return identity;
-  return c.json({ room: await rooms.getRoomForCultivator(identity.cultivatorId) });
+  return c.json({
+    room: await rooms.getRoomForCultivator(identity.cultivatorId),
+  });
 });
 
 router.get('/rooms/:roomId', requireActiveCultivatorRef(), async (c) => {
@@ -86,33 +86,12 @@ router.post(
     if (identity instanceof Response) return identity;
     const body = getValidatedJson<{
       inviteCode: string;
-      teamId: ArenaTeamIdV1;
     }>(c);
     try {
       const room = await rooms.joinRoom({
         ...identity,
         inviteCode: body.inviteCode,
-        teamId: body.teamId,
       });
-      publishRoom(room);
-      return c.json({ room });
-    } catch (error) {
-      return arenaError(c, error);
-    }
-  },
-);
-
-router.post(
-  '/rooms/:roomId/team',
-  requireActiveCultivatorRef(),
-  validateJson(ArenaSeatCommandSchema),
-  async (c) => {
-    const roomId = RoomIdSchema.parse(c.req.param('roomId'));
-    const identity = await requireArenaMember(c, roomId);
-    if (identity instanceof Response) return identity;
-    const { teamId } = getValidatedJson<{ teamId: ArenaTeamIdV1 }>(c);
-    try {
-      const room = await rooms.setTeam(roomId, identity.userId, teamId);
       publishRoom(room);
       return c.json({ room });
     } catch (error) {
@@ -193,7 +172,10 @@ router.post(
           error.message,
         )
       ) {
-        console.error('[arena-start] battle orchestration failed', { roomId, error });
+        console.error('[arena-start] battle orchestration failed', {
+          roomId,
+          error,
+        });
         return c.json({ error: '战斗服务暂不可用，开擂状态已保留' }, 503);
       }
       return arenaError(c, error);
@@ -266,16 +248,16 @@ function arenaError(c: Context<AppEnv>, error: unknown) {
   if (/不存在|过期|邀请码无效/.test(message)) {
     return c.json({ error: message }, 404);
   }
-  if (/已经|已满|不能|需要|准备|房主|不接受|不在|不可用|状态已变化/.test(message)) {
+  if (
+    /已经|已满|不能|需要|准备|房主|不接受|不在|不可用|状态已变化/.test(message)
+  ) {
     return c.json({ error: message }, 409);
   }
   throw error;
 }
 
 function arenaUserIds(room: ArenaRoomV1): string[] {
-  return room.teams.alpha
-    .concat(room.teams.beta)
-    .map((seat) => seat.userId);
+  return room.teams.alpha.concat(room.teams.beta).map((seat) => seat.userId);
 }
 
 function publishRoom(room: ArenaRoomV1): void {
