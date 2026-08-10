@@ -4,17 +4,18 @@ services:
   nats:
     image: nats:2.11-alpine
     command:
+      - --config=/etc/nats/nats-server.conf
       - --jetstream
       - --store_dir=/data/jetstream
       - --http_port=8222
       - --user=app
       - --pass=local-nats-password
-      - --max_payload=8MB
     ports:
       - '4222:4222'
       - '8222:8222'
     volumes:
       - nats-data:/data/jetstream
+      - ./nats-server.conf:/etc/nats/nats-server.conf:ro
     healthcheck:
       test:
         ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8222/healthz | grep -q ok']

@@ -40,9 +40,10 @@ import type { Unit } from '../units/Unit';
 import { toBattleStateTimelineV3 } from '../v3/BattleRecordV3';
 import { CombatMechanicCodeV3 } from '../v3/mechanics';
 import { CombatSystemSourceV3 } from '../v3/origin';
-import { BattleResolutionContext } from './BattleResolutionContext';
-import { recordBattleEnd } from './BattleLifecycleResolver';
 import { resolveLegalBasicAttack } from './BasicAttackResolver';
+import { recordBattleEnd } from './BattleLifecycleResolver';
+import { BattleResolutionContext } from './BattleResolutionContext';
+import { resolveLegalQueuedAction } from './QueuedActionResolver';
 import type {
   BattleActionIntentV1,
   BattleRoundResolutionV1,
@@ -61,6 +62,27 @@ export function sealRoundCommandSet(
     return deepFreeze(
       JSON.parse(JSON.stringify(commandSet)) as RoundCommandSetV1,
     );
+  } finally {
+    restored.runtime.dispose();
+  }
+}
+
+/** Validates a partial set of player intents against one immutable checkpoint. */
+export function validateBattleIntents(
+  save: BattleSaveV1,
+  intents: Readonly<Record<string, BattleActionIntentV1>>,
+): void {
+  const restored = restoreBattleSave(save);
+  try {
+    const allUnits = restored.roster.getAllUnits();
+    const targetSystem = new TargetSelectionSystem();
+    for (const [unitId, intent] of Object.entries(intents)) {
+      const actor = restored.roster.units.get(unitId);
+      if (!actor || !actor.isAlive()) {
+        throw new Error(`Intent references unavailable unit ${unitId}`);
+      }
+      validateUnitIntent(actor, allUnits, intent, targetSystem);
+    }
   } finally {
     restored.runtime.dispose();
   }
@@ -534,69 +556,68 @@ function validateAllIntents(
   const targetSystem = new TargetSelectionSystem();
   for (const actor of livingUnits) {
     const intent = commandSet.intents[actor.id];
-    const queued = peekQueuedAction(actor);
-    if (queued) {
-      const ability = AbilityFactory.create(queued.ability);
-      if (!(ability instanceof ActiveSkill) || intent.kind !== 'basic_attack') {
-        throw new Error(
-          `Unit ${actor.id} must select a target for its queued action`,
-        );
-      }
-      const candidates = targetSystem.getTargetCandidates(
-        actor,
-        ability.targetPolicy,
-        allUnits,
-      );
-      if (
-        !candidates.some((candidate) => candidate.id === intent.targetUnitId)
-      ) {
-        throw new Error(
-          `Queued action target is not legal for unit ${actor.id}`,
-        );
-      }
-      continue;
-    }
-    if (intent.kind === 'basic_attack') {
-      const resolved = resolveLegalBasicAttack(
-        actor,
-        allUnits,
-        intent.targetUnitId,
-      );
-      if (!resolved || resolved.target.id !== intent.targetUnitId) {
-        throw new Error(`Basic attack is not legal for unit ${actor.id}`);
-      }
-      continue;
-    }
-    const ability = actor.abilities.getAbility(intent.abilityId);
-    if (!(ability instanceof ActiveSkill)) {
-      throw new Error(
-        `Unit ${actor.id} cannot use ability ${intent.abilityId}`,
-      );
-    }
-    const candidates = targetSystem.getTargetCandidates(
+    validateUnitIntent(actor, allUnits, intent, targetSystem);
+  }
+}
+
+function validateUnitIntent(
+  actor: Unit,
+  allUnits: Unit[],
+  intent: BattleActionIntentV1,
+  targetSystem: TargetSelectionSystem,
+): void {
+  if (peekQueuedAction(actor)) {
+    const queuedAction = resolveLegalQueuedAction(
       actor,
-      ability.targetPolicy,
       allUnits,
+      intent.targetUnitId,
     );
-    const target = intent.targetUnitId
-      ? candidates.find((candidate) => candidate.id === intent.targetUnitId)
-      : candidates[0];
-    if (
-      ability.targetPolicy.scope === 'single' &&
-      ability.targetPolicy.team !== 'self' &&
-      !intent.targetUnitId
-    ) {
-      throw new Error(`Ability target is required for unit ${actor.id}`);
-    }
-    if (
-      !target ||
-      (intent.targetUnitId && !candidates.includes(target)) ||
-      !ability.canTrigger({ caster: actor, target })
-    ) {
+    if (!queuedAction || intent.kind !== 'basic_attack') {
       throw new Error(
-        `Ability ${ability.id} is not legal for unit ${actor.id}`,
+        `Unit ${actor.id} must select a legal target for its queued action`,
       );
     }
+    if (queuedAction.target.id !== intent.targetUnitId) {
+      throw new Error(`Queued action target is not legal for unit ${actor.id}`);
+    }
+    return;
+  }
+  if (intent.kind === 'basic_attack') {
+    const resolved = resolveLegalBasicAttack(
+      actor,
+      allUnits,
+      intent.targetUnitId,
+    );
+    if (!resolved || resolved.target.id !== intent.targetUnitId) {
+      throw new Error(`Basic attack is not legal for unit ${actor.id}`);
+    }
+    return;
+  }
+  const ability = actor.abilities.getAbility(intent.abilityId);
+  if (!(ability instanceof ActiveSkill)) {
+    throw new Error(`Unit ${actor.id} cannot use ability ${intent.abilityId}`);
+  }
+  const candidates = targetSystem.getTargetCandidates(
+    actor,
+    ability.targetPolicy,
+    allUnits,
+  );
+  const target = intent.targetUnitId
+    ? candidates.find((candidate) => candidate.id === intent.targetUnitId)
+    : candidates[0];
+  if (
+    ability.targetPolicy.scope === 'single' &&
+    ability.targetPolicy.team !== 'self' &&
+    !intent.targetUnitId
+  ) {
+    throw new Error(`Ability target is required for unit ${actor.id}`);
+  }
+  if (
+    !target ||
+    (intent.targetUnitId && !candidates.includes(target)) ||
+    !ability.canTrigger({ caster: actor, target })
+  ) {
+    throw new Error(`Ability ${ability.id} is not legal for unit ${actor.id}`);
   }
 }
 

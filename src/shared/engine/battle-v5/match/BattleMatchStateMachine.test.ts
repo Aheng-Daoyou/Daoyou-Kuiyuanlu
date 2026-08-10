@@ -1,7 +1,9 @@
+import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import { describe, expect, it } from 'vitest';
 import { BattleResolutionError } from '../core/BattleResolutionError';
 import { BattleRoster } from '../core/BattleRoster';
-import { AttributeType } from '../core/types';
+import { setQueuedAction } from '../core/runtimeState';
+import { AbilityType, AttributeType, DamageType } from '../core/types';
 import {
   captureBattleCheckpoint,
   createBattleBlueprint,
@@ -20,7 +22,7 @@ import {
 } from './BattleMatchStateMachine';
 import type { BattleControllerV1, BattleMatchStateV1 } from './types';
 
-function save(): BattleSaveV1 {
+function save(options: { queuedUnitId?: string } = {}): BattleSaveV1 {
   const runtime = new BattleRuntime();
   const units = [
     new Unit(
@@ -33,6 +35,34 @@ function save(): BattleSaveV1 {
     new Unit('b0', 'b0', {}, { runtime, teamId: 'b', slot: 0 }),
     new Unit('b1', 'b1', {}, { runtime, teamId: 'b', slot: 1 }),
   ];
+  const queuedUnit = units.find((unit) => unit.id === options.queuedUnitId);
+  if (queuedUnit) {
+    setQueuedAction(
+      queuedUnit,
+      {
+        slug: 'queued-strike',
+        name: '蓄势一击',
+        type: AbilityType.ACTIVE_SKILL,
+        tags: [
+          GameplayTags.ABILITY.KIND.SKILL,
+          GameplayTags.ABILITY.FUNCTION.DAMAGE,
+          GameplayTags.ABILITY.CHANNEL.TRUE,
+        ],
+        targetPolicy: { team: 'enemy', scope: 'single' },
+        effects: [
+          {
+            type: 'damage',
+            params: {
+              value: { base: 10, coefficient: 0 },
+              damageType: DamageType.TRUE,
+              canCrit: false,
+            },
+          },
+        ],
+      },
+      { interruptPolicy: 'uninterruptible', hitPolicy: 'guaranteed' },
+    );
+  }
   const roster = new BattleRoster(units);
   const blueprint = createBattleBlueprint('match-test', roster);
   return {
@@ -140,6 +170,83 @@ describe('BattleMatchStateMachine', () => {
     ).toThrow('every living controlled unit exactly once');
   });
 
+  it('validates only the submitting player and seals queued actions regardless of commit order', () => {
+    let state = createBattleMatchState({
+      matchId: 'match-test',
+      battle: save({ queuedUnitId: 'a0' }),
+      controllers,
+      now: 1_000,
+    });
+
+    state = transitionBattleMatch(
+      state,
+      {
+        type: 'commit_player_intents',
+        matchId: 'match-test',
+        ...commandBase(state, 'commit-b-first'),
+        playerId: 'p-b',
+        intents: basicIntents('p-b'),
+      },
+      1_001,
+    ).state;
+
+    expect(state.status).toBe('planning');
+    expect(Object.keys(state.planning?.submissions ?? {}).sort()).toEqual([
+      'b0',
+      'b1',
+    ]);
+    const alphaView = createBattleMatchPlayerView(state, 'p-a', 1_002);
+    const betaView = createBattleMatchPlayerView(state, 'p-b', 1_002);
+    expect(alphaView.ownCommitted).toBe(false);
+    expect(alphaView.ownSubmissions).toEqual({});
+    expect(betaView.ownCommitted).toBe(true);
+    expect(betaView).not.toHaveProperty('committedPlayerIds');
+
+    state = transitionBattleMatch(
+      state,
+      {
+        type: 'commit_player_intents',
+        matchId: 'match-test',
+        ...commandBase(state, 'commit-a-second'),
+        playerId: 'p-a',
+        intents: basicIntents('p-a'),
+      },
+      1_003,
+    ).state;
+
+    expect(state.status).toBe('resolving');
+    expect(state.resolving?.commandSet.intents.a0).toEqual({
+      kind: 'basic_attack',
+      targetUnitId: 'b0',
+      submittedBy: 'player',
+    });
+  });
+
+  it('rejects an illegal intent from the submitting player before other players commit', () => {
+    const state = createBattleMatchState({
+      matchId: 'match-test',
+      battle: save(),
+      controllers,
+      now: 1_000,
+    });
+    expect(() =>
+      transitionBattleMatch(
+        state,
+        {
+          type: 'commit_player_intents',
+          matchId: 'match-test',
+          ...commandBase(state, 'illegal-local-intent'),
+          playerId: 'p-a',
+          intents: {
+            a0: { kind: 'ability', abilityId: 'unknown', targetUnitId: 'b0' },
+            a1: { kind: 'basic_attack', targetUnitId: 'b0' },
+          },
+        },
+        1_001,
+      ),
+    ).toThrow('cannot use ability unknown');
+  });
+
   it('rejects cross-player intents and supports request idempotency', () => {
     const state = createBattleMatchState({
       matchId: 'match-test',
@@ -226,6 +333,30 @@ describe('BattleMatchStateMachine', () => {
     expect(view.ownSubmissions).toEqual({});
     expect(JSON.stringify(view)).toContain('b0');
     expect(JSON.stringify(view)).not.toContain('battle_save_v1');
+  });
+
+  it('fills a missing queued action only when the trusted deadline is reached', () => {
+    const state = createBattleMatchState({
+      matchId: 'match-test',
+      battle: save({ queuedUnitId: 'a0' }),
+      controllers,
+      now: 1_000,
+    });
+    const result = transitionBattleMatch(
+      state,
+      {
+        type: 'resolve_planning_timeout',
+        matchId: 'match-test',
+        ...commandBase(state, 'queued-timeout'),
+      },
+      31_000,
+    );
+    expect(result.state.status).toBe('resolving');
+    expect(result.state.resolving?.commandSet.intents.a0).toEqual({
+      kind: 'basic_attack',
+      targetUnitId: 'b0',
+      submittedBy: 'timeout',
+    });
   });
 
   it('returns to planning after applying a non-terminal resolution', () => {

@@ -138,7 +138,7 @@ export interface BattleMatchPlayerViewV1 {
   readonly publicSnapshot: BattlePublicSnapshotV1;
   readonly latestResolution?: BattleRoundResolutionPublicV1;
   readonly ownSubmissions: Readonly<Record<UnitId, BattleActionIntentV1>>;
-  readonly committedPlayerIds: readonly PlayerId[];
+  readonly ownCommitted: boolean;
   readonly commandReceipt?: BattleCommandReceiptV1;
   readonly resolutionFailure?: BattleResolutionFailurePublicV1;
 }

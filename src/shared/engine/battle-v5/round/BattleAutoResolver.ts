@@ -1,7 +1,6 @@
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import type { AbilitySelectionStrategy } from '../abilities/AbilitySelectionStrategy';
 import { ActiveSkill } from '../abilities/ActiveSkill';
-import { AbilityFactory } from '../factories/AbilityFactory';
 import { BattleRoster } from '../core/BattleRoster';
 import { peekQueuedAction } from '../core/runtimeState';
 import { restoreBattleSave } from '../persistence/BattleStateCodec';
@@ -15,13 +14,11 @@ import type {
 } from '../systems/TeamVictorySystem';
 import type { Unit } from '../units/Unit';
 import type { BattleStateTimelineV3, CombatSequenceV3 } from '../v3/types';
-import { initializeBattle } from './BattleLifecycleResolver';
 import { resolveLegalBasicAttack } from './BasicAttackResolver';
+import { initializeBattle } from './BattleLifecycleResolver';
 import { resolveBattleRound, sealRoundCommandSet } from './BattleRoundResolver';
-import type {
-  BattleActionIntentV1,
-  RoundCommandSetV1,
-} from './types';
+import { resolveLegalQueuedAction } from './QueuedActionResolver';
+import type { BattleActionIntentV1, RoundCommandSetV1 } from './types';
 
 export interface AutomaticBattleResolutionV1 {
   readonly outcome: TerminalTeamVictoryResult;
@@ -173,21 +170,14 @@ function createAutomaticIntent(
   allUnits: Unit[],
 ): BattleActionIntentV1 {
   const targetSystem = new TargetSelectionSystem();
-  const queued = peekQueuedAction(unit);
-  if (queued) {
-    const queuedAbility = AbilityFactory.create(queued.ability);
-    if (!(queuedAbility instanceof ActiveSkill)) {
-      throw new Error(`Queued action ${queued.ability.slug} is not active`);
+  if (peekQueuedAction(unit)) {
+    const queuedAction = resolveLegalQueuedAction(unit, allUnits);
+    if (!queuedAction) {
+      throw new Error(`Queued action has no legal target for ${unit.id}`);
     }
-    const target = targetSystem.getTargetCandidates(
-      unit,
-      queuedAbility.targetPolicy,
-      allUnits,
-    )[0];
-    if (!target) throw new Error(`Queued action has no target for ${unit.id}`);
     return {
       kind: 'basic_attack',
-      targetUnitId: target.id,
+      targetUnitId: queuedAction.target.id,
       submittedBy: 'timeout',
     };
   }

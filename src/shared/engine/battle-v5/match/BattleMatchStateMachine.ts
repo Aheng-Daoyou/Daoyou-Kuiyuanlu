@@ -1,17 +1,18 @@
-import { ActiveSkill } from '../abilities/ActiveSkill';
 import { peekQueuedAction } from '../core/runtimeState';
-import { AbilityFactory } from '../factories/AbilityFactory';
 import {
   restoreBattleSave,
   validateBattleSave,
 } from '../persistence/BattleStateCodec';
 import type { BattleSaveV1 } from '../persistence/types';
+import { resolveLegalBasicAttack } from '../round/BasicAttackResolver';
 import { createBattlePlanningView } from '../round/BattlePlanningView';
-import { sealRoundCommandSet } from '../round/BattleRoundResolver';
+import {
+  sealRoundCommandSet,
+  validateBattleIntents,
+} from '../round/BattleRoundResolver';
+import { resolveLegalQueuedAction } from '../round/QueuedActionResolver';
 import type { BattleActionIntentV1, RoundCommandSetV1 } from '../round/types';
 import { ROUND_PLANNING_TIMEOUT_MS } from '../round/types';
-import { TargetSelectionSystem } from '../systems/TargetSelectionSystem';
-import { resolveLegalBasicAttack } from '../round/BasicAttackResolver';
 import { createBattlePublicSnapshot } from './BattlePublicSnapshot';
 import type {
   BattleControllerV1,
@@ -123,6 +124,7 @@ export function transitionBattleMatch(
         normalizeClientIntent(command.intents[unitId]),
       ]),
     );
+    validateBattleIntents(current.battle, normalized);
     const submissions = {
       ...current.planning.submissions,
       ...normalized,
@@ -139,10 +141,6 @@ export function transitionBattleMatch(
         committedPlayerIds: committed,
       },
     };
-    // Validate the complete prospective round now, filling other players with
-    // deterministic timeout attacks. Invalid targets never remain latent until
-    // the final player commits.
-    sealRoundCommandSet(candidate.battle, buildCommandSet(candidate));
     return transition(
       current,
       {
@@ -160,7 +158,7 @@ export function transitionBattleMatch(
   const committedPlayerIds = current.controllers.map(
     (controller) => controller.playerId,
   );
-  const submissions = fillTimeouts(current);
+  const submissions = completeMissingIntentsAtDeadline(current);
   return transition(
     current,
     {
@@ -331,7 +329,7 @@ export function createBattleMatchPlayerView(
         .filter((unitId) => planning?.submissions[unitId])
         .map((unitId) => [unitId, planning!.submissions[unitId]]),
     ),
-    committedPlayerIds: planning?.committedPlayerIds ?? [],
+    ownCommitted: planning?.committedPlayerIds.includes(playerId) ?? false,
     latestResolution: state.latestResolution,
     resolutionFailure: state.resolving?.failure
       ? {
@@ -370,7 +368,7 @@ function transition(
   });
   const planning = next.planning;
   if (planning && allControllersCommitted(next)) {
-    const commandSet = buildCommandSet(next);
+    const commandSet = buildCompleteCommandSet(next);
     const sealed = sealRoundCommandSet(next.battle, commandSet);
     next = clone({
       ...next,
@@ -384,18 +382,18 @@ function transition(
   return { state: next, changed: true, duplicateRequest: false };
 }
 
-function buildCommandSet(state: BattleMatchStateV1): RoundCommandSetV1 {
-  const submissions = fillTimeouts(state);
+function buildCompleteCommandSet(state: BattleMatchStateV1): RoundCommandSetV1 {
   return {
     version: 'round_command_set_v1',
     commandSetId: `${state.matchId}:${state.planning!.round}:${state.planning!.checkpointRevision}`,
     round: state.planning!.round,
     checkpointRevision: state.planning!.checkpointRevision,
-    intents: submissions,
+    intents: { ...state.planning!.submissions },
   };
 }
 
-function fillTimeouts(
+/** Completes only genuinely missing actions after the trusted deadline fires. */
+function completeMissingIntentsAtDeadline(
   state: BattleMatchStateV1,
 ): Record<string, BattleActionIntentV1> {
   const restored = restoreBattleSave(state.battle);
@@ -404,17 +402,11 @@ function fillTimeouts(
       ...state.planning!.submissions,
     };
     const allUnits = restored.roster.getAllUnits();
-    const targetSystem = new TargetSelectionSystem();
     for (const unit of restored.roster.getLivingUnits()) {
       if (result[unit.id]) continue;
       const queued = peekQueuedAction(unit);
-      const ability = queued ? AbilityFactory.create(queued.ability) : null;
-      const target = ability instanceof ActiveSkill
-        ? targetSystem
-            .getTargetCandidates(unit, ability.targetPolicy, allUnits)
-            .find((candidate) =>
-              ability.canTrigger({ caster: unit, target: candidate }),
-            )
+      const target = queued
+        ? resolveLegalQueuedAction(unit, allUnits)?.target
         : resolveLegalBasicAttack(unit, allUnits)?.target;
       if (!target)
         throw new Error(`Unit ${unit.id} has no legal timeout attack target`);

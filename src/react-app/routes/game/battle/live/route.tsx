@@ -5,6 +5,15 @@ import {
 } from '@app/components/feature/battle/realtime/battleAbilityLabels';
 import { BattlePresentationDirector } from '@app/components/feature/battle/realtime/BattlePresentationDirector';
 import {
+  BattleCommandDock,
+  BattleRoundHud,
+  BattleStatusNotice,
+  BattleTargetPrompt,
+  BattleUnitInspector,
+  BattleUtilityHud,
+  type RealtimeBattleRoundPhase,
+} from '@app/components/feature/battle/realtime/RealtimeBattleHud';
+import {
   attachRealtimeBattlePhaser,
   type RealtimeBattlePhaserController,
 } from '@app/components/feature/battle/realtime/RealtimeBattlePhaserRuntime';
@@ -25,12 +34,19 @@ import {
   createBattlePresentationSnapshot,
   createBattlePresentationSnapshotFromPublic,
 } from '@shared/online-battle/BattlePresentation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Link, useParams } from 'react-router';
 
-function formatRemaining(deadlineAt: number | undefined, now: number) {
-  if (!deadlineAt) return '—';
-  return `${Math.max(0, Math.ceil((deadlineAt - now) / 1000))}s`;
+function remainingSeconds(deadlineAt: number | undefined, now: number) {
+  if (!deadlineAt) return undefined;
+  return Math.max(0, Math.ceil((deadlineAt - now) / 1000));
 }
 
 interface PlanningCommandChoice {
@@ -150,13 +166,11 @@ export default function LiveBattleMatchPage() {
     view.status === 'planning' &&
     !presentationActive,
   );
-  const isCommitted = Boolean(
-    view?.committedPlayerIds.includes(view.playerId ?? ''),
-  );
+  const isCommitted = view?.ownCommitted ?? false;
   const isResolving = view?.status === 'resolving';
-  const inspectedUnit = view?.publicSnapshot.units.find(
-    (unit) => unit.unitId === (inspectedUnitId ?? resolvedActiveUnitId),
-  );
+  const inspectedUnit = inspectedUnitId
+    ? view?.publicSnapshot.units.find((unit) => unit.unitId === inspectedUnitId)
+    : undefined;
   const quickbarScope = `${view?.playerId ?? ''}:${resolvedActiveUnitId ?? ''}`;
   const quickbar =
     quickbarOverrides[quickbarScope] ??
@@ -185,6 +199,23 @@ export default function LiveBattleMatchPage() {
           : resolvedActiveUnitId
             ? 'select_ability'
             : 'select_unit';
+  const roundRemainingSeconds = remainingSeconds(view?.deadlineAt, serverNow);
+  const roundPhase: RealtimeBattleRoundPhase = presentationActive
+    ? 'presenting'
+    : view?.status === 'finished' || view?.status === 'cancelled'
+      ? 'finished'
+      : isResolving
+        ? 'resolving'
+        : isCommitted
+          ? 'committed'
+          : !view
+            ? 'connecting'
+            : !allPlayersReady
+              ? 'waiting'
+              : 'planning';
+  const commandDockExpanded = Boolean(
+    isPlanning && !isCommitted && !allLivingUnitsLocked,
+  );
   const presentationSnapshot = useMemo(
     () =>
       view
@@ -657,116 +688,80 @@ export default function LiveBattleMatchPage() {
     viewReceivedAt,
   ]);
 
+  const commandDockStyle = {
+    '--battle-command-safe': commandDockExpanded
+      ? 'clamp(10.75rem, 25dvh, 13.5rem)'
+      : 'clamp(4.8rem, 10dvh, 5.5rem)',
+  } as CSSProperties;
+  const statusNotice = view?.resolutionFailure
+    ? {
+        tone: 'danger' as const,
+        message: '本回合结算失败，战局已安全冻结；已锁定指令不会丢失。',
+      }
+    : connectionStatus === 'disconnected'
+      ? {
+          tone: 'warning' as const,
+          message: '连接已中断，正在恢复战局；恢复前不能提交新指令。',
+        }
+      : error
+        ? { tone: 'danger' as const, message: error }
+        : actionError
+          ? { tone: 'danger' as const, message: actionError }
+          : null;
+
   return (
-    <main className="flex min-h-dvh flex-col overflow-hidden bg-[#eee7d6] text-[#2c1810]">
-      <header className="relative z-20 flex min-h-16 items-center justify-between gap-3 border-b border-[#2c1810]/20 bg-[#eee7d6]/95 px-4 py-2 backdrop-blur md:px-8">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link
-            to="/game/battle/history"
-            className="border-b border-dashed border-[#2c1810]/35 px-1 py-1 text-xs text-[#2c1810]/65"
-          >
-            [离阵]
-          </Link>
-          <div className="min-w-0">
-            <p className="truncate text-[0.65rem] tracking-[0.22em] text-[#2c1810]/55">
-              实时同步战局
-            </p>
-            <h1 className="truncate text-base font-semibold tracking-[0.12em]">
-              {matchId ?? '对局'}
-            </h1>
-          </div>
-        </div>
-        <div className="text-center text-xs text-[#2c1810]/70">
-          <strong className="block tracking-[0.12em]">
-            第{' '}
-            {presentationActive
-              ? view?.presentation?.plan.round
-              : (view?.round ?? '—')}{' '}
-            回合 ·{' '}
-            {presentationActive ? '行动演算' : (view?.status ?? '连接中')}
-          </strong>
-          <span className="mt-1 block">
-            {presentationActive
-              ? '按出手顺序播放中'
-              : allPlayersReady
-                ? `剩余 ${formatRemaining(view?.deadlineAt, serverNow)}`
-                : '等待玩家接受邀请'}
-          </span>
-        </div>
-        <div className="flex items-center gap-3 text-[0.65rem] text-[#3f6b56]">
-          <button
-            type="button"
-            onClick={() => setDebugOpen((current) => !current)}
-            className="border-b border-dashed border-[#2c1810]/35 text-[#2c1810]/60"
-          >
-            {debugOpen ? '关闭日志' : '战斗日志'}
-          </button>
-          <span
-            className={`h-2 w-2 rounded-full ${connectionStatus === 'connected' ? 'bg-current' : connectionStatus === 'disconnected' ? 'bg-[#8f2433]' : 'bg-[#946718]'}`}
-            aria-hidden="true"
-          />
-          <span className="hidden sm:inline">
-            {connectionStatus === 'connected'
-              ? '已连接'
-              : connectionStatus === 'disconnected'
-                ? '正在重连'
-                : '连接中'}
-          </span>
-        </div>
-      </header>
-
-      {error && (
-        <section className="relative z-20 mx-auto w-full max-w-6xl border-b border-[#8f2433]/30 bg-[#8f2433]/5 px-4 py-3 text-sm text-[#8f2433]">
-          {error}
-        </section>
-      )}
-      {actionError && (
-        <section className="relative z-20 mx-auto w-full max-w-6xl border-b border-[#8f2433]/30 bg-[#8f2433]/5 px-4 py-2 text-center text-xs text-[#8f2433]">
-          {actionError}
-        </section>
-      )}
-      {view?.resolutionFailure && (
-        <section className="relative z-20 mx-auto w-full max-w-6xl border-b border-[#8f2433]/30 bg-[#8f2433]/10 px-4 py-2 text-center text-xs text-[#8f2433]">
-          本回合结算失败，战局已被安全冻结并等待服务恢复；你的已锁定指令不会丢失。
-        </section>
-      )}
-
-      {connectionStatus === 'disconnected' && (
-        <section className="relative z-20 border-b border-[#946718]/30 bg-[#946718]/5 px-4 py-2 text-center text-xs text-[#694d1d]">
-          连接已中断，正在恢复战局；恢复前不能提交新指令。
-        </section>
-      )}
-
-      <section className="relative min-h-0 flex-1 overflow-hidden px-3 py-3 md:px-8 md:py-5">
-        <div className="relative mx-auto flex h-full min-h-[24rem] max-w-7xl items-center justify-center border border-[#2c1810]/15 bg-[#e8dfca]/55 p-3 shadow-inner md:p-8">
-          <div className="pointer-events-none absolute inset-x-8 top-1/2 border-t border-dashed border-[#2c1810]/15" />
-          <div className="pointer-events-none absolute inset-y-8 left-1/2 border-l border-dashed border-[#8f2433]/15" />
-          <div
-            ref={phaserRootRef}
-            className="absolute inset-0 overflow-hidden"
-            aria-label="多人实时战斗场景"
-          />
-          {!view && (
-            <p className="relative z-10 py-20 text-center text-sm text-[#2c1810]/50">
-              正在建立战斗服务连接…
-            </p>
-          )}
-
-          {inspectedUnit && (
-            <aside className="absolute right-3 bottom-3 max-w-[15rem] border-r-2 border-[#8f2433] bg-[#eee7d6]/90 px-3 py-2 text-right shadow-sm backdrop-blur md:right-5 md:bottom-5">
-              <strong className="block text-sm">{inspectedUnit.name}</strong>
-              <span className="mt-1 block text-[0.68rem] text-[#2c1810]/60">
-                {inspectedUnit.alive ? '在阵' : '已离阵'} · 护盾{' '}
-                {inspectedUnit.shield}
-              </span>
-            </aside>
-          )}
-        </div>
+    <main
+      className="relative h-[100dvh] min-h-0 overflow-hidden bg-[#eee7d6] text-[#2c1810]"
+      style={commandDockStyle}
+    >
+      <section
+        className="absolute inset-0 overflow-hidden"
+        aria-label="实时多人战局"
+      >
+        <div
+          ref={phaserRootRef}
+          className="absolute inset-0 overflow-hidden"
+          aria-label="多人实时战斗场景"
+        />
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-36 bg-gradient-to-b from-[#eee7d6]/72 via-[#eee7d6]/24 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-56 bg-gradient-to-t from-[#d8ccb2]/60 via-[#eee7d6]/18 to-transparent" />
+        {!view && (
+          <p className="absolute inset-0 z-20 grid place-items-center text-sm text-[#2c1810]/50">
+            正在建立战斗服务连接…
+          </p>
+        )}
       </section>
+
+      <BattleRoundHud
+        round={
+          presentationActive ? view?.presentation?.plan.round : view?.round
+        }
+        phase={roundPhase}
+        remainingSeconds={roundRemainingSeconds}
+      />
+      <BattleUtilityHud
+        connectionStatus={connectionStatus}
+        debugOpen={debugOpen}
+        onToggleDebug={() => setDebugOpen((current) => !current)}
+      />
+
+      {statusNotice && (
+        <BattleStatusNotice tone={statusNotice.tone}>
+          {statusNotice.message}
+        </BattleStatusNotice>
+      )}
+
+      {inspectedUnit && view && (
+        <BattleUnitInspector
+          unit={inspectedUnit}
+          isAlly={inspectedUnit.teamId === view.teamId}
+          onClose={() => setInspectedUnitId(null)}
+        />
+      )}
 
       {debugOpen && (
         <aside
-          className="fixed inset-y-16 right-0 z-40 flex w-full max-w-md flex-col border-l border-[#2c1810]/20 bg-[#eee7d6]/98 p-4 shadow-2xl backdrop-blur sm:w-[26rem]"
+          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-[#2c1810]/20 bg-[#eee7d6]/98 p-4 pt-[calc(env(safe-area-inset-top)+1rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-2xl backdrop-blur sm:w-[26rem]"
           aria-label="Debug 战斗日志"
         >
           <div className="mb-2 flex items-start justify-between gap-3 border-b border-[#2c1810]/15 pb-3 text-[0.65rem] text-[#2c1810]/55">
@@ -774,6 +769,7 @@ export default function LiveBattleMatchPage() {
               <strong className="block text-xs tracking-[0.12em] text-[#2c1810]">
                 引擎事实 / 动画对照
               </strong>
+              <span className="mt-1 block">对局 {matchId ?? '—'}</span>
               <span className="mt-1 block">
                 指令集{' '}
                 {view?.presentation?.commandSetId ??
@@ -803,26 +799,55 @@ export default function LiveBattleMatchPage() {
       )}
 
       {targetAbility && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-28 z-30 flex justify-center px-4">
-          <div className="pointer-events-auto flex items-center gap-3 border border-[#8f2433]/40 bg-[#eee7d6]/95 px-4 py-2 text-xs shadow-lg backdrop-blur">
-            <span>
-              <strong>「{targetAbility.name}」</strong> · 点击战场中脉动高亮的
-              {abilityTargetLabel(targetAbility)}目标
-            </span>
-            <button
-              type="button"
-              className="border-b border-dashed border-[#2c1810]/40 px-1 text-[#2c1810]/65"
-              onClick={clearActiveDraft}
-            >
-              换招
-            </button>
-          </div>
-        </div>
+        <BattleTargetPrompt
+          abilityName={targetAbility.name}
+          targetLabel={abilityTargetLabel(targetAbility)}
+          onCancel={clearActiveDraft}
+        />
       )}
 
-      <footer className="relative z-20 border-t border-[#2c1810]/20 bg-[#eee7d6]/97 px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.65rem)] backdrop-blur md:px-8">
-        <div className="mx-auto flex max-w-7xl items-center gap-2">
-          <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
+      <BattleCommandDock
+        expanded={commandDockExpanded}
+        summary={
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <div className="min-w-0">
+              <strong className="block truncate text-sm text-[#3f6b56]">
+                {isCommitted
+                  ? '本方行动已锁定'
+                  : commitPending
+                    ? '正在封存本方行动'
+                    : allLivingUnitsLocked
+                      ? '本方单位均已选定'
+                      : activeUnit && view
+                        ? `轮到 ${unitName(view, activeUnit.unitId)} 选择行动`
+                        : '等待战局指令'}
+              </strong>
+              <span className="mt-0.5 block truncate text-xs text-[#2c1810]/55">
+                {presentationActive
+                  ? '正在按出手顺序播放本回合'
+                  : isResolving
+                    ? '双方指令已封存，正在统一演算'
+                    : isCommitted
+                      ? '等待其他玩家完成本回合'
+                      : `${Object.keys(plannedIntents).length}/${ownUnits.filter((unit) => unit.alive).length} 个单位已定`}
+              </span>
+            </div>
+            {allLivingUnitsLocked &&
+            actionError &&
+            !commitPending &&
+            !isCommitted ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-full border border-[#8f2433]/35 px-3 py-1.5 text-xs text-[#8f2433]"
+                onClick={() => submitLockedIntents(plannedIntents)}
+              >
+                重新提交
+              </button>
+            ) : null}
+          </div>
+        }
+        actions={
+          <>
             <button
               type="button"
               disabled={
@@ -835,14 +860,14 @@ export default function LiveBattleMatchPage() {
                   : !activeUnit.basicAttack?.ready)
               }
               onClick={chooseBasicAttack}
-              className={`min-w-24 border px-3 py-2 text-left disabled:cursor-not-allowed disabled:opacity-40 ${activeUnit?.forcedAction ? 'border-[#8f2433]/55 text-[#8f2433]' : 'border-[#2c1810]/30'}`}
+              className={`min-h-14 min-w-28 rounded-lg border bg-white/25 px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${activeUnit?.forcedAction ? 'border-[#8f2433]/55 text-[#8f2433]' : 'border-[#2c1810]/25 hover:border-[#2c1810]/45'}`}
             >
-              <strong className="block truncate text-xs">
+              <strong className="block truncate text-sm">
                 {activeUnit?.forcedAction
                   ? `${activeUnit.forcedAction.abilityName}（强制）`
                   : (activeUnit?.basicAttack?.name ?? '普通攻击')}
               </strong>
-              <span className="mt-1 block text-[0.6rem] text-[#2c1810]/55">
+              <span className="mt-1 block text-xs text-[#2c1810]/55">
                 {activeUnit?.forcedAction ? '蓄势已成 · 选择目标' : '敌方单体'}
               </span>
             </button>
@@ -858,12 +883,12 @@ export default function LiveBattleMatchPage() {
                   Boolean(activeUnit && plannedIntents[activeUnit.unitId])
                 }
                 onClick={() => chooseAbility(ability)}
-                className="min-w-24 border border-[#3f6b56]/40 px-3 py-2 text-left disabled:cursor-not-allowed disabled:opacity-40"
+                className="min-h-14 min-w-28 rounded-lg border border-[#3f6b56]/35 bg-white/25 px-3 py-2 text-left transition-colors hover:border-[#3f6b56]/60 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <strong className="block truncate text-xs text-[#3f6b56]">
+                <strong className="block truncate text-sm text-[#3f6b56]">
                   {ability.name}
                 </strong>
-                <span className="mt-1 block text-[0.6rem] text-[#2c1810]/55">
+                <span className="mt-1 block text-xs text-[#2c1810]/55">
                   {ability.ready
                     ? abilityTargetLabel(ability)
                     : unavailableAbilityLabel(ability)}
@@ -879,85 +904,58 @@ export default function LiveBattleMatchPage() {
                 Boolean(activeUnit && plannedIntents[activeUnit.unitId])
               }
               onClick={() => setDrawerOpen(true)}
-              className="min-w-24 border border-dashed border-[#2c1810]/30 px-3 py-2 text-left text-xs text-[#2c1810]/65 disabled:opacity-40"
+              className="min-h-14 min-w-28 rounded-lg border border-dashed border-[#2c1810]/30 bg-white/15 px-3 py-2 text-left text-sm text-[#2c1810]/65 transition-colors hover:border-[#2c1810]/50 disabled:opacity-40"
             >
               全部术法
               <br />
-              <span className="text-[0.6rem]">
+              <span className="text-xs">
                 {activeAbilities.length} 项 · {BATTLE_QUICKBAR_MAX_SLOTS}{' '}
                 槽快捷栏
               </span>
             </button>
-          </div>
-          <div
-            className="shrink-0 text-right text-[0.68rem] text-[#2c1810]/60"
-            aria-live="polite"
-          >
-            <strong className="block text-xs text-[#3f6b56]">
-              {isCommitted
-                ? '本方已提交'
-                : commitPending
-                  ? '正在提交'
-                  : allLivingUnitsLocked
-                    ? '本方已选定'
-                    : `${Object.keys(plannedIntents).length}/${ownUnits.filter((unit) => unit.alive).length} 已定`}
-            </strong>
-            {allLivingUnitsLocked &&
-            actionError &&
-            !commitPending &&
-            !isCommitted ? (
+          </>
+        }
+        units={
+          <div className="flex min-w-max gap-1.5" aria-label="受控单位">
+            {ownUnits.map((unit) => (
               <button
+                key={unit.unitId}
                 type="button"
-                className="mt-1 border-b border-dashed border-[#8f2433]/45 text-[#8f2433]"
-                onClick={() => submitLockedIntents(plannedIntents)}
+                disabled={
+                  Boolean(plannedIntents[unit.unitId]) ||
+                  isCommitted ||
+                  Boolean(targetAbility && unit.unitId !== resolvedActiveUnitId)
+                }
+                onClick={() => setActiveUnitId(unit.unitId)}
+                className={`min-h-9 rounded-full border px-3 py-1 text-xs whitespace-nowrap transition-colors disabled:cursor-default ${plannedIntents[unit.unitId] ? 'border-[#735080]/30 bg-[#735080]/8 text-[#735080]' : unit.unitId === resolvedActiveUnitId ? 'border-[#8f2433]/45 bg-[#8f2433]/7 text-[#8f2433]' : 'border-transparent text-[#2c1810]/55 hover:border-[#2c1810]/20'}`}
               >
-                重新提交
+                {unitName(view!, unit.unitId)} ·{' '}
+                {commandDrafts[unit.unitId]
+                  ? '选择目标'
+                  : submittedIntentLabel(unit.unitId)}
               </button>
-            ) : (
-              <span className="mt-1 block">选定后不可修改</span>
-            )}
+            ))}
           </div>
-        </div>
-        <div
-          className="mx-auto mt-2 flex max-w-7xl gap-2 overflow-x-auto"
-          aria-label="受控单位"
-        >
-          {ownUnits.map((unit) => (
-            <button
-              key={unit.unitId}
-              type="button"
-              disabled={
-                Boolean(plannedIntents[unit.unitId]) ||
-                isCommitted ||
-                Boolean(targetAbility && unit.unitId !== resolvedActiveUnitId)
-              }
-              onClick={() => setActiveUnitId(unit.unitId)}
-              className={`border-b px-2 py-1 text-[0.68rem] whitespace-nowrap disabled:cursor-default ${plannedIntents[unit.unitId] ? 'border-[#735080]/45 text-[#735080]' : unit.unitId === resolvedActiveUnitId ? 'border-[#8f2433] text-[#8f2433]' : 'border-transparent text-[#2c1810]/55'}`}
-            >
-              {unitName(view!, unit.unitId)} ·{' '}
-              {commandDrafts[unit.unitId]
-                ? '选择目标'
-                : submittedIntentLabel(unit.unitId)}
-            </button>
-          ))}
-        </div>
-        <div className="mx-auto mt-1 max-w-7xl text-[0.62rem] text-[#2c1810]/55">
-          {commandMode === 'select_ability' &&
-            (activeUnit?.forcedAction
-              ? `蓄势已成：本回合必须施放《${activeUnit.forcedAction.abilityName}》，请选择目标。`
-              : `为 ${activeUnit ? unitName(view!, activeUnit.unitId) : '当前单位'} 选择招式；目标点下后立即锁定。`)}
-          {commandMode === 'locked' &&
-            (commitPending
-              ? '全部单位已选定，正在一次性提交本方操作。'
-              : '全部单位已选定，等待服务端确认。')}
-          {commandMode === 'committed' &&
-            (isResolving
-              ? '双方指令已封存，服务端正在统一结算。'
-              : '本方出招已确认，等待其他玩家；确认后不可修改。')}
-          {commandMode === 'presenting' &&
-            '本回合已统一结算，正在按出手顺序播放。'}
-        </div>
-      </footer>
+        }
+        guidance={
+          <>
+            {commandMode === 'select_ability' &&
+              (activeUnit?.forcedAction
+                ? `蓄势已成：本回合必须施放《${activeUnit.forcedAction.abilityName}》，请选择目标。`
+                : `为 ${activeUnit ? unitName(view!, activeUnit.unitId) : '当前单位'} 选择招式；目标点下后立即锁定。`)}
+            {commandMode === 'locked' &&
+              (commitPending
+                ? '全部单位已选定，正在一次性提交本方操作。'
+                : '全部单位已选定，等待服务端确认。')}
+            {commandMode === 'committed' &&
+              (isResolving
+                ? '双方指令已封存，服务端正在统一结算。'
+                : '本方出招已确认，等待其他玩家；确认后不可修改。')}
+            {commandMode === 'presenting' &&
+              '本回合已统一结算，正在按出手顺序播放。'}
+          </>
+        }
+      />
 
       <BattleAbilityDrawer
         isOpen={drawerOpen}

@@ -1,14 +1,11 @@
 import { ActiveSkill } from '../abilities/ActiveSkill';
 import type { BattleRoster } from '../core/BattleRoster';
+import { peekQueuedAction } from '../core/runtimeState';
 import type { TeamId } from '../core/types';
 import { TargetSelectionSystem } from '../systems/TargetSelectionSystem';
-import { AbilityFactory } from '../factories/AbilityFactory';
-import { peekQueuedAction } from '../core/runtimeState';
 import { resolveLegalBasicAttack } from './BasicAttackResolver';
-import type {
-  BattlePlanningViewV1,
-  PlanningAbilityViewV1,
-} from './types';
+import { resolveLegalQueuedAction } from './QueuedActionResolver';
+import type { BattlePlanningViewV1, PlanningAbilityViewV1 } from './types';
 
 export function createBattlePlanningView(input: {
   roster: BattleRoster;
@@ -22,10 +19,9 @@ export function createBattlePlanningView(input: {
     .filter((unit) => !input.teamId || unit.teamId === input.teamId)
     .map((unit) => {
       const queued = unit.isAlive() ? peekQueuedAction(unit) : undefined;
-      const queuedAbility = queued ? AbilityFactory.create(queued.ability) : undefined;
-      const forcedTargets = queuedAbility instanceof ActiveSkill
-        ? targetSystem.getTargetCandidates(unit, queuedAbility.targetPolicy, allUnits)
-        : [];
+      const queuedAction = queued
+        ? resolveLegalQueuedAction(unit, allUnits)
+        : null;
       const defaultAttack = unit.isAlive()
         ? unit.abilities.getDefaultAttack()
         : undefined;
@@ -48,12 +44,14 @@ export function createBattlePlanningView(input: {
                 basicAttack?.legalTargets.map((target) => target.id) ?? [],
             }
           : undefined,
-        forcedAction: queuedAbility instanceof ActiveSkill
+        forcedAction: queuedAction
           ? {
               kind: 'queued_action_target' as const,
-              abilityId: queuedAbility.id,
-              abilityName: queuedAbility.name,
-              legalTargetIds: forcedTargets.map((target) => target.id),
+              abilityId: queuedAction.ability.id,
+              abilityName: queuedAction.ability.name,
+              legalTargetIds: queuedAction.legalTargets.map(
+                (target) => target.id,
+              ),
             }
           : undefined,
         abilities: unit.isAlive() && !queued

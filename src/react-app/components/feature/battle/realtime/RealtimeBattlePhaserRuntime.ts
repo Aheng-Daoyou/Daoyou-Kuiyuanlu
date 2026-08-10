@@ -6,19 +6,57 @@ import type {
   CombatVisualSpec,
   CombatVisualTimeline,
 } from '@shared/engine/battle-v5/presentation';
-import * as Phaser from 'phaser';
 import type {
   BattlePresentationEntityV1,
   BattlePresentationSnapshotV1,
   BattlePresentationTeamV1,
 } from '@shared/online-battle/BattlePresentation';
+import * as Phaser from 'phaser';
 
 type RealtimeBattleEntity = BattlePresentationEntityV1;
 type RealtimeBattleSnapshot = BattlePresentationSnapshotV1;
 type RealtimeBattleTeam = BattlePresentationTeamV1;
 
-const DESKTOP_STAGE = { width: 1280, height: 720 } as const;
-const MOBILE_STAGE = { width: 720, height: 1080 } as const;
+type BattleStageProfile = 'portrait' | 'compact-landscape' | 'wide';
+
+interface StageSize {
+  width: number;
+  height: number;
+  profile: BattleStageProfile;
+}
+
+interface StageSafeBounds {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+const PORTRAIT_STAGE: StageSize = {
+  width: 720,
+  height: 1080,
+  profile: 'portrait',
+};
+const COMPACT_LANDSCAPE_STAGE: StageSize = {
+  width: 1200,
+  height: 800,
+  profile: 'compact-landscape',
+};
+const WIDE_STAGE: StageSize = {
+  width: 1440,
+  height: 810,
+  profile: 'wide',
+};
+const REALTIME_BATTLE_ASSETS = {
+  arenaLandscape: {
+    key: 'realtime-arena-landscape',
+    url: '/assets/battle/realtime/arena-landscape.webp',
+  },
+  arenaPortrait: {
+    key: 'realtime-arena-portrait',
+    url: '/assets/battle/realtime/arena-portrait.webp',
+  },
+} as const;
 const FONT_FAMILY = 'LXGWWenKai, serif';
 const TEXT_OUTLINE_COLOR = '#eee7d6';
 
@@ -29,8 +67,14 @@ function outlinedText(strokeThickness: number) {
   };
 }
 
-type StageSize = { width: number; height: number };
 type FormationPoint = { x: number; y: number };
+
+interface FormationRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
 
 const FORMATION_OWNER_ORDER = [
   'sikong-ye',
@@ -87,6 +131,7 @@ interface EntityVisual {
   nameControlFx: Phaser.GameObjects.Graphics;
   controlMode?: CombatControlVisual;
   isPet: boolean;
+  baseRadius: number;
   radius: number;
 }
 
@@ -142,20 +187,62 @@ function damageColor(
   }
 }
 
-function formationRadius(entity: RealtimeBattleEntity, stage: StageSize) {
-  const compact = stage.width < 900;
-  if (entity.kind === 'spirit-pet') return compact ? 34 : 44;
-  return compact ? 50 : 62;
+function selectStage(width: number, height: number): StageSize {
+  const aspect = width / Math.max(height, 1);
+  if (aspect < 0.9) return { ...PORTRAIT_STAGE };
+  if (height < 680 || aspect < 1.55) return { ...COMPACT_LANDSCAPE_STAGE };
+  return { ...WIDE_STAGE };
 }
 
-function formationBackY(team: RealtimeBattleTeam, stage: StageSize) {
-  const compact = stage.width < 900;
-  if (team === 'enemies') return stage.height * (compact ? 0.28 : 0.24);
-  return stage.height * (compact ? 0.72 : 0.76);
+function stageSafeBounds(stage: StageSize): StageSafeBounds {
+  const portrait = stage.profile === 'portrait';
+  const compact = stage.profile === 'compact-landscape';
+  const sideRatio = portrait ? 0.07 : compact ? 0.055 : 0.05;
+  const topRatio = portrait ? 0.145 : compact ? 0.14 : 0.13;
+  const bottomRatio = portrait ? 0.26 : compact ? 0.27 : 0.235;
+  return {
+    left: stage.width * sideRatio,
+    right: stage.width * (1 - sideRatio),
+    top: stage.height * topRatio,
+    bottom: stage.height * (1 - bottomRatio),
+  };
+}
+
+function formationRadius(
+  entity: RealtimeBattleEntity,
+  stage: StageSize,
+  teamSize: number,
+) {
+  const base =
+    stage.profile === 'portrait'
+      ? 58
+      : stage.profile === 'compact-landscape'
+        ? 66
+        : 76;
+  const rosterScale = teamSize <= 1 ? 1.18 : teamSize === 2 ? 1.1 : 1;
+  const cultivatorRadius = base * rosterScale;
+  return entity.kind === 'spirit-pet'
+    ? Math.round(cultivatorRadius * 0.68)
+    : Math.round(cultivatorRadius);
+}
+
+function formationBackY(
+  team: RealtimeBattleTeam,
+  stage: StageSize,
+) {
+  const safe = stageSafeBounds(stage);
+  const available = safe.bottom - safe.top;
+  const teamRatio = team === 'enemies' ? 0.2 : 0.8;
+  return safe.top + available * teamRatio;
 }
 
 function formationPetOffset(team: RealtimeBattleTeam, stage: StageSize) {
-  const distance = stage.width < 900 ? 110 : 120;
+  const distance =
+    stage.profile === 'portrait'
+      ? 116
+      : stage.profile === 'compact-landscape'
+        ? 126
+        : 142;
   const angle = (35 * Math.PI) / 180;
   const frontDirection = team === 'enemies' ? 1 : -1;
   const sideDirection = team === 'enemies' ? 1 : -1;
@@ -165,13 +252,114 @@ function formationPetOffset(team: RealtimeBattleTeam, stage: StageSize) {
   };
 }
 
-function formationSlotX(slot: number, count: number, stage: StageSize) {
-  const sideInset = stage.width * 0.235;
-  return sideInset + ((stage.width - sideInset * 2) * slot) / Math.max(count - 1, 1);
+function formationSlotX(
+  slot: number,
+  count: number,
+  stage: StageSize,
+) {
+  const safe = stageSafeBounds(stage);
+  const center = (safe.left + safe.right) / 2;
+  if (count <= 1) return center;
+  const widthRatio = count === 2 ? 0.34 : count === 3 ? 0.58 : 0.7;
+  const span = (safe.right - safe.left) * widthRatio;
+  return center - span / 2 + (span * slot) / (count - 1);
 }
 
-function projectFormation(entities: readonly RealtimeBattleEntity[], stage: StageSize) {
-  const positions = new Map<string, FormationPoint>();
+function formationVisualRects(
+  entity: RealtimeBattleEntity,
+  point: FormationPoint,
+  stage: StageSize,
+  teamSize: number,
+): FormationRect[] {
+  const radius = formationRadius(entity, stage, teamSize);
+  const isPet = entity.kind === 'spirit-pet';
+  const bodyPadding = isPet ? 22 : 30;
+  const upperHalfWidth = isPet ? Math.max(50, radius) : Math.max(86, radius);
+  const lowerHalfWidth = isPet ? Math.max(62, radius) : Math.max(104, radius);
+  return [
+    {
+      left: point.x - radius - bodyPadding,
+      right: point.x + radius + bodyPadding,
+      top: point.y - radius - bodyPadding,
+      bottom: point.y + radius + bodyPadding,
+    },
+    {
+      left: point.x - upperHalfWidth,
+      right: point.x + upperHalfWidth,
+      top: point.y - radius - (isPet ? 42 : 50),
+      bottom: point.y - radius + 4,
+    },
+    {
+      left: point.x - lowerHalfWidth,
+      right: point.x + lowerHalfWidth,
+      top: point.y + radius + 2,
+      bottom: point.y + radius + (isPet ? 60 : 76),
+    },
+  ];
+}
+
+function formationRectsOverlap(
+  left: FormationRect,
+  right: FormationRect,
+  gap: number,
+) {
+  return !(
+    left.right + gap <= right.left ||
+    right.right + gap <= left.left ||
+    left.bottom + gap <= right.top ||
+    right.bottom + gap <= left.top
+  );
+}
+
+function formationIsReadable(
+  entities: readonly RealtimeBattleEntity[],
+  positions: ReadonlyMap<string, FormationPoint>,
+  stage: StageSize,
+) {
+  const safe = stageSafeBounds(stage);
+  const teamSizes = new Map<RealtimeBattleTeam, number>();
+  const rectsByTeam = new Map<RealtimeBattleTeam, FormationRect[]>();
+  for (const team of ['enemies', 'allies'] as const) {
+    teamSizes.set(
+      team,
+      entities.filter(
+        (entity) => entity.team === team && entity.kind === 'cultivator',
+      ).length,
+    );
+    rectsByTeam.set(team, []);
+  }
+  for (const entity of entities) {
+    const point = positions.get(entity.id);
+    if (!point) continue;
+    const rects = formationVisualRects(
+      entity,
+      point,
+      stage,
+      teamSizes.get(entity.team) ?? 1,
+    );
+    if (rects.some((rect) => rect.left < safe.left || rect.right > safe.right)) {
+      return false;
+    }
+    rectsByTeam.get(entity.team)?.push(...rects);
+  }
+  const enemies = rectsByTeam.get('enemies') ?? [];
+  const allies = rectsByTeam.get('allies') ?? [];
+  const readabilityGap = stage.profile === 'wide' ? 18 : 14;
+  return !enemies.some((enemy) =>
+    allies.some((ally) =>
+      formationRectsOverlap(enemy, ally, readabilityGap),
+    ),
+  );
+}
+
+function projectFormation(
+  entities: readonly RealtimeBattleEntity[],
+  stage: StageSize,
+) {
+  const groupsByTeam = new Map<
+    RealtimeBattleTeam,
+    Array<{ owner?: RealtimeBattleEntity; pet?: RealtimeBattleEntity }>
+  >();
   for (const team of ['enemies', 'allies'] as const) {
     const teamEntities = entities.filter((entity) => entity.team === team);
     const owners = teamEntities
@@ -201,29 +389,57 @@ function projectFormation(entities: readonly RealtimeBattleEntity[], stage: Stag
         .map((pet) => ({ owner: undefined, pet })),
     );
 
-    const backY = formationBackY(team, stage);
-    const petOffset = formationPetOffset(team, stage);
-    groups.forEach(({ owner, pet }, slot) => {
-      const x = formationSlotX(slot, groups.length, stage);
-      if (owner) positions.set(owner.id, { x, y: backY });
-      if (pet) {
-        positions.set(pet.id, {
-          x: x + petOffset.x,
-          y: backY + petOffset.y,
-        });
-      }
-    });
+    groupsByTeam.set(team, groups);
   }
-  return positions;
+
+  const maxGroupCount = Math.max(
+    1,
+    groupsByTeam.get('enemies')?.length ?? 0,
+    groupsByTeam.get('allies')?.length ?? 0,
+  );
+  const safe = stageSafeBounds(stage);
+  const formationSpanRatio =
+    maxGroupCount === 2 ? 0.34 : maxGroupCount === 3 ? 0.58 : 0.7;
+  const slotGap =
+    maxGroupCount <= 1
+      ? stage.width * 0.28
+      : ((safe.right - safe.left) * formationSpanRatio) / (maxGroupCount - 1);
+  const staggerDistance =
+    maxGroupCount <= 1 ? slotGap : Math.min(slotGap * 0.55, stage.width * 0.14);
+
+  const positionsForStagger = (stagger: number) => {
+    const positions = new Map<string, FormationPoint>();
+    for (const team of ['enemies', 'allies'] as const) {
+      const groups = groupsByTeam.get(team) ?? [];
+      const backY = formationBackY(team, stage);
+      const petOffset = formationPetOffset(team, stage);
+      const teamOffset = team === 'enemies' ? stagger / 2 : -stagger / 2;
+      groups.forEach(({ owner, pet }, slot) => {
+        const x = formationSlotX(slot, groups.length, stage) + teamOffset;
+        if (owner) positions.set(owner.id, { x, y: backY });
+        if (pet) {
+          positions.set(pet.id, {
+            x: x + petOffset.x,
+            y: backY + petOffset.y,
+          });
+        }
+      });
+    }
+    return positions;
+  };
+
+  const candidates = [0, staggerDistance, -staggerDistance];
+  for (const stagger of candidates) {
+    const positions = positionsForStagger(stagger);
+    if (formationIsReadable(entities, positions, stage)) return positions;
+  }
+  return positionsForStagger(staggerDistance);
 }
 
 export function attachRealtimeBattlePhaser(
   args: RealtimeBattlePhaserArguments,
 ): RealtimeBattlePhaserController {
-  const rootAspect =
-    args.root.clientWidth / Math.max(args.root.clientHeight, 1);
-  const stage: StageSize =
-    rootAspect < 1 ? { ...MOBILE_STAGE } : { ...DESKTOP_STAGE };
+  let stage = selectStage(args.root.clientWidth, args.root.clientHeight);
   const fittedCssScale = Math.min(
     args.root.clientWidth / stage.width,
     args.root.clientHeight / stage.height,
@@ -238,10 +454,10 @@ export function attachRealtimeBattlePhaser(
   let paused = false;
   let speed = 1;
   let destroyed = false;
-  const formationPositions = projectFormation(
-    currentSnapshot.entities,
-    stage,
-  );
+  const reduceMotion = window.matchMedia(
+    '(prefers-reduced-motion: reduce)',
+  ).matches;
+  let formationPositions = projectFormation(currentSnapshot.entities, stage);
 
   const registerScene = (nextScene: RealtimeBattleScene) => {
     scene = nextScene;
@@ -257,13 +473,23 @@ export function attachRealtimeBattlePhaser(
     private lockedUnitIds = new Set<string>();
     private actorUnitId: string | undefined;
     private commandSubmitting = false;
+    private activeTimelineActionIds = new Set<string>();
+    private pendingStage?: StageSize;
+    private arenaBackdrop?: Phaser.GameObjects.Image;
+    private formation?: Phaser.GameObjects.Graphics;
+
+    preload() {
+      for (const asset of Object.values(REALTIME_BATTLE_ASSETS)) {
+        this.load.image(asset.key, asset.url);
+      }
+    }
 
     create() {
       registerScene(this);
       this.cameras.main
         .setZoom(renderScale)
         .centerOn(stage.width / 2, stage.height / 2);
-      this.createPaperField();
+      this.createArenaBackdrop();
       this.createFormationInk();
       for (const entity of currentSnapshot.entities) {
         this.createEntity(entity);
@@ -297,9 +523,68 @@ export function attachRealtimeBattlePhaser(
       this.renderSnapshot(currentSnapshot);
     }
 
+    relayout(nextStage: StageSize) {
+      stage = nextStage;
+      formationPositions = projectFormation(currentSnapshot.entities, stage);
+      this.scale.setGameSize(
+        Math.round(stage.width * renderScale),
+        Math.round(stage.height * renderScale),
+      );
+      this.cameras.main
+        .setZoom(renderScale)
+        .centerOn(stage.width / 2, stage.height / 2);
+      this.createArenaBackdrop();
+      this.createFormationInk();
+
+      const teamSizes = new Map<RealtimeBattleTeam, number>();
+      for (const team of ['allies', 'enemies'] as const) {
+        teamSizes.set(
+          team,
+          currentSnapshot.entities.filter(
+            (entity) => entity.team === team && entity.kind === 'cultivator',
+          ).length,
+        );
+      }
+      for (const entity of currentSnapshot.entities) {
+        const visual = this.visuals.get(entity.id);
+        const position = formationPositions.get(entity.id);
+        if (!visual || !position) continue;
+        const radius = formationRadius(
+          entity,
+          stage,
+          teamSizes.get(entity.team) ?? 1,
+        );
+        const presentationScale = radius / visual.baseRadius;
+        visual.radius = radius;
+        visual.container
+          .setPosition(position.x, position.y)
+          .setScale(presentationScale);
+        visual.combatResourceDom
+          .setScale(presentationScale)
+          .setPosition(
+            position.x,
+            position.y + (visual.isPet ? 12 : 20) * presentationScale,
+          );
+      }
+      this.renderSnapshot(currentSnapshot);
+    }
+
+    requestRelayout(nextStage: StageSize) {
+      if (this.activeTimelineActionIds.size > 0) {
+        this.pendingStage = nextStage;
+        return;
+      }
+      this.relayout(nextStage);
+    }
+
     playTimeline(timeline: CombatVisualTimeline, offsetMs = 0) {
-      for (const command of timeline.commands) {
-        if (command.at + command.duration <= offsetMs) continue;
+      const pendingCommands = timeline.commands.filter(
+        (command) => command.at + command.duration > offsetMs,
+      );
+      if (pendingCommands.some((command) => command.kind === 'settle')) {
+        this.activeTimelineActionIds.add(timeline.action.id);
+      }
+      for (const command of pendingCommands) {
         this.time.delayedCall(Math.max(0, command.at - offsetMs), () => {
           if (!this.sys.isActive()) return;
           if (command.kind === 'cast') this.playCast(timeline.action);
@@ -332,9 +617,16 @@ export function attachRealtimeBattlePhaser(
       const existing = this.castLabels.get(action.id);
       if (existing?.active) existing.destroy();
       const label = this.add
-        .text(0, -source.radius - 72, action.ability.name, {
+        .text(0, -source.baseRadius - 72, action.ability.name, {
           fontFamily: FONT_FAMILY,
-          fontSize: source.isPet ? '16px' : '20px',
+          fontSize:
+            stage.profile === 'portrait'
+              ? source.isPet
+                ? '26px'
+                : '34px'
+              : source.isPet
+                ? '18px'
+                : '24px',
           fontStyle: 'bold',
           color: colorHex(color),
           ...outlinedText(source.isPet ? 3 : 4),
@@ -683,6 +975,7 @@ export function attachRealtimeBattlePhaser(
       this.castLabels.delete(action.id);
       if (!label?.active) {
         if (source?.container.active) source.container.setDepth(3);
+        this.completeTimelineAction(action.id);
         return;
       }
       this.tweens.add({
@@ -694,61 +987,58 @@ export function attachRealtimeBattlePhaser(
         onComplete: () => {
           label.destroy();
           if (source?.container.active) source.container.setDepth(3);
+          this.completeTimelineAction(action.id);
         },
       });
     }
 
-    private createPaperField() {
-      const paper = this.add.graphics().setDepth(0);
-      paper.fillStyle(0xeee7d6, 1).fillRect(0, 0, stage.width, stage.height);
-      paper.fillStyle(0x2a2018, 0.035);
-      for (let index = 0; index < 150; index += 1) {
-        const x = (index * 83) % stage.width;
-        const y = (index * 137) % stage.height;
-        const radius = 0.7 + (index % 4) * 0.45;
-        paper.fillCircle(x, y, radius);
-      }
+    private completeTimelineAction(actionId: string) {
+      this.activeTimelineActionIds.delete(actionId);
+      if (this.activeTimelineActionIds.size > 0 || !this.pendingStage) return;
+      const pendingStage = this.pendingStage;
+      this.pendingStage = undefined;
+      this.relayout(pendingStage);
+    }
+
+    private createArenaBackdrop() {
+      const asset =
+        stage.profile === 'portrait'
+          ? REALTIME_BATTLE_ASSETS.arenaPortrait
+          : REALTIME_BATTLE_ASSETS.arenaLandscape;
+      const backdrop =
+        this.arenaBackdrop ??
+        this.add.image(stage.width / 2, stage.height / 2, asset.key).setDepth(0);
+      this.arenaBackdrop = backdrop;
+      backdrop
+        .setTexture(asset.key)
+        .setPosition(stage.width / 2, stage.height / 2);
+      const coverScale = Math.max(
+        stage.width / Math.max(backdrop.width, 1),
+        stage.height / Math.max(backdrop.height, 1),
+      );
+      backdrop.setScale(coverScale);
     }
 
     private createFormationInk() {
-      const formation = this.add.graphics().setDepth(0.5);
-      const centerRadius = Math.min(stage.width, stage.height) * 0.19;
-      formation.lineStyle(1, 0x4f4338, 0.12);
-      formation.strokeCircle(stage.width / 2, stage.height / 2, centerRadius);
-      formation.strokeCircle(
-        stage.width / 2,
-        stage.height / 2,
-        centerRadius * 1.42,
-      );
-      formation.lineBetween(
-        96,
-        stage.height / 2,
-        stage.width - 96,
-        stage.height / 2,
-      );
-      formation.lineStyle(1, 0x8b2832, 0.13);
-      formation.lineBetween(
-        stage.width / 2,
-        92,
-        stage.width / 2,
-        stage.height - 82,
-      );
-      formation.lineStyle(2, 0x75474a, 0.1);
+      const formation = this.formation ?? this.add.graphics().setDepth(0.5);
+      this.formation = formation;
+      formation.clear();
       const enemyPetOffset = formationPetOffset('enemies', stage);
       const allyPetOffset = formationPetOffset('allies', stage);
       const formationHeight =
-        Math.abs(enemyPetOffset.y) + (stage.width < 900 ? 150 : 180);
+        Math.abs(enemyPetOffset.y) + (stage.profile === 'portrait' ? 150 : 176);
+      formation.lineStyle(2, 0x75474a, 0.075);
       formation.strokeEllipse(
         stage.width / 2,
         formationBackY('enemies', stage) + enemyPetOffset.y / 2,
-        stage.width * 0.78,
+        stage.width * 0.64,
         formationHeight,
       );
-      formation.lineStyle(2, 0x475b50, 0.1);
+      formation.lineStyle(2, 0x475b50, 0.075);
       formation.strokeEllipse(
         stage.width / 2,
         formationBackY('allies', stage) + allyPetOffset.y / 2,
-        stage.width * 0.78,
+        stage.width * 0.64,
         formationHeight,
       );
     }
@@ -759,10 +1049,14 @@ export function attachRealtimeBattlePhaser(
         y: stage.height / 2,
       };
       const isPet = entity.kind === 'spirit-pet';
-      const compact = stage.width < 900;
+      const compact = stage.profile === 'portrait';
       const teamColor = entity.team === 'allies' ? 0x3f6b56 : 0x8e3039;
       const textColor = entity.team === 'allies' ? '#243d33' : '#55252a';
-      const radius = formationRadius(entity, stage);
+      const teamSize = currentSnapshot.entities.filter(
+        (candidate) =>
+          candidate.team === entity.team && candidate.kind === 'cultivator',
+      ).length;
+      const radius = formationRadius(entity, stage, teamSize);
       const resourceRings = this.add.graphics();
       const resourceLeaders = this.add.graphics();
       const nameControlFx = this.add.graphics().setAlpha(0);
@@ -778,24 +1072,26 @@ export function attachRealtimeBattlePhaser(
         .circle(0, 0, radius + 24, teamColor, 0.035)
         .setStrokeStyle(4, teamColor, 0)
         .setAlpha(0);
-      this.tweens.add({
-        targets: targetSelection,
-        scale: 1.08,
-        duration: 680,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.InOut',
-      });
+      if (!reduceMotion) {
+        this.tweens.add({
+          targets: targetSelection,
+          scale: 1.08,
+          duration: 680,
+          yoyo: true,
+          repeat: -1,
+          ease: 'Sine.InOut',
+        });
+      }
       const name = this.add
         .text(0, isPet ? -9 : -12, entity.name, {
           fontFamily: FONT_FAMILY,
           fontSize: isPet
             ? compact
-              ? '15px'
-              : '18px'
-            : compact
               ? '22px'
-              : '27px',
+              : '20px'
+            : compact
+              ? '29px'
+              : '30px',
           color: textColor,
           fontStyle: 'bold',
           ...outlinedText(isPet ? 3 : 4),
@@ -806,7 +1102,13 @@ export function attachRealtimeBattlePhaser(
       const hpValue = this.add
         .text(-radius * 0.5, -radius - 12, '', {
           fontFamily: FONT_FAMILY,
-          fontSize: compact ? '9px' : isPet ? '11px' : '13px',
+          fontSize: compact
+            ? isPet
+              ? '17px'
+              : '20px'
+            : isPet
+              ? '13px'
+              : '16px',
           color: '#90323c',
           ...outlinedText(compact ? 2 : 3),
         })
@@ -815,7 +1117,13 @@ export function attachRealtimeBattlePhaser(
       const qiValue = this.add
         .text(radius * 0.5, -radius - 12, '', {
           fontFamily: FONT_FAMILY,
-          fontSize: compact ? '9px' : isPet ? '11px' : '13px',
+          fontSize: compact
+            ? isPet
+              ? '17px'
+              : '20px'
+            : isPet
+              ? '13px'
+              : '16px',
           color: '#276d83',
           ...outlinedText(compact ? 2 : 3),
         })
@@ -824,7 +1132,13 @@ export function attachRealtimeBattlePhaser(
       const shieldValue = this.add
         .text(0, radius + 10, '', {
           fontFamily: FONT_FAMILY,
-          fontSize: compact ? '9px' : isPet ? '11px' : '13px',
+          fontSize: compact
+            ? isPet
+              ? '17px'
+              : '20px'
+            : isPet
+              ? '13px'
+              : '16px',
           color: '#946718',
           ...outlinedText(compact ? 2 : 3),
         })
@@ -839,7 +1153,7 @@ export function attachRealtimeBattlePhaser(
       combatResourceNode.setAttribute('aria-hidden', 'true');
       Object.assign(combatResourceNode.style, {
         color: '#695037',
-        fontSize: compact ? (isPet ? '11px' : '13px') : isPet ? '13px' : '16px',
+        fontSize: compact ? (isPet ? '16px' : '18px') : isPet ? '14px' : '17px',
         lineHeight: '1',
         pointerEvents: 'none',
         whiteSpace: 'nowrap',
@@ -886,7 +1200,13 @@ export function attachRealtimeBattlePhaser(
       const actionStateText = this.add
         .text(0, radius + 30, '', {
           fontFamily: FONT_FAMILY,
-          fontSize: compact ? '8px' : isPet ? '9px' : '11px',
+          fontSize: compact
+            ? isPet
+              ? '14px'
+              : '16px'
+            : isPet
+              ? '11px'
+              : '14px',
           color: '#735080',
           ...outlinedText(3),
           letterSpacing: 1,
@@ -896,7 +1216,13 @@ export function attachRealtimeBattlePhaser(
       const buffText = this.add
         .text(0, radius + 64, '', {
           fontFamily: FONT_FAMILY,
-          fontSize: compact ? '9px' : isPet ? '10px' : '12px',
+          fontSize: compact
+            ? isPet
+              ? '14px'
+              : '16px'
+            : isPet
+              ? '11px'
+              : '14px',
           color: '#357257',
           ...outlinedText(3),
           letterSpacing: 1,
@@ -906,7 +1232,13 @@ export function attachRealtimeBattlePhaser(
       const debuffText = this.add
         .text(0, radius + 47, '', {
           fontFamily: FONT_FAMILY,
-          fontSize: compact ? '9px' : isPet ? '10px' : '12px',
+          fontSize: compact
+            ? isPet
+              ? '14px'
+              : '16px'
+            : isPet
+              ? '11px'
+              : '14px',
           color: '#a32d3b',
           ...outlinedText(3),
           letterSpacing: 1,
@@ -916,7 +1248,7 @@ export function attachRealtimeBattlePhaser(
       const commandStateText = this.add
         .text(0, -radius - 38, '', {
           fontFamily: FONT_FAMILY,
-          fontSize: compact ? '10px' : '12px',
+          fontSize: compact ? '18px' : '15px',
           fontStyle: 'bold',
           color: '#3f6b56',
           ...outlinedText(3),
@@ -946,7 +1278,10 @@ export function attachRealtimeBattlePhaser(
         .setInteractive({ useHandCursor: true })
         .setDepth(3);
       container.on('pointerdown', () => {
-        if (this.legalTargetIds.size > 0 && !this.legalTargetIds.has(entity.id)) {
+        if (
+          this.legalTargetIds.size > 0 &&
+          !this.legalTargetIds.has(entity.id)
+        ) {
           args.onFocus(entity.id);
           return;
         }
@@ -979,6 +1314,7 @@ export function attachRealtimeBattlePhaser(
         debuffText,
         nameControlFx,
         isPet,
+        baseRadius: radius,
         radius,
       });
     }
@@ -1009,7 +1345,8 @@ export function attachRealtimeBattlePhaser(
         visual.combatResourceDom
           .setPosition(
             visual.container.x,
-            visual.container.y + (visual.isPet ? 12 : 20),
+            visual.container.y +
+              (visual.isPet ? 12 : 20) * (visual.radius / visual.baseRadius),
           )
           .setVisible(
             entity.alive &&
@@ -1021,32 +1358,42 @@ export function attachRealtimeBattlePhaser(
           .slice(-2);
         const localStates = entity.actionStates
           .map((state) => state.label)
-          .slice(-2);
+          .slice(stage.profile === 'portrait' ? -1 : -2);
         visual.actionStateText.setText(
           entity.alive ? localStates.join(' · ') : '',
         );
-        const buffs = entity.effects
-          .filter((effect) => effect.tone === 'buff')
+        const buffEffects = entity.effects.filter(
+          (effect) => effect.tone === 'buff',
+        );
+        const buffs = buffEffects
           .map(
             (effect) =>
               `${effect.label}${effect.layers > 1 ? ` ×${effect.layers}` : ''}`,
           )
-          .slice(-2);
-        const debuffs = entity.effects
-          .filter(
-            (effect) =>
-              effect.tone === 'debuff' && effect.statusType !== 'control',
-          )
+          .slice(-1);
+        const debuffEffects = entity.effects.filter(
+          (effect) =>
+            effect.tone === 'debuff' && effect.statusType !== 'control',
+        );
+        const debuffs = debuffEffects
           .map(
             (effect) =>
               `${effect.label}${effect.layers > 1 ? ` ×${effect.layers}` : ''}`,
           )
-          .slice(-2);
+          .slice(-1);
         visual.buffText.setText(
-          entity.alive && buffs.length > 0 ? buffs.join(' / ') : '',
+          entity.alive && buffs.length > 0
+            ? stage.profile === 'portrait'
+              ? `益 · ${buffEffects.length}`
+              : buffs.join(' / ')
+            : '',
         );
         visual.debuffText.setText(
-          entity.alive && debuffs.length > 0 ? debuffs.join(' / ') : '',
+          entity.alive && debuffs.length > 0
+            ? stage.profile === 'portrait'
+              ? `损 · ${debuffEffects.length}`
+              : debuffs.join(' / ')
+            : '',
         );
         this.renderNameControlFx(
           visual,
@@ -1108,7 +1455,7 @@ export function attachRealtimeBattlePhaser(
     ) {
       const graphics = visual.resourceRings;
       const leaders = visual.resourceLeaders;
-      const radius = visual.radius;
+      const radius = visual.baseRadius;
       const start = -Math.PI / 2;
       const hpRatio = Phaser.Math.Clamp(entity.hp / entity.maxHp, 0, 1);
       const qiRatio = Phaser.Math.Clamp(entity.qi / entity.maxQi, 0, 1);
@@ -1172,9 +1519,16 @@ export function attachRealtimeBattlePhaser(
       if (!source) return;
       const color = visualColor(action.visual);
       const label = this.add
-        .text(0, -source.radius - 48, fact.reaction.label, {
+        .text(0, -source.baseRadius - 48, fact.reaction.label, {
           fontFamily: FONT_FAMILY,
-          fontSize: source.isPet ? '14px' : '17px',
+          fontSize:
+            stage.profile === 'portrait'
+              ? source.isPet
+                ? '24px'
+                : '29px'
+              : source.isPet
+                ? '15px'
+                : '19px',
           fontStyle: 'bold',
           color: colorHex(color),
           ...outlinedText(source.isPet ? 3 : 4),
@@ -1262,8 +1616,9 @@ export function attachRealtimeBattlePhaser(
       fact: Extract<CombatVisualFact, { kind: 'resource' }>,
     ) {
       const visual = this.visuals.get(entityId);
-      const entity = currentSnapshot
-        .entities.find((entry) => entry.id === entityId);
+      const entity = currentSnapshot.entities.find(
+        (entry) => entry.id === entityId,
+      );
       const resource = entity?.combatResources.find(
         (entry) => entry.id === fact.resourceId,
       );
@@ -1352,11 +1707,18 @@ export function attachRealtimeBattlePhaser(
 
       let mainLabel: string;
       let mainColor: number;
-      let fontSize = 22;
+      let fontSize = stage.profile === 'portrait' ? 38 : 24;
       if (cue.kind === 'damage') {
         mainLabel = `-${Math.round(cue.amount)}${cue.critical ? '！' : ''}`;
         mainColor = damageColor(cue.damageType);
-        fontSize = cue.critical ? 27 : 23;
+        fontSize =
+          stage.profile === 'portrait'
+            ? cue.critical
+              ? 46
+              : 40
+            : cue.critical
+              ? 30
+              : 25;
       } else if (cue.kind === 'recovery') {
         mainLabel = `+${Math.round(cue.amount)}`;
         mainColor = 0x357257;
@@ -1368,7 +1730,7 @@ export function attachRealtimeBattlePhaser(
             : cue.tone === 'defense'
               ? 0x665795
               : 0x5e5750;
-        fontSize = 20;
+        fontSize = stage.profile === 'portrait' ? 34 : 22;
       }
 
       const mainText = this.add
@@ -1702,6 +2064,22 @@ export function attachRealtimeBattlePhaser(
     scene: RealtimeBattleScene,
   });
 
+  const resizeObserver = new ResizeObserver(() => {
+    if (destroyed) return;
+    const nextStage = selectStage(
+      args.root.clientWidth,
+      args.root.clientHeight,
+    );
+    if (nextStage.profile === stage.profile) return;
+    if (scene) {
+      scene.requestRelayout(nextStage);
+      return;
+    }
+    stage = nextStage;
+    formationPositions = projectFormation(currentSnapshot.entities, stage);
+  });
+  resizeObserver.observe(args.root);
+
   return {
     syncSnapshot: (snapshot) => {
       currentSnapshot = snapshot;
@@ -1712,7 +2090,8 @@ export function attachRealtimeBattlePhaser(
       scene?.playTimeline(timeline, offsetMs);
     },
     focus: (entityId) => {
-      if (!currentSnapshot.entities.some((entity) => entity.id === entityId)) return;
+      if (!currentSnapshot.entities.some((entity) => entity.id === entityId))
+        return;
       currentSnapshot = { ...currentSnapshot, focusedEntityId: entityId };
       scene?.renderSnapshot(currentSnapshot);
       args.onFocus(entityId);
@@ -1732,6 +2111,7 @@ export function attachRealtimeBattlePhaser(
     destroy: () => {
       if (destroyed) return;
       destroyed = true;
+      resizeObserver.disconnect();
       scene = undefined;
       game.destroy(true);
     },
