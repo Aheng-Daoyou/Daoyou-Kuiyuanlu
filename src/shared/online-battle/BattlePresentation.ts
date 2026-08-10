@@ -34,10 +34,8 @@ export interface BattlePresentationEffectV1 {
 export interface BattlePresentationResourceV1 {
   readonly id: string;
   readonly name: string;
-  readonly icon: string;
   readonly current: number;
   readonly max: number;
-  readonly iconHueRotation?: number;
 }
 
 export interface BattlePresentationActionStateV1 {
@@ -174,7 +172,6 @@ function toEntity(
     combatResources: unit.combatResources.map((resource) => ({
       id: resource.id,
       name: resource.name,
-      icon: resource.icon ?? '◆',
       current: resource.current,
       max: resource.max,
     })),

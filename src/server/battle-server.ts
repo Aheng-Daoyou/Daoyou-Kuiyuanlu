@@ -158,8 +158,30 @@ const servers = await battleServer.run(port, () => {
   console.info(`[battle-server] listening on ${port}`);
 });
 
+const DEADLINE_RECONCILE_INTERVAL_MS = 5_000;
+const DEADLINE_RECONCILE_BATCH_SIZE = 100;
+let deadlineReconcileCursor = '0';
+let deadlineReconcileAt = 0;
+let timeoutWorkerRunning = false;
+
 const runTimeoutWorker = async () => {
+  if (timeoutWorkerRunning) return;
+  timeoutWorkerRunning = true;
   try {
+    const now = Date.now();
+    if (now >= deadlineReconcileAt) {
+      const page = await battleStorage.scanMatchIds(
+        deadlineReconcileCursor,
+        DEADLINE_RECONCILE_BATCH_SIZE,
+      );
+      deadlineReconcileCursor = page.cursor;
+      deadlineReconcileAt = Date.now() + DEADLINE_RECONCILE_INTERVAL_MS;
+      for (const matchId of page.matchIds) {
+        await runIsolatedMatchTask(matchId, 'reconcile_deadline', async () => {
+          await battleCoordinator.reconcileDeadlineIndex(matchId);
+        });
+      }
+    }
     for (const matchId of await battleStorage.listExpiredMatchIds()) {
       await runIsolatedMatchTask(matchId, 'resolve_expired', async () => {
         await battleCoordinator.resolveExpired(matchId);
@@ -178,12 +200,18 @@ const runTimeoutWorker = async () => {
     console.warn('[battle-server] timeout worker scan failed', {
       error: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    timeoutWorkerRunning = false;
   }
 };
 
 async function runIsolatedMatchTask(
   matchId: string,
-  operation: 'resolve_expired' | 'resume_resolving' | 'expire_waiting',
+  operation:
+    | 'reconcile_deadline'
+    | 'resolve_expired'
+    | 'resume_resolving'
+    | 'expire_waiting',
   task: () => Promise<void>,
 ): Promise<void> {
   try {
@@ -198,6 +226,7 @@ async function runIsolatedMatchTask(
 }
 const timeoutWorker = setInterval(() => void runTimeoutWorker(), 1_000);
 timeoutWorker.unref();
+void runTimeoutWorker();
 
 let archivePublisherBackoffUntil = 0;
 const runArchivePublisher = async () => {

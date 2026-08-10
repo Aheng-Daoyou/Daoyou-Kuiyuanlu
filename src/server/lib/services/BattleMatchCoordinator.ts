@@ -16,6 +16,11 @@ export class BattleMatchCoordinator {
     return this.runMutation(matchId, () => this.storage.resolveExpired(matchId));
   }
 
+  reconcileDeadlineIndex(matchId: string): Promise<boolean | undefined> {
+    return this.transport.runMatchTask(matchId, () =>
+      this.storage.reconcileDeadlineIndex(matchId));
+  }
+
   resumeResolving(matchId: string): Promise<boolean | undefined> {
     return this.runMutation(matchId, () => this.storage.resumeResolving(matchId));
   }

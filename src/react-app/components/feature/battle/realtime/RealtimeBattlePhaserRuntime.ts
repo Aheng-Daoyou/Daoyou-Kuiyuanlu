@@ -12,6 +12,7 @@ import type {
   BattlePresentationTeamV1,
 } from '@shared/online-battle/BattlePresentation';
 import * as Phaser from 'phaser';
+import { realtimeBattleResourceAsset } from './realtimeBattleResourceAssets';
 
 type RealtimeBattleEntity = BattlePresentationEntityV1;
 type RealtimeBattleSnapshot = BattlePresentationSnapshotV1;
@@ -49,6 +50,9 @@ const WIDE_STAGE: StageSize = {
 };
 const FONT_FAMILY = 'LXGWWenKai, serif';
 const TEXT_OUTLINE_COLOR = '#eee7d6';
+const UNIT_CORE_TEXTURE = 'realtime-unit-core';
+const UNIT_VITAL_FRAME_TEXTURE = 'realtime-unit-vital-frame';
+const UNIT_SHIELD_TEXTURE = 'realtime-unit-shield';
 
 function outlinedText(strokeThickness: number) {
   return {
@@ -103,22 +107,15 @@ interface EntityVisual {
   actorSelection: Phaser.GameObjects.Arc;
   targetSelection: Phaser.GameObjects.Arc;
   commandStateText: Phaser.GameObjects.Text;
-  resourceRings: Phaser.GameObjects.Graphics;
-  resourceLeaders: Phaser.GameObjects.Graphics;
-  namePlate: Phaser.GameObjects.Graphics;
+  vitalRings: Phaser.GameObjects.Graphics;
+  shieldArt: Phaser.GameObjects.Image;
   name: Phaser.GameObjects.Text;
-  statusDom: Phaser.GameObjects.DOMElement;
-  statusNode: HTMLDivElement;
-  hpFill: HTMLSpanElement;
-  hpValue: HTMLSpanElement;
-  qiFill: HTMLSpanElement;
-  qiValue: HTMLSpanElement;
-  shieldRow: HTMLDivElement;
-  shieldValue: HTMLSpanElement;
+  resourceDom: Phaser.GameObjects.DOMElement;
+  resourceNode: HTMLDivElement;
   combatResourceSteady: HTMLDivElement;
   combatResourcePips: HTMLDivElement;
   combatResourceDelta: HTMLDivElement;
-  combatResourceDeltaIcon: HTMLSpanElement;
+  combatResourceDeltaIcon: HTMLImageElement;
   combatResourceDeltaValue: HTMLSpanElement;
   actionStateText: Phaser.GameObjects.Text;
   buffText: Phaser.GameObjects.Text;
@@ -221,10 +218,7 @@ function formationRadius(
     : Math.round(cultivatorRadius);
 }
 
-function formationBackY(
-  team: RealtimeBattleTeam,
-  stage: StageSize,
-) {
+function formationBackY(team: RealtimeBattleTeam, stage: StageSize) {
   const safe = stageSafeBounds(stage);
   const available = safe.bottom - safe.top;
   const teamRatio = team === 'enemies' ? 0.2 : 0.8;
@@ -247,11 +241,7 @@ function formationPetOffset(team: RealtimeBattleTeam, stage: StageSize) {
   };
 }
 
-function formationSlotX(
-  slot: number,
-  count: number,
-  stage: StageSize,
-) {
+function formationSlotX(slot: number, count: number, stage: StageSize) {
   const safe = stageSafeBounds(stage);
   const center = (safe.left + safe.right) / 2;
   if (count <= 1) return center;
@@ -288,7 +278,7 @@ function formationVisualRects(
       left: point.x - lowerHalfWidth,
       right: point.x + lowerHalfWidth,
       top: point.y + radius + 2,
-      bottom: point.y + radius + (isPet ? 60 : 76),
+      bottom: point.y + radius + (isPet ? 82 : 100),
     },
   ];
 }
@@ -332,7 +322,9 @@ function formationIsReadable(
       stage,
       teamSizes.get(entity.team) ?? 1,
     );
-    if (rects.some((rect) => rect.left < safe.left || rect.right > safe.right)) {
+    if (
+      rects.some((rect) => rect.left < safe.left || rect.right > safe.right)
+    ) {
       return false;
     }
     rectsByTeam.get(entity.team)?.push(...rects);
@@ -341,9 +333,7 @@ function formationIsReadable(
   const allies = rectsByTeam.get('allies') ?? [];
   const readabilityGap = stage.profile === 'wide' ? 18 : 14;
   return !enemies.some((enemy) =>
-    allies.some((ally) =>
-      formationRectsOverlap(enemy, ally, readabilityGap),
-    ),
+    allies.some((ally) => formationRectsOverlap(enemy, ally, readabilityGap)),
   );
 }
 
@@ -472,6 +462,21 @@ export function attachRealtimeBattlePhaser(
     private pendingStage?: StageSize;
     private formation?: Phaser.GameObjects.Graphics;
 
+    preload() {
+      this.load.image(
+        UNIT_CORE_TEXTURE,
+        '/assets/battle/realtime/ui/unit/core-disc.png',
+      );
+      this.load.image(
+        UNIT_VITAL_FRAME_TEXTURE,
+        '/assets/battle/realtime/ui/unit/vital-ring-frame.png',
+      );
+      this.load.image(
+        UNIT_SHIELD_TEXTURE,
+        '/assets/battle/realtime/ui/unit/shield-aegis.png',
+      );
+    }
+
     create() {
       registerScene(this);
       this.cameras.main
@@ -545,11 +550,11 @@ export function attachRealtimeBattlePhaser(
         visual.container
           .setPosition(position.x, position.y)
           .setScale(presentationScale);
-        visual.statusDom
+        visual.resourceDom
           .setScale(presentationScale)
           .setPosition(
             position.x,
-            position.y - (radius + (visual.isPet ? 10 : 14)),
+            position.y + radius + (visual.isPet ? 12 : 16),
           );
       }
       this.renderSnapshot(currentSnapshot);
@@ -1023,8 +1028,7 @@ export function attachRealtimeBattlePhaser(
           candidate.team === entity.team && candidate.kind === 'cultivator',
       ).length;
       const radius = formationRadius(entity, stage, teamSize);
-      const resourceRings = this.add.graphics();
-      const resourceLeaders = this.add.graphics();
+      const vitalRings = this.add.graphics();
       const nameControlFx = this.add.graphics().setAlpha(0);
       const selection = this.add
         .circle(0, 0, radius + 18, teamColor, 0)
@@ -1049,7 +1053,7 @@ export function attachRealtimeBattlePhaser(
         });
       }
       const name = this.add
-        .text(0, isPet ? -9 : -12, entity.name, {
+        .text(0, 0, entity.name, {
           fontFamily: FONT_FAMILY,
           fontSize: isPet
             ? compact
@@ -1067,78 +1071,57 @@ export function attachRealtimeBattlePhaser(
         .setOrigin(0.5)
         .setResolution(renderScale);
       const namePlate = this.add.graphics();
-      const plateHalfWidth = Math.max(radius * 0.74, name.width / 2 + 18);
-      namePlate.fillStyle(0x101713, 0.82);
-      namePlate.fillRoundedRect(
-        -plateHalfWidth,
-        -name.height * 0.66,
-        plateHalfWidth * 2,
-        name.height * 1.32,
-        14,
-      );
-      namePlate.lineStyle(2, teamColor, 0.78);
-      namePlate.strokeRoundedRect(
-        -plateHalfWidth,
-        -name.height * 0.66,
-        plateHalfWidth * 2,
-        name.height * 1.32,
-        14,
-      );
+      namePlate.fillStyle(0x09110e, 0.84);
+      namePlate.fillCircle(0, 0, radius - 13);
+      namePlate.lineStyle(2, teamColor, 0.72);
+      namePlate.strokeCircle(0, 0, radius - 13);
+      const coreArt = this.add
+        .image(0, 0, UNIT_CORE_TEXTURE)
+        .setDisplaySize(radius * 2.12, radius * 2.12)
+        .setAlpha(0.86);
+      const vitalFrameArt = this.add
+        .image(0, 0, UNIT_VITAL_FRAME_TEXTURE)
+        .setDisplaySize(radius * 2.45, radius * 2.45)
+        .setAlpha(0.9);
+      const shieldArt = this.add
+        .image(0, 0, UNIT_SHIELD_TEXTURE)
+        .setDisplaySize(radius * 2.8, radius * 2.8)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setAlpha(0);
+      if (!reduceMotion) {
+        this.tweens.add({
+          targets: shieldArt,
+          angle: 360,
+          duration: 12_000,
+          repeat: -1,
+          ease: 'Linear',
+        });
+      }
 
-      const statusNode = document.createElement('div');
-      statusNode.className = `battle-unit-status battle-unit-status--${entity.team}${isPet ? ' battle-unit-status--pet' : ''}`;
-      statusNode.setAttribute('aria-hidden', 'true');
-      const meterStack = document.createElement('div');
-      meterStack.className = 'battle-unit-status__meters';
-      const createMeter = (kind: 'hp' | 'mp', label: string) => {
-        const row = document.createElement('div');
-        row.className = `battle-unit-meter battle-unit-meter--${kind}`;
-        const meterLabel = document.createElement('span');
-        meterLabel.className = 'battle-unit-meter__label';
-        meterLabel.textContent = label;
-        const track = document.createElement('span');
-        track.className = 'battle-unit-meter__track';
-        const fill = document.createElement('span');
-        fill.className = 'battle-unit-meter__fill';
-        track.append(fill);
-        const value = document.createElement('span');
-        value.className = 'battle-unit-meter__value';
-        row.append(meterLabel, track, value);
-        meterStack.append(row);
-        return { fill, value };
-      };
-      const hpMeter = createMeter('hp', '血');
-      const qiMeter = createMeter('mp', '气');
-      const detailRow = document.createElement('div');
-      detailRow.className = 'battle-unit-status__details';
-      const shieldRow = document.createElement('div');
-      shieldRow.className = 'battle-unit-shield';
-      const shieldIcon = document.createElement('span');
-      shieldIcon.className = 'battle-unit-shield__icon';
-      shieldIcon.textContent = '盾';
-      const shieldValue = document.createElement('span');
-      shieldRow.append(shieldIcon, shieldValue);
+      const resourceNode = document.createElement('div');
+      resourceNode.className = `battle-unit-resource-dock battle-unit-resource-dock--${entity.team}${isPet ? ' battle-unit-resource-dock--pet' : ''}`;
+      resourceNode.setAttribute('aria-hidden', 'true');
       const combatResourceSteady = document.createElement('div');
       combatResourceSteady.className = 'battle-unit-resources';
       const combatResourcePips = document.createElement('div');
       combatResourcePips.className = 'battle-unit-resources__steady';
       const combatResourceDelta = document.createElement('div');
       combatResourceDelta.className = 'battle-unit-resource-delta';
-      const combatResourceDeltaIcon = document.createElement('span');
+      const combatResourceDeltaIcon = document.createElement('img');
+      combatResourceDeltaIcon.alt = '';
       const combatResourceDeltaValue = document.createElement('span');
       combatResourceSteady.append(combatResourcePips);
       combatResourceDelta.append(
         combatResourceDeltaIcon,
         combatResourceDeltaValue,
       );
-      detailRow.append(shieldRow, combatResourceSteady, combatResourceDelta);
-      statusNode.append(meterStack, detailRow);
-      const statusDom = this.add
-        .dom(position.x, position.y - radius - (isPet ? 10 : 14), statusNode)
-        .setOrigin(0.5, 1)
+      resourceNode.append(combatResourceSteady, combatResourceDelta);
+      const resourceDom = this.add
+        .dom(position.x, position.y + radius + (isPet ? 12 : 16), resourceNode)
+        .setOrigin(0.5, 0)
         .setDepth(4);
       const actionStateText = this.add
-        .text(0, radius + 30, '', {
+        .text(0, radius + 48, '', {
           fontFamily: FONT_FAMILY,
           fontSize: compact
             ? isPet
@@ -1154,7 +1137,7 @@ export function attachRealtimeBattlePhaser(
         .setOrigin(0.5)
         .setResolution(renderScale);
       const buffText = this.add
-        .text(0, radius + 64, '', {
+        .text(0, radius + 84, '', {
           fontFamily: FONT_FAMILY,
           fontSize: compact
             ? isPet
@@ -1170,7 +1153,7 @@ export function attachRealtimeBattlePhaser(
         .setOrigin(0.5)
         .setResolution(renderScale);
       const debuffText = this.add
-        .text(0, radius + 47, '', {
+        .text(0, radius + 66, '', {
           fontFamily: FONT_FAMILY,
           fontSize: compact
             ? isPet
@@ -1202,9 +1185,11 @@ export function attachRealtimeBattlePhaser(
           selection,
           actorSelection,
           targetSelection,
-          resourceRings,
-          resourceLeaders,
           namePlate,
+          coreArt,
+          vitalFrameArt,
+          vitalRings,
+          shieldArt,
           nameControlFx,
           name,
           actionStateText,
@@ -1235,18 +1220,11 @@ export function attachRealtimeBattlePhaser(
         actorSelection,
         targetSelection,
         commandStateText,
-        resourceRings,
-        resourceLeaders,
-        namePlate,
+        vitalRings,
+        shieldArt,
         name,
-        statusDom,
-        statusNode,
-        hpFill: hpMeter.fill,
-        hpValue: hpMeter.value,
-        qiFill: qiMeter.fill,
-        qiValue: qiMeter.value,
-        shieldRow,
-        shieldValue,
+        resourceDom,
+        resourceNode,
         combatResourceSteady,
         combatResourcePips,
         combatResourceDelta,
@@ -1267,26 +1245,16 @@ export function attachRealtimeBattlePhaser(
         const visual = this.visuals.get(entity.id);
         if (!visual) continue;
         const isFocused = snapshot.focusedEntityId === entity.id;
-        this.drawResourceRings(visual, entity);
-        const hpRatio = Phaser.Math.Clamp(entity.hp / entity.maxHp, 0, 1);
-        const qiRatio = Phaser.Math.Clamp(entity.qi / entity.maxQi, 0, 1);
-        visual.hpFill.style.width = `${hpRatio * 100}%`;
-        visual.hpValue.textContent = `${Math.ceil(entity.hp)}/${Math.ceil(entity.maxHp)}`;
-        visual.qiFill.style.width = `${qiRatio * 100}%`;
-        visual.qiValue.textContent = `${Math.ceil(entity.qi)}/${Math.ceil(entity.maxQi)}`;
-        visual.shieldValue.textContent = `${Math.ceil(entity.shield)}`;
-        visual.shieldRow.style.display = entity.shield > 0 ? 'inline-flex' : 'none';
+        this.drawVitalRings(visual, entity);
         const resourceCueActive = this.resourceCues.has(entity.id);
         const resourceNodes = entity.combatResources.map((resource) => {
           const chip = document.createElement('span');
           chip.className = 'battle-unit-resource';
           chip.title = resource.name;
-          const icon = document.createElement('span');
+          const icon = document.createElement('img');
           icon.className = 'battle-unit-resource__icon';
-          icon.textContent = resource.icon;
-          if (resource.iconHueRotation) {
-            icon.style.filter = `hue-rotate(${resource.iconHueRotation}deg)`;
-          }
+          icon.src = realtimeBattleResourceAsset(resource.id);
+          icon.alt = '';
           const value = document.createElement('span');
           value.className = 'battle-unit-resource__value';
           value.textContent = `${resource.name} ${resource.current}/${resource.max}`;
@@ -1300,12 +1268,12 @@ export function attachRealtimeBattlePhaser(
         visual.combatResourceDelta.style.display = resourceCueActive
           ? 'flex'
           : 'none';
-        visual.statusDom
+        visual.resourceDom
           .setPosition(
             visual.container.x,
-            visual.container.y - (visual.radius + (visual.isPet ? 10 : 14)),
+            visual.container.y + visual.radius + (visual.isPet ? 12 : 16),
           )
-          .setVisible(entity.alive);
+          .setVisible(entity.alive && entity.combatResources.length > 0);
         const controls = entity.effects
           .filter((effect) => effect.statusType === 'control')
           .slice(-2);
@@ -1384,57 +1352,102 @@ export function attachRealtimeBattlePhaser(
                   : '',
           )
           .setColor(isLocked ? '#735080' : '#3f6b56');
-        visual.resourceRings.setAlpha(entity.alive ? 1 : 0.18);
-        visual.resourceLeaders.setAlpha(entity.alive ? 1 : 0.18);
-        visual.statusNode.style.opacity = entity.alive ? '1' : '0.35';
+        visual.vitalRings.setAlpha(entity.alive ? 1 : 0.18);
+        visual.resourceNode.style.opacity = entity.alive ? '1' : '0.35';
         visual.name
-          .setAlpha(
-            entity.alive ? (entity.hp / entity.maxHp < 0.3 ? 0.66 : 1) : 0.35,
-          )
+          .setAlpha(entity.alive ? 1 : 0.35)
           .setColor(entity.alive ? '#fff8e6' : '#6f675e');
       }
     }
 
-    private drawResourceRings(
-      visual: EntityVisual,
-      entity: RealtimeBattleEntity,
-    ) {
-      const graphics = visual.resourceRings;
-      const leaders = visual.resourceLeaders;
+    private drawVitalRings(visual: EntityVisual, entity: RealtimeBattleEntity) {
+      const graphics = visual.vitalRings;
       const radius = visual.baseRadius;
-      const start = -Math.PI / 2;
-      const shieldRatio = Phaser.Math.Clamp(entity.shield / 180, 0, 1);
-      const drawProgress = (
-        ringRadius: number,
-        ratio: number,
+      const hpRatio = Phaser.Math.Clamp(entity.hp / entity.maxHp, 0, 1);
+      const qiRatio = Phaser.Math.Clamp(entity.qi / entity.maxQi, 0, 1);
+      const ringRadius = radius - 5;
+      const ringWidth = visual.isPet ? 8 : 10;
+      const gapAngle = 0.085;
+      const bottom = Math.PI / 2;
+      const topLeft = Math.PI * 1.5;
+      const topRight = -Math.PI / 2;
+      const drawArc = (
+        start: number,
+        end: number,
         color: number,
         width: number,
+        alpha: number,
+        anticlockwise = false,
       ) => {
-        graphics.lineStyle(width, color, 0.92);
+        graphics.lineStyle(width, color, alpha);
         graphics.beginPath();
-        graphics.arc(
-          0,
-          0,
-          ringRadius,
-          start,
-          start + Math.PI * 2 * Math.max(0.008, ratio),
-        );
+        graphics.arc(0, 0, ringRadius, start, end, anticlockwise);
         graphics.strokePath();
       };
 
       graphics.clear();
-      leaders.clear();
-      graphics.fillStyle(0x0b1210, 0.18);
-      graphics.fillCircle(0, 0, radius);
-      graphics.lineStyle(2.4, 0xf2e4c5, 0.3);
-      graphics.strokeCircle(0, 0, radius);
-      graphics.lineStyle(1.4, 0x101713, 0.34);
-      graphics.strokeCircle(0, 0, radius - 7);
+      drawArc(
+        bottom + gapAngle,
+        topLeft - gapAngle,
+        0x351316,
+        ringWidth + 4,
+        0.94,
+      );
+      drawArc(
+        bottom - gapAngle,
+        topRight + gapAngle,
+        0x102f38,
+        ringWidth + 4,
+        0.94,
+        true,
+      );
+      if (hpRatio > 0) {
+        drawArc(
+          bottom + gapAngle,
+          bottom + gapAngle + (Math.PI - gapAngle * 2) * hpRatio,
+          hpRatio < 0.3 ? 0xf03d4d : 0xc1121f,
+          ringWidth,
+          1,
+        );
+      }
+      if (qiRatio > 0) {
+        drawArc(
+          bottom - gapAngle,
+          bottom - gapAngle - (Math.PI - gapAngle * 2) * qiRatio,
+          0x1685a9,
+          ringWidth,
+          1,
+          true,
+        );
+      }
+      graphics.lineStyle(1.5, 0xfff1d3, 0.42);
+      graphics.strokeCircle(0, 0, radius - 12);
+      graphics.lineStyle(1.5, 0x110c08, 0.58);
+      graphics.strokeCircle(0, 0, radius + 2);
 
       if (entity.shield > 0) {
-        graphics.lineStyle(1.6, 0xf2e4c5, 0.16);
+        const shieldIntensity = Phaser.Math.Clamp(
+          Math.log1p(entity.shield) / Math.log1p(300),
+          0.12,
+          1,
+        );
+        const shieldWidth = 2.5 + Math.sqrt(shieldIntensity) * 7.5;
+        graphics.lineStyle(
+          shieldWidth + 5,
+          0xe8b931,
+          0.08 + shieldIntensity * 0.12,
+        );
+        graphics.strokeCircle(0, 0, radius + 12);
+        graphics.lineStyle(shieldWidth, 0xf2c84b, 0.42 + shieldIntensity * 0.5);
+        graphics.strokeCircle(0, 0, radius + 12);
+        graphics.lineStyle(1.5, 0xfff1b0, 0.76);
         graphics.strokeCircle(0, 0, radius + 8);
-        drawProgress(radius + 8, shieldRatio, 0xefbf04, 3.6);
+        visual.shieldArt
+          .setVisible(true)
+          .setAlpha(0.2 + shieldIntensity * 0.56)
+          .setScale(0.96 + shieldIntensity * 0.055);
+      } else {
+        visual.shieldArt.setVisible(false).setAlpha(0);
       }
     }
 
@@ -1555,7 +1568,10 @@ export function attachRealtimeBattlePhaser(
       const previous = this.resourceCues.get(entityId);
       previous?.hideTimer?.remove(false);
       const delta = fact.after - fact.before;
-      visual.combatResourceDeltaIcon.textContent = resource.icon;
+      visual.combatResourceDeltaIcon.src = realtimeBattleResourceAsset(
+        resource.id,
+      );
+      visual.combatResourceDeltaIcon.title = resource.name;
       visual.combatResourceDeltaValue.textContent = `${delta >= 0 ? '+' : ''}${Math.round(delta)}`;
       visual.combatResourceDeltaValue.style.color =
         delta >= 0 ? '#357257' : '#a32d3b';

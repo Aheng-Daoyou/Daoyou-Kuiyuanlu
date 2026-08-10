@@ -279,7 +279,7 @@ export const gameDockGroups: GameNavGroup[] = [
         id: 'arena-sparring',
         sceneLabel: '擂台切磋',
         href: '/game/arena',
-        expandedDockLabel: '🥋 擂台切磋',
+        expandedDockLabel: '🥁 擂台切磋',
       },
       {
         id: 'battle-challenge',

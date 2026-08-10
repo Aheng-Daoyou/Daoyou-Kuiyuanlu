@@ -99,6 +99,21 @@ redis.call('SREM', KEYS[6], ARGV[1])
 return 1
 `;
 
+const RECONCILE_DEADLINE_LUA = `
+local current = redis.call('HGET', KEYS[1], 'state_id')
+if not current then return -2 end
+if current ~= ARGV[1] then return 0 end
+local indexed = redis.call('ZSCORE', KEYS[2], ARGV[2])
+if ARGV[3] == '' then
+  if not indexed then return 2 end
+  redis.call('ZREM', KEYS[2], ARGV[2])
+  return 1
+end
+if indexed and tonumber(indexed) == tonumber(ARGV[3]) then return 2 end
+redis.call('ZADD', KEYS[2], ARGV[3], ARGV[2])
+return 1
+`;
+
 export function battleOnlineMatchKey(matchID: string): string {
   if (!/^[A-Za-z0-9_-]{1,120}$/.test(matchID)) {
     throw new Error('Invalid battle match id');
@@ -292,6 +307,22 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     return redis.smembers(ALL_MATCHES_KEY);
   }
 
+  async scanMatchIds(
+    cursor = '0',
+    count = 100,
+  ): Promise<{ cursor: string; matchIds: string[] }> {
+    if (!/^\d+$/.test(cursor) || !Number.isSafeInteger(count) || count < 1) {
+      throw new Error('Invalid battle match scan options');
+    }
+    const [nextCursor, matchIds] = await redis.sscan(
+      ALL_MATCHES_KEY,
+      cursor,
+      'COUNT',
+      count,
+    );
+    return { cursor: nextCursor, matchIds };
+  }
+
   async listExpiredMatchIds(now = Date.now(), limit = 100): Promise<string[]> {
     return redis.zrangebyscore(DEADLINES_KEY, 0, now, 'LIMIT', 0, limit);
   }
@@ -363,7 +394,10 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     const fetched = await this.fetch(matchID, { state: true });
     const current = fetched.state as StoredState;
     if (current.G.presentation) {
-      if (current.G.presentation.endsAt > now) return false;
+      if (current.G.presentation.endsAt > now) {
+        await this.reconcileDeadlineIndexForState(matchID, current);
+        return false;
+      }
       const next = completeBoardgamePresentation(current.G, now);
       return this.compareAndSetState(matchID, withGameState(current, next));
     }
@@ -372,12 +406,21 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       !current.G.planning ||
       current.G.planning.deadlineAt > now
     ) {
-      await redis.zrem(DEADLINES_KEY, matchID);
+      await this.reconcileDeadlineIndexForState(matchID, current);
       return false;
     }
     const next = resolveBoardgameTimeout(current.G, now);
     if (next === current.G) return false;
     return this.compareAndSetState(matchID, withGameState(current, next));
+  }
+
+  async reconcileDeadlineIndex(matchID: string): Promise<boolean> {
+    const stateJson = await redis.hget(battleOnlineMatchKey(matchID), 'state');
+    if (!stateJson) return false;
+    return this.reconcileDeadlineIndexForState(
+      matchID,
+      parseState(stateJson, matchID),
+    );
   }
 
   async resumeResolving(matchID: string, now = Date.now()): Promise<boolean> {
@@ -490,6 +533,26 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     if (result === -3) throw new Error('Battle replay accumulator conflict');
     if (result === -1 || result === -4) return false;
     throw new Error(`Unexpected battle boardgame CAS result: ${result}`);
+  }
+
+  private async reconcileDeadlineIndexForState(
+    matchID: string,
+    state: StoredState,
+  ): Promise<boolean> {
+    const deadlineAt = indexedDeadline(state.G);
+    const result = Number(await getRedisClient().eval(
+      RECONCILE_DEADLINE_LUA,
+      2,
+      battleOnlineMatchKey(matchID),
+      DEADLINES_KEY,
+      String(state._stateID),
+      matchID,
+      deadlineAt === null ? '' : String(deadlineAt),
+    ));
+    if (result === 1) return true;
+    if (result === 0 || result === 2) return false;
+    if (result === -2) throw new Error(`Unknown boardgame match: ${matchID}`);
+    throw new Error(`Unexpected battle deadline reconciliation result: ${result}`);
   }
 }
 
