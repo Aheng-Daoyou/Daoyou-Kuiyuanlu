@@ -31,6 +31,10 @@ import {
   useCultivatorIdentity,
 } from '@app/lib/resources/player';
 import {
+  AUCTION_MAX_TRANSACTION_TOTAL,
+  calculateAuctionSettlement,
+} from '@shared/config/auctionConfig';
+import {
   TEMP_DISABLED_MESSAGES,
   temporaryRestrictions,
 } from '@shared/config/temporaryRestrictions';
@@ -73,6 +77,8 @@ type AuctionListing = {
   itemCategory: string;
   itemSnapshot: Material | Artifact | Consumable;
   price: number;
+  initialQuantity: number;
+  remainingQuantity: number;
   visibility?: 'public' | 'private';
   targetCultivatorId?: string | null;
   targetCultivatorName?: string | null;
@@ -210,6 +216,9 @@ export default function AuctionPage() {
   const [isLoadingBrowse, setIsLoadingBrowse] = useState(true);
   const [isLoadingMy, setIsLoadingMy] = useState(false);
   const [buyingId, setBuyingId] = useState<string | null>(null);
+  const [purchaseQuantities, setPurchaseQuantities] = useState<
+    Record<string, string>
+  >({});
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<ItemDetailPayload | null>(
     null,
@@ -431,17 +440,22 @@ export default function AuctionPage() {
     });
   };
 
-  const executeBuy = async (listing: AuctionListing) => {
+  const executeBuy = async (listing: AuctionListing, quantity: number) => {
     setBuyingId(listing.id);
     try {
       const result = await mutate<{ message: string }>(
         fetch('/api/auction/buy', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ listingId: listing.id }),
+          body: JSON.stringify({
+            listingId: listing.id,
+            quantity,
+            requestId: crypto.randomUUID(),
+          }),
         }),
       );
       pushToast({ message: result.message, tone: 'success' });
+      setPurchaseQuantities((current) => ({ ...current, [listing.id]: '1' }));
       await fetchListings('browse', pagination.browse.page);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : '购买失败';
@@ -456,7 +470,33 @@ export default function AuctionPage() {
       pushToast({ message: '请先登录', tone: 'warning' });
       return;
     }
-    if (cultivator.spirit_stones < listing.price) {
+    const remainingQuantity = Math.max(1, listing.remainingQuantity || 1);
+    const requestedQuantity = Number.parseInt(
+      purchaseQuantities[listing.id] || '1',
+    );
+    if (
+      !Number.isInteger(requestedQuantity) ||
+      requestedQuantity < 1 ||
+      requestedQuantity > remainingQuantity
+    ) {
+      pushToast({
+        message: `购买数量范围为 1～${remainingQuantity}`,
+        tone: 'warning',
+      });
+      return;
+    }
+    const settlement = calculateAuctionSettlement(
+      listing.price,
+      requestedQuantity,
+    );
+    if (settlement.grossAmount > AUCTION_MAX_TRANSACTION_TOTAL) {
+      pushToast({
+        message: `单次购买总价不得超过 ${AUCTION_MAX_TRANSACTION_TOTAL.toLocaleString()} 灵石`,
+        tone: 'warning',
+      });
+      return;
+    }
+    if (cultivator.spirit_stones < settlement.grossAmount) {
       pushToast({ message: '囊中羞涩，灵石不足', tone: 'warning' });
       return;
     }
@@ -464,15 +504,23 @@ export default function AuctionPage() {
       pushToast({ message: '无法购买自己寄售的物品', tone: 'warning' });
       return;
     }
-    if (listing.price > HIGH_VALUE_PURCHASE_CONFIRM_THRESHOLD) {
+    if (
+      requestedQuantity > 1 ||
+      settlement.grossAmount > HIGH_VALUE_PURCHASE_CONFIRM_THRESHOLD
+    ) {
       setBuyConfirmDialog({
         id: `auction-buy-${listing.id}`,
         title: '高额交易确认',
         content: (
           <div className="space-y-2 text-sm leading-7">
             <p>确定购入「{listing.itemName}」吗？</p>
+            <p>
+              数量：{requestedQuantity} 件 · 单价：
+              {listing.price.toLocaleString()} 灵石
+            </p>
             <p className="text-gold font-bold">
-              将消耗：{SPIRIT_STONES_INFO.icon} {listing.price}{' '}
+              将消耗：{SPIRIT_STONES_INFO.icon}{' '}
+              {settlement.grossAmount.toLocaleString()}{' '}
               {SPIRIT_STONES_INFO.label}
             </p>
           </div>
@@ -480,13 +528,13 @@ export default function AuctionPage() {
         confirmLabel: '确认购入',
         cancelLabel: '再看看',
         onConfirm: async () => {
-          await executeBuy(listing);
+          await executeBuy(listing, requestedQuantity);
         },
       });
       return;
     }
 
-    await executeBuy(listing);
+    await executeBuy(listing, requestedQuantity);
   };
 
   const handleCancel = async (listing: AuctionListing) => {
@@ -500,7 +548,10 @@ export default function AuctionPage() {
         }),
       );
       pushToast({ message: result.message, tone: 'success' });
-      await fetchListings('my', pagination.my.page);
+      await fetchListings(activeTab, pagination[activeTab].page);
+      if (activeTab === 'browse') {
+        await fetchListings('my', pagination.my.page);
+      }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : '下架失败';
       pushToast({ message, tone: 'danger' });
@@ -563,46 +614,39 @@ export default function AuctionPage() {
     }
   };
 
-  const renderListing = (listing: AuctionListing, isMyListing: boolean) => {
+  const renderListing = (listing: AuctionListing) => {
     const displayProps = getItemDisplayProps(listing);
     const timeLeft = formatTime(listing.expiresAt);
-    const listedQuantity =
-      'quantity' in listing.itemSnapshot ? listing.itemSnapshot.quantity : 1;
+    const listedQuantity = Math.max(1, listing.remainingQuantity || 1);
+    const isOwner = listing.sellerId === cultivator?.id;
     const listingMeta = (
-      <div className="text-ink-secondary mt-1 space-y-2 text-xs">
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span>
-              卖家: {listing.sellerName}
-              {listing.sellerId === cultivator?.id ? ' (我)' : ''}
+      <div className="text-ink-secondary mt-1 text-xs">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>
+            卖家: {listing.sellerName}
+            {listing.sellerId === cultivator?.id ? ' (我)' : ''}
+          </span>
+          <span>剩余：x{listedQuantity}</span>
+          {listing.visibility === 'private' && (
+            <span className="text-crimson">
+              专属：
+              {listing.targetCultivatorId === cultivator?.id
+                ? '指定给我'
+                : listing.targetCultivatorName || '指定道友'}
             </span>
-            <span>数量: x{listedQuantity}</span>
-            {listing.visibility === 'private' && (
-              <span className="text-crimson">
-                专属：
-                {listing.targetCultivatorId === cultivator?.id
-                  ? '指定给我'
-                  : listing.targetCultivatorName || '指定道友'}
-              </span>
-            )}
-            <span className="text-gold text-sm font-semibold">
-              {SPIRIT_STONES_INFO.icon} {listing.price}{' '}
-              {SPIRIT_STONES_INFO.label}
-            </span>
-          </div>
-          <span className="whitespace-nowrap">剩余: {timeLeft}</span>
+          )}
+          <span className="text-gold text-sm font-semibold">
+            {SPIRIT_STONES_INFO.icon} {listing.price.toLocaleString()}{' '}
+            {SPIRIT_STONES_INFO.label}/件
+          </span>
         </div>
-        {isMyListing && (
-          <div className="flex justify-end">
-            <span className="text-ink-secondary text-[0.75rem] opacity-75">
-              预计到手: {Math.floor(listing.price * 0.9)} 灵石
-            </span>
-          </div>
-        )}
       </div>
     );
     const actions = (
-      <div className="flex w-full justify-end gap-2">
+      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
+        <span className="text-ink-secondary text-xs whitespace-nowrap">
+          剩余：{timeLeft}
+        </span>
         <InkButton
           variant="secondary"
           onClick={() =>
@@ -613,7 +657,7 @@ export default function AuctionPage() {
         >
           详情
         </InkButton>
-        {isMyListing ? (
+        {isOwner ? (
           <InkButton
             onClick={() => handleCancel(listing)}
             disabled={!!cancellingId && cancellingId !== listing.id}
@@ -624,18 +668,52 @@ export default function AuctionPage() {
             下架
           </InkButton>
         ) : (
-          <InkButton
-            onClick={() => handleBuy(listing)}
-            disabled={
-              (!!buyingId && buyingId !== listing.id) ||
-              listing.sellerId === cultivator?.id
-            }
-            pending={buyingId === listing.id}
-            pendingLabel="交易中……"
-            variant="primary"
-          >
-            {listing.sellerId === cultivator?.id ? '自己的' : '购买'}
-          </InkButton>
+          <>
+            {listing.itemType !== 'artifact' && listedQuantity > 1 ? (
+              <div className="flex items-center gap-1 whitespace-nowrap">
+                <span className="text-ink-secondary text-sm">数量</span>
+                <div className="w-20 shrink-0">
+                  <InkInput
+                    type="number"
+                    size="sm"
+                    value={purchaseQuantities[listing.id] || '1'}
+                    onChange={(value) =>
+                      setPurchaseQuantities((current) => ({
+                        ...current,
+                        [listing.id]: value,
+                      }))
+                    }
+                    disabled={buyingId === listing.id}
+                  />
+                </div>
+                <span className="text-ink-secondary text-sm">
+                  / {listedQuantity}
+                </span>
+                <InkButton
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    setPurchaseQuantities((current) => ({
+                      ...current,
+                      [listing.id]: String(listedQuantity),
+                    }))
+                  }
+                  disabled={buyingId === listing.id}
+                >
+                  买全部
+                </InkButton>
+              </div>
+            ) : null}
+            <InkButton
+              onClick={() => handleBuy(listing)}
+              disabled={!!buyingId && buyingId !== listing.id}
+              pending={buyingId === listing.id}
+              pendingLabel="交易中……"
+              variant="primary"
+            >
+              购买
+            </InkButton>
+          </>
         )}
       </div>
     );
@@ -868,7 +946,8 @@ export default function AuctionPage() {
               content: (
                 <div className="space-y-2 text-sm leading-7">
                   <p>自己的货单不可回购；专属交易仅指定道友可见。</p>
-                  <p>卖家实际到手为标价九成。</p>
+                  <p>货单按件计价，堆叠物品支持选择购买数量。</p>
+                  <p>成交按单件价格适用3%～15%超额累进税率。</p>
                 </div>
               ),
             }}
@@ -927,9 +1006,7 @@ export default function AuctionPage() {
       ) : activeListings.length > 0 ? (
         <>
           <InkList>
-            {activeListings.map((listing) =>
-              renderListing(listing, activeTab === 'my'),
-            )}
+            {activeListings.map((listing) => renderListing(listing))}
           </InkList>
           {renderPagination(activeTab)}
         </>

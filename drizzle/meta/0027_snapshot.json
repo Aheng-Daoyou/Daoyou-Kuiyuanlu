@@ -1,5 +1,5 @@
 {
-  "id": "c7584483-7b4c-4a86-9075-fde94d1dbdb0",
+  "id": "c1aea879-22d9-4f70-b7d7-38edb32195c8",
   "prevId": "494cfe5c-8143-4df5-a6e0-1d0f775a3f21",
   "version": "7",
   "dialect": "postgresql",
@@ -445,6 +445,20 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "initial_quantity": {
+          "name": "initial_quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "remaining_quantity": {
+          "name": "remaining_quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
         },
         "status": {
           "name": "status",
@@ -1004,111 +1018,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.wanjiedaoyou_battle_replay_archives": {
-      "name": "wanjiedaoyou_battle_replay_archives",
-      "schema": "",
-      "columns": {
-        "match_id": {
-          "name": "match_id",
-          "type": "varchar(120)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "replay_version": {
-          "name": "replay_version",
-          "type": "varchar(40)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "engine_version": {
-          "name": "engine_version",
-          "type": "varchar(40)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ruleset_version": {
-          "name": "ruleset_version",
-          "type": "varchar(60)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "participants": {
-          "name": "participants",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "replay": {
-          "name": "replay",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "battle_replay_archives_finished_idx": {
-          "name": "battle_replay_archives_finished_idx",
-          "columns": [
-            {
-              "expression": "finished_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "battle_replay_archives_participants_gin_idx": {
-          "name": "battle_replay_archives_participants_gin_idx",
-          "columns": [
-            {
-              "expression": "participants",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "gin",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -5898,6 +5807,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
         "status": {
           "name": "status",
           "type": "varchar(16)",
@@ -5947,8 +5863,8 @@
         }
       },
       "indexes": {
-        "sect_task_membership_period_task_unique": {
-          "name": "sect_task_membership_period_task_unique",
+        "sect_task_membership_period_task_attempt_unique": {
+          "name": "sect_task_membership_period_task_attempt_unique",
           "columns": [
             {
               "expression": "membership_id",
@@ -5964,6 +5880,12 @@
             },
             {
               "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attempt",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
