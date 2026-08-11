@@ -6,6 +6,21 @@ import type { BattleMatchSessionV1 } from '@shared/contracts/battle-matches';
 import { getRedisClient, redis } from '@server/lib/redis';
 import type { BattleBoardgameG } from './BattleBoardgameAdapter';
 import {
+  BATTLE_ONLINE_ALL_MATCHES_KEY,
+  BATTLE_ONLINE_DEADLINES_KEY,
+  BATTLE_ONLINE_RESOLVING_KEY,
+  BATTLE_ONLINE_WAITING_KEY,
+  battleOnlineMatchKey,
+  battleReplayRoundsKey,
+} from './BattleOnlineRedisKeys';
+import {
+  BATTLE_REPLAY_ARCHIVED_TTL_SECONDS,
+  BATTLE_REPLAY_ARCHIVE_PENDING_KEY,
+  BATTLE_REPLAY_ARCHIVE_UNCONFIRMED_KEY,
+  BATTLE_REPLAY_CONFIRM_TIMEOUT_MS,
+  BATTLE_REPLAY_UNCONFIRMED_TTL_SECONDS,
+} from './BattleReplayRedisStore';
+import {
   completeBoardgamePresentation,
   failBoardgameResolution,
   resolveBoardgameTimeout,
@@ -18,13 +33,10 @@ type StoredState = State<BattleBoardgameG>;
 
 export type BattleBoardgamePlayerSessionV1 = BattleMatchSessionV1;
 
-const MATCH_PREFIX = 'battle:online:';
-const ALL_MATCHES_KEY = 'battle:online:matches';
-const DEADLINES_KEY = 'battle:online:deadlines';
-const RESOLVING_KEY = 'battle:online:resolving';
-const WAITING_KEY = 'battle:online:waiting';
-const ARCHIVE_PENDING_KEY = 'battle:replay:archive:pending';
-const ARCHIVED_MATCH_TTL_SECONDS = 30 * 60;
+const ALL_MATCHES_KEY = BATTLE_ONLINE_ALL_MATCHES_KEY;
+const DEADLINES_KEY = BATTLE_ONLINE_DEADLINES_KEY;
+const RESOLVING_KEY = BATTLE_ONLINE_RESOLVING_KEY;
+const WAITING_KEY = BATTLE_ONLINE_WAITING_KEY;
 const MATCH_ACCEPT_TIMEOUT_MS = 10 * 60 * 1_000;
 const ARENA_START_INDEX_TTL_SECONDS = 2 * 60 * 60;
 
@@ -114,16 +126,36 @@ redis.call('ZADD', KEYS[2], ARGV[3], ARGV[2])
 return 1
 `;
 
-export function battleOnlineMatchKey(matchID: string): string {
-  if (!/^[A-Za-z0-9_-]{1,120}$/.test(matchID)) {
-    throw new Error('Invalid battle match id');
-  }
-  return `${MATCH_PREFIX}${matchID}`;
-}
+const MARK_ARCHIVE_PUBLISHED_LUA = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+local status = redis.call('HGET', KEYS[1], 'archive_status')
+local currentAttempt = tonumber(redis.call('HGET', KEYS[1], 'archive_publish_attempt') or '0')
+local incomingAttempt = tonumber(ARGV[4])
+if status == 'archived' then
+  redis.call('SREM', KEYS[3], ARGV[1])
+  redis.call('ZREM', KEYS[4], ARGV[1])
+  redis.call('SREM', KEYS[5], ARGV[1])
+  redis.call('ZREM', KEYS[6], ARGV[1])
+  redis.call('SREM', KEYS[7], ARGV[1])
+  return 2
+end
+if status ~= 'pending' and status ~= 'published' then return -1 end
+if incomingAttempt < currentAttempt then return 3 end
+redis.call('HSET', KEYS[1],
+  'archive_status', 'published',
+  'archive_published_at', ARGV[2],
+  'archive_publish_attempt', ARGV[4])
+redis.call('EXPIRE', KEYS[1], ARGV[3])
+redis.call('EXPIRE', KEYS[2], ARGV[3])
+redis.call('SREM', KEYS[3], ARGV[1])
+redis.call('ZADD', KEYS[4], ARGV[2], ARGV[1])
+redis.call('SREM', KEYS[5], ARGV[1])
+redis.call('ZREM', KEYS[6], ARGV[1])
+redis.call('SREM', KEYS[7], ARGV[1])
+return 1
+`;
 
-function replayRoundsKey(matchID: string): string {
-  return `${battleOnlineMatchKey(matchID)}:replay-rounds`;
-}
+export { battleOnlineMatchKey } from './BattleOnlineRedisKeys';
 
 /** Redis is the only authority for an in-progress boardgame.io match. */
 export class RedisBattleBoardgameStorage implements StorageAPI.Async {
@@ -179,7 +211,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     const orchestration = arenaOrchestrationFromMetadata(opts.metadata);
     const orchestrationKey = orchestration
       ? arenaStartIndexKey(orchestration.roomId, orchestration.startRequestId)
-      : `${MATCH_PREFIX}arena-start-disabled:${matchID}`;
+      : `battle:online:arena-start-disabled:${matchID}`;
     const result = Number(await getRedisClient().eval(
       CREATE_MATCH_LUA,
       6,
@@ -266,7 +298,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
   ): Promise<StorageAPI.FetchResult<O>> {
     const [fields, replayRounds] = await Promise.all([
       redis.hmget(battleOnlineMatchKey(matchID), 'state', 'initial_state', 'metadata'),
-      redis.lrange(replayRoundsKey(matchID), 0, -1),
+      redis.lrange(battleReplayRoundsKey(matchID), 0, -1),
     ]);
     if (!fields[0]) throw new Error(`Unknown boardgame match: ${matchID}`);
     const result: Record<string, unknown> = {};
@@ -293,12 +325,13 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
         : [];
     const transaction = redis.multi()
       .del(battleOnlineMatchKey(matchID))
-      .del(replayRoundsKey(matchID))
+      .del(battleReplayRoundsKey(matchID))
       .srem(ALL_MATCHES_KEY, matchID)
       .zrem(DEADLINES_KEY, matchID)
       .zrem(WAITING_KEY, matchID)
       .srem(RESOLVING_KEY, matchID)
-      .srem(ARCHIVE_PENDING_KEY, matchID);
+      .srem(BATTLE_REPLAY_ARCHIVE_PENDING_KEY, matchID)
+      .zrem(BATTLE_REPLAY_ARCHIVE_UNCONFIRMED_KEY, matchID);
     for (const userId of invitedUserIds) transaction.zrem(`battle:invites:user:${userId}`, matchID);
     await transaction.exec();
   }
@@ -352,8 +385,8 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       ALL_MATCHES_KEY,
       DEADLINES_KEY,
       RESOLVING_KEY,
-      ARCHIVE_PENDING_KEY,
-      replayRoundsKey(matchID),
+      BATTLE_REPLAY_ARCHIVE_PENDING_KEY,
+      battleReplayRoundsKey(matchID),
       matchID,
       String(now),
     ));
@@ -369,7 +402,21 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
   }
 
   async listPendingArchiveMatchIds(): Promise<string[]> {
-    return redis.smembers(ARCHIVE_PENDING_KEY);
+    return redis.smembers(BATTLE_REPLAY_ARCHIVE_PENDING_KEY);
+  }
+
+  async listUnconfirmedArchiveMatchIds(
+    now = Date.now(),
+    limit = 100,
+  ): Promise<string[]> {
+    return redis.zrangebyscore(
+      BATTLE_REPLAY_ARCHIVE_UNCONFIRMED_KEY,
+      0,
+      now - BATTLE_REPLAY_CONFIRM_TIMEOUT_MS,
+      'LIMIT',
+      0,
+      limit,
+    );
   }
 
   async getPendingArchive(matchID: string): Promise<BattleReplayV1 | null> {
@@ -377,17 +424,30 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     return payload ? JSON.parse(payload) as BattleReplayV1 : null;
   }
 
-  async markArchivePublished(matchID: string): Promise<void> {
-    await redis
-      .multi()
-      .hset(battleOnlineMatchKey(matchID), 'archive_status', 'published')
-      .expire(battleOnlineMatchKey(matchID), ARCHIVED_MATCH_TTL_SECONDS)
-      .expire(replayRoundsKey(matchID), ARCHIVED_MATCH_TTL_SECONDS)
-      .srem(ARCHIVE_PENDING_KEY, matchID)
-      .srem(ALL_MATCHES_KEY, matchID)
-      .zrem(DEADLINES_KEY, matchID)
-      .srem(RESOLVING_KEY, matchID)
-      .exec();
+  async markArchivePublished(matchID: string, attempt: number): Promise<void> {
+    if (!Number.isSafeInteger(attempt) || attempt < 1) {
+      throw new Error('Battle replay archive attempt must be a positive integer');
+    }
+    const publishedAt = Date.now();
+    const result = Number(await getRedisClient().eval(
+      MARK_ARCHIVE_PUBLISHED_LUA,
+      7,
+      battleOnlineMatchKey(matchID),
+      battleReplayRoundsKey(matchID),
+      BATTLE_REPLAY_ARCHIVE_PENDING_KEY,
+      BATTLE_REPLAY_ARCHIVE_UNCONFIRMED_KEY,
+      ALL_MATCHES_KEY,
+      DEADLINES_KEY,
+      RESOLVING_KEY,
+      matchID,
+      String(publishedAt),
+      String(BATTLE_REPLAY_UNCONFIRMED_TTL_SECONDS),
+      String(attempt),
+    ));
+    if (result === 1 || result === 2 || result === 3) return;
+    if (result === 0) throw new Error(`Unknown boardgame match: ${matchID}`);
+    if (result === -1) throw new Error(`Battle replay archive state conflict: ${matchID}`);
+    throw new Error(`Unexpected battle archive publish result: ${result}`);
   }
 
   async resolveExpired(matchID: string, now = Date.now()): Promise<boolean> {
@@ -463,13 +523,14 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     if (!updated) return false;
     await redis
       .multi()
-      .expire(battleOnlineMatchKey(matchID), ARCHIVED_MATCH_TTL_SECONDS)
-      .expire(replayRoundsKey(matchID), ARCHIVED_MATCH_TTL_SECONDS)
+      .expire(battleOnlineMatchKey(matchID), BATTLE_REPLAY_ARCHIVED_TTL_SECONDS)
+      .expire(battleReplayRoundsKey(matchID), BATTLE_REPLAY_ARCHIVED_TTL_SECONDS)
       .srem(ALL_MATCHES_KEY, matchID)
       .zrem(DEADLINES_KEY, matchID)
       .zrem(WAITING_KEY, matchID)
       .srem(RESOLVING_KEY, matchID)
-      .srem(ARCHIVE_PENDING_KEY, matchID)
+      .srem(BATTLE_REPLAY_ARCHIVE_PENDING_KEY, matchID)
+      .zrem(BATTLE_REPLAY_ARCHIVE_UNCONFIRMED_KEY, matchID)
       .exec();
     return true;
   }
@@ -478,7 +539,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     const [currentJson, initialStateJson, storedRoundCount] = await Promise.all([
       redis.hget(battleOnlineMatchKey(matchID), 'state'),
       redis.hget(battleOnlineMatchKey(matchID), 'initial_state'),
-      redis.llen(replayRoundsKey(matchID)),
+      redis.llen(battleReplayRoundsKey(matchID)),
     ]);
     if (!currentJson || !initialStateJson) {
       throw new Error(`Unknown boardgame match: ${matchID}`);
@@ -511,8 +572,8 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       RESOLVING_KEY,
       ALL_MATCHES_KEY,
       WAITING_KEY,
-      ARCHIVE_PENDING_KEY,
-      replayRoundsKey(matchID),
+      BATTLE_REPLAY_ARCHIVE_PENDING_KEY,
+      battleReplayRoundsKey(matchID),
       String(state._stateID - 1),
       String(state._stateID),
       JSON.stringify(storedState),
