@@ -113,17 +113,17 @@ return 1
 `;
 
 const RECONCILE_DEADLINE_LUA = `
-local current = redis.call('HGET', KEYS[1], 'state_id')
-if not current then return -2 end
-if current ~= ARGV[1] then return 0 end
-local indexed = redis.call('ZSCORE', KEYS[2], ARGV[2])
-if ARGV[3] == '' then
+local values = redis.call('HMGET', KEYS[1], 'state_id', 'deadline_at')
+if not values[1] then return -2 end
+local deadline = values[2] or ''
+local indexed = redis.call('ZSCORE', KEYS[2], ARGV[1])
+if deadline == '' then
   if not indexed then return 2 end
-  redis.call('ZREM', KEYS[2], ARGV[2])
+  redis.call('ZREM', KEYS[2], ARGV[1])
   return 1
 end
-if indexed and tonumber(indexed) == tonumber(ARGV[3]) then return 2 end
-redis.call('ZADD', KEYS[2], ARGV[3], ARGV[2])
+if indexed and tonumber(indexed) == tonumber(deadline) then return 2 end
+redis.call('ZADD', KEYS[2], deadline, ARGV[1])
 return 1
 `;
 
@@ -161,6 +161,11 @@ export { battleOnlineMatchKey } from './BattleOnlineRedisKeys';
 /** Redis is the only authority for an in-progress boardgame.io match. */
 export class RedisBattleBoardgameStorage implements StorageAPI.Async {
   private readonly blueprintCache = new Map<string, BattleBlueprintV1>();
+  private archivePendingListener: (() => void) | undefined;
+
+  setArchivePendingListener(listener: (() => void) | undefined): void {
+    this.archivePendingListener = listener;
+  }
 
   type(): 1 {
     return 1;
@@ -389,8 +394,20 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     return redis.zrangebyscore(DEADLINES_KEY, 0, now, 'LIMIT', 0, limit);
   }
 
-  async listResolvingMatchIds(): Promise<string[]> {
-    return redis.smembers(RESOLVING_KEY);
+  async scanResolvingMatchIds(
+    cursor = '0',
+    count = 100,
+  ): Promise<{ cursor: string; matchIds: string[] }> {
+    if (!/^\d+$/.test(cursor) || !Number.isSafeInteger(count) || count < 1) {
+      throw new Error('Invalid resolving battle match scan options');
+    }
+    const [nextCursor, matchIds] = await redis.sscan(
+      RESOLVING_KEY,
+      cursor,
+      'COUNT',
+      count,
+    );
+    return { cursor: nextCursor, matchIds };
   }
 
   async listExpiredWaitingMatchIds(now = Date.now(), limit = 100): Promise<string[]> {
@@ -431,8 +448,20 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     return true;
   }
 
-  async listPendingArchiveMatchIds(): Promise<string[]> {
-    return redis.smembers(BATTLE_REPLAY_ARCHIVE_PENDING_KEY);
+  async scanPendingArchiveMatchIds(
+    cursor = '0',
+    count = 100,
+  ): Promise<{ cursor: string; matchIds: string[] }> {
+    if (!/^\d+$/.test(cursor) || !Number.isSafeInteger(count) || count < 1) {
+      throw new Error('Invalid battle replay archive scan options');
+    }
+    const [nextCursor, matchIds] = await redis.sscan(
+      BATTLE_REPLAY_ARCHIVE_PENDING_KEY,
+      cursor,
+      'COUNT',
+      count,
+    );
+    return { cursor: nextCursor, matchIds };
   }
 
   async listUnconfirmedArchiveMatchIds(
@@ -485,7 +514,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     const current = fetched.state as StoredState;
     if (current.G.presentation) {
       if (current.G.presentation.endsAt > now) {
-        await this.reconcileDeadlineIndexForState(matchID, current);
+        await this.reconcileDeadlineIndexEntry(matchID);
         return false;
       }
       const next = completeBoardgamePresentation(current.G, now);
@@ -496,7 +525,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       !current.G.planning ||
       current.G.planning.deadlineAt > now
     ) {
-      await this.reconcileDeadlineIndexForState(matchID, current);
+      await this.reconcileDeadlineIndexEntry(matchID);
       return false;
     }
     const next = resolveBoardgameTimeout(current.G, now);
@@ -505,12 +534,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
   }
 
   async reconcileDeadlineIndex(matchID: string): Promise<boolean> {
-    const stateJson = await redis.hget(battleOnlineMatchKey(matchID), 'state');
-    if (!stateJson) return false;
-    return this.reconcileDeadlineIndexForState(
-      matchID,
-      parseStoredStateEnvelope(stateJson, matchID),
-    );
+    return this.reconcileDeadlineIndexEntry(matchID);
   }
 
   async resumeResolving(matchID: string, now = Date.now()): Promise<boolean> {
@@ -622,7 +646,10 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       acceptDeadlineAt === null ? '' : String(acceptDeadlineAt),
       replayRound,
     ));
-    if (result === 1) return true;
+    if (result === 1) {
+      if (archive) this.archivePendingListener?.();
+      return true;
+    }
     // boardgame.io persists the unchanged state after INVALID_MOVE. Treat only
     // byte-identical, equal-stateID writes as a successful idempotent no-op.
     if (result === 2) return true;
@@ -631,19 +658,13 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     throw new Error(`Unexpected battle boardgame CAS result: ${result}`);
   }
 
-  private async reconcileDeadlineIndexForState(
-    matchID: string,
-    state: StoredState,
-  ): Promise<boolean> {
-    const deadlineAt = indexedDeadline(state.G);
+  private async reconcileDeadlineIndexEntry(matchID: string): Promise<boolean> {
     const result = Number(await getRedisClient().eval(
       RECONCILE_DEADLINE_LUA,
       2,
       battleOnlineMatchKey(matchID),
       DEADLINES_KEY,
-      String(state._stateID),
       matchID,
-      deadlineAt === null ? '' : String(deadlineAt),
     ));
     if (result === 1) return true;
     if (result === 0 || result === 2) return false;

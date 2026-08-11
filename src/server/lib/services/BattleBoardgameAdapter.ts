@@ -9,6 +9,7 @@ import {
 import {
   applyBattleRoundResolution,
   cancelBattleResolution,
+  createBattleMatchViewProjection,
   createBattleMatchPlayerView,
   markBattleResolutionFailed,
   retryFailedBattleResolution,
@@ -58,6 +59,11 @@ export type BattleBoardgameG = BattleMatchStateV1 & {
     readonly pendingRound?: BattleReplayRoundV1;
   };
 };
+
+const battleViewProjectionCache = new WeakMap<
+  BattleBoardgameG,
+  ReturnType<typeof createBattleMatchViewProjection>
+>();
 
 function appPlayerId(
   G: BattleBoardgameG,
@@ -228,8 +234,9 @@ export function createBattleBoardgameGame(): Game<
         };
       }
       const ready = acceptedPlayerIds(G);
+      const projection = getBattleViewProjection(G);
       return {
-        ...createBattleMatchPlayerView(G, appId, Date.now()),
+        ...createBattleMatchPlayerView(G, appId, Date.now(), projection),
         commandReceipt: G.commandReceiptsByPlayerId[appId],
         presentation: G.presentation,
         orchestration: {
@@ -240,6 +247,16 @@ export function createBattleBoardgameGame(): Game<
       };
     },
   };
+}
+
+function getBattleViewProjection(
+  G: BattleBoardgameG,
+): ReturnType<typeof createBattleMatchViewProjection> {
+  const cached = battleViewProjectionCache.get(G);
+  if (cached) return cached;
+  const projection = createBattleMatchViewProjection(G);
+  battleViewProjectionCache.set(G, projection);
+  return projection;
 }
 
 /** Trusted worker hook; never expose this as a client move. */
