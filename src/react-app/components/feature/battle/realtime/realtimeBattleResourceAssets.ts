@@ -9,11 +9,35 @@ const RESOURCE_ASSETS: Readonly<Record<string, string>> = {
 
 const GENERIC_RESOURCE_ASSET = `${RESOURCE_ASSET_ROOT}/generic-resource.png`;
 
-/**
- * Presentation-only registry. Combat resource IDs remain battle-v5's stable
- * identity; the realtime renderer owns their artwork and never falls back to
- * an engine-provided Emoji glyph.
- */
-export function realtimeBattleResourceAsset(resourceId: string): string {
-  return RESOURCE_ASSETS[resourceId] ?? GENERIC_RESOURCE_ASSET;
+const GENERIC_RESOURCE_TEXTURE = 'battle-resource-generic';
+
+export interface RealtimeBattleResourceAsset {
+  readonly resourceId?: string;
+  readonly textureKey: string;
+  readonly path: string;
+}
+
+const RESOURCE_TEXTURES: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.keys(RESOURCE_ASSETS).map((resourceId) => [
+    resourceId,
+    `battle-resource-${resourceId.split('.').join('-')}`,
+  ]),
+);
+
+export function realtimeBattleResourceAssets(): readonly RealtimeBattleResourceAsset[] {
+  return [
+    ...Object.entries(RESOURCE_ASSETS).map(([resourceId, path]) => ({
+      resourceId,
+      textureKey: RESOURCE_TEXTURES[resourceId],
+      path,
+    })),
+    {
+      textureKey: GENERIC_RESOURCE_TEXTURE,
+      path: GENERIC_RESOURCE_ASSET,
+    },
+  ];
+}
+
+export function realtimeBattleResourceTexture(resourceId: string): string {
+  return RESOURCE_TEXTURES[resourceId] ?? GENERIC_RESOURCE_TEXTURE;
 }

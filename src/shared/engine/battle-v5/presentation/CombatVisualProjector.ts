@@ -11,6 +11,8 @@ import type {
 } from './CombatVisualProtocol';
 
 const CAST_DURATION = 940;
+const REACTION_DURATION = 1_080;
+const REACTION_GAP = 100;
 
 const DELIVERY_TIMING: Record<
   CombatVisualSpec['delivery'],
@@ -40,6 +42,12 @@ interface ScheduledFact {
   fact: CombatVisualFact;
   at: number;
   timing: NonNullable<CombatVisualFact['timing']>;
+}
+
+interface ScheduledReaction {
+  fact: CombatVisualFact;
+  desiredAt: number;
+  ordinal: number;
 }
 
 const DAMAGE_PRIORITY: Record<
@@ -259,6 +267,7 @@ export function projectCombatVisualAction(
   let impactIndex = 0;
   let afterIndex = 0;
   const scheduledFacts: ScheduledFact[] = [];
+  const scheduledReactions: ScheduledReaction[] = [];
   const impactFacts = action.facts.filter(
     (fact) => (fact.timing ?? 'impact') === 'impact',
   ).length;
@@ -274,12 +283,10 @@ export function projectCombatVisualAction(
     scheduledFacts.push({ fact, at, timing });
 
     if (fact.reaction) {
-      commands.push({
-        id: `${action.id}:${fact.id}:reaction`,
-        kind: 'reaction',
-        at: Math.max(deliveryAt, at - 320),
-        duration: 480,
+      scheduledReactions.push({
         fact,
+        desiredAt: Math.max(deliveryAt, at - 320),
+        ordinal: scheduledFacts.length - 1,
       });
     }
     commands.push({
@@ -289,6 +296,34 @@ export function projectCombatVisualAction(
       duration: factDuration(fact),
       fact,
     });
+  }
+
+  const reactionSourceAvailableAt = new Map<string, number>();
+  const emittedReactions = new Set<string>();
+  for (const scheduled of scheduledReactions.sort(
+    (left, right) =>
+      left.desiredAt - right.desiredAt || left.ordinal - right.ordinal,
+  )) {
+    const reaction = scheduled.fact.reaction;
+    if (!reaction) continue;
+    const dedupeKey = `${reaction.sourceId}\u0000${reaction.label}`;
+    if (emittedReactions.has(dedupeKey)) continue;
+    emittedReactions.add(dedupeKey);
+    const at = Math.max(
+      scheduled.desiredAt,
+      reactionSourceAvailableAt.get(reaction.sourceId) ?? 0,
+    );
+    commands.push({
+      id: `${action.id}:${scheduled.fact.id}:reaction`,
+      kind: 'reaction',
+      at,
+      duration: REACTION_DURATION,
+      fact: scheduled.fact,
+    });
+    reactionSourceAvailableAt.set(
+      reaction.sourceId,
+      at + REACTION_DURATION + REACTION_GAP,
+    );
   }
   commands.push(...createImpactCueCommands(action, scheduledFacts));
 
@@ -300,7 +335,14 @@ export function projectCombatVisualAction(
     0,
   );
   const deliveryEnd = deliveryAt + deliveryTiming.duration;
-  const settleAt = Math.max(deliveryEnd, lastResolveEnd) + 620;
+  const lastReactionEnd = commands.reduce(
+    (latest, command) =>
+      command.kind === 'reaction'
+        ? Math.max(latest, command.at + command.duration)
+        : latest,
+    0,
+  );
+  const settleAt = Math.max(deliveryEnd, lastResolveEnd, lastReactionEnd) + 620;
   commands.push({
     id: `${action.id}:settle`,
     kind: 'settle',

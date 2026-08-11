@@ -12,11 +12,15 @@ import type {
   BattlePresentationTeamV1,
 } from '@shared/online-battle/BattlePresentation';
 import * as Phaser from 'phaser';
-import { realtimeBattleResourceAsset } from './realtimeBattleResourceAssets';
+import {
+  realtimeBattleResourceAssets,
+  realtimeBattleResourceTexture,
+} from './realtimeBattleResourceAssets';
 
 type RealtimeBattleEntity = BattlePresentationEntityV1;
 type RealtimeBattleSnapshot = BattlePresentationSnapshotV1;
 type RealtimeBattleTeam = BattlePresentationTeamV1;
+type RealtimeBattleResource = RealtimeBattleEntity['combatResources'][number];
 
 type BattleStageProfile = 'portrait' | 'compact-landscape' | 'wide';
 
@@ -50,9 +54,13 @@ const WIDE_STAGE: StageSize = {
 };
 const FONT_FAMILY = 'LXGWWenKai, serif';
 const TEXT_OUTLINE_COLOR = '#eee7d6';
-const UNIT_CORE_TEXTURE = 'realtime-unit-core';
-const UNIT_VITAL_FRAME_TEXTURE = 'realtime-unit-vital-frame';
+const UNIT_NAME_DISC_TEXTURE = 'realtime-unit-name-disc';
+const UNIT_VITAL_TRACK_TEXTURE = 'realtime-unit-vital-track';
+const UNIT_VITAL_HP_TEXTURE = 'realtime-unit-vital-hp';
+const UNIT_VITAL_MP_TEXTURE = 'realtime-unit-vital-mp';
 const UNIT_SHIELD_TEXTURE = 'realtime-unit-shield';
+const UNIT_NAME_DISC_SCALE = 2.04;
+const UNIT_VITAL_SCALE = 2.18;
 
 function outlinedText(strokeThickness: number) {
   return {
@@ -107,19 +115,23 @@ interface EntityVisual {
   actorSelection: Phaser.GameObjects.Arc;
   targetSelection: Phaser.GameObjects.Arc;
   commandStateText: Phaser.GameObjects.Text;
-  vitalRings: Phaser.GameObjects.Graphics;
+  vitalLayer: Phaser.GameObjects.Container;
+  hpBrush: Phaser.GameObjects.Image;
+  qiBrush: Phaser.GameObjects.Image;
+  hpBrushTextureKey: string;
+  qiBrushTextureKey: string;
+  hpRatio?: number;
+  qiRatio?: number;
   shieldArt: Phaser.GameObjects.Image;
+  shieldTextureKey: string;
+  shieldStrength?: number;
   name: Phaser.GameObjects.Text;
-  resourceDom: Phaser.GameObjects.DOMElement;
-  resourceNode: HTMLDivElement;
-  combatResourceSteady: HTMLDivElement;
-  combatResourcePips: HTMLDivElement;
-  combatResourceDelta: HTMLDivElement;
-  combatResourceDeltaIcon: HTMLImageElement;
-  combatResourceDeltaValue: HTMLSpanElement;
-  actionStateText: Phaser.GameObjects.Text;
-  buffText: Phaser.GameObjects.Text;
-  debuffText: Phaser.GameObjects.Text;
+  resourceLayer: Phaser.GameObjects.Container;
+  resources: Map<string, ResourceVisual>;
+  resourceHeight: number;
+  statusLayer: Phaser.GameObjects.Container;
+  statuses: Map<string, StatusVisual>;
+  statusHeight: number;
   nameControlFx: Phaser.GameObjects.Graphics;
   controlMode?: CombatControlVisual;
   isPet: boolean;
@@ -127,8 +139,36 @@ interface EntityVisual {
   radius: number;
 }
 
+interface ResourceVisual {
+  container: Phaser.GameObjects.Container;
+  background: Phaser.GameObjects.Graphics;
+  iconPulse: Phaser.GameObjects.Container;
+  icon: Phaser.GameObjects.Image;
+  value: Phaser.GameObjects.Text;
+  delta: Phaser.GameObjects.Text;
+  width: number;
+  height: number;
+}
+
+type StatusTone = 'action' | 'control' | 'buff' | 'debuff';
+
+interface StatusEntry {
+  readonly key: string;
+  readonly label: string;
+  readonly tone: StatusTone;
+}
+
+interface StatusVisual {
+  container: Phaser.GameObjects.Container;
+  background: Phaser.GameObjects.Graphics;
+  label: Phaser.GameObjects.Text;
+  width: number;
+  height: number;
+}
+
 interface ResourceCueState {
   actionId: string;
+  delta: number;
   hideTimer?: Phaser.Time.TimerEvent;
 }
 
@@ -162,6 +202,47 @@ function visualColor(visual: CombatVisualSpec) {
 
 function colorHex(color: number) {
   return `#${color.toString(16).padStart(6, '0')}`;
+}
+
+function smoothStep(edge0: number, edge1: number, value: number) {
+  const progress = Phaser.Math.Clamp(
+    (value - edge0) / Math.max(edge1 - edge0, Number.EPSILON),
+    0,
+    1,
+  );
+  return progress * progress * (3 - 2 * progress);
+}
+
+const vitalProgressMaps = new Map<string, Float32Array>();
+
+function vitalProgressMap(
+  half: 'upper' | 'lower',
+  width: number,
+  height: number,
+) {
+  const key = `${half}:${width}x${height}`;
+  const cached = vitalProgressMaps.get(key);
+  if (cached) return cached;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const progressMap = new Float32Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let angle = Math.atan2(y - centerY, x - centerX);
+      if (angle < 0) angle += Math.PI * 2;
+      let progress: number;
+      if (half === 'upper') {
+        if (angle < 0.28) angle += Math.PI * 2;
+        progress = (angle - Math.PI) / Math.PI;
+      } else {
+        if (angle > Math.PI * 2 - 0.28) angle -= Math.PI * 2;
+        progress = angle / Math.PI;
+      }
+      progressMap[y * width + x] = progress;
+    }
+  }
+  vitalProgressMaps.set(key, progressMap);
+  return progressMap;
 }
 
 function damageColor(
@@ -261,6 +342,14 @@ function formationVisualRects(
   const bodyPadding = isPet ? 22 : 30;
   const upperHalfWidth = isPet ? Math.max(78, radius) : Math.max(112, radius);
   const lowerHalfWidth = isPet ? Math.max(62, radius) : Math.max(104, radius);
+  const resourceRows = entity.combatResources.length;
+  const statusCount = entity.actionStates.length + entity.effects.length;
+  const statusRows = Math.ceil(
+    statusCount / (stage.profile === 'wide' ? 2 : 1),
+  );
+  const annotationHeight =
+    (resourceRows > 0 ? resourceRows * (isPet ? 30 : 36) + 8 : 0) +
+    statusRows * (isPet ? 25 : 29);
   return [
     {
       left: point.x - radius - bodyPadding,
@@ -278,7 +367,10 @@ function formationVisualRects(
       left: point.x - lowerHalfWidth,
       right: point.x + lowerHalfWidth,
       top: point.y + radius + 2,
-      bottom: point.y + radius + (isPet ? 82 : 100),
+      bottom:
+        point.y +
+        radius +
+        Math.max(isPet ? 82 : 100, annotationHeight + (isPet ? 26 : 32)),
     },
   ];
 }
@@ -461,20 +553,32 @@ export function attachRealtimeBattlePhaser(
     private activeTimelineActionIds = new Set<string>();
     private pendingStage?: StageSize;
     private formation?: Phaser.GameObjects.Graphics;
+    private vitalTextureSequence = 0;
 
     preload() {
       this.load.image(
-        UNIT_CORE_TEXTURE,
-        '/assets/battle/realtime/ui/unit/core-disc.png',
+        UNIT_NAME_DISC_TEXTURE,
+        '/assets/battle/realtime/ui/unit/name-ink-disc.png',
       );
       this.load.image(
-        UNIT_VITAL_FRAME_TEXTURE,
-        '/assets/battle/realtime/ui/unit/vital-ring-frame.png',
+        UNIT_VITAL_TRACK_TEXTURE,
+        '/assets/battle/realtime/ui/unit/vital-ink-track.png',
+      );
+      this.load.image(
+        UNIT_VITAL_HP_TEXTURE,
+        '/assets/battle/realtime/ui/unit/vital-hp-upper.png',
+      );
+      this.load.image(
+        UNIT_VITAL_MP_TEXTURE,
+        '/assets/battle/realtime/ui/unit/vital-mp-lower.png',
       );
       this.load.image(
         UNIT_SHIELD_TEXTURE,
         '/assets/battle/realtime/ui/unit/shield-aegis.png',
       );
+      for (const asset of realtimeBattleResourceAssets()) {
+        this.load.image(asset.textureKey, asset.path);
+      }
     }
 
     create() {
@@ -550,12 +654,6 @@ export function attachRealtimeBattlePhaser(
         visual.container
           .setPosition(position.x, position.y)
           .setScale(presentationScale);
-        visual.resourceDom
-          .setScale(presentationScale)
-          .setPosition(
-            position.x,
-            position.y + radius + (visual.isPet ? 12 : 16),
-          );
       }
       this.renderSnapshot(currentSnapshot);
     }
@@ -587,7 +685,7 @@ export function attachRealtimeBattlePhaser(
             );
           }
           if (command.kind === 'reaction') {
-            this.playReaction(command.fact, timeline.action);
+            this.playReaction(command.fact, timeline.action, command.duration);
           }
           if (command.kind === 'resolve') {
             this.playFact(command.fact, timeline.action);
@@ -1028,7 +1126,6 @@ export function attachRealtimeBattlePhaser(
           candidate.team === entity.team && candidate.kind === 'cultivator',
       ).length;
       const radius = formationRadius(entity, stage, teamSize);
-      const vitalRings = this.add.graphics();
       const nameControlFx = this.add.graphics().setAlpha(0);
       const selection = this.add
         .circle(0, 0, radius + 18, teamColor, 0)
@@ -1070,104 +1167,51 @@ export function attachRealtimeBattlePhaser(
         })
         .setOrigin(0.5)
         .setResolution(renderScale);
-      const namePlate = this.add.graphics();
-      namePlate.fillStyle(0x09110e, 0.84);
-      namePlate.fillCircle(0, 0, radius - 13);
-      namePlate.lineStyle(2, teamColor, 0.72);
-      namePlate.strokeCircle(0, 0, radius - 13);
-      const coreArt = this.add
-        .image(0, 0, UNIT_CORE_TEXTURE)
-        .setDisplaySize(radius * 2.12, radius * 2.12)
-        .setAlpha(0.86);
-      const vitalFrameArt = this.add
-        .image(0, 0, UNIT_VITAL_FRAME_TEXTURE)
-        .setDisplaySize(radius * 2.45, radius * 2.45)
-        .setAlpha(0.9);
+      const nameDisc = this.add
+        .image(0, 0, UNIT_NAME_DISC_TEXTURE)
+        .setDisplaySize(
+          radius * UNIT_NAME_DISC_SCALE,
+          radius * UNIT_NAME_DISC_SCALE,
+        )
+        .setAlpha(0.92);
+      const vitalTrack = this.add
+        .image(0, 0, UNIT_VITAL_TRACK_TEXTURE)
+        .setDisplaySize(radius * UNIT_VITAL_SCALE, radius * UNIT_VITAL_SCALE)
+        .setAlpha(0.2);
+      const textureSuffix = this.vitalTextureSequence++;
+      const hpBrushTextureKey = `realtime-vital-hp-${textureSuffix}`;
+      const qiBrushTextureKey = `realtime-vital-qi-${textureSuffix}`;
+      const shieldTextureKey = `realtime-shield-${textureSuffix}`;
+      this.textures.createCanvas(hpBrushTextureKey, 512, 512);
+      this.textures.createCanvas(qiBrushTextureKey, 512, 512);
+      this.textures.createCanvas(shieldTextureKey, 512, 512);
+      const hpBrush = this.add
+        .image(0, 0, hpBrushTextureKey)
+        .setDisplaySize(radius * UNIT_VITAL_SCALE, radius * UNIT_VITAL_SCALE);
+      const qiBrush = this.add
+        .image(0, 0, qiBrushTextureKey)
+        .setDisplaySize(radius * UNIT_VITAL_SCALE, radius * UNIT_VITAL_SCALE);
+      const vitalLayer = this.add.container(0, 0, [
+        vitalTrack,
+        hpBrush,
+        qiBrush,
+      ]);
       const shieldArt = this.add
-        .image(0, 0, UNIT_SHIELD_TEXTURE)
-        .setDisplaySize(radius * 2.8, radius * 2.8)
-        .setBlendMode(Phaser.BlendModes.ADD)
+        .image(0, 0, shieldTextureKey)
+        .setDisplaySize((radius + 24) * 2, (radius + 24) * 2)
         .setAlpha(0);
       if (!reduceMotion) {
         this.tweens.add({
           targets: shieldArt,
           angle: 360,
-          duration: 12_000,
+          duration: 16_000,
           repeat: -1,
           ease: 'Linear',
         });
       }
 
-      const resourceNode = document.createElement('div');
-      resourceNode.className = `battle-unit-resource-dock battle-unit-resource-dock--${entity.team}${isPet ? ' battle-unit-resource-dock--pet' : ''}`;
-      resourceNode.setAttribute('aria-hidden', 'true');
-      const combatResourceSteady = document.createElement('div');
-      combatResourceSteady.className = 'battle-unit-resources';
-      const combatResourcePips = document.createElement('div');
-      combatResourcePips.className = 'battle-unit-resources__steady';
-      const combatResourceDelta = document.createElement('div');
-      combatResourceDelta.className = 'battle-unit-resource-delta';
-      const combatResourceDeltaIcon = document.createElement('img');
-      combatResourceDeltaIcon.alt = '';
-      const combatResourceDeltaValue = document.createElement('span');
-      combatResourceSteady.append(combatResourcePips);
-      combatResourceDelta.append(
-        combatResourceDeltaIcon,
-        combatResourceDeltaValue,
-      );
-      resourceNode.append(combatResourceSteady, combatResourceDelta);
-      const resourceDom = this.add
-        .dom(position.x, position.y + radius + (isPet ? 12 : 16), resourceNode)
-        .setOrigin(0.5, 0)
-        .setDepth(4);
-      const actionStateText = this.add
-        .text(0, radius + 48, '', {
-          fontFamily: FONT_FAMILY,
-          fontSize: compact
-            ? isPet
-              ? '14px'
-              : '16px'
-            : isPet
-              ? '11px'
-              : '14px',
-          color: '#735080',
-          ...outlinedText(3),
-          letterSpacing: 1,
-        })
-        .setOrigin(0.5)
-        .setResolution(renderScale);
-      const buffText = this.add
-        .text(0, radius + 84, '', {
-          fontFamily: FONT_FAMILY,
-          fontSize: compact
-            ? isPet
-              ? '14px'
-              : '16px'
-            : isPet
-              ? '11px'
-              : '14px',
-          color: '#357257',
-          ...outlinedText(3),
-          letterSpacing: 1,
-        })
-        .setOrigin(0.5)
-        .setResolution(renderScale);
-      const debuffText = this.add
-        .text(0, radius + 66, '', {
-          fontFamily: FONT_FAMILY,
-          fontSize: compact
-            ? isPet
-              ? '14px'
-              : '16px'
-            : isPet
-              ? '11px'
-              : '14px',
-          color: '#a32d3b',
-          ...outlinedText(3),
-          letterSpacing: 1,
-        })
-        .setOrigin(0.5)
-        .setResolution(renderScale);
+      const resourceLayer = this.add.container(0, radius + (isPet ? 12 : 16));
+      const statusLayer = this.add.container(0, radius + (isPet ? 12 : 16));
       const commandStateText = this.add
         .text(0, -radius - (isPet ? 76 : 92), '', {
           fontFamily: FONT_FAMILY,
@@ -1185,16 +1229,13 @@ export function attachRealtimeBattlePhaser(
           selection,
           actorSelection,
           targetSelection,
-          namePlate,
-          coreArt,
-          vitalFrameArt,
-          vitalRings,
+          nameDisc,
+          vitalLayer,
           shieldArt,
           nameControlFx,
           name,
-          actionStateText,
-          buffText,
-          debuffText,
+          resourceLayer,
+          statusLayer,
           commandStateText,
         ])
         .setSize((radius + 54) * 2, (radius + 48) * 2)
@@ -1220,19 +1261,23 @@ export function attachRealtimeBattlePhaser(
         actorSelection,
         targetSelection,
         commandStateText,
-        vitalRings,
+        vitalLayer,
+        hpBrush,
+        qiBrush,
+        hpBrushTextureKey,
+        qiBrushTextureKey,
+        hpRatio: undefined,
+        qiRatio: undefined,
         shieldArt,
+        shieldTextureKey,
+        shieldStrength: undefined,
         name,
-        resourceDom,
-        resourceNode,
-        combatResourceSteady,
-        combatResourcePips,
-        combatResourceDelta,
-        combatResourceDeltaIcon,
-        combatResourceDeltaValue,
-        actionStateText,
-        buffText,
-        debuffText,
+        resourceLayer,
+        resources: new Map(),
+        resourceHeight: 0,
+        statusLayer,
+        statuses: new Map(),
+        statusHeight: 0,
         nameControlFx,
         isPet,
         baseRadius: radius,
@@ -1245,77 +1290,12 @@ export function attachRealtimeBattlePhaser(
         const visual = this.visuals.get(entity.id);
         if (!visual) continue;
         const isFocused = snapshot.focusedEntityId === entity.id;
-        this.drawVitalRings(visual, entity);
-        const resourceCueActive = this.resourceCues.has(entity.id);
-        const resourceNodes = entity.combatResources.map((resource) => {
-          const chip = document.createElement('span');
-          chip.className = 'battle-unit-resource';
-          chip.title = resource.name;
-          const icon = document.createElement('img');
-          icon.className = 'battle-unit-resource__icon';
-          icon.src = realtimeBattleResourceAsset(resource.id);
-          icon.alt = '';
-          const value = document.createElement('span');
-          value.className = 'battle-unit-resource__value';
-          value.textContent = `${resource.name} ${resource.current}/${resource.max}`;
-          chip.append(icon, value);
-          return chip;
-        });
-        visual.combatResourcePips.replaceChildren(...resourceNodes);
-        visual.combatResourceSteady.style.display = resourceCueActive
-          ? 'none'
-          : 'flex';
-        visual.combatResourceDelta.style.display = resourceCueActive
-          ? 'flex'
-          : 'none';
-        visual.resourceDom
-          .setPosition(
-            visual.container.x,
-            visual.container.y + visual.radius + (visual.isPet ? 12 : 16),
-          )
-          .setVisible(entity.alive && entity.combatResources.length > 0);
+        this.renderUnitVitals(visual, entity);
+        this.syncResourceLayer(visual, entity);
+        this.syncStatusLayer(visual, entity);
         const controls = entity.effects
           .filter((effect) => effect.statusType === 'control')
           .slice(-2);
-        const localStates = entity.actionStates
-          .map((state) => state.label)
-          .slice(stage.profile === 'portrait' ? -1 : -2);
-        visual.actionStateText.setText(
-          entity.alive ? localStates.join(' · ') : '',
-        );
-        const buffEffects = entity.effects.filter(
-          (effect) => effect.tone === 'buff',
-        );
-        const buffs = buffEffects
-          .map(
-            (effect) =>
-              `${effect.label}${effect.layers > 1 ? ` ×${effect.layers}` : ''}`,
-          )
-          .slice(-1);
-        const debuffEffects = entity.effects.filter(
-          (effect) =>
-            effect.tone === 'debuff' && effect.statusType !== 'control',
-        );
-        const debuffs = debuffEffects
-          .map(
-            (effect) =>
-              `${effect.label}${effect.layers > 1 ? ` ×${effect.layers}` : ''}`,
-          )
-          .slice(-1);
-        visual.buffText.setText(
-          entity.alive && buffs.length > 0
-            ? stage.profile === 'portrait'
-              ? `益 · ${buffEffects.length}`
-              : buffs.join(' / ')
-            : '',
-        );
-        visual.debuffText.setText(
-          entity.alive && debuffs.length > 0
-            ? stage.profile === 'portrait'
-              ? `损 · ${debuffEffects.length}`
-              : debuffs.join(' / ')
-            : '',
-        );
         this.renderNameControlFx(
           visual,
           entity.alive && controls.length > 0
@@ -1352,108 +1332,557 @@ export function attachRealtimeBattlePhaser(
                   : '',
           )
           .setColor(isLocked ? '#735080' : '#3f6b56');
-        visual.vitalRings.setAlpha(entity.alive ? 1 : 0.18);
-        visual.resourceNode.style.opacity = entity.alive ? '1' : '0.35';
+        visual.vitalLayer.setAlpha(entity.alive ? 1 : 0.18);
+        visual.resourceLayer.setAlpha(entity.alive ? 1 : 0.35);
+        visual.statusLayer.setAlpha(entity.alive ? 1 : 0.35);
         visual.name
           .setAlpha(entity.alive ? 1 : 0.35)
           .setColor(entity.alive ? '#fff8e6' : '#6f675e');
       }
     }
 
-    private drawVitalRings(visual: EntityVisual, entity: RealtimeBattleEntity) {
-      const graphics = visual.vitalRings;
+    private syncResourceLayer(
+      visual: EntityVisual,
+      entity: RealtimeBattleEntity,
+    ) {
+      const activeIds = new Set(
+        entity.combatResources.map((resource) => resource.id),
+      );
+      for (const [resourceId, resourceVisual] of visual.resources) {
+        if (activeIds.has(resourceId)) continue;
+        resourceVisual.container.destroy(true);
+        visual.resources.delete(resourceId);
+      }
+
+      for (const resource of entity.combatResources) {
+        let resourceVisual = visual.resources.get(resource.id);
+        if (!resourceVisual) {
+          resourceVisual = this.createResourceVisual(visual, entity, resource);
+          visual.resources.set(resource.id, resourceVisual);
+        }
+        this.updateResourceVisual(
+          resourceVisual,
+          entity,
+          resource,
+          this.resourceCues.get(this.resourceCueKey(entity.id, resource.id)),
+        );
+      }
+
+      visual.resourceHeight = this.layoutResourceVisuals(visual, entity);
+      visual.resourceLayer.setVisible(
+        entity.alive && entity.combatResources.length > 0,
+      );
+    }
+
+    private createResourceVisual(
+      visual: EntityVisual,
+      entity: RealtimeBattleEntity,
+      resource: RealtimeBattleResource,
+    ): ResourceVisual {
+      const background = this.add.graphics();
+      const iconSize = visual.isPet ? 22 : 27;
+      const icon = this.add
+        .image(0, 0, realtimeBattleResourceTexture(resource.id))
+        .setDisplaySize(iconSize, iconSize);
+      const iconPulse = this.add.container(0, 0, [icon]);
+      const fontSize = visual.isPet
+        ? stage.profile === 'portrait'
+          ? 13
+          : 11
+        : stage.profile === 'portrait'
+          ? 16
+          : 14;
+      const value = this.add
+        .text(0, 0, '', {
+          fontFamily: FONT_FAMILY,
+          fontSize: `${fontSize}px`,
+          fontStyle: 'bold',
+          color: '#f7df9a',
+          stroke: '#080d0b',
+          strokeThickness: visual.isPet ? 2 : 3,
+        })
+        .setOrigin(0, 0.5)
+        .setResolution(renderScale);
+      const delta = this.add
+        .text(0, 0, '', {
+          fontFamily: FONT_FAMILY,
+          fontSize: `${fontSize}px`,
+          fontStyle: 'bold',
+          color: '#7ee2a8',
+          stroke: '#080d0b',
+          strokeThickness: visual.isPet ? 2 : 3,
+        })
+        .setOrigin(0, 0.5)
+        .setAlpha(0)
+        .setResolution(renderScale);
+      const container = this.add.container(0, 0, [
+        background,
+        iconPulse,
+        value,
+        delta,
+      ]);
+      visual.resourceLayer.add(container);
+      return {
+        container,
+        background,
+        iconPulse,
+        icon,
+        value,
+        delta,
+        width: 0,
+        height: visual.isPet ? 28 : 34,
+      };
+    }
+
+    private updateResourceVisual(
+      resourceVisual: ResourceVisual,
+      entity: RealtimeBattleEntity,
+      resource: RealtimeBattleResource,
+      cue?: ResourceCueState,
+    ) {
+      const paddingX = entity.kind === 'spirit-pet' ? 7 : 9;
+      const iconSize = resourceVisual.icon.displayWidth;
+      const iconGap = entity.kind === 'spirit-pet' ? 4 : 5;
+      const deltaGap = cue ? 4 : 0;
+      resourceVisual.icon.setTexture(
+        realtimeBattleResourceTexture(resource.id),
+      );
+      resourceVisual.value.setText(
+        `${resource.name} ${resource.current}/${resource.max}`,
+      );
+      resourceVisual.delta
+        .setText(
+          cue ? `${cue.delta >= 0 ? '+' : ''}${Math.round(cue.delta)}` : '',
+        )
+        .setColor(cue && cue.delta < 0 ? '#ff8b95' : '#7ee2a8')
+        .setVisible(Boolean(cue));
+
+      const deltaWidth = cue ? resourceVisual.delta.width + deltaGap : 0;
+      const width =
+        paddingX * 2 +
+        iconSize +
+        iconGap +
+        resourceVisual.value.width +
+        deltaWidth;
+      const height = resourceVisual.height;
+      resourceVisual.width = width;
+      resourceVisual.container.setSize(width, height);
+      resourceVisual.background.clear();
+      resourceVisual.background.fillStyle(0x0a110e, 0.84);
+      resourceVisual.background.fillRoundedRect(
+        0,
+        0,
+        width,
+        height,
+        height / 2,
+      );
+      resourceVisual.background.lineStyle(
+        1.25,
+        entity.team === 'allies' ? 0x799b7b : 0xc06b73,
+        0.82,
+      );
+      resourceVisual.background.strokeRoundedRect(
+        0,
+        0,
+        width,
+        height,
+        height / 2,
+      );
+      resourceVisual.iconPulse.setPosition(paddingX + iconSize / 2, height / 2);
+      resourceVisual.value.setPosition(
+        paddingX + iconSize + iconGap,
+        height / 2,
+      );
+      resourceVisual.delta.setPosition(
+        paddingX + iconSize + iconGap + resourceVisual.value.width + deltaGap,
+        height / 2,
+      );
+    }
+
+    private layoutResourceVisuals(
+      visual: EntityVisual,
+      entity: RealtimeBattleEntity,
+    ) {
+      const gapX = visual.isPet ? 4 : 6;
+      const gapY = visual.isPet ? 4 : 5;
+      const maxWidth = Math.max(
+        visual.baseRadius * (visual.isPet ? 3.1 : 3.35),
+        visual.isPet ? 142 : 188,
+      );
+      const rows: ResourceVisual[][] = [];
+      let currentRow: ResourceVisual[] = [];
+      let currentWidth = 0;
+      for (const resource of entity.combatResources) {
+        const resourceVisual = visual.resources.get(resource.id);
+        if (!resourceVisual) continue;
+        const nextWidth =
+          currentWidth +
+          (currentRow.length > 0 ? gapX : 0) +
+          resourceVisual.width;
+        if (currentRow.length > 0 && nextWidth > maxWidth) {
+          rows.push(currentRow);
+          currentRow = [];
+          currentWidth = 0;
+        }
+        currentWidth +=
+          (currentRow.length > 0 ? gapX : 0) + resourceVisual.width;
+        currentRow.push(resourceVisual);
+      }
+      if (currentRow.length > 0) rows.push(currentRow);
+
+      let y = 0;
+      for (const row of rows) {
+        const rowWidth = row.reduce(
+          (sum, resourceVisual, index) =>
+            sum + resourceVisual.width + (index > 0 ? gapX : 0),
+          0,
+        );
+        let x = -rowWidth / 2;
+        let rowHeight = 0;
+        for (const resourceVisual of row) {
+          resourceVisual.container.setPosition(x, y);
+          x += resourceVisual.width + gapX;
+          rowHeight = Math.max(rowHeight, resourceVisual.height);
+        }
+        y += rowHeight + gapY;
+      }
+      return rows.length > 0 ? y - gapY : 0;
+    }
+
+    private syncStatusLayer(
+      visual: EntityVisual,
+      entity: RealtimeBattleEntity,
+    ) {
+      const entries: StatusEntry[] = [
+        ...entity.actionStates.map((state) => ({
+          key: `action:${state.id}`,
+          label: state.label,
+          tone:
+            state.tone === 'control'
+              ? ('control' as const)
+              : ('action' as const),
+        })),
+        ...entity.effects
+          .filter((effect) => effect.statusType === 'control')
+          .map((effect) => ({
+            key: `effect:${effect.id}`,
+            label: `${effect.label}${effect.layers > 1 ? ` ×${effect.layers}` : ''}`,
+            tone: 'control' as const,
+          })),
+        ...entity.effects
+          .filter(
+            (effect) =>
+              effect.statusType !== 'control' && effect.tone === 'debuff',
+          )
+          .map((effect) => ({
+            key: `effect:${effect.id}`,
+            label: `${effect.label}${effect.layers > 1 ? ` ×${effect.layers}` : ''}`,
+            tone: 'debuff' as const,
+          })),
+        ...entity.effects
+          .filter(
+            (effect) =>
+              effect.statusType !== 'control' && effect.tone === 'buff',
+          )
+          .map((effect) => ({
+            key: `effect:${effect.id}`,
+            label: `${effect.label}${effect.layers > 1 ? ` ×${effect.layers}` : ''}`,
+            tone: 'buff' as const,
+          })),
+      ];
+      const activeKeys = new Set(entries.map((entry) => entry.key));
+      for (const [key, statusVisual] of visual.statuses) {
+        if (activeKeys.has(key)) continue;
+        statusVisual.container.destroy(true);
+        visual.statuses.delete(key);
+      }
+      for (const entry of entries) {
+        let statusVisual = visual.statuses.get(entry.key);
+        if (!statusVisual) {
+          statusVisual = this.createStatusVisual(visual);
+          visual.statuses.set(entry.key, statusVisual);
+        }
+        this.updateStatusVisual(statusVisual, entry, visual.isPet);
+      }
+
+      const resourceTop = visual.baseRadius + (visual.isPet ? 12 : 16);
+      visual.resourceLayer.setY(resourceTop);
+      visual.statusLayer.setY(
+        resourceTop +
+          (visual.resourceHeight > 0 ? visual.resourceHeight + 7 : 0),
+      );
+      visual.statusHeight = this.layoutStatusVisuals(visual, entries);
+      visual.statusLayer.setVisible(entity.alive && entries.length > 0);
+    }
+
+    private createStatusVisual(visual: EntityVisual): StatusVisual {
+      const background = this.add.graphics();
+      const fontSize = visual.isPet
+        ? stage.profile === 'portrait'
+          ? 12
+          : 10
+        : stage.profile === 'portrait'
+          ? 14
+          : 12;
+      const label = this.add
+        .text(0, 0, '', {
+          fontFamily: FONT_FAMILY,
+          fontSize: `${fontSize}px`,
+          fontStyle: 'bold',
+          color: '#eee7d6',
+          stroke: '#080d0b',
+          strokeThickness: visual.isPet ? 2 : 3,
+        })
+        .setOrigin(0, 0.5)
+        .setResolution(renderScale);
+      const container = this.add.container(0, 0, [background, label]);
+      visual.statusLayer.add(container);
+      return {
+        container,
+        background,
+        label,
+        width: 0,
+        height: visual.isPet ? 24 : 28,
+      };
+    }
+
+    private updateStatusVisual(
+      statusVisual: StatusVisual,
+      entry: StatusEntry,
+      isPet: boolean,
+    ) {
+      const colors: Record<
+        StatusTone,
+        { accent: number }
+      > = {
+        action: { accent: 0x8e719b },
+        control: { accent: 0xc1933f },
+        buff: { accent: 0x628e70 },
+        debuff: { accent: 0xb34f58 },
+      };
+      const palette = colors[entry.tone];
+      const paddingLeft = isPet ? 9 : 11;
+      const paddingRight = isPet ? 7 : 9;
+      statusVisual.label.setText(entry.label).setColor('#eee7d6');
+      statusVisual.width =
+        statusVisual.label.width + paddingLeft + paddingRight;
+      statusVisual.container.setSize(statusVisual.width, statusVisual.height);
+      statusVisual.background.clear();
+      const width = statusVisual.width;
+      const height = statusVisual.height;
+      statusVisual.background.fillStyle(0x090d0b, 0.66);
+      statusVisual.background.fillPoints(
+        [
+          new Phaser.Math.Vector2(1, height * 0.42),
+          new Phaser.Math.Vector2(5, height * 0.2),
+          new Phaser.Math.Vector2(width * 0.34, height * 0.12),
+          new Phaser.Math.Vector2(width - 3, height * 0.24),
+          new Phaser.Math.Vector2(width, height * 0.56),
+          new Phaser.Math.Vector2(width - 7, height * 0.8),
+          new Phaser.Math.Vector2(width * 0.58, height * 0.88),
+          new Phaser.Math.Vector2(4, height * 0.76),
+        ],
+        true,
+      );
+      statusVisual.background.lineStyle(2.2, palette.accent, 0.9);
+      statusVisual.background.lineBetween(
+        4,
+        height * 0.27,
+        4,
+        height * 0.73,
+      );
+      statusVisual.background.lineStyle(1.15, palette.accent, 0.72);
+      statusVisual.background.beginPath();
+      statusVisual.background.moveTo(7, height - 4.5);
+      statusVisual.background.lineTo(width * 0.68, height - 3.5);
+      statusVisual.background.lineTo(width - 7, height - 6);
+      statusVisual.background.strokePath();
+      statusVisual.label.setPosition(paddingLeft, height / 2);
+    }
+
+    private layoutStatusVisuals(
+      visual: EntityVisual,
+      entries: readonly StatusEntry[],
+    ) {
+      const gapX = visual.isPet ? 4 : 5;
+      const gapY = visual.isPet ? 3 : 4;
+      const maxWidth = Math.max(
+        visual.baseRadius * (visual.isPet ? 3 : 3.25),
+        visual.isPet ? 140 : 184,
+      );
+      const rows: StatusVisual[][] = [];
+      let row: StatusVisual[] = [];
+      let rowWidth = 0;
+      for (const entry of entries) {
+        const statusVisual = visual.statuses.get(entry.key);
+        if (!statusVisual) continue;
+        const nextWidth =
+          rowWidth + (row.length > 0 ? gapX : 0) + statusVisual.width;
+        if (row.length > 0 && nextWidth > maxWidth) {
+          rows.push(row);
+          row = [];
+          rowWidth = 0;
+        }
+        rowWidth += (row.length > 0 ? gapX : 0) + statusVisual.width;
+        row.push(statusVisual);
+      }
+      if (row.length > 0) rows.push(row);
+
+      let y = 0;
+      for (const statusRow of rows) {
+        const width = statusRow.reduce(
+          (sum, statusVisual, index) =>
+            sum + statusVisual.width + (index > 0 ? gapX : 0),
+          0,
+        );
+        let x = -width / 2;
+        let height = 0;
+        for (const statusVisual of statusRow) {
+          statusVisual.container.setPosition(x, y);
+          x += statusVisual.width + gapX;
+          height = Math.max(height, statusVisual.height);
+        }
+        y += height + gapY;
+      }
+      return rows.length > 0 ? y - gapY : 0;
+    }
+
+    private renderUnitVitals(
+      visual: EntityVisual,
+      entity: RealtimeBattleEntity,
+    ) {
       const radius = visual.baseRadius;
       const hpRatio = Phaser.Math.Clamp(entity.hp / entity.maxHp, 0, 1);
       const qiRatio = Phaser.Math.Clamp(entity.qi / entity.maxQi, 0, 1);
-      const ringRadius = radius - 5;
-      const ringWidth = visual.isPet ? 8 : 10;
-      const gapAngle = 0.085;
-      const bottom = Math.PI / 2;
-      const topLeft = Math.PI * 1.5;
-      const topRight = -Math.PI / 2;
-      const drawArc = (
-        start: number,
-        end: number,
-        color: number,
-        width: number,
-        alpha: number,
-        anticlockwise = false,
-      ) => {
-        graphics.lineStyle(width, color, alpha);
-        graphics.beginPath();
-        graphics.arc(0, 0, ringRadius, start, end, anticlockwise);
-        graphics.strokePath();
-      };
-
-      graphics.clear();
-      drawArc(
-        bottom + gapAngle,
-        topLeft - gapAngle,
-        0x351316,
-        ringWidth + 4,
-        0.94,
-      );
-      drawArc(
-        bottom - gapAngle,
-        topRight + gapAngle,
-        0x102f38,
-        ringWidth + 4,
-        0.94,
-        true,
-      );
-      if (hpRatio > 0) {
-        drawArc(
-          bottom + gapAngle,
-          bottom + gapAngle + (Math.PI - gapAngle * 2) * hpRatio,
-          hpRatio < 0.3 ? 0xf03d4d : 0xc1121f,
-          ringWidth,
-          1,
+      if (visual.hpRatio !== hpRatio) {
+        this.renderVitalBrush(
+          visual.hpBrushTextureKey,
+          UNIT_VITAL_HP_TEXTURE,
+          'upper',
+          hpRatio,
         );
+        visual.hpRatio = hpRatio;
       }
-      if (qiRatio > 0) {
-        drawArc(
-          bottom - gapAngle,
-          bottom - gapAngle - (Math.PI - gapAngle * 2) * qiRatio,
-          0x1685a9,
-          ringWidth,
-          1,
-          true,
+      if (visual.qiRatio !== qiRatio) {
+        this.renderVitalBrush(
+          visual.qiBrushTextureKey,
+          UNIT_VITAL_MP_TEXTURE,
+          'lower',
+          qiRatio,
         );
+        visual.qiRatio = qiRatio;
       }
-      graphics.lineStyle(1.5, 0xfff1d3, 0.42);
-      graphics.strokeCircle(0, 0, radius - 12);
-      graphics.lineStyle(1.5, 0x110c08, 0.58);
-      graphics.strokeCircle(0, 0, radius + 2);
-
       if (entity.shield > 0) {
-        const shieldIntensity = Phaser.Math.Clamp(
-          Math.log1p(entity.shield) / Math.log1p(300),
-          0.12,
+        const shieldStrength = Phaser.Math.Clamp(
+          entity.shield / Math.max(entity.maxHp, 1),
+          0,
           1,
         );
-        const shieldWidth = 2.5 + Math.sqrt(shieldIntensity) * 7.5;
-        graphics.lineStyle(
-          shieldWidth + 5,
-          0xe8b931,
-          0.08 + shieldIntensity * 0.12,
-        );
-        graphics.strokeCircle(0, 0, radius + 12);
-        graphics.lineStyle(shieldWidth, 0xf2c84b, 0.42 + shieldIntensity * 0.5);
-        graphics.strokeCircle(0, 0, radius + 12);
-        graphics.lineStyle(1.5, 0xfff1b0, 0.76);
-        graphics.strokeCircle(0, 0, radius + 8);
+        if (visual.shieldStrength !== shieldStrength) {
+          this.renderShieldAura(
+            visual.shieldTextureKey,
+            radius,
+            shieldStrength,
+          );
+          visual.shieldStrength = shieldStrength;
+        }
         visual.shieldArt
           .setVisible(true)
-          .setAlpha(0.2 + shieldIntensity * 0.56)
-          .setScale(0.96 + shieldIntensity * 0.055);
+          .setAlpha(0.78 + Math.sqrt(shieldStrength) * 0.18);
       } else {
+        visual.shieldStrength = undefined;
         visual.shieldArt.setVisible(false).setAlpha(0);
       }
+    }
+
+    private renderShieldAura(
+      textureKey: string,
+      radius: number,
+      strength: number,
+    ) {
+      const texture = this.textures.get(
+        textureKey,
+      ) as Phaser.Textures.CanvasTexture;
+      const canvas = texture.getSourceImage() as HTMLCanvasElement;
+      const context = canvas.getContext('2d');
+      const source = this.textures
+        .get(UNIT_SHIELD_TEXTURE)
+        .getSourceImage() as HTMLImageElement;
+      if (!context) return;
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+      const displayRadius = radius + 24;
+      const pixelScale = canvas.width / (displayRadius * 2);
+      const innerRadius = (radius + 4) * pixelScale;
+      const shieldWidth = Phaser.Math.Linear(4.5, 14, Math.sqrt(strength));
+      const outerRadius = (radius + 4 + shieldWidth) * pixelScale;
+      context.globalCompositeOperation = 'destination-in';
+      context.beginPath();
+      context.arc(
+        canvas.width / 2,
+        canvas.height / 2,
+        outerRadius,
+        0,
+        Math.PI * 2,
+      );
+      context.arc(
+        canvas.width / 2,
+        canvas.height / 2,
+        innerRadius,
+        0,
+        Math.PI * 2,
+        true,
+      );
+      context.fill('evenodd');
+      context.globalCompositeOperation = 'source-over';
+      texture.refresh();
+    }
+
+    private renderVitalBrush(
+      textureKey: string,
+      sourceTextureKey: string,
+      half: 'upper' | 'lower',
+      ratio: number,
+    ) {
+      const texture = this.textures.get(
+        textureKey,
+      ) as Phaser.Textures.CanvasTexture;
+      const canvas = texture.getSourceImage() as HTMLCanvasElement;
+      const context = canvas.getContext('2d');
+      const source = this.textures
+        .get(sourceTextureKey)
+        .getSourceImage() as HTMLImageElement;
+      if (!context) return;
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      if (ratio <= 0) {
+        texture.refresh();
+        return;
+      }
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+      const progressMap = vitalProgressMap(half, canvas.width, canvas.height);
+      const fadeStart = ratio - 0.026;
+      const fadeEnd = ratio + (ratio >= 0.999 ? 0.035 : 0.014);
+      for (let y = 0; y < canvas.height; y += 1) {
+        for (let x = 0; x < canvas.width; x += 1) {
+          const alphaIndex = (y * canvas.width + x) * 4 + 3;
+          const sourceAlpha = pixels.data[alphaIndex];
+          if (sourceAlpha === 0) continue;
+          const progress = progressMap[y * canvas.width + x];
+          const visibility = 1 - smoothStep(fadeStart, fadeEnd, progress);
+          pixels.data[alphaIndex] = Math.round(sourceAlpha * visibility);
+        }
+      }
+      context.putImageData(pixels, 0, 0);
+      texture.refresh();
     }
 
     private playReaction(
       fact: CombatVisualFact,
       action: CombatVisualActionInput,
+      duration: number,
     ) {
       if (!fact.reaction) return;
       const source = this.visuals.get(fact.reaction.sourceId);
@@ -1480,21 +1909,23 @@ export function attachRealtimeBattlePhaser(
         .setScale(0.86)
         .setResolution(renderScale);
       source.container.add(label);
+      const transitionDuration = Math.min(180, Math.floor(duration / 3));
+      const holdDuration = Math.max(0, duration - transitionDuration * 2);
       this.tweens.add({
         targets: label,
         alpha: 1,
         scale: 1,
         y: label.y - 4,
-        duration: 260,
+        duration: transitionDuration,
         ease: 'Back.Out',
         onComplete: () => {
-          this.time.delayedCall(720, () => {
+          this.time.delayedCall(holdDuration, () => {
             if (!label.active) return;
             this.tweens.add({
               targets: label,
               alpha: 0,
               y: label.y - 8,
-              duration: 320,
+              duration: transitionDuration,
               onComplete: () => label.destroy(),
             });
           });
@@ -1565,27 +1996,47 @@ export function attachRealtimeBattlePhaser(
       );
       if (!visual || !resource) return;
 
-      const previous = this.resourceCues.get(entityId);
+      const key = this.resourceCueKey(entityId, fact.resourceId);
+      const previous = this.resourceCues.get(key);
       previous?.hideTimer?.remove(false);
       const delta = fact.after - fact.before;
-      visual.combatResourceDeltaIcon.src = realtimeBattleResourceAsset(
-        resource.id,
-      );
-      visual.combatResourceDeltaIcon.title = resource.name;
-      visual.combatResourceDeltaValue.textContent = `${delta >= 0 ? '+' : ''}${Math.round(delta)}`;
-      visual.combatResourceDeltaValue.style.color =
-        delta >= 0 ? '#357257' : '#a32d3b';
-      visual.combatResourceSteady.style.display = 'none';
-      visual.combatResourceDelta.style.display = 'flex';
-
-      const state: ResourceCueState = { actionId };
-      this.resourceCues.set(entityId, state);
+      const state: ResourceCueState = {
+        actionId,
+        delta: previous?.actionId === actionId ? previous.delta + delta : delta,
+      };
+      this.resourceCues.set(key, state);
+      this.renderSnapshot(currentSnapshot);
+      const resourceVisual = visual.resources.get(fact.resourceId);
+      if (resourceVisual) {
+        this.tweens.killTweensOf(resourceVisual.iconPulse);
+        this.tweens.killTweensOf(resourceVisual.delta);
+        resourceVisual.iconPulse.setScale(1);
+        resourceVisual.delta.setAlpha(1).setY(resourceVisual.height / 2);
+        this.tweens.add({
+          targets: resourceVisual.iconPulse,
+          scale: 1.14,
+          duration: 150,
+          yoyo: true,
+          ease: 'Sine.Out',
+        });
+        this.tweens.add({
+          targets: resourceVisual.delta,
+          alpha: 0,
+          y: resourceVisual.height / 2 - 8,
+          delay: 760,
+          duration: 520,
+          ease: 'Cubic.Out',
+        });
+      }
       state.hideTimer = this.time.delayedCall(1_450, () => {
-        if (this.resourceCues.get(entityId) !== state) return;
-        this.resourceCues.delete(entityId);
-        visual.combatResourceDelta.style.display = 'none';
-        visual.combatResourceSteady.style.display = 'flex';
+        if (this.resourceCues.get(key) !== state) return;
+        this.resourceCues.delete(key);
+        this.renderSnapshot(currentSnapshot);
       });
+    }
+
+    private resourceCueKey(entityId: string, resourceId: string) {
+      return `${entityId}:${resourceId}`;
     }
 
     private enqueueImpactCue(
@@ -1995,9 +2446,6 @@ export function attachRealtimeBattlePhaser(
     antialiasGL: true,
     pixelArt: false,
     roundPixels: false,
-    dom: {
-      createContainer: true,
-    },
     scale: {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,

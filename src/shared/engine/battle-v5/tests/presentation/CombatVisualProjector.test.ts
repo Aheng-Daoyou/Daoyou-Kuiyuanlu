@@ -103,6 +103,80 @@ describe('CombatVisualProjector', () => {
     });
   });
 
+  it('deduplicates reaction labels and serializes reactions per unit', () => {
+    const action: CombatVisualActionInput = {
+      id: 'action-reaction-queue',
+      sourceId: 'caster',
+      targetIds: ['target'],
+      ability: { id: 'skill', name: '问剑' },
+      visual: { discipline: 'physical', delivery: 'melee' },
+      facts: [
+        {
+          id: 'artifact-damage',
+          kind: 'damage',
+          targetIds: ['target'],
+          amount: 10,
+          damageType: 'physical',
+          reaction: { sourceId: 'caster', label: '照胆镜' },
+        },
+        {
+          id: 'artifact-resource',
+          kind: 'resource',
+          targetIds: ['caster'],
+          resourceId: 'sword-intent',
+          resourceName: '剑意',
+          before: 1,
+          after: 2,
+          max: 6,
+          reaction: { sourceId: 'caster', label: '照胆镜' },
+        },
+        {
+          id: 'manual-status',
+          kind: 'status',
+          targetIds: ['caster'],
+          operation: 'apply',
+          statusId: 'sword-heart',
+          statusName: '剑心',
+          statusType: 'buff',
+          reaction: { sourceId: 'caster', label: '太虚剑经' },
+        },
+        {
+          id: 'target-reaction',
+          kind: 'shield',
+          targetIds: ['target'],
+          operation: 'gain',
+          amount: 12,
+          reaction: { sourceId: 'target', label: '玄甲' },
+        },
+      ],
+    };
+
+    const timeline = projectCombatVisualAction(action);
+    const reactions = timeline.commands.filter(
+      (command) => command.kind === 'reaction',
+    );
+
+    expect(reactions).toHaveLength(3);
+    expect(
+      reactions.map((command) =>
+        command.kind === 'reaction' ? command.fact.reaction?.label : undefined,
+      ),
+    ).toEqual(['照胆镜', '玄甲', '太虚剑经']);
+    expect(reactions[1]?.at).toBeLessThan(
+      (reactions[0]?.at ?? 0) + (reactions[0]?.duration ?? 0),
+    );
+    expect(reactions[2]?.at).toBeGreaterThanOrEqual(
+      (reactions[0]?.at ?? 0) + (reactions[0]?.duration ?? 0) + 100,
+    );
+    const settle = timeline.commands.find(
+      (command) => command.kind === 'settle',
+    );
+    const lastReactionEnd = Math.max(
+      ...reactions.map((command) => command.at + command.duration),
+    );
+    expect(settle?.at).toBeGreaterThan(lastReactionEnd);
+  });
+
   it('projects independent target cues and only aggregates HP recovery', () => {
     const action: CombatVisualActionInput = {
       id: 'action-field',
