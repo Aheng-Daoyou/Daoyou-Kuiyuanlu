@@ -1,5 +1,6 @@
 import type { Server, State, StorageAPI } from 'boardgame.io';
 import type { BattleReplayV1 } from '@shared/contracts/battleReplay';
+import type { BattleBlueprintV1 } from '@shared/engine/battle-v5/persistence/types';
 import { createBattlePublicSnapshot } from '@shared/engine/battle-v5/match/BattlePublicSnapshot';
 import { ROUND_PLANNING_TIMEOUT_MS } from '@shared/engine/battle-v5/round/types';
 import type { BattleMatchSessionV1 } from '@shared/contracts/battle-matches';
@@ -47,6 +48,7 @@ redis.call('HSET', KEYS[1],
   'state_id', ARGV[1],
   'state', ARGV[2],
   'initial_state', ARGV[2],
+  'blueprint', ARGV[11],
   'metadata', ARGV[3],
   'status', ARGV[4],
   'deadline_at', ARGV[5],
@@ -72,7 +74,6 @@ if incoming == currentNumber then
 end
 if incoming < currentNumber then return -1 end
 if currentNumber ~= expected or incoming ~= currentNumber + 1 then return -1 end
-if redis.call('LLEN', KEYS[7]) ~= tonumber(ARGV[11]) then return -3 end
 redis.call('HSET', KEYS[1],
   'state_id', ARGV[2],
   'state', ARGV[3],
@@ -159,6 +160,8 @@ export { battleOnlineMatchKey } from './BattleOnlineRedisKeys';
 
 /** Redis is the only authority for an in-progress boardgame.io match. */
 export class RedisBattleBoardgameStorage implements StorageAPI.Async {
+  private readonly blueprintCache = new Map<string, BattleBlueprintV1>();
+
   type(): 1 {
     return 1;
   }
@@ -181,7 +184,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       'metadata',
     );
     if (!stateJson || !metadataJson) return null;
-    const state = parseState(stateJson, matchID);
+    const state = parseStoredStateEnvelope(stateJson, matchID);
     const boardgameId = Object.entries(state.G.playerIdByBoardgameId).find(
       ([, playerId]) => playerId === applicationPlayerId,
     )?.[0];
@@ -207,8 +210,9 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     const state = normalizeBoardgameState(matchID, opts.initialState as StoredState);
     const deadlineAt = indexedDeadline(state.G);
     const acceptDeadlineAt = indexedAcceptDeadline(state.G);
-    const storedState = stripReplayRounds(state);
+    const storedState = stripImmutableBattleData(stripPendingReplayRound(state));
     const orchestration = arenaOrchestrationFromMetadata(opts.metadata);
+    const storedMetadata = stripSetupData(opts.metadata);
     const orchestrationKey = orchestration
       ? arenaStartIndexKey(orchestration.roomId, orchestration.startRequestId)
       : `battle:online:arena-start-disabled:${matchID}`;
@@ -223,7 +227,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       orchestrationKey,
       String(state._stateID),
       JSON.stringify(storedState),
-      JSON.stringify(opts.metadata ?? {}),
+      JSON.stringify(storedMetadata),
       state.G.status,
       deadlineAt === null ? '' : String(deadlineAt),
       String(state.G.updatedAt),
@@ -231,11 +235,13 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       acceptDeadlineAt === null ? '' : String(acceptDeadlineAt),
       orchestration ? '1' : '',
       String(ARENA_START_INDEX_TTL_SECONDS),
+      JSON.stringify(state.G.battle.blueprint),
     ));
     if (result === -1) {
       throw new Error(`Battle arena orchestration already exists: ${matchID}`);
     }
     if (result !== 1) throw new Error(`Battle boardgame match already exists: ${matchID}`);
+    this.cacheBlueprint(matchID, state.G.battle.blueprint);
   }
 
   async findArenaMatch(roomId: string, startRequestId: string): Promise<string | null> {
@@ -260,7 +266,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       SET_METADATA_LUA,
       1,
       battleOnlineMatchKey(matchID),
-      JSON.stringify(metadata),
+      JSON.stringify(stripSetupData(metadata)),
     ));
     if (updated !== 1) throw new Error(`Unknown boardgame match: ${matchID}`);
   }
@@ -296,17 +302,39 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     matchID: string,
     opts: O,
   ): Promise<StorageAPI.FetchResult<O>> {
-    const [fields, replayRounds] = await Promise.all([
-      redis.hmget(battleOnlineMatchKey(matchID), 'state', 'initial_state', 'metadata'),
-      redis.lrange(battleReplayRoundsKey(matchID), 0, -1),
+    const key = battleOnlineMatchKey(matchID);
+    const requestedFields: string[] = [];
+    if (opts.state) requestedFields.push('state');
+    if (opts.initialState) requestedFields.push('initial_state');
+    if (opts.metadata) requestedFields.push('metadata');
+    const needsBlueprint = Boolean(opts.state || opts.initialState);
+    const cachedBlueprint = needsBlueprint ? this.blueprintCache.get(matchID) : undefined;
+    const [exists, fields, blueprintJson] = await Promise.all([
+      redis.exists(key),
+      requestedFields.length > 0 ? redis.hmget(key, ...requestedFields) : Promise.resolve([]),
+      needsBlueprint && !cachedBlueprint ? redis.hget(key, 'blueprint') : Promise.resolve(null),
     ]);
-    if (!fields[0]) throw new Error(`Unknown boardgame match: ${matchID}`);
+    if (exists !== 1) throw new Error(`Unknown boardgame match: ${matchID}`);
+    const values = new Map(requestedFields.map((field, index) => [field, fields[index]]));
     const result: Record<string, unknown> = {};
-    if (opts.state) result.state = hydrateReplay(parseState(fields[0], matchID), replayRounds);
-    if (opts.initialState) result.initialState = fields[1]
-      ? hydrateReplay(parseState(fields[1], matchID), replayRounds)
+    const stateJson = values.get('state');
+    const initialStateJson = values.get('initial_state');
+    const metadataJson = values.get('metadata');
+    const storedBlueprint = cachedBlueprint ?? parseBlueprint(blueprintJson, matchID);
+    const hydratedState = stateJson
+      ? normalizeReplayAccumulator(this.hydrateState(stateJson, matchID, storedBlueprint))
       : undefined;
-    if (opts.metadata) result.metadata = fields[2] ? JSON.parse(fields[2]) : {};
+    const hydratedInitialState = initialStateJson
+      ? normalizeReplayAccumulator(this.hydrateState(initialStateJson, matchID, storedBlueprint))
+      : undefined;
+    if (opts.state) result.state = hydratedState;
+    if (opts.initialState) result.initialState = hydratedInitialState;
+    if (opts.metadata) result.metadata = metadataJson ? JSON.parse(metadataJson) : {};
+    const legacyBlueprint = hydratedState?.G.battle.blueprint ??
+      hydratedInitialState?.G.battle.blueprint;
+    if (needsBlueprint && !cachedBlueprint && !blueprintJson && legacyBlueprint) {
+      await redis.hsetnx(key, 'blueprint', JSON.stringify(legacyBlueprint));
+    }
     // boardgame.io internal move logs are intentionally not persisted.
     if (opts.log) result.log = [];
     return result as StorageAPI.FetchResult<O>;
@@ -334,6 +362,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       .zrem(BATTLE_REPLAY_ARCHIVE_UNCONFIRMED_KEY, matchID);
     for (const userId of invitedUserIds) transaction.zrem(`battle:invites:user:${userId}`, matchID);
     await transaction.exec();
+    this.blueprintCache.delete(matchID);
   }
 
   async listMatches(): Promise<string[]> {
@@ -391,6 +420,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       String(now),
     ));
     if (expired !== 1) return false;
+    this.blueprintCache.delete(matchID);
     if (invitedUserIds.length > 0) {
       const transaction = redis.multi();
       for (const userId of invitedUserIds) {
@@ -479,7 +509,7 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     if (!stateJson) return false;
     return this.reconcileDeadlineIndexForState(
       matchID,
-      parseState(stateJson, matchID),
+      parseStoredStateEnvelope(stateJson, matchID),
     );
   }
 
@@ -536,34 +566,41 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
   }
 
   private async compareAndSetState(matchID: string, state: StoredState): Promise<boolean> {
-    const [currentJson, initialStateJson, storedRoundCount] = await Promise.all([
-      redis.hget(battleOnlineMatchKey(matchID), 'state'),
-      redis.hget(battleOnlineMatchKey(matchID), 'initial_state'),
-      redis.llen(battleReplayRoundsKey(matchID)),
-    ]);
-    if (!currentJson || !initialStateJson) {
-      throw new Error(`Unknown boardgame match: ${matchID}`);
-    }
-    parseState(currentJson, matchID);
-    const initialBattle = parseState(initialStateJson, matchID).G.battle;
     if (state.G.matchId !== matchID) throw new Error('Boardgame match id does not match battle state');
     if (state._stateID < 1) {
       throw new Error('Battle boardgame state id conflict');
     }
+    const shouldArchive = state.G.status === 'finished' && !state.G.presentation;
+    const [initialStateJson, storedRoundJson] = await Promise.all([
+      shouldArchive
+        ? redis.hget(battleOnlineMatchKey(matchID), 'initial_state')
+        : Promise.resolve(null),
+      shouldArchive
+        ? redis.lrange(battleReplayRoundsKey(matchID), 0, -1)
+        : Promise.resolve([]),
+    ]);
     const deadlineAt = indexedDeadline(state.G);
     const acceptDeadlineAt = indexedAcceptDeadline(state.G);
-    const storedState = stripReplayRounds(state);
-    const nextRounds = state.G.replay.rounds;
-    const appendedRoundCount = nextRounds.length - storedRoundCount;
-    if (appendedRoundCount < 0 || appendedRoundCount > 1) {
-      throw new Error('Battle replay accumulator conflict');
+    const storedState = stripImmutableBattleData(stripPendingReplayRound(state));
+    const pendingRound = state.G.replay.pendingRound;
+    const replayRound = pendingRound ? JSON.stringify(pendingRound) : '';
+    let archive: BattleReplayV1 | null = null;
+    if (shouldArchive) {
+      if (!initialStateJson) throw new Error(`Unknown boardgame match: ${matchID}`);
+      const rounds = storedRoundJson.map(parseReplayRound);
+      if (
+        pendingRound &&
+        !rounds.some((round) =>
+          round.commandSet.commandSetId === pendingRound.commandSet.commandSetId)
+      ) {
+        rounds.push(pendingRound);
+      }
+      archive = buildReplay(
+        state.G,
+        parseState(initialStateJson, matchID, state.G.battle.blueprint).G.battle,
+        rounds,
+      );
     }
-    const replayRound = appendedRoundCount === 1
-      ? JSON.stringify(nextRounds[nextRounds.length - 1])
-      : '';
-    const archive = state.G.status === 'finished' && !state.G.presentation
-      ? buildReplay(state.G, initialBattle)
-      : null;
     const result = Number(await getRedisClient().eval(
       SET_STATE_LUA,
       7,
@@ -584,14 +621,12 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
       archive ? JSON.stringify(archive) : '',
       acceptDeadlineAt === null ? '' : String(acceptDeadlineAt),
       replayRound,
-      String(storedRoundCount),
     ));
     if (result === 1) return true;
     // boardgame.io persists the unchanged state after INVALID_MOVE. Treat only
     // byte-identical, equal-stateID writes as a successful idempotent no-op.
     if (result === 2) return true;
     if (result === -2) throw new Error(`Unknown boardgame match: ${matchID}`);
-    if (result === -3) throw new Error('Battle replay accumulator conflict');
     if (result === -1 || result === -4) return false;
     throw new Error(`Unexpected battle boardgame CAS result: ${result}`);
   }
@@ -614,6 +649,25 @@ export class RedisBattleBoardgameStorage implements StorageAPI.Async {
     if (result === 0 || result === 2) return false;
     if (result === -2) throw new Error(`Unknown boardgame match: ${matchID}`);
     throw new Error(`Unexpected battle deadline reconciliation result: ${result}`);
+  }
+
+  private hydrateState(
+    stateJson: string,
+    matchID: string,
+    storedBlueprint: BattleBlueprintV1 | null,
+  ): StoredState {
+    const state = parseState(stateJson, matchID, storedBlueprint ?? undefined);
+    this.cacheBlueprint(matchID, state.G.battle.blueprint);
+    return state;
+  }
+
+  private cacheBlueprint(matchID: string, blueprint: BattleBlueprintV1): void {
+    this.blueprintCache.delete(matchID);
+    this.blueprintCache.set(matchID, blueprint);
+    if (this.blueprintCache.size > 128) {
+      const oldest = this.blueprintCache.keys().next().value;
+      if (oldest) this.blueprintCache.delete(oldest);
+    }
   }
 }
 
@@ -641,28 +695,35 @@ function indexedAcceptDeadline(G: BattleBoardgameG): number | null {
     : null;
 }
 
-function stripReplayRounds(state: StoredState): StoredState {
+function stripPendingReplayRound(state: StoredState): StoredState {
   return {
     ...state,
     G: {
       ...state.G,
-      replay: { ...state.G.replay, rounds: [] },
+      replay: { version: 'battle_replay_accumulator_v1' },
     },
   };
 }
 
-function hydrateReplay(
-  state: StoredState,
-  roundJson: readonly string[] = [],
-): StoredState {
-  const rounds = roundJson.map((value) => JSON.parse(value) as BattleBoardgameG['replay']['rounds'][number]);
+function stripImmutableBattleData(state: StoredState): StoredState {
+  const mutableBattle = { ...state.G.battle } as Partial<StoredState['G']['battle']>;
+  delete mutableBattle.blueprint;
+  return {
+    ...state,
+    G: {
+      ...state.G,
+      battle: mutableBattle as StoredState['G']['battle'],
+    },
+  };
+}
+
+function normalizeReplayAccumulator(state: StoredState): StoredState {
   return {
     ...state,
     G: {
       ...state.G,
       replay: {
         version: 'battle_replay_accumulator_v1',
-        rounds,
       },
     },
   };
@@ -709,9 +770,10 @@ function withGameState(current: StoredState, G: BattleBoardgameG): StoredState {
 function buildReplay(
   G: BattleBoardgameG,
   initialBattle: BattleBoardgameG['battle'],
+  rounds: readonly BattleReplayV1['rounds'][number][],
 ): BattleReplayV1 {
   const outcome = G.latestResolution?.outcome;
-  if (!outcome?.battleEnded || G.replay.rounds.length === 0) {
+  if (!outcome?.battleEnded || rounds.length === 0) {
     throw new Error('Finished battle is missing replay material');
   }
   return {
@@ -723,18 +785,53 @@ function buildReplay(
     finishedAt: G.updatedAt,
     participants: G.controllers,
     initialBattle,
-    rounds: G.replay.rounds,
+    rounds,
     finalSnapshot: createBattlePublicSnapshot(G.battle),
     outcome,
   };
 }
 
-function parseState(value: string, matchID: string): StoredState {
+function parseReplayRound(value: string): BattleReplayV1['rounds'][number] {
+  return JSON.parse(value) as BattleReplayV1['rounds'][number];
+}
+
+function parseState(
+  value: string,
+  matchID: string,
+  storedBlueprint?: BattleBlueprintV1,
+): StoredState {
+  const state = parseStoredStateEnvelope(value, matchID);
+  const blueprint = storedBlueprint ?? state.G.battle.blueprint;
+  if (!blueprint || blueprint.version !== 'battle_blueprint_v1' || blueprint.battleId !== matchID) {
+    throw new Error('Invalid stored boardgame battle blueprint');
+  }
+  return {
+    ...state,
+    G: {
+      ...state.G,
+      battle: {
+        ...state.G.battle,
+        blueprint,
+      },
+    },
+  };
+}
+
+function parseStoredStateEnvelope(value: string, matchID: string): StoredState {
   const state = JSON.parse(value) as StoredState;
   if (state.G.matchId !== matchID || state.G.version !== 'battle_match_state_v1') {
     throw new Error('Invalid stored boardgame battle state');
   }
   return state;
+}
+
+function parseBlueprint(value: string | null, matchID: string): BattleBlueprintV1 | null {
+  if (!value) return null;
+  const blueprint = JSON.parse(value) as BattleBlueprintV1;
+  if (blueprint.version !== 'battle_blueprint_v1' || blueprint.battleId !== matchID) {
+    throw new Error('Invalid stored boardgame battle blueprint');
+  }
+  return blueprint;
 }
 
 function normalizeBoardgameState(matchID: string, state: StoredState): StoredState {
@@ -782,6 +879,14 @@ function arenaOrchestrationFromMetadata(metadata: Server.MatchData | undefined) 
     roomId: parsed.roomId,
     startRequestId: parsed.startRequestId,
   };
+}
+
+function stripSetupData(metadata: Server.MatchData | undefined): Server.MatchData {
+  const storedMetadata = { ...(metadata ?? {}) } as Server.MatchData & {
+    setupData?: unknown;
+  };
+  delete storedMetadata.setupData;
+  return storedMetadata;
 }
 
 function arenaStartIndexKey(roomId: string, startRequestId: string): string {
