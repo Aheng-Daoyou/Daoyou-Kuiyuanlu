@@ -2,7 +2,8 @@ name: Build and Deploy
 
 on:
   push:
-    branches: [ "master" ]   # 按需修改分支
+    tags:
+      - '*'
 
 env:
   APP_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/daoyou-app
