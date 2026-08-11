@@ -33,9 +33,9 @@ export function calculatePillRecycleUnitPrice(
   const quotedPrice = Math.floor(
     economicAnchor * PILL_RECYCLE_BASE_FACTOR * scoreModifier,
   );
-  const safePriceCap = Math.floor(
+  const priceCap = Math.floor(
     economicAnchor * PILL_RECYCLE_PRICE_FACTOR_CAP,
   );
 
-  return Math.max(1, Math.min(quotedPrice, safePriceCap));
+  return Math.max(1, Math.min(quotedPrice, priceCap));
 }
