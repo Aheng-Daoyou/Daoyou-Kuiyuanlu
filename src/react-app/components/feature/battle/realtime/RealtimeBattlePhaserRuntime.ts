@@ -59,7 +59,7 @@ const UNIT_VITAL_TRACK_TEXTURE = 'realtime-unit-vital-track';
 const UNIT_VITAL_HP_TEXTURE = 'realtime-unit-vital-hp';
 const UNIT_VITAL_MP_TEXTURE = 'realtime-unit-vital-mp';
 const UNIT_SHIELD_TEXTURE = 'realtime-unit-shield';
-const UNIT_NAME_DISC_SCALE = 2.04;
+const UNIT_NAME_DISC_SCALE = 2;
 const UNIT_VITAL_SCALE = 2.18;
 
 function outlinedText(strokeThickness: number) {
@@ -144,10 +144,13 @@ interface ResourceVisual {
   background: Phaser.GameObjects.Graphics;
   iconPulse: Phaser.GameObjects.Container;
   icon: Phaser.GameObjects.Image;
-  value: Phaser.GameObjects.Text;
+  name: Phaser.GameObjects.Text;
+  currentValue: Phaser.GameObjects.Text;
+  maxValue: Phaser.GameObjects.Text;
   delta: Phaser.GameObjects.Text;
   width: number;
   height: number;
+  barHeight: number;
 }
 
 type StatusTone = 'action' | 'control' | 'buff' | 'debuff';
@@ -1380,24 +1383,60 @@ export function attachRealtimeBattlePhaser(
       resource: RealtimeBattleResource,
     ): ResourceVisual {
       const background = this.add.graphics();
-      const iconSize = visual.isPet ? 22 : 27;
+      const iconSize = visual.isPet ? 34 : 42;
       const icon = this.add
         .image(0, 0, realtimeBattleResourceTexture(resource.id))
         .setDisplaySize(iconSize, iconSize);
       const iconPulse = this.add.container(0, 0, [icon]);
-      const fontSize = visual.isPet
+      const nameFontSize = visual.isPet
         ? stage.profile === 'portrait'
-          ? 13
+          ? 12
           : 11
         : stage.profile === 'portrait'
-          ? 16
+          ? 15
           : 14;
-      const value = this.add
+      const currentFontSize = visual.isPet
+        ? stage.profile === 'portrait'
+          ? 14
+          : 13
+        : stage.profile === 'portrait'
+          ? 17
+          : 16;
+      const maxFontSize = visual.isPet
+        ? stage.profile === 'portrait'
+          ? 12
+          : 11
+        : stage.profile === 'portrait'
+          ? 14
+          : 13;
+      const name = this.add
         .text(0, 0, '', {
           fontFamily: FONT_FAMILY,
-          fontSize: `${fontSize}px`,
+          fontSize: `${nameFontSize}px`,
           fontStyle: 'bold',
-          color: '#f7df9a',
+          color: '#ead8aa',
+          stroke: '#080d0b',
+          strokeThickness: visual.isPet ? 2 : 3,
+        })
+        .setOrigin(0, 0.5)
+        .setResolution(renderScale);
+      const currentValue = this.add
+        .text(0, 0, '', {
+          fontFamily: FONT_FAMILY,
+          fontSize: `${currentFontSize}px`,
+          fontStyle: 'bold',
+          color: '#fff2bd',
+          stroke: '#080d0b',
+          strokeThickness: visual.isPet ? 2 : 3,
+        })
+        .setOrigin(0, 0.5)
+        .setResolution(renderScale);
+      const maxValue = this.add
+        .text(0, 0, '', {
+          fontFamily: FONT_FAMILY,
+          fontSize: `${maxFontSize}px`,
+          fontStyle: 'bold',
+          color: '#b9ad8d',
           stroke: '#080d0b',
           strokeThickness: visual.isPet ? 2 : 3,
         })
@@ -1406,7 +1445,7 @@ export function attachRealtimeBattlePhaser(
       const delta = this.add
         .text(0, 0, '', {
           fontFamily: FONT_FAMILY,
-          fontSize: `${fontSize}px`,
+          fontSize: `${currentFontSize}px`,
           fontStyle: 'bold',
           color: '#7ee2a8',
           stroke: '#080d0b',
@@ -1418,7 +1457,9 @@ export function attachRealtimeBattlePhaser(
       const container = this.add.container(0, 0, [
         background,
         iconPulse,
-        value,
+        name,
+        currentValue,
+        maxValue,
         delta,
       ]);
       visual.resourceLayer.add(container);
@@ -1427,10 +1468,13 @@ export function attachRealtimeBattlePhaser(
         background,
         iconPulse,
         icon,
-        value,
+        name,
+        currentValue,
+        maxValue,
         delta,
         width: 0,
-        height: visual.isPet ? 28 : 34,
+        height: iconSize,
+        barHeight: visual.isPet ? 26 : 31,
       };
     }
 
@@ -1440,16 +1484,19 @@ export function attachRealtimeBattlePhaser(
       resource: RealtimeBattleResource,
       cue?: ResourceCueState,
     ) {
-      const paddingX = entity.kind === 'spirit-pet' ? 7 : 9;
       const iconSize = resourceVisual.icon.displayWidth;
-      const iconGap = entity.kind === 'spirit-pet' ? 4 : 5;
+      const iconOverlap = entity.kind === 'spirit-pet' ? 14 : 18;
+      const textGap = entity.kind === 'spirit-pet' ? 5 : 8;
+      const valueGap = entity.kind === 'spirit-pet' ? 6 : 9;
+      const maxGap = 2;
+      const rightPadding = entity.kind === 'spirit-pet' ? 8 : 11;
       const deltaGap = cue ? 4 : 0;
       resourceVisual.icon.setTexture(
         realtimeBattleResourceTexture(resource.id),
       );
-      resourceVisual.value.setText(
-        `${resource.name} ${resource.current}/${resource.max}`,
-      );
+      resourceVisual.name.setText(resource.name);
+      resourceVisual.currentValue.setText(`${resource.current}`);
+      resourceVisual.maxValue.setText(`/ ${resource.max}`);
       resourceVisual.delta
         .setText(
           cue ? `${cue.delta >= 0 ? '+' : ''}${Math.round(cue.delta)}` : '',
@@ -1457,46 +1504,58 @@ export function attachRealtimeBattlePhaser(
         .setColor(cue && cue.delta < 0 ? '#ff8b95' : '#7ee2a8')
         .setVisible(Boolean(cue));
 
-      const deltaWidth = cue ? resourceVisual.delta.width + deltaGap : 0;
-      const width =
-        paddingX * 2 +
-        iconSize +
-        iconGap +
-        resourceVisual.value.width +
-        deltaWidth;
+      const deltaWidth = cue ? resourceVisual.delta.width : 0;
+      const nameX = iconSize + textGap;
+      const currentValueX = nameX + resourceVisual.name.width + valueGap;
+      const maxValueX =
+        currentValueX + resourceVisual.currentValue.width + maxGap;
+      const deltaX = maxValueX + resourceVisual.maxValue.width + deltaGap;
+      const width = deltaX + deltaWidth + rightPadding;
       const height = resourceVisual.height;
+      const barHeight = resourceVisual.barHeight;
+      const barRadius = barHeight / 2;
+      const barX = iconSize - iconOverlap;
+      const barY = (height - barHeight) / 2;
       resourceVisual.width = width;
       resourceVisual.container.setSize(width, height);
       resourceVisual.background.clear();
-      resourceVisual.background.fillStyle(0x0a110e, 0.84);
+      resourceVisual.background.fillStyle(0x0a110e, 0.88);
       resourceVisual.background.fillRoundedRect(
-        0,
-        0,
-        width,
-        height,
-        height / 2,
+        barX,
+        barY,
+        width - barX,
+        barHeight,
+        barRadius,
+      );
+      resourceVisual.background.fillRect(
+        barX,
+        barY,
+        barRadius,
+        barHeight,
       );
       resourceVisual.background.lineStyle(
         1.25,
         entity.team === 'allies' ? 0x799b7b : 0xc06b73,
         0.82,
       );
-      resourceVisual.background.strokeRoundedRect(
-        0,
-        0,
-        width,
-        height,
-        height / 2,
+      resourceVisual.background.beginPath();
+      resourceVisual.background.moveTo(barX, barY);
+      resourceVisual.background.lineTo(width - barRadius, barY);
+      resourceVisual.background.arc(
+        width - barRadius,
+        barY + barRadius,
+        barRadius,
+        -Math.PI / 2,
+        Math.PI / 2,
       );
-      resourceVisual.iconPulse.setPosition(paddingX + iconSize / 2, height / 2);
-      resourceVisual.value.setPosition(
-        paddingX + iconSize + iconGap,
-        height / 2,
-      );
-      resourceVisual.delta.setPosition(
-        paddingX + iconSize + iconGap + resourceVisual.value.width + deltaGap,
-        height / 2,
-      );
+      resourceVisual.background.lineTo(barX, barY + barHeight);
+      resourceVisual.background.closePath();
+      resourceVisual.background.strokePath();
+      resourceVisual.iconPulse.setPosition(iconSize / 2, height / 2);
+      resourceVisual.name.setPosition(nameX, height / 2);
+      resourceVisual.currentValue.setPosition(currentValueX, height / 2);
+      resourceVisual.maxValue.setPosition(maxValueX, height / 2);
+      resourceVisual.delta.setPosition(deltaX, height / 2);
     }
 
     private layoutResourceVisuals(
@@ -2014,7 +2073,7 @@ export function attachRealtimeBattlePhaser(
         resourceVisual.delta.setAlpha(1).setY(resourceVisual.height / 2);
         this.tweens.add({
           targets: resourceVisual.iconPulse,
-          scale: 1.14,
+          scale: state.delta >= 0 ? 1.08 : 0.94,
           duration: 150,
           yoyo: true,
           ease: 'Sine.Out',
