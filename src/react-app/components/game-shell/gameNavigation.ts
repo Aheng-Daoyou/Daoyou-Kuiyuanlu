@@ -93,7 +93,7 @@ export const gameDockGroups: GameNavGroup[] = [
       {
         id: 'sect-abilities',
         sceneLabel: '宗门演武',
-        href: '/game/sect/arena',
+        href: '/game/sect/arena?workspace=loadout&npc=instructor',
         expandedDockLabel: '📜 宗门神通',
       },
       {
