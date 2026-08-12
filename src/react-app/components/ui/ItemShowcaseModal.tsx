@@ -6,8 +6,8 @@
  * - 神通 / 功法 / 法宝可通过 summary / metaSection / footer 组装更丰富的展示内容
  */
 
-import { InkModal } from '@app/components/layout';
 import type { ReactNode } from 'react';
+import { InkDetailDrawer } from './InkDetailDrawer';
 
 export interface ItemShowcaseModalProps {
   isOpen: boolean;
@@ -41,23 +41,20 @@ export function ItemShowcaseModal({
   footer,
 }: ItemShowcaseModalProps) {
   return (
-    <InkModal isOpen={isOpen} onClose={onClose}>
+    <InkDetailDrawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title={name}
+      size="md"
+      footer={footer}
+    >
       <div className="relative space-y-3">
         {cornerMeta && (
           <div className="absolute top-0 right-0 z-10">{cornerMeta}</div>
         )}
         <div className="flex flex-col items-center gap-2 p-4 text-center">
           <div className="mb-2 text-4xl">{icon}</div>
-          <h4
-            className={`relative inline-flex max-w-full items-baseline text-lg font-semibold ${
-              nameMark ? 'pr-7' : ''
-            }`}
-          >
-            <span className="truncate">{name}</span>
-            {nameMark && (
-              <span className="absolute -top-2 right-0">{nameMark}</span>
-            )}
-          </h4>
+          {nameMark ? <div className="relative">{nameMark}</div> : null}
           {badges.length > 0 && (
             <div className="mt-2 flex flex-wrap justify-center gap-2">
               {badges.map((badge, index) => (
@@ -74,16 +71,14 @@ export function ItemShowcaseModal({
 
           {description && (
             <div className="pt-2">
-              <span className=" text-ink mb-1 block font-semibold">
+              <span className="text-ink mb-1 block font-semibold">
                 {descriptionTitle}
               </span>
               <p className="text-ink-secondary">{description}</p>
             </div>
           )}
         </div>
-
-        {footer}
       </div>
-    </InkModal>
+    </InkDetailDrawer>
   );
 }
