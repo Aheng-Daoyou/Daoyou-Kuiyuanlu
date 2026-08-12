@@ -19,8 +19,8 @@ describe('pillEffectScaling high quality curves', () => {
   });
 
   it('makes immortal and divine body cultivation advances steeper than mid-tier pills', () => {
-    expect(buildBodyTrackAdvance('天品')).toBe(96);
-    expect(buildBodyTrackAdvance('仙品')).toBe(140);
-    expect(buildBodyTrackAdvance('神品')).toBe(210);
+    expect(buildBodyTrackAdvance('天品')).toBe(400);
+    expect(buildBodyTrackAdvance('仙品')).toBe(650);
+    expect(buildBodyTrackAdvance('神品')).toBe(1200);
   });
 });

@@ -36,6 +36,13 @@ import {
   sortWeightedAlchemyProperties,
 } from '@shared/lib/alchemyProperties';
 import { getHealingCuredStatus } from '@shared/lib/healingPill';
+import {
+  buildAlchemyYieldPreview,
+  calculateEffectiveEssence,
+  calculateQualityPotential,
+  calculateRawEssence,
+  type AlchemyEssenceMaterial,
+} from '@shared/lib/alchemyYield';
 import type {
   ElementType,
   Quality,
@@ -580,6 +587,13 @@ export function buildAlchemyBatchPreview(
   const maxYield =
     canGainYieldBonus ? Math.min(5, baseYield + 1) : baseYield;
   const warnings = buildAlchemyPreviewWarnings(materials);
+  const yieldPreview = buildAlchemyYieldPreview({
+    materials,
+    factors: {
+      stability: 60,
+    },
+  });
+  const possibleQualities = yieldPreview.possibleQualities;
 
   return {
     minYield: Math.max(1, Math.min(baseYield, maxYield)),
@@ -591,6 +605,28 @@ export function buildAlchemyBatchPreview(
         ? '单材成丹，药路稳定但变化有限。'
         : '多材合炉，实际产量取决于药性配伍与炉势。',
     warnings,
+    totalEssenceRange: {
+      min: yieldPreview.essence.effectiveEssence,
+      max: Math.round(yieldPreview.essence.effectiveEssence * 1.15),
+    },
+    totalQuantityRange: yieldPreview.totalQuantityRange,
+    primaryQualityRange: {
+      min: possibleQualities[possibleQualities.length - 1] ?? yieldPreview.primaryQuality,
+      max: possibleQualities[0] ?? yieldPreview.primaryQuality,
+    },
+    possibleQualities,
+    appearanceHints: {
+      low: 0.15,
+      middle: 0.45,
+      high: 0.3,
+      perfect: 0.1,
+    },
+    likelyLots: possibleQualities.slice(0, 3).map((quality) => ({
+      quality,
+      minQuantity: 1,
+      maxQuantity: Math.max(1, Math.floor(yieldPreview.totalQuantityRange.max / 2)),
+      possibleAppearances: yieldPreview.possibleAppearances,
+    })),
   };
 }
 
@@ -717,6 +753,21 @@ export function buildAlchemyBatchProfile(
   }
   yieldQuantity = clamp(yieldQuantity, 1, 5);
 
+  const essenceMaterials: AlchemyEssenceMaterial[] = materials.map((material) => ({
+    rank: material.rank,
+    type: material.type,
+    dose: material.dose,
+  }));
+  const rawEssence = calculateRawEssence(essenceMaterials);
+  const essenceFactors = {
+    synergyScore,
+    conflictScore,
+    stability: adjustedStability,
+    purity: clamp(0.45 + qualityPotentialFromMaterials(materials) * 0.4, 0.1, 0.98),
+  };
+  const effectiveEssence = calculateEffectiveEssence(rawEssence, essenceFactors);
+  const qualityPotential = calculateQualityPotential(essenceMaterials, essenceFactors);
+
   const compoundTier =
     materialKindCount <= 1
       ? 'single'
@@ -743,7 +794,20 @@ export function buildAlchemyBatchProfile(
     stabilityDelta,
     toxicityDelta,
     secondaryEffectMultiplierBonus,
+    essenceSummary: {
+      rawEssence,
+      effectiveEssence,
+      qualityPotential,
+      purity: essenceFactors.purity,
+      stability: clamp(adjustedStability, 0, 100),
+    },
   };
+}
+
+function qualityPotentialFromMaterials(materials: PreparedAlchemyMaterial[]): number {
+  if (materials.length === 0) return 0;
+  const max = Math.max(...materials.map((material) => QUALITY_ORDER[material.rank]));
+  return clamp((max - 1) / 7, 0, 1);
 }
 
 function buildPlanVectorMap(

@@ -63,6 +63,10 @@ import {
 import { getHealingCuredStatus } from '@shared/lib/healingPill';
 import { isAlchemyMaterialType } from '@shared/lib/alchemyMaterials';
 import {
+  rollAlchemyYieldProfile,
+  scaleOperationsForOutputLot,
+} from '@shared/lib/alchemyYield';
+import {
   QUALITY_ORDER,
   type ElementType,
   type MaterialType,
@@ -113,6 +117,43 @@ const POOR_PENALTY_FACTOR_MIN = 0.35;
 const POOR_PENALTY_FACTOR_MAX = 0.62;
 
 type MaterialRow = typeof materials.$inferSelect;
+
+function buildFormulaOutputConsumables(
+  base: Consumable,
+  sourceQuality: Quality,
+  sourceAppearance: PillAppearanceGrade,
+  yieldProfile: import('@shared/types/consumable').AlchemyYieldProfile,
+): Consumable[] {
+  return yieldProfile.lots.map((lot) => {
+    const spec = base.spec.kind === 'pill'
+      ? {
+          ...base.spec,
+          operations: scaleOperationsForOutputLot(
+            base.spec.operations,
+            sourceQuality,
+            sourceAppearance,
+            lot.quality,
+            lot.appearance,
+          ),
+          alchemyMeta: {
+            ...base.spec.alchemyMeta,
+            version: 3 as const,
+            appearance: lot.appearance,
+            batch: base.spec.alchemyMeta.batch
+              ? {
+                  ...base.spec.alchemyMeta.batch,
+                  yieldQuantity: lot.quantity,
+                  yieldProfile,
+                }
+              : undefined,
+          },
+        }
+      : base.spec;
+    const item: Consumable = { ...base, quality: lot.quality, quantity: lot.quantity, spec };
+    item.score = calculateSingleElixirScore(item);
+    return item;
+  });
+}
 type AlchemyFormulaRow = typeof alchemyFormulas.$inferSelect;
 
 export interface FormulaPreviewResult {
@@ -1538,6 +1579,7 @@ export async function prepareFormulaCraft(
       alchemyMeta: {
         source: 'formula',
         formulaId: formula.id,
+        version: 3,
         sourceMaterials: materialsList.map((material) => material.name),
         analysisVersion: 2,
         propertyVector: formula.pattern.targetPropertyVector,
@@ -1608,7 +1650,6 @@ export async function prepareFormulaCraft(
       spec,
     };
     consumable.score = calculateSingleElixirScore(consumable);
-
     const { next: nextMastery, progress } = advanceFormulaMastery(
       formula.mastery,
       fit,
@@ -1650,6 +1691,27 @@ export async function prepareFormulaCraft(
           );
         }
       }
+
+      // Roll only after the analysis/material snapshot has been revalidated and
+      // the user has actually confirmed the craft.
+      const yieldProfile = rollAlchemyYieldProfile({
+        materials: materialsList,
+        factors: {
+          synergyScore: batchProfile.synergyScore,
+          conflictScore: batchProfile.conflictScore,
+          fitMultiplier,
+          stability: spec.alchemyMeta.stability,
+          purity: batchProfile.essenceSummary?.purity,
+          masteryLevel: formula.mastery.level,
+          minQuality: formula.pattern.minQuality,
+        },
+      });
+      const outputConsumables = buildFormulaOutputConsumables(
+        consumable,
+        highestMaterialRank,
+        appearance,
+        yieldProfile,
+      );
 
       const [charged] = await tx
         .update(cultivators)
@@ -1722,17 +1784,20 @@ export async function prepareFormulaCraft(
         }
       }
 
-      const savedConsumable =
-        await addConsumableToInventoryInTransaction(
-        cultivatorId,
-        consumable,
-        tx,
-      );
-      inventoryChanges.push({
-        kind: 'consumables',
-        operation: 'upsert',
-        item: savedConsumable,
-      });
+      const savedConsumables: Consumable[] = [];
+      for (const output of outputConsumables) {
+        const saved = await addConsumableToInventoryInTransaction(
+          cultivatorId,
+          output,
+          tx,
+        );
+        savedConsumables.push(saved);
+        inventoryChanges.push({
+          kind: 'consumables',
+          operation: 'upsert',
+          item: saved,
+        });
+      }
 
       const [masteryUpdated] = await tx
         .update(alchemyFormulas)
@@ -1753,7 +1818,9 @@ export async function prepareFormulaCraft(
 
       return {
         result: {
-          consumable: savedConsumable,
+          consumable: savedConsumables[0] ?? consumable,
+          consumables: savedConsumables,
+          yieldProfile,
           formulaProgress: progress,
         },
         inventoryChanges,

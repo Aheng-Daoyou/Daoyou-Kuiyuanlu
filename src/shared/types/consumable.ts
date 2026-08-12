@@ -95,6 +95,31 @@ export interface AlchemyMaterialPropertyVector {
   properties: WeightedAlchemyProperty[];
 }
 
+export interface AlchemyEssenceSummary {
+  rawEssence: number;
+  effectiveEssence: number;
+  qualityPotential: number;
+  purity: number;
+  stability: number;
+}
+
+export interface AlchemyOutputLot {
+  quality: Quality;
+  appearance: PillAppearanceGrade;
+  quantity: number;
+  essenceSpent: number;
+  effectMultiplier: number;
+}
+
+export interface AlchemyYieldProfile {
+  essence: AlchemyEssenceSummary;
+  primaryQuality: Quality;
+  lots: AlchemyOutputLot[];
+  totalQuantity: number;
+  wastedEssence: number;
+  distributionSummary: string;
+}
+
 export const ALCHEMY_COMPOUND_TIER_VALUES = [
   'single',
   'balanced',
@@ -114,6 +139,8 @@ export interface AlchemyBatchProfile {
   stabilityDelta: number;
   toxicityDelta: number;
   secondaryEffectMultiplierBonus: number;
+  essenceSummary?: AlchemyEssenceSummary;
+  yieldProfile?: AlchemyYieldProfile;
 }
 
 export interface AlchemyBatchPreview {
@@ -123,6 +150,17 @@ export interface AlchemyBatchPreview {
   totalDose: number;
   summary: string;
   warnings: string[];
+  totalEssenceRange?: { min: number; max: number };
+  totalQuantityRange?: { min: number; max: number };
+  primaryQualityRange?: { min: Quality; max: Quality };
+  possibleQualities?: Quality[];
+  appearanceHints?: Partial<Record<PillAppearanceGrade, number>>;
+  likelyLots?: Array<{
+    quality: Quality;
+    minQuantity: number;
+    maxQuantity: number;
+    possibleAppearances: PillAppearanceGrade[];
+  }>;
 }
 
 export const FORMULA_MATERIAL_VERDICT_VALUES = [
@@ -183,6 +221,7 @@ export type PillAlchemyMeta =
       appearance?: PillAppearanceGrade;
       tags: string[];
       batch?: AlchemyBatchProfile;
+      version?: 3;
       breakthroughTargetRealm?: RealmType;
       breakthroughLabel?: string;
     }
@@ -202,6 +241,7 @@ export type PillAlchemyMeta =
       appearance?: PillAppearanceGrade;
       tags: string[];
       batch?: AlchemyBatchProfile;
+      version?: 3;
       breakthroughTargetRealm?: RealmType;
       breakthroughLabel?: string;
     };

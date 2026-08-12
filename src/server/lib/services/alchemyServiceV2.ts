@@ -16,6 +16,10 @@ import {
   type PreparedAlchemyMaterial,
   synthesizeAlchemyFromPlan,
 } from '@server/lib/services/AlchemyRecipeRules';
+import {
+  rollAlchemyYieldProfile,
+  scaleOperationsForOutputLot,
+} from '@shared/lib/alchemyYield';
 import { calculateSingleElixirScore } from '@server/utils/rankingUtils';
 import { ELEMENT_PREFIX_MAP } from '@shared/config/alchemyConfig';
 import {
@@ -87,6 +91,8 @@ export interface AlchemyPreviewResult {
 
 export interface ImprovisedAlchemyCraftResult {
   consumable: Consumable;
+  consumables?: Consumable[];
+  yieldProfile?: import('@shared/types/consumable').AlchemyYieldProfile;
   formulaDiscovery?: Awaited<ReturnType<typeof buildDiscoveryCandidate>>;
 }
 
@@ -258,6 +264,7 @@ function buildAlchemySpec(
     },
     alchemyMeta: {
       source: 'improvised',
+      version: 3,
       sourceMaterials: materialNames,
       analysisVersion: 2,
       propertyVector: synthesis.propertyVector,
@@ -273,6 +280,47 @@ function buildAlchemySpec(
       batch: synthesis.batchProfile,
     },
   };
+}
+
+function buildAlchemyOutputConsumables(
+  base: Consumable,
+  sourceQuality: Quality,
+  sourceAppearance: import('@shared/types/consumable').PillAppearanceGrade,
+  yieldProfile: import('@shared/types/consumable').AlchemyYieldProfile,
+): Consumable[] {
+  return yieldProfile.lots.map((lot) => {
+    const spec = base.spec.kind === 'pill'
+      ? {
+          ...base.spec,
+          operations: scaleOperationsForOutputLot(
+            base.spec.operations,
+            sourceQuality,
+            sourceAppearance,
+            lot.quality,
+            lot.appearance,
+          ),
+          alchemyMeta: {
+            ...base.spec.alchemyMeta,
+            version: 3 as const,
+            appearance: lot.appearance,
+            batch: base.spec.alchemyMeta.batch
+              ? {
+                  ...base.spec.alchemyMeta.batch,
+                  yieldQuantity: lot.quantity,
+                  yieldProfile,
+                }
+              : undefined,
+          },
+        }
+      : base.spec;
+    const consumable: Consumable = {
+      ...base,
+      quality: lot.quality,
+      quantity: lot.quantity,
+      spec,
+    };
+    return consumable;
+  });
 }
 
 async function loadPreviewMaterialRows(
@@ -533,7 +581,6 @@ export function createAlchemyService(
       spec,
     };
     consumable.score = calculateSingleElixirScore(consumable);
-
     return {
       async commit(tx: DbTransaction) {
         const inventoryChanges: ResourceOperationSettlement['inventoryChanges'] =
@@ -566,6 +613,25 @@ export function createAlchemyService(
             );
           }
         }
+
+        // The final distribution is deliberately rolled inside the transaction.
+        // Preview/prepare may be retried, but only a confirmed command consumes RNG.
+        const yieldProfile = rollAlchemyYieldProfile({
+          materials: preparedMaterials,
+          factors: {
+            synergyScore: synthesis.batchProfile.synergyScore,
+            conflictScore: synthesis.batchProfile.conflictScore,
+            stability: synthesis.stability,
+            purity: synthesis.batchProfile.essenceSummary?.purity,
+          },
+        });
+        const outputConsumables = buildAlchemyOutputConsumables(
+          consumable,
+          highestMaterialRank,
+          synthesis.appearance,
+          yieldProfile,
+        );
+        const primaryConsumable = outputConsumables[0] ?? consumable;
 
         for (const id of stableMaterialIds) {
           const prepared = preparedMaterials.find((item) => item.id === id);
@@ -641,20 +707,25 @@ export function createAlchemyService(
           throw new AlchemyServiceError(`灵石不足，需要 ${cost} 枚`, 409);
         }
 
-        const savedConsumable =
-          await addConsumableToInventoryInTransaction(
-          cultivatorId,
-          consumable,
-          tx,
-        );
+        const savedConsumables: Consumable[] = [];
+        for (const output of outputConsumables) {
+          const saved = await addConsumableToInventoryInTransaction(
+            cultivatorId,
+            output,
+            tx,
+          );
+          savedConsumables.push(saved);
+          inventoryChanges.push({
+            kind: 'consumables',
+            operation: 'upsert',
+            item: saved,
+          });
+        }
         const result: ImprovisedAlchemyCraftResult = {
-          consumable: savedConsumable,
+          consumable: savedConsumables[0] ?? primaryConsumable,
+          consumables: savedConsumables,
+          yieldProfile,
         };
-        inventoryChanges.push({
-          kind: 'consumables',
-          operation: 'upsert',
-          item: savedConsumable,
-        });
         return {
           result,
           inventoryChanges,
@@ -662,7 +733,7 @@ export function createAlchemyService(
             const formulaDiscovery = await buildDiscoveryCandidate(
               cultivatorId,
               {
-                consumable: savedConsumable as Consumable & { spec: PillSpec },
+                consumable: (savedConsumables[0] ?? primaryConsumable) as Consumable & { spec: PillSpec },
                 materials: preparedMaterials,
               },
             );

@@ -43,8 +43,12 @@ import {
 } from '@app/lib/resources/player';
 import { findNextTutorialTask } from '@app/lib/tasks/taskClient';
 import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
-import { CREATION_INPUT_CONSTRAINTS } from '@shared/engine/creation-v2/config/CreationBalance';
+import {
+  ALCHEMY_MAX_DOSE,
+  CREATION_INPUT_CONSTRAINTS,
+} from '@shared/engine/creation-v2/config/CreationBalance';
 import { formatAlchemyPropertyVector } from '@shared/lib/alchemyProperties';
+import { getPillAppearanceLabel } from '@shared/lib/pillAppearance';
 import { cn } from '@shared/lib/cn';
 import { isPillConsumable } from '@shared/lib/consumables';
 import { getGameConceptLabel } from '@shared/lib/gameConceptDisplay';
@@ -57,6 +61,7 @@ import type {
   FormulaAnalysisResult,
   FormulaMaterialJudgment,
   PillFamily,
+  PillAppearanceGrade,
 } from '@shared/types/consumable';
 import { PILL_FAMILY_VALUES } from '@shared/types/consumable';
 import type { Consumable, Material } from '@shared/types/cultivator';
@@ -73,7 +78,7 @@ const ALLOWED_MATERIAL_TYPES = [
 const CRAFT_TYPE = 'alchemy' as const;
 const MAX_MATERIALS = CREATION_INPUT_CONSTRAINTS.maxMaterialKinds;
 const MIN_DOSE = CREATION_INPUT_CONSTRAINTS.minQuantityPerMaterial;
-const MAX_DOSE = CREATION_INPUT_CONSTRAINTS.maxQuantityPerMaterial;
+const MAX_DOSE = ALCHEMY_MAX_DOSE;
 const SPIRIT_STONES_LABEL = getGameConceptLabel('spirit_stones');
 
 type PreviewValidation = {
@@ -116,6 +121,7 @@ type AlchemyCraftResponse = {
   success: boolean;
   data?: {
     consumable: Consumable;
+    consumables?: Consumable[];
     formulaDiscovery?: AlchemyFormulaDiscoveryCandidate;
     formulaProgress?: FormulaProgress;
   };
@@ -704,12 +710,14 @@ export function AlchemyFormulaSelectionModal({
 
 export function AlchemyResultModal({
   consumable,
+  consumables,
   formulaProgress,
   isOpen,
   onClose,
   viewerRealm,
 }: {
   consumable: Consumable | null;
+  consumables?: Consumable[];
   formulaProgress: FormulaProgress | null;
   isOpen: boolean;
   onClose: () => void;
@@ -721,6 +729,7 @@ export function AlchemyResultModal({
 
   const model = toPillDisplayModel(consumable, { realm: viewerRealm });
   const meta = consumable.spec.alchemyMeta;
+  const outputItems = consumables?.length ? consumables : [consumable];
 
   return (
     <ItemShowcaseModal
@@ -759,6 +768,25 @@ export function AlchemyResultModal({
               {consumable.quantity} 枚
             </span>
           </div>
+          {outputItems.length > 1 ? (
+            <div className="border-ink/10 space-y-1 border border-dashed p-3 text-sm">
+              <div className="text-ink-secondary mb-1 text-xs">同炉产出</div>
+              {outputItems.map((item) => (
+                <div
+                  key={`${item.quality}-${item.spec.kind === 'pill' ? item.spec.alchemyMeta.appearance : 'none'}-${item.quantity}-${item.score}`}
+                  className="flex items-center justify-between"
+                >
+                  <span>
+                    {item.quality ?? '凡品'} ·{' '}
+                    {item.spec.kind === 'pill'
+                      ? getPillAppearanceLabel(item.spec.alchemyMeta.appearance)
+                      : '丹药'}
+                  </span>
+                  <span className="font-bold">×{item.quantity}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {meta.batch ? (
             <div className="border-border/50 flex justify-between border-b pb-2">
               <span className="opacity-70">配伍</span>
@@ -901,6 +929,9 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
   const [isSubmitting, setSubmitting] = useState(false);
   const [createdConsumable, setCreatedConsumable] = useState<Consumable | null>(
     null,
+  );
+  const [createdConsumables, setCreatedConsumables] = useState<Consumable[]>(
+    [],
   );
   const [formulaDiscovery, setFormulaDiscovery] =
     useState<AlchemyFormulaDiscoveryCandidate | null>(null);
@@ -1333,10 +1364,8 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
   const displayValidation = validation;
   const displayCanAfford = canAfford;
   const isFormulaMode = activeMode === 'formula';
-  const displayBatchPreview = isFormulaMode ? batchPreview : null;
-  const displayPreviewWarnings = isFormulaMode
-    ? (displayValidation?.warnings ?? [])
-    : [];
+  const displayBatchPreview = batchPreview;
+  const displayPreviewWarnings = displayValidation?.warnings ?? [];
   const qiCost = isFormulaMode
     ? QI_ACTION_COSTS.alchemy_formula
     : QI_ACTION_COSTS.alchemy_improvised;
@@ -1514,6 +1543,7 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
             : '地火回环，药性相搏……',
         );
         setCreatedConsumable(null);
+        setCreatedConsumables([]);
         setFormulaDiscovery(null);
         setFormulaProgress(null);
         setIsResultModalOpen(false);
@@ -1535,9 +1565,17 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
           }
 
           const nextConsumable = result.consumable;
+          const nextConsumables = result.consumables?.length
+            ? result.consumables
+            : [nextConsumable];
           const discoveredFormula = result.formulaDiscovery ?? null;
-          const successMessage = `【${nextConsumable.name}】丹成 ${nextConsumable.quantity} 枚！`;
+          const totalQuantity = nextConsumables.reduce(
+            (sum, item) => sum + item.quantity,
+            0,
+          );
+          const successMessage = `【${nextConsumable.name}】丹成 ${totalQuantity} 枚，${nextConsumables.length} 个批次！`;
           setCreatedConsumable(nextConsumable);
+          setCreatedConsumables(nextConsumables);
           setFormulaDiscovery(discoveredFormula);
           setFormulaProgress(result.formulaProgress ?? null);
           setIsResultModalOpen(true);
@@ -1824,8 +1862,10 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
               ) : null}
               {displayBatchPreview ? (
                 <p>
-                  预计出丹：{displayBatchPreview.minYield}
-                  {displayBatchPreview.maxYield !== displayBatchPreview.minYield
+                  预计出丹：{displayBatchPreview.totalQuantityRange
+                    ? `${displayBatchPreview.totalQuantityRange.min}-${displayBatchPreview.totalQuantityRange.max}`
+                    : displayBatchPreview.minYield}
+                  {!displayBatchPreview.totalQuantityRange && displayBatchPreview.maxYield !== displayBatchPreview.minYield
                     ? `-${displayBatchPreview.maxYield}`
                     : ''}{' '}
                   枚
@@ -1956,6 +1996,23 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
           >
             打开材料
           </InkButton>
+          <InkButton
+            variant="outline"
+            onClick={() => {
+              clearFormulaAnalysis();
+              setDoseMap((current) => {
+                const next = { ...current };
+                for (const id of selectedMaterialIds) {
+                  const stock = selectedMaterialMap[id]?.quantity ?? MIN_DOSE;
+                  next[id] = Math.min(MAX_DOSE, Math.max(MIN_DOSE, stock));
+                }
+                return next;
+              });
+            }}
+            disabled={!canChooseMaterials || selectedMaterialIds.length === 0}
+          >
+            一键投入全部
+          </InkButton>
         </div>
         {isFormulaMode && !selectedFormulaId ? (
           <InkNotice tone="info">
@@ -2016,13 +2073,28 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
 
         {displayBatchPreview ? (
           <InkNotice tone="info">
-            {displayBatchPreview.summary} 预计出丹{' '}
-            {displayBatchPreview.minYield}
-            {displayBatchPreview.maxYield !== displayBatchPreview.minYield
-              ? `-${displayBatchPreview.maxYield}`
-              : ''}{' '}
+            {displayBatchPreview.summary} 药蕴{' '}
+            {displayBatchPreview.totalEssenceRange
+              ? `${displayBatchPreview.totalEssenceRange.min}-${displayBatchPreview.totalEssenceRange.max}`
+              : '—'}，预计出丹{' '}
+            {displayBatchPreview.totalQuantityRange
+              ? `${displayBatchPreview.totalQuantityRange.min}-${displayBatchPreview.totalQuantityRange.max}`
+              : `${displayBatchPreview.minYield}${displayBatchPreview.maxYield !== displayBatchPreview.minYield ? `-${displayBatchPreview.maxYield}` : ''}`}{' '}
             枚；共 {displayBatchPreview.materialKindCount} 种灵材，合计{' '}
             {displayBatchPreview.totalDose} 份。
+            {displayBatchPreview.possibleQualities?.length
+              ? ` 可能品阶：${displayBatchPreview.possibleQualities.join('、')}。`
+              : ''}
+            {displayBatchPreview.appearanceHints
+              ? ` 品相倾向：${Object.entries(displayBatchPreview.appearanceHints)
+                  .filter(([, value]) => (value ?? 0) > 0)
+                  .sort(([, a], [, b]) => (b ?? 0) - (a ?? 0))
+                  .slice(0, 2)
+                  .map(([appearance]) =>
+                    getPillAppearanceLabel(appearance as PillAppearanceGrade),
+                  )
+                  .join('、')}。`
+              : ''}
           </InkNotice>
         ) : null}
 
@@ -2122,6 +2194,7 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
 
       <AlchemyResultModal
         consumable={createdConsumable}
+        consumables={createdConsumables}
         formulaProgress={formulaProgress}
         isOpen={isResultModalOpen}
         onClose={() => {

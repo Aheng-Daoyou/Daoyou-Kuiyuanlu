@@ -11,6 +11,7 @@ import {
   CULTIVATION_BOOST_STATUS_KEY,
   scaleCultivationBoostOperation,
 } from './cultivationBoost';
+import { PILL_APPEARANCE_EFFECT_MULTIPLIER } from '@shared/config/alchemyEssenceConfig';
 
 export const BREAKTHROUGH_FOCUS_STATUS_KEY = 'breakthrough_focus' as const;
 export const PROTECT_MERIDIANS_STATUS_KEY = 'protect_meridians' as const;
@@ -53,13 +54,13 @@ export const DETOX_POWER_BY_QUALITY: Record<Quality, number> = {
 
 export const BODY_TRACK_ADVANCE_BY_QUALITY: Record<Quality, number> = {
   凡品: 40,
-  灵品: 48,
-  玄品: 57,
-  真品: 66,
-  地品: 78,
-  天品: 96,
-  仙品: 140,
-  神品: 210,
+  灵品: 55,
+  玄品: 85,
+  真品: 140,
+  地品: 240,
+  天品: 400,
+  仙品: 650,
+  神品: 1200,
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -305,14 +306,7 @@ export function applyPillAppearanceToOperations(
   operations: ConditionOperation[],
   appearance: PillAppearanceGrade,
 ): ConditionOperation[] {
-  const effectMultiplier =
-    appearance === 'low'
-      ? 0.75
-      : appearance === 'middle'
-        ? 1
-        : appearance === 'high'
-          ? 1.25
-          : 1.8;
+  const effectMultiplier = PILL_APPEARANCE_EFFECT_MULTIPLIER[appearance];
 
   return operations.map((operation) => {
     if (

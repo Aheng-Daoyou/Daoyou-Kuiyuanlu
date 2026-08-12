@@ -3,6 +3,7 @@ import type {
   PillAppearanceGrade,
   WeightedAlchemyProperty,
 } from '@shared/types/consumable';
+import { PILL_APPEARANCE_EFFECT_MULTIPLIER } from '@shared/config/alchemyEssenceConfig';
 
 export interface PillAppearanceConfig {
   grade: PillAppearanceGrade;
@@ -19,7 +20,7 @@ export const PILL_APPEARANCE_CONFIG: Record<
   low: {
     grade: 'low',
     label: '下品',
-    effectMultiplier: 0.75,
+    effectMultiplier: 0.9,
     toxicityMultiplier: 1.5,
     colorClass: 'text-tier-fan',
   },
@@ -33,14 +34,14 @@ export const PILL_APPEARANCE_CONFIG: Record<
   high: {
     grade: 'high',
     label: '上品',
-    effectMultiplier: 1.25,
+    effectMultiplier: 1.1,
     toxicityMultiplier: 0.6,
     colorClass: 'text-tier-tian',
   },
   perfect: {
     grade: 'perfect',
     label: '完美',
-    effectMultiplier: 1.8,
+    effectMultiplier: 1.3,
     toxicityMultiplier: 0,
     colorClass: 'text-tier-shen',
   },
@@ -105,9 +106,7 @@ export function getPillAppearanceLabel(
 export function getPillAppearanceEffectMultiplier(
   appearance: PillAppearanceGrade | undefined,
 ): number {
-  return appearance
-    ? PILL_APPEARANCE_CONFIG[appearance].effectMultiplier
-    : 1;
+  return appearance ? PILL_APPEARANCE_EFFECT_MULTIPLIER[appearance] : 1;
 }
 
 export function getPillAppearanceToxicityMultiplier(
