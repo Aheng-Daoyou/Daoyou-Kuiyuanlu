@@ -29,7 +29,7 @@ description: Daoyou 本地开发、环境变量、构建、Docker、compose、cr
 - The SPA is built with `build:client` for independent static deployment; backend Docker builds never run it.
 - The Hono API uses `@hono/vite-build/bun` with entry `src/index.ts`; unmatched routes redirect to the public client rather than serving SPA files.
 - The battle-server uses `vite.battle.config.ts` and outputs `dist-battle/battle-server.js` for Node LTS.
-- `VITE_TURNSTILE_SITE_KEY` is a frontend-only build-time value.
+- ALTCHA uses the server-side `ALTCHA_HMAC_SECRET` and does not require a frontend site key.
 - Health check is `/api/health-check`; Redis down returns 503, missing Redis returns `redis: disabled`.
 - Production Bun cron jobs currently include `auction-expire`, `bet-battle-expire`, `rank-rewards`, and `market-refresh`.
 - React SPA is independently deployed and is never copied into backend images.

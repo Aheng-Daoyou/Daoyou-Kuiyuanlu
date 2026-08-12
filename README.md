@@ -165,20 +165,24 @@ cp .env.example .env.local
 
 ### 登录 / 注册相关
 
-当前鉴权中，以下接口会强制要求 Turnstile token：
+当前鉴权中，以下接口会强制要求 ALTCHA PoW payload：
 
 - `/api/auth/sign-in/email`
 - `/api/auth/sign-up/email`
 - `/api/auth/request-password-reset`
 - `/api/auth/email-otp/send-verification-otp`
 
-因此前端若不配置 Turnstile，相关表单无法正常工作。
+前端通过 `/api/captcha/challenge` 获取带场景和过期时间的 challenge，完成 PoW
+后把 payload 发送给认证接口。服务端会验证签名、场景和有效期，并通过 Redis
+原子记录 challenge 的单次消费状态，防止重放。
 
 | 变量 | 说明 |
 | --- | --- |
 | `VITE_API_BASE_URL` | 前端构建时注入的后端 API 基地址，如 `https://api.example.com` |
-| `VITE_TURNSTILE_SITE_KEY` | 前端构建时注入；没有它，登录/注册/找回密码页不会渲染验证码组件 |
-| `TURNSTILE_SECRET_KEY` 或 `TURNSTILE_SECRET` | 服务端校验 Turnstile 的密钥；未配置时服务端仍要求 token，但不会调用 Cloudflare 做真正校验 |
+| `ALTCHA_HMAC_SECRET` | 服务端签发和验证 ALTCHA challenge 的独立 HMAC 密钥；生产环境必须配置 |
+
+ALTCHA 不需要前端 site key。认证 CAPTCHA 启用时 Redis 也是强依赖；Redis 不可用时，
+受保护的认证请求会失败关闭，避免 challenge 被重复使用。
 
 ### 邮件能力
 
@@ -293,7 +297,7 @@ docker run --rm -p 3000:3000 \
 
 注意：
 
-- `VITE_API_BASE_URL` 和 `VITE_TURNSTILE_SITE_KEY` 是前端 Pages 构建期变量，不进入后端 Docker 镜像
+- `VITE_API_BASE_URL` 是前端 Pages 构建期变量，不进入后端 Docker 镜像
 - 服务运行时环境变量通过 shell、容器环境或 `--env-file` 注入
 
 ## 仓库内现成部署脚本
