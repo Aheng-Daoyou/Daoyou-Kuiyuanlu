@@ -251,9 +251,9 @@ export const gameDockGroups: GameNavGroup[] = [
     scenes: [
       {
         id: 'mail',
-        sceneLabel: '传音玉简',
+        sceneLabel: '道友传音',
         href: '/game/mail',
-        coreDockLabel: '传音玉简',
+        coreDockLabel: '道友传音',
       },
       {
         id: 'world-chat',
