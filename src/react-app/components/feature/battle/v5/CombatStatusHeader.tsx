@@ -270,6 +270,14 @@ export function CombatStatusHeader({
 
   return (
     <>
+      <section
+        aria-label="交战双方状态"
+        className="battle-module grid grid-cols-2 gap-3 px-3 py-2 md:px-4 md:py-3"
+      >
+        <UnitSummary unit={player} />
+        <UnitSummary unit={opponent} />
+      </section>
+
       <div
         ref={dockRef}
         className="battle-dock fixed inset-x-0 bottom-0 z-40 select-none"
@@ -316,11 +324,6 @@ export function CombatStatusHeader({
         size="lg"
       >
         <div className="space-y-5">
-          <section className="grid grid-cols-2 gap-3">
-            <UnitSummary unit={player} />
-            <UnitSummary unit={opponent} />
-          </section>
-
           {hasSkills ? (
             <section>
               <h3 className="battle-caption border-ink/15 mb-2 border-b border-dashed pb-1 text-xs">

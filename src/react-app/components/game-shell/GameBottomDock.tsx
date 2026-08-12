@@ -103,10 +103,10 @@ export function GameBottomDock({
       >
         <nav
           aria-label="全部游戏场景"
-          className="grid gap-5 text-sm sm:grid-cols-2"
+          className="grid grid-cols-2 gap-x-4 gap-y-5 text-sm"
         >
           {expandedDockGroups.map((group) => (
-            <section key={group.key}>
+            <section key={group.key} className="min-w-0">
               <h3 className="text-battle-muted border-ink/15 mb-2 border-b border-dashed pb-1 text-xs tracking-[0.18em]">
                 {group.title}
               </h3>
@@ -119,7 +119,7 @@ export function GameBottomDock({
                       dockMode === 'expanded' ? undefined : onToggleExpanded
                     }
                     className={cn(
-                      'hover:text-crimson transition',
+                      'hover:text-crimson min-w-0 leading-6 transition',
                       sceneId === action.id ? 'text-crimson' : '',
                     )}
                   >
