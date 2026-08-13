@@ -442,12 +442,14 @@ const alchemyYieldProfileSchema = z
     lots: z.array(alchemyOutputLotSchema),
     totalQuantity: z.number(),
     wastedEssence: z.number(),
+    essenceLossRatio: z.number().optional(),
     distributionSummary: z.string(),
   })
   .strict();
 const alchemyBatchProfileSchema = z
   .object({
-    yieldQuantity: z.number(),
+    yieldQuantity: z.number().optional(),
+    lotQuantity: z.number().int().positive().optional(),
     synergyScore: z.number(),
     conflictScore: z.number(),
     compoundTier: z.enum(ALCHEMY_COMPOUND_TIER_VALUES),
@@ -457,6 +459,7 @@ const alchemyBatchProfileSchema = z
     secondaryEffectMultiplierBonus: z.number(),
     essenceSummary: alchemyEssenceSummarySchema.optional(),
     yieldProfile: alchemyYieldProfileSchema.optional(),
+    essenceLossRatio: z.number().min(0).max(1).optional(),
   })
   .strict();
 const pillAlchemyMetaBaseShape = {

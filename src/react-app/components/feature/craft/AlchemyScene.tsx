@@ -1,4 +1,13 @@
 import {
+  describeAppearanceTendency,
+  describeBatchOmen,
+  describeEssenceState,
+  describeFireState,
+  describeFormulaObservation,
+  describeFurnaceGreeting,
+  type AlchemyWorkspacePhase,
+} from '@app/components/feature/alchemy/alchemyPresentation';
+import {
   PillAppearanceMark,
   PillDetailGroups,
   getPillFamilyLabel,
@@ -9,15 +18,8 @@ import {
   SelectedMaterialsWithDose,
 } from '@app/components/feature/creation';
 import { useQiActionConfirm } from '@app/components/feature/cultivator/useQiActionConfirm';
-import {
-  GameLoadingState,
-  GameSceneAsideSection,
-  GameSceneFrame,
-  GameSceneLoading,
-  GameSceneNote,
-  GameSceneSection,
-  GameSceneTabs,
-} from '@app/components/game-shell';
+import { NpcConversation } from '@app/components/feature/room';
+import { GameLoadingState, GameSceneLoading } from '@app/components/game-shell';
 import { InkModal } from '@app/components/layout';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import {
@@ -48,10 +50,9 @@ import {
   CREATION_INPUT_CONSTRAINTS,
 } from '@shared/engine/creation-v2/config/CreationBalance';
 import { formatAlchemyPropertyVector } from '@shared/lib/alchemyProperties';
-import { getPillAppearanceLabel } from '@shared/lib/pillAppearance';
 import { cn } from '@shared/lib/cn';
 import { isPillConsumable } from '@shared/lib/consumables';
-import { getGameConceptLabel } from '@shared/lib/gameConceptDisplay';
+import { getPillAppearanceLabel } from '@shared/lib/pillAppearance';
 import type { MaterialType, RealmType } from '@shared/types/constants';
 import type {
   AlchemyBatchPreview,
@@ -61,12 +62,10 @@ import type {
   FormulaAnalysisResult,
   FormulaMaterialJudgment,
   PillFamily,
-  PillAppearanceGrade,
 } from '@shared/types/consumable';
 import { PILL_FAMILY_VALUES } from '@shared/types/consumable';
 import type { Consumable, Material } from '@shared/types/cultivator';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
 
 const ALLOWED_MATERIAL_TYPES = [
   'herb',
@@ -79,7 +78,6 @@ const CRAFT_TYPE = 'alchemy' as const;
 const MAX_MATERIALS = CREATION_INPUT_CONSTRAINTS.maxMaterialKinds;
 const MIN_DOSE = CREATION_INPUT_CONSTRAINTS.minQuantityPerMaterial;
 const MAX_DOSE = ALCHEMY_MAX_DOSE;
-const SPIRIT_STONES_LABEL = getGameConceptLabel('spirit_stones');
 
 type PreviewValidation = {
   valid: boolean;
@@ -122,6 +120,8 @@ type AlchemyCraftResponse = {
   data?: {
     consumable: Consumable;
     consumables?: Consumable[];
+    craftedConsumables?: Consumable[];
+    yieldProfile?: import('@shared/types/consumable').AlchemyYieldDisplayProfile;
     formulaDiscovery?: AlchemyFormulaDiscoveryCandidate;
     formulaProgress?: FormulaProgress;
   };
@@ -441,7 +441,8 @@ export function AlchemyFormulaAnalysisModal({
             <div>
               <div className="text-ink-secondary text-xs">预计成丹</div>
               <div className="text-wood text-2xl leading-9 font-bold">
-                {analysis.batchProfile.yieldQuantity} 枚
+                {analysis.batchProfile.totalQuantityRange.min}～
+                {analysis.batchProfile.totalQuantityRange.max} 枚
               </div>
             </div>
             <div>
@@ -451,6 +452,20 @@ export function AlchemyFormulaAnalysisModal({
               </div>
               <div className="text-ink-secondary text-xs leading-5">
                 {analysis.batchProfile.roleSummary}
+              </div>
+            </div>
+            <div>
+              <div className="text-ink-secondary text-xs">药蕴损耗</div>
+              <div className="leading-7 font-semibold">
+                约{' '}
+                {Math.round(
+                  analysis.batchProfile.essenceLossRatioRange.min * 100,
+                )}
+                % ～
+                {Math.round(
+                  analysis.batchProfile.essenceLossRatioRange.max * 100,
+                )}
+                %
               </div>
             </div>
           </div>
@@ -711,6 +726,8 @@ export function AlchemyFormulaSelectionModal({
 export function AlchemyResultModal({
   consumable,
   consumables,
+  craftedConsumables,
+  yieldProfile,
   formulaProgress,
   isOpen,
   onClose,
@@ -718,6 +735,8 @@ export function AlchemyResultModal({
 }: {
   consumable: Consumable | null;
   consumables?: Consumable[];
+  craftedConsumables?: Consumable[];
+  yieldProfile?: import('@shared/types/consumable').AlchemyYieldDisplayProfile;
   formulaProgress: FormulaProgress | null;
   isOpen: boolean;
   onClose: () => void;
@@ -729,7 +748,11 @@ export function AlchemyResultModal({
 
   const model = toPillDisplayModel(consumable, { realm: viewerRealm });
   const meta = consumable.spec.alchemyMeta;
-  const outputItems = consumables?.length ? consumables : [consumable];
+  const outputItems = craftedConsumables?.length
+    ? craftedConsumables
+    : consumables?.length
+      ? consumables
+      : [consumable];
 
   return (
     <ItemShowcaseModal
@@ -765,7 +788,9 @@ export function AlchemyResultModal({
           <div className="border-wood/30 bg-wood/10 flex items-center justify-between border px-3 py-2">
             <span className="text-ink-secondary text-sm">本炉成丹</span>
             <span className="text-wood text-xl font-bold">
-              {consumable.quantity} 枚
+              {yieldProfile?.totalQuantity ??
+                outputItems.reduce((sum, item) => sum + item.quantity, 0)}{' '}
+              枚
             </span>
           </div>
           {outputItems.length > 1 ? (
@@ -793,6 +818,14 @@ export function AlchemyResultModal({
               <span className="font-bold">
                 {getBatchTierLabel(meta.batch.compoundTier)} ·{' '}
                 {meta.batch.roleSummary}
+              </span>
+            </div>
+          ) : null}
+          {yieldProfile ? (
+            <div className="border-ink/10 flex justify-between border-b pb-2">
+              <span className="opacity-70">药蕴损耗</span>
+              <span className="font-bold">
+                约 {Math.round(yieldProfile.essenceLossRatio * 100)}%
               </span>
             </div>
           ) : null}
@@ -888,6 +921,7 @@ export function AlchemyFormulaDiscoveryModal({
 }
 
 export type AlchemySceneProps = {
+  onExit?(): void;
   sectContext?: {
     facilityLevel: number;
     discountPercent: number;
@@ -897,7 +931,7 @@ export type AlchemySceneProps = {
   };
 };
 
-export function AlchemyScene({ sectContext }: AlchemySceneProps) {
+export function AlchemyScene({ sectContext, onExit }: AlchemySceneProps) {
   const profile = useCultivatorIdentity();
   const currency = useCultivatorCurrency();
   const session = usePlayerSession();
@@ -916,6 +950,8 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
   const cultivatorId = cultivator?.id ?? null;
   const { tasks } = useTaskList(cultivatorId ?? undefined);
   const [activeMode, setActiveMode] = useState<AlchemyMode>('improvised');
+  const [workspacePhase, setWorkspacePhase] =
+    useState<AlchemyWorkspacePhase>('idle');
   const [selectedFormulaId, setSelectedFormulaId] = useState<string | null>(
     null,
   );
@@ -933,6 +969,12 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
   const [createdConsumables, setCreatedConsumables] = useState<Consumable[]>(
     [],
   );
+  const [createdCraftedConsumables, setCreatedCraftedConsumables] = useState<
+    Consumable[]
+  >([]);
+  const [createdYieldProfile, setCreatedYieldProfile] = useState<
+    import('@shared/types/consumable').AlchemyYieldDisplayProfile | null
+  >(null);
   const [formulaDiscovery, setFormulaDiscovery] =
     useState<AlchemyFormulaDiscoveryCandidate | null>(null);
   const [formulaProgress, setFormulaProgress] =
@@ -977,7 +1019,6 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
   const analyzedFormulaSelectionKeyRef = useRef<string | null>(null);
   const { pushToast } = useInkUI();
   const { openQiActionConfirm } = useQiActionConfirm();
-  const navigate = useNavigate();
   const selectedFormula = useMemo(
     () =>
       selectedFormulaSnapshot?.id === selectedFormulaId
@@ -1260,6 +1301,9 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
   const resetWorkbench = () => {
     setStatus('');
     setCreatedConsumable(null);
+    setCreatedConsumables([]);
+    setCreatedCraftedConsumables([]);
+    setCreatedYieldProfile(null);
     setFormulaDiscovery(null);
     setFormulaProgress(null);
     setIsResultModalOpen(false);
@@ -1275,12 +1319,11 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
 
   const handleModeChange = (value: string) => {
     const nextMode = value as AlchemyMode;
-    if (nextMode === activeMode) {
-      return;
+    if (nextMode !== activeMode) {
+      setActiveMode(nextMode);
+      resetWorkbench();
     }
-
-    setActiveMode(nextMode);
-    resetWorkbench();
+    setWorkspacePhase('preparing');
   };
 
   const toggleMaterial = (id: string, material?: Material) => {
@@ -1328,6 +1371,7 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
 
   const resetAll = () => {
     resetWorkbench();
+    setWorkspacePhase('idle');
   };
 
   const submitPayload = useMemo(
@@ -1391,17 +1435,6 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
     displayValidation?.valid !== false;
   const canChooseMaterials =
     !isSubmitting && (!isFormulaMode || !!selectedFormulaId);
-  const formulaPrimaryButtonLabel = isSubmitting
-    ? '丹火炼中……'
-    : isAnalyzingFormula
-      ? '推演中……'
-      : !formulaAnalysis?.analysisId
-        ? analysisCooldownRemaining > 0
-          ? `${analysisCooldownRemaining} 秒后可再推演`
-          : '推演药路'
-        : formulaAnalysis.fitBand === 'poor'
-          ? '强行开炉'
-          : '依方成丹';
 
   const handleAnalyzeFormula = async () => {
     if (!cultivator) {
@@ -1473,7 +1506,7 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
       }
 
       setFormulaAnalysis(result.data);
-      setIsFormulaAnalysisModalOpen(true);
+      setWorkspacePhase('observing');
       setAnalysisExpiresAfterMs(result.data.expiresInSeconds * 1000);
       analyzedFormulaSelectionKeyRef.current = currentFormulaSelectionKey;
       setAnalysisCooldownRemaining(result.data.cooldownRemainingSeconds);
@@ -1536,6 +1569,7 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
       qiCost,
       confirmLabel: activeMode === 'formula' ? '依方成丹' : '开炉炼丹',
       onConfirm: async () => {
+        setWorkspacePhase('firing');
         setSubmitting(true);
         setStatus(
           activeMode === 'formula'
@@ -1544,6 +1578,8 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
         );
         setCreatedConsumable(null);
         setCreatedConsumables([]);
+        setCreatedCraftedConsumables([]);
+        setCreatedYieldProfile(null);
         setFormulaDiscovery(null);
         setFormulaProgress(null);
         setIsResultModalOpen(false);
@@ -1565,9 +1601,11 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
           }
 
           const nextConsumable = result.consumable;
-          const nextConsumables = result.consumables?.length
-            ? result.consumables
-            : [nextConsumable];
+          const nextConsumables = result.craftedConsumables?.length
+            ? result.craftedConsumables
+            : result.consumables?.length
+              ? result.consumables
+              : [nextConsumable];
           const discoveredFormula = result.formulaDiscovery ?? null;
           const totalQuantity = nextConsumables.reduce(
             (sum, item) => sum + item.quantity,
@@ -1576,9 +1614,12 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
           const successMessage = `【${nextConsumable.name}】丹成 ${totalQuantity} 枚，${nextConsumables.length} 个批次！`;
           setCreatedConsumable(nextConsumable);
           setCreatedConsumables(nextConsumables);
+          setCreatedCraftedConsumables(nextConsumables);
+          setCreatedYieldProfile(result.yieldProfile ?? null);
           setFormulaDiscovery(discoveredFormula);
           setFormulaProgress(result.formulaProgress ?? null);
-          setIsResultModalOpen(true);
+          setWorkspacePhase('result');
+          setIsResultModalOpen(false);
           setIsDiscoveryModalOpen(false);
           setCelebrationTick((prev) => prev + 1);
           setStatus(successMessage);
@@ -1654,6 +1695,7 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
 
       setFormulaDiscovery(null);
       setIsDiscoveryModalOpen(false);
+      setWorkspacePhase('idle');
     } catch (error) {
       pushToast({
         message:
@@ -1753,401 +1795,533 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
     return <GameSceneLoading message="丹火温养中……" />;
   }
 
-  const headerStatus =
-    activeMode === 'formula' && selectedFormula
-      ? `已选丹方：${selectedFormula.name}`
-      : selectedMaterialIds.length > 0
-        ? `已投入 ${selectedMaterialIds.length} 种灵材`
-        : activeMode === 'formula'
-          ? '请先选定丹方，再投入灵材。'
-          : '请投入灵材并注入丹意。';
-  const handlePrimaryAction = () => {
-    if (isFormulaMode) {
-      if (hasCraftableFormulaAnalysis) {
-        void handleSubmit();
-        return;
-      }
-      void handleAnalyzeFormula();
-      return;
-    }
-
-    void handleSubmit();
+  const canObserveImprovised =
+    !isFormulaMode &&
+    selectedMaterialIds.length > 0 &&
+    !!userPrompt.trim() &&
+    hasFreshPreview &&
+    estimatedSpiritStones !== null &&
+    !previewError &&
+    displayCanAfford &&
+    displayValidation?.valid !== false;
+  const fireState = describeFireState({
+    preview: displayBatchPreview,
+    blockingReason: displayValidation?.blockingReason,
+    canAfford: displayCanAfford,
+  });
+  const essenceState = describeEssenceState(displayBatchPreview);
+  const batchOmen = describeBatchOmen(displayBatchPreview);
+  const formulaObservation = describeFormulaObservation(formulaAnalysis);
+  const totalSelectedDose = selectedMaterialIds.reduce(
+    (sum, id) => sum + (doseMap[id] ?? MIN_DOSE),
+    0,
+  );
+  const totalCreatedQuantity = createdCraftedConsumables.reduce(
+    (sum, item) => sum + item.quantity,
+    0,
+  );
+  const furnaceActor = {
+    id: sectContext ? 'sect-alchemy-furnace' : 'alchemy-furnace',
+    sigil: '鼎',
+    name: sectContext ? sectContext.facilityLabel : '玄火丹炉',
+    identity: sectContext
+      ? `宗门炼丹设施 · ${sectContext.facilityLevel}阶`
+      : '炼丹设施',
+    responsibility: sectContext
+      ? `纳药、引火、聚蕴、凝丹 · 灵石减免 ${sectContext.discountPercent.toFixed(0)}%`
+      : '纳药、引火、聚蕴、凝丹',
+    appearance: 'facility' as const,
   };
+  const furnaceMessages = [
+    {
+      id: 'furnace-state',
+      body: describeFurnaceGreeting({
+        phase: workspacePhase,
+        materialCount: selectedMaterialIds.length,
+        mode: activeMode,
+      }),
+      tone:
+        fireState.tone === 'attention'
+          ? ('attention' as const)
+          : ('normal' as const),
+    },
+    ...(note
+      ? [{ id: 'session-note', body: note, tone: 'muted' as const }]
+      : []),
+    ...(status && workspacePhase !== 'result'
+      ? [{ id: 'status', body: status, tone: 'muted' as const }]
+      : []),
+  ];
 
   return (
-    <GameSceneFrame
-      title={sectContext ? `【${sectContext.scene.title}】` : '【炼丹房】'}
-      description={
-        sectContext
-          ? sectContext.scene.description
-          : '丹意引炉，药性成形。左侧专心排布材料与炉法，右侧始终盯着丹方、灵石消耗与当前炉况。'
-      }
-      identityOverride={
-        sectContext
-          ? {
-              label: sectContext.scene.title,
-              summary: sectContext.scene.description,
-            }
-          : undefined
-      }
-      headerMeta={
-        <div className="space-y-3">
-          {sectContext ? (
-            <InkButton
-              onClick={() =>
-                sectContext.onExit
-                  ? sectContext.onExit()
-                  : navigate('/game/sect')
-              }
-              variant="secondary"
-            >
-              返回丹房执事
-            </InkButton>
-          ) : null}
-          {note ? (
-            <GameSceneNote>
-              <p className="text-sm leading-7">{note}</p>
-            </GameSceneNote>
-          ) : null}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-battle-muted min-w-0 flex-1 leading-6">
-              {headerStatus}
-            </p>
-            <InkButton
-              variant="outline"
-              onClick={() => setIsGuideModalOpen(true)}
-              className="shrink-0"
-            >
-              炉理指引
-            </InkButton>
-          </div>
-        </div>
-      }
-      aside={
-        <>
-          <GameSceneAsideSection title="第一炉建议">
-            <div className="space-y-2 text-sm leading-7">
-              <p>先选青露草、凝水花一类凡品灵草，投入 1 份即可。</p>
-              <p>丹意可写：疗伤回元，药性温和。</p>
-              <p>第一炉只求看懂成丹结果，不必追求高品阶。</p>
-              {isStarterAlchemyTask ? (
-                <InkButton
-                  variant="primary"
-                  onClick={() => {
-                    setActiveMode('improvised');
-                    setUserPrompt(STARTER_ALCHEMY_PROMPT);
-                    setPreviewState(DEFAULT_PREVIEW_STATE);
-                    clearFormulaAnalysis();
-                    setIsMaterialModalOpen(true);
-                  }}
-                  disabled={isSubmitting}
-                >
-                  选择首炉灵材
-                </InkButton>
-              ) : null}
-            </div>
-          </GameSceneAsideSection>
-
-          <GameSceneAsideSection title="炉况摘要">
-            <div className="space-y-2 text-sm leading-7">
-              <p>
-                当前炉法：{activeMode === 'formula' ? '丹方炼制' : '即兴炼丹'}
-              </p>
-              <p>
-                已投入灵材：{selectedMaterialIds.length}/{MAX_MATERIALS}
-              </p>
-              <p>灵石余额：{cultivator?.spirit_stones ?? '读取失败'}</p>
-              {estimatedSpiritStones !== null ? (
-                <p>预计耗费：{estimatedSpiritStones} 灵石</p>
-              ) : null}
-              {displayBatchPreview ? (
-                <p>
-                  预计出丹：{displayBatchPreview.totalQuantityRange
-                    ? `${displayBatchPreview.totalQuantityRange.min}-${displayBatchPreview.totalQuantityRange.max}`
-                    : displayBatchPreview.minYield}
-                  {!displayBatchPreview.totalQuantityRange && displayBatchPreview.maxYield !== displayBatchPreview.minYield
-                    ? `-${displayBatchPreview.maxYield}`
-                    : ''}{' '}
-                  枚
-                </p>
-              ) : null}
-            </div>
-          </GameSceneAsideSection>
-
-          <GameSceneAsideSection
-            title="丹方与提示"
-            className="text-sm leading-7"
-          >
-            {activeMode === 'formula' && selectedFormula ? (
-              <div className="space-y-2">
-                <p>已选丹方：{selectedFormula.name}</p>
-                <p>丹方族类：{getPillFamilyLabel(selectedFormula.family)}</p>
-                <p>熟练等级：Lv.{selectedFormula.mastery.level}</p>
-                <p>
-                  {formulaAnalysis
-                    ? getFormulaAnalysisNarrative(formulaAnalysis.fitBand)
-                    : '丹方已定，只待这一炉药性显出真章。'}
-                </p>
-              </div>
-            ) : activeMode === 'formula' ? (
-              <p>请先选定丹方，再投入灵材。</p>
-            ) : (
-              <p>
-                请投入灵材并注入丹意，炉火会顺着材料药性与这缕心意凝成丹形。
-              </p>
-            )}
-            {previewError ? (
-              <p className="text-crimson mt-2">{previewError}</p>
-            ) : null}
-            {displayValidation?.blockingReason ? (
-              <p className="text-crimson mt-2">
-                {displayValidation.blockingReason}
-              </p>
-            ) : null}
-          </GameSceneAsideSection>
-        </>
-      }
-      contentClassName={
-        sectContext
-          ? 'bg-[radial-gradient(circle_at_50%_100%,rgba(190,65,18,0.16),transparent_32%),linear-gradient(145deg,rgba(184,124,54,0.08),transparent_46%)] px-3 py-4 sm:px-5'
-          : undefined
-      }
-    >
-      <GameSceneTabs
-        items={[
-          { label: '即兴炼丹', value: 'improvised' },
-          { label: '丹方炼制', value: 'formula' },
+    <>
+      <NpcConversation
+        actor={furnaceActor}
+        messages={furnaceMessages}
+        busy={isSubmitting || isAnalyzingFormula}
+        error={previewError ?? formulaAnalysisError ?? undefined}
+        options={[
+          { id: 'guide', label: '察看炉理碑' },
+          ...(workspacePhase !== 'idle'
+            ? [{ id: 'restart', label: '封炉重来', tone: 'muted' as const }]
+            : []),
+          {
+            id: 'leave',
+            label: sectContext ? '返回丹房执事' : '返回炼丹房',
+            tone: 'muted',
+          },
         ]}
-        activeValue={activeMode}
-        onChange={handleModeChange}
-      />
-
-      {activeMode === 'formula' ? (
-        <GameSceneSection title="丹方摘要">
-          {selectedFormula ? (
-            <div className="space-y-3">
-              <AlchemyFormulaSummaryCard formula={selectedFormula} />
-              <InkButton
-                variant="outline"
-                onClick={() => setIsFormulaSelectionModalOpen(true)}
-                disabled={isSubmitting}
-              >
-                更换丹方
-              </InkButton>
-              {formulaAnalysis ? (
-                <InkNotice tone="info">
-                  <div className="space-y-3">
-                    <span>
-                      药路已推演：
-                      {getFormulaFitBandLabel(formulaAnalysis.fitBand)}
-                      ，合方程度 {Math.round(formulaAnalysis.fitScore * 100)}%。
-                    </span>
-                    {formulaAnalysis.batchProfile ? (
-                      <span>
-                        本炉预计 {formulaAnalysis.batchProfile.yieldQuantity}{' '}
-                        枚，配伍
-                        {getBatchTierLabel(
-                          formulaAnalysis.batchProfile.compoundTier,
-                        )}
-                        。
-                      </span>
-                    ) : null}
-                    <InkButton
-                      variant="outline"
-                      onClick={() => setIsFormulaAnalysisModalOpen(true)}
-                      disabled={isSubmitting}
-                    >
-                      查看点评
-                    </InkButton>
-                  </div>
-                </InkNotice>
-              ) : formulaAnalysisError ? (
-                <InkNotice tone="warning">{formulaAnalysisError}</InkNotice>
-              ) : selectedMaterialIds.length > 0 ? (
-                <InkNotice tone="info">
-                  灵材既入炉中，还需先推演药路，再可依方收丹。
-                </InkNotice>
-              ) : null}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <InkNotice tone="info">先选定一份丹方，再安排炉材。</InkNotice>
+        onSelectOption={(optionId) => {
+          if (optionId === 'guide') setIsGuideModalOpen(true);
+          else if (optionId === 'restart') resetAll();
+          else if (optionId === 'leave') {
+            if (sectContext?.onExit) sectContext.onExit();
+            else onExit?.();
+          }
+        }}
+        actions={
+          workspacePhase === 'idle' ? (
+            <>
               <InkButton
                 variant="primary"
-                onClick={() => setIsFormulaSelectionModalOpen(true)}
+                onClick={() => handleModeChange('improvised')}
                 disabled={isSubmitting}
               >
-                选择丹方
+                随心起炉
               </InkButton>
-            </div>
-          )}
-        </GameSceneSection>
-      ) : null}
-
-      <GameSceneSection title="炉材投入">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-ink-secondary text-sm leading-7">
-            已投入 {selectedMaterialIds.length} / {MAX_MATERIALS} 种灵材
-          </p>
-          <InkButton
-            variant="outline"
-            onClick={() => setIsMaterialModalOpen(true)}
-            disabled={!canChooseMaterials}
-          >
-            打开材料
-          </InkButton>
-          <InkButton
-            variant="outline"
-            onClick={() => {
-              clearFormulaAnalysis();
-              setDoseMap((current) => {
-                const next = { ...current };
-                for (const id of selectedMaterialIds) {
-                  const stock = selectedMaterialMap[id]?.quantity ?? MIN_DOSE;
-                  next[id] = Math.min(MAX_DOSE, Math.max(MIN_DOSE, stock));
+              <InkButton
+                onClick={() => handleModeChange('formula')}
+                disabled={isSubmitting}
+              >
+                依照丹方炼制
+              </InkButton>
+            </>
+          ) : workspacePhase === 'preparing' ? (
+            <>
+              {isFormulaMode && !selectedFormula ? (
+                <InkButton
+                  variant="primary"
+                  onClick={() => setIsFormulaSelectionModalOpen(true)}
+                  disabled={isSubmitting}
+                >
+                  将丹方玉简置于炉前
+                </InkButton>
+              ) : isFormulaMode ? (
+                <InkButton
+                  variant="primary"
+                  onClick={() => void handleAnalyzeFormula()}
+                  disabled={!canAnalyzeFormula}
+                  pending={isAnalyzingFormula}
+                  pendingLabel="推演药路中……"
+                >
+                  推演药路
+                </InkButton>
+              ) : (
+                <InkButton
+                  variant="primary"
+                  onClick={() => setWorkspacePhase('observing')}
+                  disabled={!canObserveImprovised}
+                >
+                  观火辨药
+                </InkButton>
+              )}
+            </>
+          ) : workspacePhase === 'observing' ? (
+            <>
+              <InkButton
+                variant="primary"
+                onClick={() => setWorkspacePhase('confirming')}
+                disabled={
+                  isFormulaMode ? !canCraftFormula : !canObserveImprovised
                 }
-                return next;
-              });
-            }}
-            disabled={!canChooseMaterials || selectedMaterialIds.length === 0}
-          >
-            一键投入全部
-          </InkButton>
+              >
+                引火前再核一遍
+              </InkButton>
+              <InkButton onClick={() => setWorkspacePhase('preparing')}>
+                调整炉材与炉法
+              </InkButton>
+            </>
+          ) : workspacePhase === 'confirming' ? (
+            <>
+              <InkButton
+                variant="primary"
+                onClick={() => void handleSubmit()}
+                disabled={isSubmitting}
+              >
+                引动地火，正式开炉
+              </InkButton>
+              <InkButton onClick={() => setWorkspacePhase('observing')}>
+                再察看一遍
+              </InkButton>
+            </>
+          ) : workspacePhase === 'result' ? (
+            <>
+              <InkButton
+                variant="primary"
+                onClick={() => setIsResultModalOpen(true)}
+                disabled={!createdConsumable}
+              >
+                查看主丹与各批次详情
+              </InkButton>
+              <InkButton
+                onClick={() => {
+                  if (formulaDiscovery) setIsDiscoveryModalOpen(true);
+                  else resetAll();
+                }}
+              >
+                {formulaDiscovery ? '收丹并察看炼丹余韵' : '收丹，再起一炉'}
+              </InkButton>
+            </>
+          ) : undefined
+        }
+      >
+        <div className="space-y-5">
+          {workspacePhase !== 'idle' ? (
+            <AlchemyPhaseRail phase={workspacePhase} />
+          ) : null}
+
+          {workspacePhase === 'idle' ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FurnaceChoice
+                title="随心起炉"
+                description="不循旧方，让灵材药性与一缕丹意共同决定最终丹形。"
+                detail="适合试验新配伍，并有机会从成丹余韵中悟得丹方。"
+              />
+              <FurnaceChoice
+                title="依方炼制"
+                description="先定丹方，再让炉火沿着已经掌握的药路收束。"
+                detail="可累积丹方熟练，但炉材仍需经过一次炉前推演。"
+              />
+            </div>
+          ) : null}
+
+          {workspacePhase === 'preparing' ? (
+            <>
+              {isFormulaMode ? (
+                <AlchemyWorkspaceSection title="丹方火纹" eyebrow="定法">
+                  {selectedFormula ? (
+                    <div className="space-y-3">
+                      <AlchemyFormulaSummaryCard formula={selectedFormula} />
+                      <InkButton
+                        variant="outline"
+                        onClick={() => setIsFormulaSelectionModalOpen(true)}
+                        disabled={isSubmitting}
+                      >
+                        更换丹方玉简
+                      </InkButton>
+                    </div>
+                  ) : (
+                    <InkNotice tone="info">
+                      炉壁上的火纹仍是空白。先选定一份丹方，才能安排这一炉药路。
+                    </InkNotice>
+                  )}
+                </AlchemyWorkspaceSection>
+              ) : null}
+
+              <AlchemyWorkspaceSection title="炉前药盘" eyebrow="投药">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-ink-secondary text-sm">
+                    已备 {selectedMaterialIds.length} 种灵材，共{' '}
+                    {totalSelectedDose} 份
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <InkButton
+                      variant="outline"
+                      onClick={() => setIsMaterialModalOpen(true)}
+                      disabled={!canChooseMaterials}
+                    >
+                      打开百草药匣
+                    </InkButton>
+                    <InkButton
+                      variant="outline"
+                      onClick={() => {
+                        clearFormulaAnalysis();
+                        setDoseMap((current) => {
+                          const next = { ...current };
+                          for (const id of selectedMaterialIds) {
+                            next[id] = Math.min(
+                              MAX_DOSE,
+                              selectedMaterialMap[id]?.quantity ?? MIN_DOSE,
+                            );
+                          }
+                          return next;
+                        });
+                      }}
+                      disabled={
+                        !selectedMaterialIds.length || !canChooseMaterials
+                      }
+                    >
+                      投入所选全部
+                    </InkButton>
+                  </div>
+                </div>
+                {selectedMaterialIds.length ? (
+                  <SelectedMaterialsWithDose
+                    selectedIds={selectedMaterialIds}
+                    materialMap={selectedMaterialMap}
+                    doseMap={doseMap}
+                    minDose={MIN_DOSE}
+                    maxDose={MAX_DOSE}
+                    disabled={!canChooseMaterials}
+                    judgmentMap={formulaJudgmentMap}
+                    sortByJudgment={isFormulaMode && !!formulaAnalysis}
+                    onRemove={toggleMaterial}
+                    onDoseChange={handleDoseChange}
+                  />
+                ) : (
+                  <div className="border-ink/15 text-ink-secondary border border-dashed px-4 py-8 text-center text-sm leading-7">
+                    炉盖已经打开。先从百草药匣中挑选灵材，药盘才会显出剂量与药性。
+                  </div>
+                )}
+              </AlchemyWorkspaceSection>
+
+              {!isFormulaMode ? (
+                <AlchemyWorkspaceSection
+                  title="向炉中注入一缕丹意"
+                  eyebrow="定法"
+                >
+                  <p className="text-ink-secondary mb-3 text-sm leading-7">
+                    说清希望药力归于何处，不必预先写定丹名。炉火会根据灵材与心意自行凝形。
+                  </p>
+                  <InkInput
+                    label="这一炉所求"
+                    placeholder="例如：疗伤回元，药性温和，不要留下太重丹毒……"
+                    value={userPrompt}
+                    onChange={setUserPrompt}
+                    multiline
+                    rows={3}
+                    disabled={isSubmitting}
+                  />
+                  {isStarterAlchemyTask ? (
+                    <InkButton
+                      className="mt-3"
+                      variant="outline"
+                      onClick={() => setUserPrompt(STARTER_ALCHEMY_PROMPT)}
+                    >
+                      借用第一炉丹意
+                    </InkButton>
+                  ) : null}
+                </AlchemyWorkspaceSection>
+              ) : null}
+
+              <div className="border-ink/10 bg-ink/[0.025] grid gap-3 border p-4 text-sm sm:grid-cols-3">
+                <FurnaceMetric
+                  label="地火耗费"
+                  value={
+                    estimatedSpiritStones === null
+                      ? '待验材'
+                      : `${estimatedSpiritStones} 灵石`
+                  }
+                />
+                <FurnaceMetric
+                  label="灵石余额"
+                  value={`${cultivator?.spirit_stones ?? 0}`}
+                />
+                <FurnaceMetric
+                  label="炉前状态"
+                  value={fireState.label}
+                  attention={fireState.tone === 'attention'}
+                />
+              </div>
+              {displayValidation?.blockingReason ? (
+                <InkNotice tone="warning">
+                  {displayValidation.blockingReason}
+                </InkNotice>
+              ) : null}
+            </>
+          ) : null}
+
+          {workspacePhase === 'observing' ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ObservationCard
+                  title="炉火"
+                  value={fireState.label}
+                  attention={fireState.tone === 'attention'}
+                >
+                  {fireState.description}
+                </ObservationCard>
+                <ObservationCard title="药蕴" value={essenceState.label}>
+                  {essenceState.description}
+                </ObservationCard>
+                <ObservationCard
+                  title="主丹征兆"
+                  value={`${displayBatchPreview?.primaryQualityRange.min ?? '未显'}～${displayBatchPreview?.primaryQualityRange.max ?? '未显'}`}
+                >
+                  {batchOmen.primary}
+                </ObservationCard>
+                <ObservationCard
+                  title="同炉副丹"
+                  value={
+                    displayBatchPreview?.likelyLots.length
+                      ? `${displayBatchPreview.likelyLots.length}类征兆`
+                      : '未显'
+                  }
+                >
+                  {batchOmen.secondary}
+                </ObservationCard>
+              </div>
+              <AlchemyWorkspaceSection title="丹纹与药路" eyebrow="细察">
+                <div className="space-y-2 text-sm leading-7">
+                  <p>
+                    品相倾向：
+                    {describeAppearanceTendency(
+                      displayBatchPreview?.appearanceHints,
+                    )}
+                  </p>
+                  {formulaObservation ? <p>{formulaObservation}</p> : null}
+                  {displayBatchPreview?.summary ? (
+                    <p>{displayBatchPreview.summary}</p>
+                  ) : null}
+                  {displayPreviewWarnings.map((warning) => (
+                    <p key={warning} className="text-crimson">
+                      {warning}
+                    </p>
+                  ))}
+                </div>
+              </AlchemyWorkspaceSection>
+              <AlchemyWorkspaceSection title="细察药蕴" eyebrow="数值">
+                <div className="grid gap-3 text-sm sm:grid-cols-4">
+                  <FurnaceMetric
+                    label="灵材"
+                    value={`${selectedMaterialIds.length}味 · ${totalSelectedDose}份`}
+                  />
+                  <FurnaceMetric
+                    label="预计成丹"
+                    value={
+                      displayBatchPreview
+                        ? `${displayBatchPreview.totalQuantityRange.min}～${displayBatchPreview.totalQuantityRange.max}枚`
+                        : '未显'
+                    }
+                  />
+                  <FurnaceMetric
+                    label="药蕴损耗"
+                    value={
+                      displayBatchPreview
+                        ? `${Math.round(displayBatchPreview.essenceLossRatioRange.min * 100)}%～${Math.round(displayBatchPreview.essenceLossRatioRange.max * 100)}%`
+                        : '未显'
+                    }
+                  />
+                  <FurnaceMetric
+                    label="灵石"
+                    value={
+                      estimatedSpiritStones === null
+                        ? '未核'
+                        : `${estimatedSpiritStones}枚`
+                    }
+                  />
+                </div>
+              </AlchemyWorkspaceSection>
+            </>
+          ) : null}
+
+          {workspacePhase === 'confirming' ? (
+            <AlchemyWorkspaceSection title="引火之前" eyebrow="最终确认">
+              <p className="text-ink mb-4 leading-8">
+                药材已经沉入炉腹，丹意也已附着于火纹。此刻引动地火，最终成丹的数量、品质与品相才会真正落定。
+              </p>
+              <div className="divide-ink/10 border-ink/15 divide-y border text-sm">
+                <ConfirmationRow
+                  label="炉法"
+                  value={
+                    isFormulaMode
+                      ? `依方炼制 · ${selectedFormula?.name ?? '未定丹方'}`
+                      : '随心起炉'
+                  }
+                />
+                <ConfirmationRow
+                  label="投入"
+                  value={`${selectedMaterialIds.length}味灵材，共${totalSelectedDose}份`}
+                />
+                <ConfirmationRow
+                  label="耗费"
+                  value={`${estimatedSpiritStones ?? 0}灵石 · ${qiCost}气`}
+                />
+                <ConfirmationRow
+                  label="预计成丹"
+                  value={
+                    displayBatchPreview
+                      ? `${displayBatchPreview.totalQuantityRange.min}～${displayBatchPreview.totalQuantityRange.max}枚`
+                      : '未显'
+                  }
+                />
+                <ConfirmationRow label="主丹征兆" value={batchOmen.primary} />
+                <ConfirmationRow
+                  label="炉况"
+                  value={fireState.label}
+                  attention={fireState.tone === 'attention'}
+                />
+              </div>
+            </AlchemyWorkspaceSection>
+          ) : null}
+
+          {workspacePhase === 'firing' ? (
+            <div className="border-crimson/25 bg-crimson/[0.035] relative overflow-hidden border px-5 py-14 text-center">
+              <div className="bg-crimson/10 absolute inset-x-[18%] bottom-0 h-24 rounded-[50%] blur-2xl" />
+              <div className="relative">
+                <div className="text-crimson animate-pulse text-6xl">鼎</div>
+                <p className="text-ink mt-5 text-lg">
+                  药气入炉 · 炉火合药 · 药蕴凝丹
+                </p>
+                <p className="text-ink-secondary mt-2 text-sm leading-7">
+                  最终批次正在服务端结算。炉火不会提前泄露已经落定的品质与品相。
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {workspacePhase === 'result' && createdConsumable ? (
+            <>
+              <div className="border-wood/30 bg-wood/10 border px-5 py-5 text-center">
+                <p className="text-ink-secondary text-xs tracking-[0.3em]">
+                  丹成启炉
+                </p>
+                <p className="text-wood mt-2 text-2xl font-bold">
+                  本炉共得 {totalCreatedQuantity} 枚丹药
+                </p>
+                <p className="text-ink-secondary mt-2 text-sm">
+                  主丹已成，另有{' '}
+                  {Math.max(0, createdCraftedConsumables.length - 1)}{' '}
+                  批副丹随炉凝结。
+                </p>
+              </div>
+              <AlchemyWorkspaceSection title="本炉主丹" eyebrow="收丹">
+                <BatchResultRow
+                  item={createdCraftedConsumables[0] ?? createdConsumable}
+                  primary
+                />
+              </AlchemyWorkspaceSection>
+              {createdCraftedConsumables.length > 1 ? (
+                <AlchemyWorkspaceSection title="同炉副丹" eyebrow="批次">
+                  <div className="space-y-2">
+                    {createdCraftedConsumables.slice(1).map((item, index) => (
+                      <BatchResultRow key={`${item.id}-${index}`} item={item} />
+                    ))}
+                  </div>
+                </AlchemyWorkspaceSection>
+              ) : null}
+              {createdYieldProfile ? (
+                <p className="text-ink-secondary text-sm leading-7">
+                  本炉药蕴损耗约{' '}
+                  {Math.round(createdYieldProfile.essenceLossRatio * 100)}%。
+                  {createdYieldProfile.distributionSummary}
+                </p>
+              ) : null}
+              {formulaProgress ? (
+                <InkNotice tone="info">
+                  丹方熟练 +{formulaProgress.gainedExp}，当前 Lv.
+                  {formulaProgress.level}。
+                </InkNotice>
+              ) : null}
+            </>
+          ) : null}
         </div>
-        {isFormulaMode && !selectedFormulaId ? (
-          <InkNotice tone="info">
-            先选丹方，再甄选这一炉要投入的灵材。
-          </InkNotice>
-        ) : null}
-        <SelectedMaterialsWithDose
-          selectedIds={selectedMaterialIds}
-          materialMap={selectedMaterialMap}
-          doseMap={doseMap}
-          minDose={MIN_DOSE}
-          maxDose={MAX_DOSE}
-          disabled={!canChooseMaterials}
-          judgmentMap={formulaJudgmentMap}
-          sortByJudgment={activeMode === 'formula' && !!formulaAnalysis}
-          onRemove={(id) => toggleMaterial(id)}
-          onDoseChange={handleDoseChange}
-        />
-      </GameSceneSection>
-
-      {activeMode === 'improvised' ? (
-        <GameSceneSection title="注入丹意">
-          <InkInput
-            label="丹药意图（必填）"
-            placeholder="比如：想炼一枚兼顾疗伤与回元、但药性不要太躁烈的丹"
-            value={userPrompt}
-            onChange={setUserPrompt}
-            multiline
-            rows={3}
-            disabled={isSubmitting}
-          />
-        </GameSceneSection>
-      ) : null}
-
-      <GameSceneSection title="预计消耗">
-        {estimatedSpiritStones !== null ? (
-          <div className="bg-ink/5 border-ink/10 flex items-center justify-between border border-dashed p-3">
-            <span className="text-sm">
-              {SPIRIT_STONES_LABEL}：
-              <span className="text-wood font-bold">
-                {estimatedSpiritStones}
-              </span>{' '}
-              枚
-            </span>
-            <span
-              className={`text-xs ${displayCanAfford ? 'text-teal' : 'text-crimson'}`}
-            >
-              {displayCanAfford ? '✓ 资源充足' : '✗ 灵石不足'}
-            </span>
-          </div>
-        ) : (
-          <InkNotice>
-            {activeMode === 'formula'
-              ? '请先选定丹方并投入材料，过一遍炉前验材。'
-              : '请先选择材料以查看本炉消耗。'}
-          </InkNotice>
-        )}
-
-        {displayBatchPreview ? (
-          <InkNotice tone="info">
-            {displayBatchPreview.summary} 药蕴{' '}
-            {displayBatchPreview.totalEssenceRange
-              ? `${displayBatchPreview.totalEssenceRange.min}-${displayBatchPreview.totalEssenceRange.max}`
-              : '—'}，预计出丹{' '}
-            {displayBatchPreview.totalQuantityRange
-              ? `${displayBatchPreview.totalQuantityRange.min}-${displayBatchPreview.totalQuantityRange.max}`
-              : `${displayBatchPreview.minYield}${displayBatchPreview.maxYield !== displayBatchPreview.minYield ? `-${displayBatchPreview.maxYield}` : ''}`}{' '}
-            枚；共 {displayBatchPreview.materialKindCount} 种灵材，合计{' '}
-            {displayBatchPreview.totalDose} 份。
-            {displayBatchPreview.possibleQualities?.length
-              ? ` 可能品阶：${displayBatchPreview.possibleQualities.join('、')}。`
-              : ''}
-            {displayBatchPreview.appearanceHints
-              ? ` 品相倾向：${Object.entries(displayBatchPreview.appearanceHints)
-                  .filter(([, value]) => (value ?? 0) > 0)
-                  .sort(([, a], [, b]) => (b ?? 0) - (a ?? 0))
-                  .slice(0, 2)
-                  .map(([appearance]) =>
-                    getPillAppearanceLabel(appearance as PillAppearanceGrade),
-                  )
-                  .join('、')}。`
-              : ''}
-          </InkNotice>
-        ) : null}
-
-        {previewError && <InkNotice tone="warning">{previewError}</InkNotice>}
-        {displayValidation?.blockingReason && (
-          <InkNotice tone="warning">
-            {displayValidation.blockingReason}
-          </InkNotice>
-        )}
-        {displayPreviewWarnings.map((warning) => (
-          <InkNotice key={warning} tone="info">
-            {warning}
-          </InkNotice>
-        ))}
-      </GameSceneSection>
-
-      <InkActionGroup align="right">
-        <InkButton onClick={resetAll} disabled={isSubmitting}>
-          重置
-        </InkButton>
-        <InkButton
-          variant="primary"
-          onClick={handlePrimaryAction}
-          disabled={
-            isFormulaMode
-              ? formulaAnalysis?.analysisId
-                ? !canCraftFormula
-                : !canAnalyzeFormula
-              : isSubmitting ||
-                selectedMaterialIds.length === 0 ||
-                !userPrompt.trim() ||
-                !!previewError ||
-                estimatedSpiritStones === null ||
-                !displayCanAfford ||
-                displayValidation?.valid === false
-          }
-          pending={isSubmitting || isAnalyzingFormula}
-          pendingLabel={isSubmitting ? '丹火炼中……' : '推演中……'}
-        >
-          {isFormulaMode ? formulaPrimaryButtonLabel : '开炉炼丹'}
-        </InkButton>
-      </InkActionGroup>
-
-      {status && !isResultModalOpen && (
-        <div className="mt-4">
-          <InkNotice tone="info">{status}</InkNotice>
-        </div>
-      )}
+      </NpcConversation>
 
       <MaterialSelectionModal
         isOpen={isMaterialModalOpen}
         onClose={() => setIsMaterialModalOpen(false)}
-        title="甄选炼丹灵材"
+        title="打开百草药匣"
         maxMaterials={MAX_MATERIALS}
         cultivatorId={cultivator?.id}
         selectedMaterialIds={selectedMaterialIds}
@@ -2195,13 +2369,13 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
       <AlchemyResultModal
         consumable={createdConsumable}
         consumables={createdConsumables}
+        craftedConsumables={createdCraftedConsumables}
+        yieldProfile={createdYieldProfile ?? undefined}
         formulaProgress={formulaProgress}
         isOpen={isResultModalOpen}
         onClose={() => {
           setIsResultModalOpen(false);
-          if (formulaDiscovery) {
-            setIsDiscoveryModalOpen(true);
-          }
+          if (formulaDiscovery) setIsDiscoveryModalOpen(true);
         }}
         viewerRealm={cultivator?.realm}
       />
@@ -2222,7 +2396,7 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
         onClose={() => setIsFormulaAnalysisModalOpen(false)}
         onCraft={() => {
           setIsFormulaAnalysisModalOpen(false);
-          void handleSubmit();
+          setWorkspacePhase('confirming');
         }}
       />
 
@@ -2234,17 +2408,179 @@ export function AlchemyScene({ sectContext }: AlchemySceneProps) {
       <InkDialog
         dialog={dialog}
         onClose={() => {
-          if (!isDeletingFormula) {
-            setDialog(null);
-          }
+          if (!isDeletingFormula) setDialog(null);
         }}
       />
 
-      {celebrationTick > 0 && (
+      {celebrationTick > 0 ? (
         <InkIdentifyCelebration key={celebrationTick} variant="basic" />
-      )}
-    </GameSceneFrame>
+      ) : null}
+    </>
   );
 }
 
+function AlchemyPhaseRail({ phase }: { phase: AlchemyWorkspacePhase }) {
+  const steps: Array<{ key: AlchemyWorkspacePhase; label: string }> = [
+    { key: 'preparing', label: '投药定法' },
+    { key: 'observing', label: '观火辨药' },
+    { key: 'confirming', label: '核炉引火' },
+    { key: 'firing', label: '聚蕴凝丹' },
+    { key: 'result', label: '开鼎收丹' },
+  ];
+  const current = steps.findIndex((step) => step.key === phase);
+  return (
+    <ol className="border-ink/10 grid grid-cols-5 border-y py-3 text-center text-[0.68rem] sm:text-xs">
+      {steps.map((step, index) => (
+        <li
+          key={step.key}
+          className={cn(
+            'border-ink/10 px-1 not-last:border-r',
+            index === current
+              ? 'text-crimson font-semibold'
+              : index < current
+                ? 'text-ink'
+                : 'text-ink-secondary',
+          )}
+        >
+          <span className="block text-[0.6rem] opacity-60">{index + 1}</span>
+          {step.label}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function FurnaceChoice({
+  title,
+  description,
+  detail,
+}: {
+  title: string;
+  description: string;
+  detail: string;
+}) {
+  return (
+    <div className="border-ink/15 bg-ink/[0.025] border border-dashed p-4">
+      <h3 className="text-ink text-lg">{title}</h3>
+      <p className="text-ink mt-2 text-sm leading-7">{description}</p>
+      <p className="text-ink-secondary mt-2 text-xs leading-6">{detail}</p>
+    </div>
+  );
+}
+
+function AlchemyWorkspaceSection({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border-ink/15 border border-dashed p-4 sm:p-5">
+      <p className="text-crimson text-[0.68rem] tracking-[0.24em]">{eyebrow}</p>
+      <h3 className="text-ink mt-1 text-lg">{title}</h3>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function FurnaceMetric({
+  label,
+  value,
+  attention = false,
+}: {
+  label: string;
+  value: string;
+  attention?: boolean;
+}) {
+  return (
+    <div>
+      <div className="text-ink-secondary text-xs">{label}</div>
+      <div
+        className={cn(
+          'mt-1 font-semibold',
+          attention ? 'text-crimson' : 'text-ink',
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ObservationCard({
+  title,
+  value,
+  attention = false,
+  children,
+}: {
+  title: string;
+  value: string;
+  attention?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border-ink/15 bg-ink/[0.025] border p-4">
+      <p className="text-ink-secondary text-xs tracking-[0.18em]">{title}</p>
+      <p
+        className={cn(
+          'mt-2 text-lg font-semibold',
+          attention ? 'text-crimson' : 'text-ink',
+        )}
+      >
+        {value}
+      </p>
+      <p className="text-ink-secondary mt-2 text-sm leading-7">{children}</p>
+    </section>
+  );
+}
+
+function ConfirmationRow({
+  label,
+  value,
+  attention = false,
+}: {
+  label: string;
+  value: string;
+  attention?: boolean;
+}) {
+  return (
+    <div className="grid gap-1 px-4 py-3 sm:grid-cols-[7rem_minmax(0,1fr)]">
+      <span className="text-ink-secondary">{label}</span>
+      <span className={attention ? 'text-crimson' : 'text-ink'}>{value}</span>
+    </div>
+  );
+}
+
+function BatchResultRow({
+  item,
+  primary = false,
+}: {
+  item: Consumable;
+  primary?: boolean;
+}) {
+  const appearance = isPillConsumable(item)
+    ? getPillAppearanceLabel(item.spec.alchemyMeta.appearance)
+    : '丹药';
+  return (
+    <div
+      className={cn(
+        'flex items-center justify-between gap-4 border px-4 py-3',
+        primary ? 'border-wood/35 bg-wood/10' : 'border-ink/10',
+      )}
+    >
+      <div className="min-w-0">
+        <p className="text-ink truncate font-semibold">{item.name}</p>
+        <p className="text-ink-secondary mt-1 text-xs">
+          {item.quality ?? '凡品'} · {appearance}
+        </p>
+      </div>
+      <strong className={primary ? 'text-wood text-xl' : 'text-ink'}>
+        ×{item.quantity}
+      </strong>
+    </div>
+  );
+}
 export default AlchemyScene;

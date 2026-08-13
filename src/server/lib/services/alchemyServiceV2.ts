@@ -18,7 +18,7 @@ import {
 } from '@server/lib/services/AlchemyRecipeRules';
 import {
   rollAlchemyYieldProfile,
-  scaleOperationsForOutputLot,
+  toAlchemyYieldDisplayProfile,
 } from '@shared/lib/alchemyYield';
 import { calculateSingleElixirScore } from '@server/utils/rankingUtils';
 import { ELEMENT_PREFIX_MAP } from '@shared/config/alchemyConfig';
@@ -68,6 +68,7 @@ import {
 } from '@server/lib/services/cultivator/CultivatorProfileRepository';
 import { getMysteryMaterialBlockingReason } from './materialMysteryGuard';
 import { sectOrganizationFacade } from './sect-organization';
+import { assembleAlchemyOutputConsumables } from './alchemy/AlchemyOutputAssembler';
 
 export { synthesizeAlchemyFromPlan as synthesizeAlchemy } from './AlchemyRecipeRules';
 export { AlchemyServiceError } from './AlchemyServiceError';
@@ -92,7 +93,9 @@ export interface AlchemyPreviewResult {
 export interface ImprovisedAlchemyCraftResult {
   consumable: Consumable;
   consumables?: Consumable[];
-  yieldProfile?: import('@shared/types/consumable').AlchemyYieldProfile;
+  /** 本炉新增数量，不能使用合堆后的库存行作为结果展示数据。 */
+  craftedConsumables?: Consumable[];
+  yieldProfile?: import('@shared/types/consumable').AlchemyYieldDisplayProfile;
   formulaDiscovery?: Awaited<ReturnType<typeof buildDiscoveryCandidate>>;
 }
 
@@ -277,50 +280,14 @@ function buildAlchemySpec(
         synthesis.propertyVector,
         synthesis.family,
       ),
-      batch: synthesis.batchProfile,
+      batch: (() => {
+        const persisted = { ...synthesis.batchProfile };
+        delete persisted.essenceSummary;
+        delete persisted.yieldProfile;
+        return persisted;
+      })(),
     },
   };
-}
-
-function buildAlchemyOutputConsumables(
-  base: Consumable,
-  sourceQuality: Quality,
-  sourceAppearance: import('@shared/types/consumable').PillAppearanceGrade,
-  yieldProfile: import('@shared/types/consumable').AlchemyYieldProfile,
-): Consumable[] {
-  return yieldProfile.lots.map((lot) => {
-    const spec = base.spec.kind === 'pill'
-      ? {
-          ...base.spec,
-          operations: scaleOperationsForOutputLot(
-            base.spec.operations,
-            sourceQuality,
-            sourceAppearance,
-            lot.quality,
-            lot.appearance,
-          ),
-          alchemyMeta: {
-            ...base.spec.alchemyMeta,
-            version: 3 as const,
-            appearance: lot.appearance,
-            batch: base.spec.alchemyMeta.batch
-              ? {
-                  ...base.spec.alchemyMeta.batch,
-                  yieldQuantity: lot.quantity,
-                  yieldProfile,
-                }
-              : undefined,
-          },
-        }
-      : base.spec;
-    const consumable: Consumable = {
-      ...base,
-      quality: lot.quality,
-      quantity: lot.quantity,
-      spec,
-    };
-    return consumable;
-  });
 }
 
 async function loadPreviewMaterialRows(
@@ -566,7 +533,8 @@ export function createAlchemyService(
       name: resolvedName,
       type: '丹药',
       quality: highestMaterialRank,
-      quantity: synthesis.batchProfile.yieldQuantity,
+      // 最终数量由确认阶段的药蕴批次引擎决定；这里仅作为未结算蓝图占位。
+      quantity: 1,
       prompt,
       description:
         generatedCopy?.description ??
@@ -625,10 +593,9 @@ export function createAlchemyService(
             purity: synthesis.batchProfile.essenceSummary?.purity,
           },
         });
-        const outputConsumables = buildAlchemyOutputConsumables(
+        const outputConsumables = assembleAlchemyOutputConsumables(
           consumable,
           highestMaterialRank,
-          synthesis.appearance,
           yieldProfile,
         );
         const primaryConsumable = outputConsumables[0] ?? consumable;
@@ -722,9 +689,10 @@ export function createAlchemyService(
           });
         }
         const result: ImprovisedAlchemyCraftResult = {
-          consumable: savedConsumables[0] ?? primaryConsumable,
+          consumable: outputConsumables[0] ?? primaryConsumable,
           consumables: savedConsumables,
-          yieldProfile,
+          craftedConsumables: outputConsumables,
+          yieldProfile: toAlchemyYieldDisplayProfile(yieldProfile),
         };
         return {
           result,
@@ -733,7 +701,7 @@ export function createAlchemyService(
             const formulaDiscovery = await buildDiscoveryCandidate(
               cultivatorId,
               {
-                consumable: (savedConsumables[0] ?? primaryConsumable) as Consumable & { spec: PillSpec },
+                consumable: (outputConsumables[0] ?? primaryConsumable) as Consumable & { spec: PillSpec },
                 materials: preparedMaterials,
               },
             );

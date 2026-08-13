@@ -117,6 +117,15 @@ export interface AlchemyYieldProfile {
   lots: AlchemyOutputLot[];
   totalQuantity: number;
   wastedEssence: number;
+  essenceLossRatio?: number;
+  distributionSummary: string;
+}
+
+export interface AlchemyYieldDisplayProfile {
+  primaryQuality: Quality;
+  lots: Array<Pick<AlchemyOutputLot, 'quality' | 'appearance' | 'quantity' | 'effectMultiplier'>>;
+  totalQuantity: number;
+  essenceLossRatio: number;
   distributionSummary: string;
 }
 
@@ -131,7 +140,9 @@ export type AlchemyCompoundTier =
   (typeof ALCHEMY_COMPOUND_TIER_VALUES)[number];
 
 export interface AlchemyBatchProfile {
-  yieldQuantity: number;
+  /** @deprecated 新炼丹产量由 yieldProfile/批次引擎决定。仅兼容历史数据。 */
+  yieldQuantity?: number;
+  lotQuantity?: number;
   synergyScore: number;
   conflictScore: number;
   compoundTier: AlchemyCompoundTier;
@@ -141,21 +152,33 @@ export interface AlchemyBatchProfile {
   secondaryEffectMultiplierBonus: number;
   essenceSummary?: AlchemyEssenceSummary;
   yieldProfile?: AlchemyYieldProfile;
+  essenceLossRatio?: number;
+}
+
+/** 面向玩家的丹方推演摘要；不得包含药蕴绝对值或内部炉况参数。 */
+export interface AlchemyBatchDisplayProfile {
+  compoundTier: AlchemyCompoundTier;
+  roleSummary: string;
+  totalQuantityRange: { min: number; max: number };
+  primaryQualityRange: { min: Quality; max: Quality };
+  possibleQualities: Quality[];
+  appearanceHints: Partial<Record<PillAppearanceGrade, number>>;
+  essenceLossRatioRange: { min: number; max: number };
+  summary: string;
+  warnings: string[];
 }
 
 export interface AlchemyBatchPreview {
-  minYield: number;
-  maxYield: number;
   materialKindCount: number;
   totalDose: number;
   summary: string;
   warnings: string[];
-  totalEssenceRange?: { min: number; max: number };
-  totalQuantityRange?: { min: number; max: number };
-  primaryQualityRange?: { min: Quality; max: Quality };
-  possibleQualities?: Quality[];
-  appearanceHints?: Partial<Record<PillAppearanceGrade, number>>;
-  likelyLots?: Array<{
+  essenceLossRatioRange: { min: number; max: number };
+  totalQuantityRange: { min: number; max: number };
+  primaryQualityRange: { min: Quality; max: Quality };
+  possibleQualities: Quality[];
+  appearanceHints: Partial<Record<PillAppearanceGrade, number>>;
+  likelyLots: Array<{
     quality: Quality;
     minQuantity: number;
     maxQuantity: number;
@@ -353,7 +376,7 @@ export interface FormulaAnalysisResult {
   warnings: string[];
   materialJudgments: FormulaMaterialJudgment[];
   aggregatedPropertyVector: WeightedAlchemyProperty[];
-  batchProfile?: AlchemyBatchProfile;
+  batchProfile?: AlchemyBatchDisplayProfile;
   dominantElement?: ElementType;
   stability: number;
   toxicityRating: number;

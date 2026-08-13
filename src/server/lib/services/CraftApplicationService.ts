@@ -161,7 +161,8 @@ export async function executeCraftCommand(args: {
             cultivatorId: args.cultivatorId,
             cultivatorName,
             actionInstanceId,
-            consumables: (preparedCommit.result as { consumables?: Consumable[]; consumable?: Consumable })
+            consumables: (preparedCommit.result as { craftedConsumables?: Consumable[]; consumables?: Consumable[]; consumable?: Consumable })
+              .craftedConsumables ?? (preparedCommit.result as { consumables?: Consumable[]; consumable?: Consumable })
               .consumables ?? [
                 (preparedCommit.result as { consumable?: Consumable }).consumable,
               ].filter((item): item is Consumable => Boolean(item)),

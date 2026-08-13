@@ -34,7 +34,6 @@ import {
   rollPillAppearance,
 } from '@shared/lib/pillAppearance';
 import {
-  applyPillAppearanceToOperations,
   buildBodyTrackAdvance,
   buildBreakthroughFocusOperation,
   buildClearMindOperation,
@@ -63,8 +62,9 @@ import {
 import { getHealingCuredStatus } from '@shared/lib/healingPill';
 import { isAlchemyMaterialType } from '@shared/lib/alchemyMaterials';
 import {
+  buildAlchemyYieldPreview,
   rollAlchemyYieldProfile,
-  scaleOperationsForOutputLot,
+  toAlchemyYieldDisplayProfile,
 } from '@shared/lib/alchemyYield';
 import {
   QUALITY_ORDER,
@@ -76,6 +76,7 @@ import {
 import type {
   AlchemyBatchPreview,
   AlchemyBatchProfile,
+  AlchemyBatchDisplayProfile,
   AlchemyFormula,
   AlchemyFormulaDiscoveryCandidate,
   AlchemyFormulaMastery,
@@ -104,6 +105,7 @@ import {
 } from '@server/lib/services/cultivator/CultivatorProfileRepository';
 import { getMysteryMaterialBlockingReason } from './materialMysteryGuard';
 import { sectOrganizationFacade } from './sect-organization';
+import { assembleAlchemyOutputConsumables } from './alchemy/AlchemyOutputAssembler';
 
 const DISCOVERY_TTL_SECONDS = 600;
 const FORMULA_ANALYSIS_TTL_SECONDS = 600;
@@ -118,42 +120,6 @@ const POOR_PENALTY_FACTOR_MAX = 0.62;
 
 type MaterialRow = typeof materials.$inferSelect;
 
-function buildFormulaOutputConsumables(
-  base: Consumable,
-  sourceQuality: Quality,
-  sourceAppearance: PillAppearanceGrade,
-  yieldProfile: import('@shared/types/consumable').AlchemyYieldProfile,
-): Consumable[] {
-  return yieldProfile.lots.map((lot) => {
-    const spec = base.spec.kind === 'pill'
-      ? {
-          ...base.spec,
-          operations: scaleOperationsForOutputLot(
-            base.spec.operations,
-            sourceQuality,
-            sourceAppearance,
-            lot.quality,
-            lot.appearance,
-          ),
-          alchemyMeta: {
-            ...base.spec.alchemyMeta,
-            version: 3 as const,
-            appearance: lot.appearance,
-            batch: base.spec.alchemyMeta.batch
-              ? {
-                  ...base.spec.alchemyMeta.batch,
-                  yieldQuantity: lot.quantity,
-                  yieldProfile,
-                }
-              : undefined,
-          },
-        }
-      : base.spec;
-    const item: Consumable = { ...base, quality: lot.quality, quantity: lot.quantity, spec };
-    item.score = calculateSingleElixirScore(item);
-    return item;
-  });
-}
 type AlchemyFormulaRow = typeof alchemyFormulas.$inferSelect;
 
 export interface FormulaPreviewResult {
@@ -248,6 +214,32 @@ function sortJsonValue(value: unknown): unknown {
 
 function stableStringify(value: unknown): string {
   return JSON.stringify(sortJsonValue(value));
+}
+
+function toAlchemyBatchDisplayProfile(
+  profile: AlchemyBatchProfile,
+  materials: PreparedAlchemyMaterial[],
+): AlchemyBatchDisplayProfile {
+  const stability = profile.essenceSummary?.stability ?? 60;
+  const preview = buildAlchemyYieldPreview({
+    materials,
+    factors: {
+      synergyScore: profile.synergyScore,
+      conflictScore: profile.conflictScore,
+      stability,
+    },
+  });
+  return {
+    compoundTier: profile.compoundTier,
+    roleSummary: profile.roleSummary,
+    totalQuantityRange: preview.totalQuantityRange,
+    primaryQualityRange: preview.primaryQualityRange,
+    possibleQualities: preview.possibleQualities,
+    appearanceHints: preview.appearanceHints,
+    essenceLossRatioRange: preview.essenceLossRatioRange,
+    summary: profile.roleSummary,
+    warnings: preview.likelyLots.length > 8 ? ['本炉产出批次较多，部分相邻批次将合并展示。'] : [],
+  };
 }
 
 function normalizeDose(
@@ -1298,7 +1290,7 @@ export async function analyzeFormulaMaterials(
     warnings: payload.warnings,
     materialJudgments: payload.materialJudgments,
     aggregatedPropertyVector: payload.aggregatedPropertyVector,
-    batchProfile: payload.batchProfile,
+    batchProfile: toAlchemyBatchDisplayProfile(payload.batchProfile, materialsList),
     dominantElement: payload.dominantElement,
     stability: payload.stability,
     toxicityRating: payload.toxicityRating,
@@ -1381,6 +1373,9 @@ export interface PreparedFormulaCraft {
   commit(tx: DbTransaction): Promise<{
     result: {
       consumable: Consumable;
+      craftedConsumables: Consumable[];
+      consumables: Consumable[];
+      yieldProfile: import('@shared/types/consumable').AlchemyYieldDisplayProfile;
       formulaProgress: FormulaProgress;
     };
     inventoryChanges: ResourceOperationSettlement['inventoryChanges'];
@@ -1537,17 +1532,14 @@ export async function prepareFormulaCraft(
       masteryLevel: appearanceMasteryLevel,
     });
     const operations = appendFormulaPositiveToxicity(
-      applyPillAppearanceToOperations(
-        scaleFormulaOperations(
-          formula.blueprint.operations,
-          fitMultiplier,
-          highestMaterialRank,
-          formula.pattern.minQuality,
-        ),
-        appearance,
+      scaleFormulaOperations(
+        formula.blueprint.operations,
+        fitMultiplier,
+        highestMaterialRank,
+        formula.pattern.minQuality,
       ),
       highestMaterialRank,
-      appearance,
+      'middle',
       formula.pattern.targetPropertyVector,
     );
     const masteryBonusStability = formula.mastery.level * 2;
@@ -1611,7 +1603,12 @@ export async function prepareFormulaCraft(
           formula.pattern.targetPropertyVector,
           formula.family,
         ),
-        batch: batchProfile,
+        batch: (() => {
+          const persisted = { ...batchProfile };
+          delete persisted.essenceSummary;
+          delete persisted.yieldProfile;
+          return persisted;
+        })(),
       },
     };
     const breakthroughTargetRealm =
@@ -1636,7 +1633,8 @@ export async function prepareFormulaCraft(
         : getFormulaProductName(formula.name),
       type: '丹药',
       quality: highestMaterialRank,
-      quantity: batchProfile.yieldQuantity,
+      // 最终数量由确认阶段的药蕴批次引擎决定；这里仅作为未结算蓝图占位。
+      quantity: 1,
       description: buildFormulaDescription(
         formula,
         materialsList.map((material) => material.name),
@@ -1706,10 +1704,9 @@ export async function prepareFormulaCraft(
           minQuality: formula.pattern.minQuality,
         },
       });
-      const outputConsumables = buildFormulaOutputConsumables(
+      const outputConsumables = assembleAlchemyOutputConsumables(
         consumable,
         highestMaterialRank,
-        appearance,
         yieldProfile,
       );
 
@@ -1818,9 +1815,10 @@ export async function prepareFormulaCraft(
 
       return {
         result: {
-          consumable: savedConsumables[0] ?? consumable,
+          consumable: outputConsumables[0] ?? consumable,
           consumables: savedConsumables,
-          yieldProfile,
+          craftedConsumables: outputConsumables,
+          yieldProfile: toAlchemyYieldDisplayProfile(yieldProfile),
           formulaProgress: progress,
         },
         inventoryChanges,

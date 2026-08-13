@@ -53,20 +53,25 @@ function SectAlchemyBody() {
     return (
       <>
         <title>{formatDocumentTitle(scene.title)}</title>
-        <AlchemyScene
-          sectContext={{
-            facilityLevel: level,
-            discountPercent,
-            facilityLabel:
-              presentation.facilityLabels.alchemy ??
-              presentation.facilityLabels.workshop,
-            scene,
-            onExit: () =>
-              navigate(createSectRoomNpcHref('/game/sect/alchemy', 'keeper'), {
-                replace: true,
-              }),
-          }}
-        />
+        <SectScene sceneKey="alchemy" mood="alchemy">
+          <AlchemyScene
+            sectContext={{
+              facilityLevel: level,
+              discountPercent,
+              facilityLabel:
+                presentation.facilityLabels.alchemy ??
+                presentation.facilityLabels.workshop,
+              scene,
+              onExit: () =>
+                navigate(
+                  createSectRoomNpcHref('/game/sect/alchemy', 'furnace'),
+                  {
+                    replace: true,
+                  },
+                ),
+            }}
+          />
+        </SectScene>
       </>
     );
   return (
