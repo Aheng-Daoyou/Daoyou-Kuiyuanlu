@@ -14,7 +14,6 @@ import {
   type CultivationBoostPayload,
 } from '@shared/lib/cultivationBoost';
 import { buildInsightGain } from '@shared/lib/alchemyProgress';
-import { rollPillAppearance } from '@shared/lib/pillAppearance';
 import {
   buildBodyTrackAdvance,
   buildBreakthroughFocusOperation,
@@ -44,8 +43,6 @@ import {
 import type {
   ElementType,
   Quality,
-  RealmStage,
-  RealmType,
 } from '@shared/types/constants';
 import { QUALITY_ORDER } from '@shared/types/constants';
 import type {
@@ -88,18 +85,7 @@ export interface AggregatedAlchemyProperties {
 export interface SynthesizedAlchemyResult extends AggregatedAlchemyProperties {
   family: PillFamily;
   operations: ConditionOperation[];
-  appearance: PillAppearanceGrade;
   batchProfile: AlchemyBatchProfile;
-}
-
-export interface AlchemyCultivationSnapshotContext {
-  realm: RealmType;
-  realmStage?: RealmStage;
-  expCap?: number;
-}
-
-export interface AlchemySynthesisOptions {
-  rng?: () => number;
 }
 
 const FOCUS_BONUS: Record<AlchemyFocusMode, number> = {
@@ -728,8 +714,6 @@ export function synthesizeAlchemyFromPlan(
   materials: PreparedAlchemyMaterial[],
   plan: AlchemyRecipePlan,
   quality: Quality,
-  _cultivationContextOrRealm: AlchemyCultivationSnapshotContext | RealmType,
-  options: AlchemySynthesisOptions = {},
 ): SynthesizedAlchemyResult {
   const baseAggregated = aggregateAlchemyProperties(materials, plan);
   const batchProfile = buildAlchemyBatchProfile(materials, baseAggregated);
@@ -752,12 +736,6 @@ export function synthesizeAlchemyFromPlan(
     quality,
     batchProfile.secondaryEffectMultiplierBonus,
   );
-  const appearance = rollPillAppearance({
-    stability: aggregated.stability,
-    propertyVector: aggregated.propertyVector,
-    rng: options.rng,
-  });
-
   if (aggregated.stability < 45) {
     operations = applyLowStabilityPenalty(operations);
   }
@@ -773,7 +751,6 @@ export function synthesizeAlchemyFromPlan(
     ...aggregated,
     family,
     operations,
-    appearance,
     batchProfile,
   };
 }

@@ -40,7 +40,6 @@ import type {
   ElementType,
   MaterialType,
   Quality,
-  RealmStage,
   RealmType,
 } from '@shared/types/constants';
 import type { AlchemyRecipePlan, PillSpec } from '@shared/types/consumable';
@@ -261,7 +260,8 @@ function buildAlchemySpec(
       dominantElement: synthesis.dominantElement,
       stability: synthesis.stability,
       toxicityRating: synthesis.toxicityRating,
-      appearance: synthesis.appearance,
+      // 批次生成前的中性占位；最终品相由产出引擎逐枚生成并覆盖。
+      appearance: 'middle',
       tags: buildAlchemyPropertyTags(
         synthesis.propertyVector,
         synthesis.family,
@@ -401,9 +401,7 @@ export function createAlchemyService(
         .select({
           userId: cultivators.userId,
           spirit_stones: cultivators.spirit_stones,
-          cultivation_progress: cultivators.cultivation_progress,
           realm: cultivators.realm,
-          realm_stage: cultivators.realm_stage,
         })
         .from(cultivators)
         .where(eq(cultivators.id, cultivatorId))
@@ -458,19 +456,10 @@ export function createAlchemyService(
       throw new AlchemyServiceError('丹意未明，请稍后重试。', 503);
     }
 
-    const cultivationProgress = cultivator.cultivation_progress as
-      | { exp_cap?: number }
-      | null
-      | undefined;
     const synthesis = synthesizeAlchemyFromPlan(
       preparedMaterials,
       recipePlan,
       highestMaterialRank,
-      {
-        realm: cultivator.realm as RealmType,
-        realmStage: cultivator.realm_stage as RealmStage,
-        expCap: cultivationProgress?.exp_cap,
-      },
     );
     const breakthroughTargetRealm =
       synthesis.family === 'breakthrough'

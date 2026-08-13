@@ -29,7 +29,6 @@ import {
 import { buildInsightGain } from '@shared/lib/alchemyProgress';
 import {
   getPillAppearanceToxicityMultiplier,
-  rollPillAppearance,
 } from '@shared/lib/pillAppearance';
 import {
   buildBodyTrackAdvance,
@@ -1570,17 +1569,6 @@ export async function prepareFormulaCraft(
       aggregatedPropertyVector: aggregated.rawPropertyVector,
     });
     const qiCost = calculateAlchemyQiCost(materialsList);
-    const appearanceMasteryLevel =
-      fitBand === 'poor'
-        ? 0
-        : fitBand === 'degraded'
-          ? Math.max(0, Math.floor(formula.mastery.level / 2))
-          : formula.mastery.level;
-    const appearance = rollPillAppearance({
-      stability: projection.stability,
-      propertyVector: formula.pattern.targetPropertyVector,
-      masteryLevel: appearanceMasteryLevel,
-    });
     const operations = appendFormulaPositiveToxicity(
       scaleFormulaOperations(
         formula.blueprint.operations,
@@ -1614,7 +1602,8 @@ export async function prepareFormulaCraft(
         dominantElement: formula.pattern.dominantElement ?? dominantElement,
         stability: projection.stability,
         toxicityRating: projection.toxicityRating,
-        appearance,
+        // 批次生成前的中性占位；最终品相由产出引擎逐枚生成并覆盖。
+        appearance: 'middle',
         tags: buildAlchemyPropertyTags(
           formula.pattern.targetPropertyVector,
           formula.family,
