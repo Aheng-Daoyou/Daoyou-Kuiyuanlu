@@ -28,16 +28,13 @@ import {
 } from '@shared/lib/cultivationBoost';
 import { buildInsightGain } from '@shared/lib/alchemyProgress';
 import {
-  getPillAppearanceToxicityMultiplier,
-} from '@shared/lib/pillAppearance';
-import {
   buildBodyTrackAdvance,
   buildBreakthroughFocusOperation,
   buildClearMindOperation,
   buildCultivationBoostOperationV2,
   buildDetoxPower,
   buildLifespanGain,
-  buildPositivePillToxicity,
+  buildPillToxicity,
   buildProtectMeridiansOperation,
   buildRestorePercent,
   scalePillEffectOperation,
@@ -904,10 +901,7 @@ function appendFormulaPositiveToxicity(
     return operations;
   }
 
-  const delta = Math.round(
-    buildPositivePillToxicity(quality) *
-      getPillAppearanceToxicityMultiplier(appearance),
-  );
+  const delta = buildPillToxicity(quality, appearance);
   if (delta <= 0) {
     return operations;
   }
@@ -1707,6 +1701,9 @@ export async function prepareFormulaCraft(
         highestMaterialRank,
         yieldProfile,
       );
+      if (outputConsumables.length === 0) {
+        throw new AlchemyServiceError('本炉药蕴不足，无法凝成丹药。', 400);
+      }
 
       const [charged] = await tx
         .update(cultivators)

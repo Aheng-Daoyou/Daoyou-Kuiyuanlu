@@ -8,7 +8,6 @@ import {
   PILL_UNIT_ESSENCE_BY_QUALITY,
 } from '@shared/config/alchemyEssenceConfig';
 import { QUALITY_ORDER, QUALITY_VALUES, type Quality } from '@shared/types/constants';
-import { getPillAppearanceToxicityMultiplier } from '@shared/lib/pillAppearance';
 import type {
   AlchemyOutputLot,
   AlchemyYieldProfile,
@@ -16,7 +15,10 @@ import type {
   PillAppearanceGrade,
 } from '@shared/types/consumable';
 import type { ConditionOperation } from '@shared/types/consumable';
-import { buildPositivePillToxicity, scalePillEffectOperation } from './pillEffectScaling';
+import {
+  buildPillToxicity,
+  scalePillEffectOperation,
+} from './pillEffectScaling';
 
 export interface AlchemyEssenceMaterial {
   rank: Quality;
@@ -352,13 +354,6 @@ export function rollAlchemyYieldProfile(options: {
     }
   }
 
-  if (lots.length === 0) {
-    const fallback = factors.minQuality ?? '凡品';
-    const quantity = 1;
-    const spent = Math.min(effectiveEssence, PILL_UNIT_ESSENCE_BY_QUALITY[fallback]);
-    addLot(lots, fallback, buildAppearance(purity, stability, factors.masteryLevel ?? 0, rng), quantity, spent);
-  }
-
   // 只保留药蕴/数量贡献最高的 8 个批次；被裁剪批次计入损耗，不改变其他批次药效。
   const boundedLots = lots
     .sort((left, right) => right.essenceSpent - left.essenceSpent || QUALITY_ORDER[right.quality] - QUALITY_ORDER[left.quality])
@@ -532,6 +527,7 @@ export function scaleOperationsForOutputLot(
   sourceAppearance: PillAppearanceGrade,
   targetQuality: Quality,
   targetAppearance: PillAppearanceGrade,
+  furnaceMultiplier = 1,
 ): ConditionOperation[] {
   const sourceMultiplier =
     PILL_CONDENSATION_MULTIPLIER_BY_QUALITY[sourceQuality] *
@@ -547,8 +543,7 @@ export function scaleOperationsForOutputLot(
         delta: Math.max(
           0,
           Math.round(
-            buildPositivePillToxicity(targetQuality) *
-              getPillAppearanceToxicityMultiplier(targetAppearance),
+            buildPillToxicity(targetQuality, targetAppearance, furnaceMultiplier),
           ),
         ),
       };

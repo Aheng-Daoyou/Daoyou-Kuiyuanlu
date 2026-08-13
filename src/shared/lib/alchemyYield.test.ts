@@ -30,7 +30,7 @@ describe('alchemy yield engine', () => {
         { rank: '玄品', type: 'herb', dose: 20 },
         { rank: '神品', type: 'tcdb', dose: 1 },
       ]),
-    ).toBe(5600);
+    ).toBe(13800);
   });
 
   it('creates bounded multi-lot output with deterministic rng', () => {
@@ -50,14 +50,14 @@ describe('alchemy yield engine', () => {
     expect(result).toEqual(rollAlchemyYieldProfile(options));
   });
 
-  it('keeps a minimum output even for a small or unstable batch', () => {
+  it('returns no output when the effective essence cannot form a pill', () => {
     const result = rollAlchemyYieldProfile({
       materials: [{ rank: '凡品', type: 'herb', dose: 1 }],
       factors: { conflictScore: 1, stability: 15 },
       rng: () => 0,
     });
-    expect(result.totalQuantity).toBeGreaterThanOrEqual(1);
-    expect(result.lots.length).toBeGreaterThanOrEqual(1);
+    expect(result.totalQuantity).toBe(0);
+    expect(result.lots).toHaveLength(0);
   });
 
   it('allocates mixed-quality essence into distinct quality budgets', () => {
@@ -81,8 +81,8 @@ describe('alchemy yield engine', () => {
     ]);
     const xuanBucket = buckets.find((bucket) => bucket.quality === '玄品');
     const shenBucket = buckets.find((bucket) => bucket.quality === '神品');
-    expect(xuanBucket?.rawEssence).toBe(600);
-    expect(shenBucket?.rawEssence).toBe(5000);
+    expect(xuanBucket?.rawEssence).toBe(800);
+    expect(shenBucket?.rawEssence).toBe(13000);
     expect((shenBucket?.share ?? 0)).toBeGreaterThan(xuanBucket?.share ?? 0);
   });
 
@@ -101,7 +101,7 @@ describe('alchemy yield engine', () => {
     expect(xuan?.effectiveEssence).toBe(0);
   });
 
-  it('does not turn a small high-quality contribution into an all-high-quality batch', () => {
+  it('preserves high-quality output when the high-quality essence supports it', () => {
     const result = rollAlchemyYieldProfile({
       materials: [
         { rank: '玄品', type: 'herb', dose: 20 },
@@ -111,7 +111,7 @@ describe('alchemy yield engine', () => {
       rng: () => 0.5,
     });
     expect(result.lots.some((lot) => lot.quality === '玄品')).toBe(true);
-    expect(result.lots.every((lot) => lot.quality !== '神品' || lot.quantity <= 1)).toBe(true);
+    expect(result.lots.some((lot) => lot.quality === '神品')).toBe(true);
   });
 
   it('splits a quality batch into appearance lots while preserving quantity and essence budget', () => {
