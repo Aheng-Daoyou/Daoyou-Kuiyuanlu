@@ -493,34 +493,11 @@ function buildStabilityAndToxicity(
   };
 }
 
-export function buildAlchemyPreviewWarnings(
-  materials: PreparedAlchemyMaterial[],
-): string[] {
-  const warnings: string[] = [];
-  const estimatedPropertyCount = clamp(materials.length, 1, 3);
-  const { stability, toxicityRating } = buildStabilityAndToxicity(
-    materials,
-    estimatedPropertyCount,
-    'balanced',
-  );
-
-  if (materials.length >= 3 || stability < 45) {
-    warnings.push('材料药路偏杂，预计炉性易浮，成丹稳度可能偏低。');
-  }
-
-  if (toxicityRating >= 12) {
-    warnings.push('药底略显燥烈，预计丹毒偏高，服用后需留意调息。');
-  }
-
-  return warnings;
-}
-
 export function buildAlchemyBatchPreview(
   materials: PreparedAlchemyMaterial[],
 ): AlchemyBatchPreview {
   const materialKindCount = materials.length;
   const totalDose = sumMaterialDose(materials);
-  const warnings = buildAlchemyPreviewWarnings(materials);
   const yieldPreview = buildAlchemyYieldPreview({
     materials,
     factors: {
@@ -536,7 +513,7 @@ export function buildAlchemyBatchPreview(
       materialKindCount <= 1
         ? '单材成丹，药路稳定但变化有限。'
         : '多材合炉，实际产量取决于药性配伍与炉势。',
-    warnings,
+    warnings: [],
     essenceLossRatioRange: yieldPreview.essenceLossRatioRange,
     totalQuantityRange: yieldPreview.totalQuantityRange,
     primaryQualityRange: {

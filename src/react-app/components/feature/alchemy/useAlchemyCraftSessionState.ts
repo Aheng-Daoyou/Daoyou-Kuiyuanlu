@@ -334,7 +334,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
       }))
       .then(({ response, body }) => {
         if (!response.ok || !body.success || !body.data)
-          throw new Error(body.error || '炉前验材失败');
+          throw new Error(body.error || '材料检查失败');
         setPreview({
           key: selectionKey,
           estimatedSpiritStones: body.data.cost.spiritStones,
@@ -351,7 +351,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
         setPreview({
           ...EMPTY_PREVIEW,
           key: selectionKey,
-          previewError: error instanceof Error ? error.message : '炉前验材失败',
+          previewError: error instanceof Error ? error.message : '材料检查失败',
         });
       });
     return () => controller.abort();
@@ -408,7 +408,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
             ...current,
             cooldownRemaining: body.remainingSeconds!,
           }));
-        throw new Error(body.error || '丹方推演失败');
+        throw new Error(body.error || '丹方分析失败');
       }
       analysisKeyRef.current = selectionKey;
       if (analysisExpiryTimerRef.current !== null)
@@ -419,7 +419,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
         setAnalysis((current) => ({
           ...EMPTY_ANALYSIS,
           cooldownRemaining: current.cooldownRemaining,
-          error: '玉简中的药路投影已经散去，请重新推演。',
+          error: '本次丹方分析已过期，请重新查看炼制预览。',
         }));
         setPhase('preparing');
       }, body.data.expiresInSeconds * 1000);
@@ -435,7 +435,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
         ...current,
         value: null,
         loading: false,
-        error: error instanceof Error ? error.message : '丹方推演失败',
+        error: error instanceof Error ? error.message : '丹方分析失败',
       }));
       return false;
     }
@@ -517,9 +517,9 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
   const fire = useCallback(() => {
     if (!cultivator || !readyForFiring || submitting) return;
     openQiActionConfirm({
-      actionName: mode === 'formula' ? '依方引火' : '随心引火',
+      actionName: mode === 'formula' ? '依方炼制' : '随心炼制',
       qiCost,
-      confirmLabel: '落印引火',
+      confirmLabel: '确认炼制',
       onConfirm: async () => {
         setPhase('firing');
         setSubmitting(true);

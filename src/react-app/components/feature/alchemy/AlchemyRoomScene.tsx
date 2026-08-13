@@ -65,10 +65,10 @@ function AlchemyRoomContent() {
   const actors: RoomActorView[] = [
     {
       id: 'furnace',
-      sigil: '鼎',
+      sigil: '🔥',
       name: '玄火丹炉',
       identity: '核心炼丹设施',
-      responsibility: '配炉、观火、引火、开鼎',
+      responsibility: '准备材料、查看预览、确认炼制、领取结果',
       appearance: 'facility',
       status: {
         label: furnaceStatus(session),
@@ -82,7 +82,7 @@ function AlchemyRoomContent() {
     },
     {
       id: 'cabinet',
-      sigil: '草',
+      sigil: '🌿',
       name: '百草药柜',
       identity: '材料设施',
       responsibility: '浏览、辨认与查看炼丹灵材',
@@ -91,7 +91,7 @@ function AlchemyRoomContent() {
     },
     {
       id: 'formulas',
-      sigil: '简',
+      sigil: '📜',
       name: '丹方玉简',
       identity: '丹方设施',
       responsibility: '查阅、筛选与管理已有丹方',
@@ -100,7 +100,7 @@ function AlchemyRoomContent() {
     },
     {
       id: 'guide',
-      sigil: '理',
+      sigil: '🪨',
       name: '炉理碑',
       identity: '指引设施',
       responsibility: '阅读炼丹规则与第一炉建议',
@@ -154,11 +154,11 @@ function AlchemyRoomContent() {
 function furnaceStatus(
   session: ReturnType<typeof useAlchemyCraftSession>,
 ): string {
-  if (session.phase === 'firing') return '地火正盛';
-  if (session.phase === 'result') return '丹成待收';
-  if (session.phase === 'observing') return '火候已显';
-  if (session.readyForObservation) return '可观火';
+  if (session.phase === 'firing') return '正在炼制';
+  if (session.phase === 'result') return '结果待领取';
+  if (session.phase === 'observing') return '预览待确认';
+  if (session.readyForObservation) return '可查看预览';
   if (session.materials.ids.length || session.formula || session.intent.trim())
-    return '配炉中';
-  return '空炉待启';
+    return '准备中';
+  return '可以开始炼制';
 }

@@ -14,7 +14,6 @@ import {
   aggregateAlchemyProperties,
   buildAlchemyBatchPreview,
   buildAlchemyBatchProfile,
-  buildAlchemyPreviewWarnings,
   buildAlchemyPropertyTags,
   calculatePropertyVectorFit,
   getQuotaCategoryForFamily,
@@ -556,13 +555,6 @@ function buildFormulaAnalysisSignature(
   });
 }
 
-function buildFormulaWarnings(
-  formula: AlchemyFormula,
-  materialsList: PreparedAlchemyMaterial[],
-): string[] {
-  return buildAlchemyPreviewWarnings(materialsList);
-}
-
 function validateFormulaIngredients(
   formula: AlchemyFormula,
   materialsList: PreparedAlchemyMaterial[],
@@ -588,11 +580,7 @@ function validateFormulaIngredients(
     );
   }
 
-  return createValidation(
-    true,
-    undefined,
-    buildFormulaWarnings(formula, materialsList),
-  );
+  return createValidation(true);
 }
 
 export function buildFormulaSignature(
@@ -664,7 +652,7 @@ function buildFormulaAnalysisPayload(
     formulaFitScore: fitScore,
     materialJudgments,
   });
-  const warnings = buildFormulaWarnings(formula, materialsList);
+  const warnings: string[] = [];
 
   if (fitBand === 'degraded') {
     warnings.push('本炉虽可循方，但药力散逸较多，成丹后多半只得勉强之品。');

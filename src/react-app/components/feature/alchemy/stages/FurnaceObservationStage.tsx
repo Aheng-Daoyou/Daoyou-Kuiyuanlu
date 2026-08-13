@@ -30,7 +30,7 @@ export function FurnaceObservationStage() {
           </div>
         </div>
         <p className="text-crimson mt-5 text-xs tracking-[0.28em]">
-          神识入炉 · 火候显形
+          炼制预览
         </p>
         <h3 className="mt-2 text-xl">{fire.label}</h3>
         <p className="text-ink-secondary mx-auto mt-2 max-w-xl text-sm leading-7">
@@ -74,15 +74,9 @@ export function FurnaceObservationStage() {
           {describeFormulaObservation(session.analysis.value)}
         </InkNotice>
       ) : null}
-      {session.preview.validation?.warnings.map((warning) => (
-        <InkNotice key={warning} tone="warning">
-          {warning}
-        </InkNotice>
-      ))}
-
       <section className="border-ink/15 border p-5">
         <p className="text-crimson text-center text-xs tracking-[0.28em]">
-          引火前确认
+          炼制前确认
         </p>
         <div className="divide-ink/10 border-ink/10 mt-4 divide-y border-y">
           <ConfirmRow
@@ -94,7 +88,7 @@ export function FurnaceObservationStage() {
             }
           />
           <ConfirmRow
-            label="炉材"
+            label="材料"
             value={`${session.materials.ids.length} 味 · 共 ${session.totalDose} 份`}
           />
           <ConfirmRow
@@ -105,7 +99,7 @@ export function FurnaceObservationStage() {
                 : `${session.preview.estimatedSpiritStones} 枚`
             }
           />
-          <ConfirmRow label="真气" value={`${session.qiCost} 点`} />
+          <ConfirmRow label="天地灵气" value={`${session.qiCost} 点`} />
           <ConfirmRow
             label="预计成丹"
             value={
@@ -119,14 +113,14 @@ export function FurnaceObservationStage() {
 
       <div className="flex flex-wrap justify-between gap-3">
         <InkButton variant="secondary" onClick={session.returnToPreparation}>
-          返回调整
+          返回修改
         </InkButton>
         <InkButton
           variant="primary"
           disabled={!session.readyForFiring}
           onClick={session.fire}
         >
-          落印引火
+          确认炼制
         </InkButton>
       </div>
     </div>

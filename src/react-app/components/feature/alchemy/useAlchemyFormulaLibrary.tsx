@@ -114,16 +114,16 @@ export function useAlchemyFormulaLibrary({
   const deleteFormula = useCallback(
     (formula: AlchemyFormula) => {
       openDialog({
-        title: '删去丹方',
+        title: '删除丹方',
         content: (
           <div className="space-y-2 py-2 text-center">
-            <p>确定从玉简中删去【{formula.name}】？</p>
+            <p>确定要删除丹方【{formula.name}】吗？</p>
             <p className="text-ink-secondary text-xs">
               此操作不会影响已经炼成的丹药。
             </p>
           </div>
         ),
-        confirmLabel: '删去此方',
+        confirmLabel: '确认删除',
         cancelLabel: '保留',
         onConfirm: async () => {
           try {
@@ -135,7 +135,7 @@ export function useAlchemyFormulaLibrary({
             if (!response.ok || !body.success)
               throw new Error(body.error || '丹方删除失败');
             pushToast({
-              message: body.message || `已从玉简删去【${formula.name}】。`,
+              message: body.message || `已删除丹方【${formula.name}】。`,
               tone: 'success',
             });
             if (formulas.length === 1 && page > 1) setPage(page - 1);

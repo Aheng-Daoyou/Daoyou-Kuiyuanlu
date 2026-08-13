@@ -134,7 +134,7 @@ export function AlchemyMaterialShelf({
                 disabled={isMystery(detail) || !detail.id}
                 onClick={() => onCarry(detail)}
               >
-                携至丹炉
+                添加到丹炉
               </InkButton>
             </div>
           </div>
@@ -181,7 +181,7 @@ export function AlchemyMaterialShelf({
                     disabled={mystery || !material.id}
                     onClick={() => onCarry(material)}
                   >
-                    携至丹炉
+                    添加到丹炉
                   </InkButton>
                 </div>
               </article>

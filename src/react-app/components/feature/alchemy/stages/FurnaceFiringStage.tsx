@@ -13,16 +13,16 @@ export function FurnaceFiringStage() {
       <p className="text-crimson mt-8 text-xs tracking-[0.32em]">
         地火回环 · 药蕴聚合
       </p>
-      <h3 className="mt-3 text-xl">炉门已封，不可再改配伍</h3>
+      <h3 className="mt-3 text-xl">正在炼制，请稍候</h3>
       <p className="text-ink-secondary mx-auto mt-3 max-w-lg text-sm leading-7">
         {session.status ||
           '先煅杂质，再聚药蕴；主丹于火心成形，余蕴沿炉壁分结为副丹。'}
       </p>
       <div className="text-ink-secondary mx-auto mt-7 flex max-w-md justify-center gap-8 text-xs">
-        <span>煅杂</span>
-        <span className="text-crimson">聚蕴</span>
-        <span>凝形</span>
-        <span>养丹</span>
+        <span>处理材料</span>
+        <span className="text-crimson">汇聚药力</span>
+        <span>凝结丹药</span>
+        <span>完成炼制</span>
       </div>
     </div>
   );

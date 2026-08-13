@@ -10,11 +10,11 @@ export function FurnaceWorkspace({ onBack }: { onBack(): void }) {
   const session = useAlchemyCraftSession();
   const title = session.sectContext?.facilityLabel ?? '玄火丹炉';
   const description = session.sectContext
-    ? `宗门炼丹设施 · ${session.sectContext.facilityLevel} 阶；在此完成配炉、观火与开鼎。`
-    : '本炉独立完成配炉、观火与开鼎；药柜、玉简和炉理碑均不是必经步骤。';
+    ? `宗门炼丹设施 · ${session.sectContext.facilityLevel} 阶；在此选择材料、确认预览并完成炼制。`
+    : '可在这里选择材料、查看炼制预览并完成炼制；其他设施均不是必经步骤。';
   return (
     <AlchemyFacilityWorkspace
-      sigil="鼎"
+      sigil="🔥"
       title={title}
       description={description}
       onBack={onBack}

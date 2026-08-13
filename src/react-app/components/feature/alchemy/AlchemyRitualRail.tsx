@@ -2,9 +2,9 @@ import { cn } from '@shared/lib/cn';
 import type { AlchemyWorkspacePhase } from './alchemyTypes';
 
 const STEPS = [
-  { key: 'preparing', sigil: '配', label: '配炉' },
-  { key: 'observing', sigil: '观', label: '观火' },
-  { key: 'opening', sigil: '开', label: '开鼎' },
+  { key: 'preparing', sigil: '备', label: '准备材料' },
+  { key: 'observing', sigil: '预', label: '确认预览' },
+  { key: 'opening', sigil: '成', label: '炼制结果' },
 ] as const;
 
 export function AlchemyRitualRail({ phase }: { phase: AlchemyWorkspacePhase }) {

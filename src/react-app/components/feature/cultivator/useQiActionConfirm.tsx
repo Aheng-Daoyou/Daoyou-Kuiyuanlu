@@ -29,7 +29,7 @@ export function normalizeQiErrorMessage(error: unknown, fallback: string) {
 }
 
 export function useQiActionConfirm() {
-  const { openDialog } = useInkUI();
+  const { closeDialog, openDialog } = useInkUI();
 
   const openQiActionConfirm = useCallback(
     ({
@@ -53,10 +53,13 @@ export function useQiActionConfirm() {
         confirmLabel,
         cancelLabel: '再想想',
         loadingLabel: '行功中……',
-        onConfirm,
+        onConfirm: async () => {
+          closeDialog();
+          await onConfirm();
+        },
       });
     },
-    [openDialog],
+    [closeDialog, openDialog],
   );
 
   return { openQiActionConfirm };

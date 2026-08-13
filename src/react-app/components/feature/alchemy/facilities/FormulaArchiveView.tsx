@@ -33,7 +33,7 @@ export function FormulaArchiveView({
   };
   return (
     <AlchemyFacilityWorkspace
-      sigil="简"
+      sigil="📜"
       title="丹方玉简"
       description="查阅、整理与管理已经悟得的丹方；本炉配伍仍由丹炉完成。"
       onBack={onBack}
@@ -65,7 +65,7 @@ export function FormulaArchiveView({
             pending={library.loading}
             onClick={library.reload}
           >
-            重读玉简
+            刷新
           </InkButton>
         </div>
 
@@ -108,7 +108,7 @@ export function FormulaArchiveView({
                   variant="primary"
                   onClick={() => openFurnace(detail)}
                 >
-                  以此方开炉
+                  使用此丹方
                 </InkButton>
               </div>
             </div>
@@ -149,13 +149,13 @@ export function FormulaArchiveView({
                     variant="secondary"
                     onClick={() => library.deleteFormula(formula)}
                   >
-                    删去
+                    删除
                   </InkButton>
                   <InkButton
                     variant="primary"
                     onClick={() => openFurnace(formula)}
                   >
-                    以此方开炉
+                    使用此丹方
                   </InkButton>
                 </div>
               </article>
@@ -173,7 +173,7 @@ export function FormulaArchiveView({
             disabled={!library.pagination.hasPreviousPage || library.loading}
             onClick={() => library.setPage(library.page - 1)}
           >
-            前卷
+            上一页
           </InkButton>
           <span className="text-ink-secondary text-xs">
             {library.pagination.page} /{' '}
@@ -184,7 +184,7 @@ export function FormulaArchiveView({
             disabled={!library.pagination.hasNextPage || library.loading}
             onClick={() => library.setPage(library.page + 1)}
           >
-            后卷
+            下一页
           </InkButton>
         </div>
       </div>

@@ -1,8 +1,10 @@
+import { MaterialSelector } from '@app/components/feature/creation';
 import {
-  MaterialSelectionModal,
-  SelectedMaterialsWithDose,
-} from '@app/components/feature/creation';
-import { InkButton, InkNotice, inkFieldVariants } from '@app/components/ui';
+  InkButton,
+  InkDetailDrawer,
+  InkNotice,
+  inkFieldVariants,
+} from '@app/components/ui';
 import { STARTER_ALCHEMY_PROMPT } from '@app/lib/alchemy/starterAlchemy';
 import { useState } from 'react';
 import {
@@ -12,6 +14,7 @@ import {
   useAlchemyCraftSession,
 } from '../alchemyCraftContext';
 import { FormulaPickerModal } from '../FormulaPickerModal';
+import { FurnaceMaterialDraftList } from '../FurnaceMaterialDraftList';
 
 const MATERIAL_TYPES = ['herb', 'ore', 'monster', 'tcdb', 'aux'] as const;
 
@@ -34,13 +37,13 @@ export function FurnacePreparationStage() {
           <Choice
             active={session.mode === 'improvised'}
             title="随心炼丹"
-            detail="以材料药性和一句丹意引导成丹，可能悟得新方。"
+            detail="填写炼制目标，由所选材料生成丹药，也可能获得新丹方。"
             onClick={() => session.setMode('improvised')}
           />
           <Choice
             active={session.mode === 'formula'}
             title="依方炼制"
-            detail="选择已有丹方，观火时统一推演本炉配伍。"
+            detail="选择已有丹方，预览时分析本炉材料是否符合要求。"
             onClick={() => session.setMode('formula')}
           />
         </div>
@@ -50,7 +53,7 @@ export function FurnacePreparationStage() {
         <section>
           <label className="block">
             <span className="text-ink-secondary text-xs tracking-[0.2em]">
-              注入丹意
+              炼制目标
             </span>
             <textarea
               className={`${inkFieldVariants()} mt-3 min-h-28 resize-y`}
@@ -67,7 +70,7 @@ export function FurnacePreparationStage() {
                   variant="secondary"
                   onClick={() => session.setIntent(STARTER_ALCHEMY_PROMPT)}
                 >
-                  借用第一炉丹意
+                  填入推荐目标
                 </InkButton>
               ) : null}
             </span>
@@ -106,7 +109,7 @@ export function FurnacePreparationStage() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-ink-secondary text-xs tracking-[0.2em]">
-              本炉材料
+              已选材料
             </p>
             <p className="mt-1 text-sm">
               {session.materials.ids.length} / {ALCHEMY_MAX_MATERIALS} 味 · 共{' '}
@@ -117,10 +120,10 @@ export function FurnacePreparationStage() {
             variant="secondary"
             onClick={() => setMaterialPickerOpen(true)}
           >
-            选择灵材
+            添加材料
           </InkButton>
         </div>
-        <SelectedMaterialsWithDose
+        <FurnaceMaterialDraftList
           selectedIds={session.materials.ids}
           materialMap={session.materials.map}
           doseMap={session.materials.doses}
@@ -133,7 +136,7 @@ export function FurnacePreparationStage() {
       </section>
 
       {session.preview.loading ? (
-        <InkNotice tone="info">炉火正在辨认新配伍……</InkNotice>
+        <InkNotice tone="info">正在更新炼制预览……</InkNotice>
       ) : null}
       {session.preview.previewError ? (
         <InkNotice tone="warning">{session.preview.previewError}</InkNotice>
@@ -151,32 +154,50 @@ export function FurnacePreparationStage() {
         <InkButton
           variant="primary"
           pending={session.analysis.loading}
-          pendingLabel="推演药路……"
+          pendingLabel="正在生成预览……"
           disabled={!canObserve || session.analysis.cooldownRemaining > 0}
           onClick={() => void session.observe()}
         >
           {session.analysis.cooldownRemaining > 0
-            ? `${session.analysis.cooldownRemaining} 秒后可再观火`
-            : '观火推演'}
+            ? `${session.analysis.cooldownRemaining} 秒后可再次预览`
+            : '查看炼制预览'}
         </InkButton>
       </div>
 
-      <MaterialSelectionModal
+      <InkDetailDrawer
         isOpen={materialPickerOpen}
         onClose={() => setMaterialPickerOpen(false)}
-        title="选择本炉灵材"
-        maxMaterials={ALCHEMY_MAX_MATERIALS}
-        cultivatorId={session.cultivator?.id}
-        selectedMaterialIds={session.materials.ids}
-        selectedMaterialMap={session.materials.map}
-        onToggleMaterial={session.toggleMaterial}
-        isSubmitting={session.submitting}
-        includeMaterialTypes={[...MATERIAL_TYPES]}
-        pageSize={16}
-        loadingText="正在展开药材名录……"
-        emptyNoticeText="暂无可用于炼丹的材料。"
-        totalText={(total) => `共 ${total} 份可用材料`}
-      />
+        title="选择本炉材料"
+        description={`从药柜中选择材料。已选 ${session.materials.ids.length} / ${ALCHEMY_MAX_MATERIALS} 味，投入数量可在选择后调整。`}
+        size="xl"
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-ink-secondary text-xs">
+              已选择 {session.materials.ids.length} 味材料
+            </span>
+            <InkButton
+              variant="primary"
+              onClick={() => setMaterialPickerOpen(false)}
+            >
+              完成选择
+            </InkButton>
+          </div>
+        }
+      >
+        <MaterialSelector
+          cultivatorId={session.cultivator?.id}
+          selectedMaterialIds={session.materials.ids}
+          selectedMaterialMap={session.materials.map}
+          onToggleMaterial={session.toggleMaterial}
+          isSubmitting={session.submitting}
+          includeMaterialTypes={[...MATERIAL_TYPES]}
+          pageSize={16}
+          loadingText="正在展开药材名录……"
+          emptyNoticeText="暂无可用于炼丹的材料。"
+          totalText={(total) => `共 ${total} 份可用材料`}
+          showSelectedMaterialsPanel
+        />
+      </InkDetailDrawer>
       <FormulaPickerModal
         isOpen={formulaPickerOpen}
         selectedId={session.formula?.id}

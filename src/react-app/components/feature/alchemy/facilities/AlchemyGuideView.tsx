@@ -4,15 +4,15 @@ import { AlchemyFacilityWorkspace } from '../AlchemyFacilityWorkspace';
 const SECTIONS = [
   {
     title: '初识炼丹',
-    body: '一炉炼丹只需在丹炉内完成配炉、观火与开鼎。药柜、玉简和炉理碑都是可选的辅助设施。',
+    body: '一炉炼丹只需在丹炉内完成材料准备、炼制预览和确认炼制。药柜、玉简和炉理碑都是可选的辅助设施。',
   },
   {
     title: '随心炼丹',
-    body: '投入灵材并写下一句明确丹意，炉火会根据材料药性与意图自行凝成丹形，也可能由此悟得新方。',
+    body: '投入材料并填写明确的炼制目标，丹炉会根据材料药性与目标生成丹药，也可能由此获得新丹方。',
   },
   {
     title: '丹方炼制',
-    body: '选择已留存丹方后再安排炉材。观火时玉简投影会判断配伍是契合、勉强还是偏路。',
+    body: '选择已保存的丹方后再添加材料。炼制预览会说明当前材料与丹方是否契合。',
   },
   {
     title: '药蕴与批次',
@@ -20,15 +20,15 @@ const SECTIONS = [
   },
   {
     title: '品质与品相',
-    body: '品质代表丹药层次，品相代表同品质下的成丹完整程度。观火只能看见倾向，开鼎时结果才最终落定。',
+    body: '品质代表丹药层次，品相代表同品质下的成丹完整程度。预览只能显示大致倾向，炼制完成后才能看到最终结果。',
   },
   {
     title: '丹毒与炉况',
-    body: '燥烈、冲突或过杂的配伍会提高损耗与风险。观火阶段会列出阻断原因和需要留意的炉况。',
+    body: '燥烈、冲突或过杂的配伍会提高损耗与风险。炼制预览会列出无法继续的原因和需要留意的问题。',
   },
   {
     title: '常见失败原因',
-    body: '材料不足、灵石不足、丹意为空、未选择丹方、配伍变化或分析过期，都会阻止引火；返回配炉调整即可。',
+    body: '材料不足、灵石不足、炼制目标为空、未选择丹方、材料变化或分析过期，都会导致无法炼制；返回准备阶段修改即可。',
   },
 ] as const;
 
@@ -43,7 +43,7 @@ export function AlchemyGuideView({
 }) {
   return (
     <AlchemyFacilityWorkspace
-      sigil="理"
+      sigil="🪨"
       title="炉理碑"
       description="碑文只记述炼丹之理，不替玩家改变本炉配伍或炼制方式。"
       onBack={onBack}
@@ -54,7 +54,7 @@ export function AlchemyGuideView({
             <div className="space-y-2">
               <p className="font-medium">第一炉建议</p>
               <p className="text-sm leading-7">
-                先取一至两味凡品灵草，各投入一份；选择随心炼丹，并写下“疗伤回元，药性温和”。第一炉只需看懂观火与批次结果。
+                先选一至两味凡品灵草，各投入一份；选择随心炼丹，并填写“疗伤回元，药性温和”。第一炉只需学会查看炼制预览和结果清单。
               </p>
             </div>
           </InkNotice>
@@ -71,7 +71,7 @@ export function AlchemyGuideView({
         </div>
         <div className="flex justify-end">
           <InkButton variant="primary" onClick={onOpenFurnace}>
-            前往丹炉实践
+            前往丹炉
           </InkButton>
         </div>
       </div>

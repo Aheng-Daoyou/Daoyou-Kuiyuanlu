@@ -28,25 +28,13 @@ export function describeFireState({
     };
   if (!preview)
     return {
-      label: '尚未观火',
-      description: '药气尚未形成可辨认的火路。',
-      tone: 'normal',
-    };
-  if (preview.warnings.length > 1)
-    return {
-      label: '火势摇曳',
-      description: '炉火仍能维持，但药性之间已有数处牵扯。',
-      tone: 'attention',
-    };
-  if (preview.warnings.length === 1)
-    return {
-      label: '尚可收束',
-      description: preview.warnings[0],
+      label: '尚无预览',
+      description: '选择材料后才能生成炼制预览。',
       tone: 'normal',
     };
   return {
     label: '炉火正稳',
-    description: '火纹首尾相接，药气正在沿着同一条炉路运行。',
+    description: '当前材料可以炼制，请查看预览并决定是否继续。',
     tone: 'normal',
   };
 }
@@ -115,5 +103,5 @@ export function describeFormulaObservation(
     return '丹方火纹与炉中药气彼此咬合，药路已经完全显明。';
   if (analysis.fitBand === 'degraded')
     return '药路尚能循方而行，但有一部分药蕴会在收束时散失。';
-  return '炉中药气偏离丹方主路较远，强行开炉仍可能成丹，但结果难以圆满。';
+  return '当前材料与丹方差异较大，继续炼制仍可能成丹，但结果可能不理想。';
 }

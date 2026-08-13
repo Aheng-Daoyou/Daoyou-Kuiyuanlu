@@ -9,7 +9,6 @@ import {
 } from '@server/lib/drizzle/schema';
 import {
   buildAlchemyBatchPreview,
-  buildAlchemyPreviewWarnings,
   buildAlchemyPropertyTags,
   describeAlchemyPropertyVector,
   getQuotaCategoryForFamily,
@@ -211,7 +210,6 @@ function buildPreparedMaterials(
 
 function buildSelectionValidation(
   materialRows: MaterialRow[],
-  materialQuantities?: Record<string, number>,
 ): AlchemySelectionValidation {
   for (const material of materialRows) {
     const error = validateMaterialRow(material);
@@ -219,16 +217,7 @@ function buildSelectionValidation(
       return createValidation(false, error);
     }
   }
-
-  const preparedMaterials = buildPreparedMaterials(
-    materialRows,
-    materialQuantities,
-  );
-  return createValidation(
-    true,
-    undefined,
-    buildAlchemyPreviewWarnings(preparedMaterials),
-  );
+  return createValidation(true);
 }
 
 function buildFallbackName(
@@ -384,7 +373,7 @@ export async function previewAlchemySelection(
     'sect.craft.alchemy',
   );
 
-  const validation = buildSelectionValidation(rows, materialQuantities);
+  const validation = buildSelectionValidation(rows);
   const preparedMaterials = validation.valid
     ? buildPreparedMaterials(rows, materialQuantities)
     : [];
