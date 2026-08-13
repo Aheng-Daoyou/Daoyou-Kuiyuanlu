@@ -82,6 +82,9 @@ export function FurnaceHarvestStage({ onReturn }: { onReturn(): void }) {
           <p className="text-ink-secondary mt-2 text-xs">
             {session.result.formulaDiscovery.discoveryRemark}
           </p>
+          <p className="text-ink-secondary mt-2 text-xs leading-6">
+            保存后，今后便可按照这份丹方推演材料并重复炼制。
+          </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <InkButton
               variant="secondary"

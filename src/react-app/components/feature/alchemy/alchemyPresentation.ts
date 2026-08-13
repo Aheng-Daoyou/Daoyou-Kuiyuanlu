@@ -1,6 +1,6 @@
 import { getPillAppearanceLabel } from '@shared/lib/pillAppearance';
 import type {
-  AlchemyBatchPreview,
+  AlchemyBatchDisplayProfile,
   FormulaAnalysisResult,
   PillAppearanceGrade,
 } from '@shared/types/consumable';
@@ -10,7 +10,7 @@ export function describeFireState({
   blockingReason,
   canAfford,
 }: {
-  preview: AlchemyBatchPreview | null;
+  preview: AlchemyBatchDisplayProfile | null;
   blockingReason?: string;
   canAfford: boolean;
 }): { label: string; description: string; tone: 'normal' | 'attention' } {
@@ -39,7 +39,9 @@ export function describeFireState({
   };
 }
 
-export function describeEssenceState(preview: AlchemyBatchPreview | null): {
+export function describeEssenceState(
+  preview: AlchemyBatchDisplayProfile | null,
+): {
   label: string;
   description: string;
 } {
@@ -54,7 +56,9 @@ export function describeEssenceState(preview: AlchemyBatchPreview | null): {
   };
 }
 
-export function describeBatchOmen(preview: AlchemyBatchPreview | null): {
+export function describeBatchOmen(
+  preview: AlchemyBatchDisplayProfile | null,
+): {
   primary: string;
   secondary: string;
 } {
@@ -80,7 +84,7 @@ export function describeBatchOmen(preview: AlchemyBatchPreview | null): {
 }
 
 export function describeAppearanceTendency(
-  hints: AlchemyBatchPreview['appearanceHints'] | undefined,
+  hints: AlchemyBatchDisplayProfile['appearanceHints'] | undefined,
 ): string {
   if (!hints) return '丹纹尚未定形。';
   const labels = Object.entries(hints)

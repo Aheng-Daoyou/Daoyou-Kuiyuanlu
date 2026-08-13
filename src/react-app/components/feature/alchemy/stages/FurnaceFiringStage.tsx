@@ -16,7 +16,9 @@ export function FurnaceFiringStage() {
       <h3 className="mt-3 text-xl">正在炼制，请稍候</h3>
       <p className="text-ink-secondary mx-auto mt-3 max-w-lg text-sm leading-7">
         {session.status ||
-          '先煅杂质，再聚药蕴；主丹于火心成形，余蕴沿炉壁分结为副丹。'}
+          (session.mode === 'improvised'
+            ? '材料正在炉火中发生未知变化，结果要等开鼎后才能知晓。'
+            : '丹炉正依照推演火路煅去杂质、收束药力。')}
       </p>
       <div className="text-ink-secondary mx-auto mt-7 flex max-w-md justify-center gap-8 text-xs">
         <span>处理材料</span>

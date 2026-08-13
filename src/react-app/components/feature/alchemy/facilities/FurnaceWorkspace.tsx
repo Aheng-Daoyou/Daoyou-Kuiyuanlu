@@ -1,5 +1,4 @@
 import { AlchemyToolWorkspace } from '../AlchemyToolWorkspace';
-import { AlchemyRitualRail } from '../AlchemyRitualRail';
 import { useAlchemyCraftSession } from '../alchemyCraftContext';
 import { FurnaceFiringStage } from '../stages/FurnaceFiringStage';
 import { FurnaceHarvestStage } from '../stages/FurnaceHarvestStage';
@@ -31,7 +30,6 @@ export function FurnaceWorkspace({
         {session.note ? (
           <p className="text-ink-secondary text-sm leading-7">{session.note}</p>
         ) : null}
-        <AlchemyRitualRail phase={session.phase} />
         {session.phase === 'preparing' ? <FurnacePreparationStage /> : null}
         {session.phase === 'observing' ? <FurnaceObservationStage /> : null}
         {session.phase === 'firing' ? <FurnaceFiringStage /> : null}

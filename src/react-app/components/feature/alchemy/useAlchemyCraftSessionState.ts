@@ -15,7 +15,14 @@ import {
 } from '@shared/engine/creation-v2/config/CreationBalance';
 import type { AlchemyFormula, AlchemyMode } from '@shared/types/consumable';
 import type { Material } from '@shared/types/cultivator';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type {
   AddMaterialResult,
   AlchemyResultState,
@@ -23,7 +30,7 @@ import type {
   AlchemyWorkspacePhase,
   FormulaAnalysisState,
   MaterialDraft,
-  PreviewState,
+  ReadinessState,
 } from './alchemyTypes';
 
 export const ALCHEMY_MIN_DOSE =
@@ -33,13 +40,12 @@ export const ALCHEMY_MAX_MATERIALS =
 export { ALCHEMY_MAX_DOSE };
 
 const EMPTY_MATERIALS: MaterialDraft = { ids: [], map: {}, doses: {} };
-const EMPTY_PREVIEW: PreviewState = {
+const EMPTY_READINESS: ReadinessState = {
   key: null,
   estimatedSpiritStones: null,
   validation: null,
-  batchPreview: null,
   canAfford: true,
-  previewError: null,
+  error: null,
   loading: false,
 };
 const EMPTY_RESULT: AlchemyResultState = {
@@ -57,13 +63,12 @@ const EMPTY_ANALYSIS: FormulaAnalysisState = {
   cooldownRemaining: 0,
 };
 
-type PreviewResponse = {
+type ReadinessResponse = {
   success: boolean;
   data?: {
     cost: { spiritStones: number };
     canAfford: boolean;
-    validation: PreviewState['validation'];
-    batchPreview?: PreviewState['batchPreview'];
+    validation: ReadinessState['validation'];
   };
   error?: string;
 };
@@ -85,6 +90,24 @@ type CraftResult = Omit<
   formulaDiscovery?: AlchemyResultState['formulaDiscovery'];
   formulaProgress?: AlchemyResultState['formulaProgress'];
 };
+
+function buildCraftConfirmationDetails(items: Array<[string, string]>) {
+  return createElement(
+    'dl',
+    { className: 'space-y-2' },
+    ...items.map(([label, value]) =>
+      createElement(
+        'div',
+        {
+          key: label,
+          className: 'grid gap-1 sm:grid-cols-[6rem_minmax(0,1fr)]',
+        },
+        createElement('dt', { className: 'text-ink-secondary' }, label),
+        createElement('dd', null, value),
+      ),
+    ),
+  );
+}
 
 export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
   const profile = useCultivatorIdentity();
@@ -118,7 +141,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
   const [intent, setIntentState] = useState('');
   const [formula, setFormula] = useState<AlchemyFormula | null>(null);
   const [materials, setMaterials] = useState<MaterialDraft>(EMPTY_MATERIALS);
-  const [preview, setPreview] = useState<PreviewState>(EMPTY_PREVIEW);
+  const [readiness, setReadiness] = useState<ReadinessState>(EMPTY_READINESS);
   const [analysis, setAnalysis] =
     useState<FormulaAnalysisState>(EMPTY_ANALYSIS);
   const [result, setResult] = useState<AlchemyResultState>(EMPTY_RESULT);
@@ -151,27 +174,34 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
     mode === 'formula'
       ? QI_ACTION_COSTS.alchemy_formula
       : QI_ACTION_COSTS.alchemy_improvised;
-  const readyForPreview =
+  const readyForReadinessCheck =
     materials.ids.length > 0 && (mode === 'improvised' || Boolean(formula));
-  const previewIsFresh =
-    preview.key === selectionKey &&
-    preview.estimatedSpiritStones !== null &&
-    !preview.loading;
-  const readyForObservation = Boolean(
-    readyForPreview &&
-    previewIsFresh &&
-    preview.validation?.valid !== false &&
-    preview.canAfford &&
-    !preview.previewError,
+  const readinessIsFresh =
+    readiness.key === selectionKey &&
+    readiness.estimatedSpiritStones !== null &&
+    !readiness.loading;
+  const readyForCostConfirmation = Boolean(
+    readyForReadinessCheck &&
+    readinessIsFresh &&
+    readiness.validation?.valid !== false &&
+    readiness.canAfford &&
+    !readiness.error,
   );
-  const readyForFiring =
+  const readyForFormulaAnalysis =
+    mode === 'formula' && Boolean(formula) && readyForCostConfirmation;
+  const readyForImprovisedFire = Boolean(
+    mode === 'improvised' &&
+      phase === 'preparing' &&
+      readyForCostConfirmation &&
+      intent.trim(),
+  );
+  const readyForFormulaFire = Boolean(
+    mode === 'formula' &&
     phase === 'observing' &&
-    readyForObservation &&
-    (mode === 'improvised'
-      ? Boolean(intent.trim())
-      : Boolean(
-          analysis.value?.analysisId && analysisKeyRef.current === selectionKey,
-        ));
+    readyForCostConfirmation &&
+    analysis.value?.analysisId &&
+    analysisKeyRef.current === selectionKey,
+  );
 
   const clearAnalysis = useCallback(() => {
     if (analysisExpiryTimerRef.current !== null) {
@@ -187,7 +217,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
 
   const invalidateObservation = useCallback(() => {
     setPhase('preparing');
-    setPreview(EMPTY_PREVIEW);
+    setReadiness(EMPTY_READINESS);
     setResult(EMPTY_RESULT);
     setStatus('');
     clearAnalysis();
@@ -307,8 +337,8 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
   );
 
   useEffect(() => {
-    if (!readyForPreview) {
-      setPreview(EMPTY_PREVIEW);
+    if (!readyForReadinessCheck) {
+      setReadiness(EMPTY_READINESS);
       return;
     }
     const params = new URLSearchParams({
@@ -319,39 +349,38 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
     });
     if (mode === 'formula' && formula?.id) params.set('formulaId', formula.id);
     const controller = new AbortController();
-    setPreview((current) => ({
+    setReadiness((current) => ({
       ...current,
       key: selectionKey,
       loading: true,
-      previewError: null,
+      error: null,
     }));
     void fetch(`/api/craft?${params.toString()}`, {
       signal: controller.signal,
     })
       .then(async (response) => ({
         response,
-        body: (await response.json()) as PreviewResponse,
+        body: (await response.json()) as ReadinessResponse,
       }))
       .then(({ response, body }) => {
         if (!response.ok || !body.success || !body.data)
           throw new Error(body.error || '材料检查失败');
-        setPreview({
+        setReadiness({
           key: selectionKey,
           estimatedSpiritStones: body.data.cost.spiritStones,
           validation: body.data.validation,
-          batchPreview: body.data.batchPreview ?? null,
           canAfford: body.data.canAfford,
-          previewError: null,
+          error: null,
           loading: false,
         });
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError')
           return;
-        setPreview({
-          ...EMPTY_PREVIEW,
+        setReadiness({
+          ...EMPTY_READINESS,
           key: selectionKey,
-          previewError: error instanceof Error ? error.message : '材料检查失败',
+          error: error instanceof Error ? error.message : '材料检查失败',
         });
       });
     return () => controller.abort();
@@ -360,7 +389,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
     materialQuantities,
     materials.ids,
     mode,
-    readyForPreview,
+    readyForReadinessCheck,
     selectionKey,
   ]);
 
@@ -386,7 +415,11 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
   );
 
   const analyzeFormula = useCallback(async (): Promise<boolean> => {
-    if (!formula?.id || !readyForObservation || analysis.cooldownRemaining > 0)
+    if (
+      !formula?.id ||
+      !readyForFormulaAnalysis ||
+      analysis.cooldownRemaining > 0
+    )
       return false;
     setAnalysis((current) => ({ ...current, loading: true, error: null }));
     try {
@@ -444,19 +477,14 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
     formula?.id,
     materialQuantities,
     materials.ids,
-    readyForObservation,
+    readyForFormulaAnalysis,
     selectionKey,
   ]);
 
-  const observe = useCallback(async () => {
-    if (!readyForObservation) return;
-    if (mode === 'improvised') {
-      if (!intent.trim()) return;
-      setPhase('observing');
-      return;
-    }
+  const analyzeCurrentFormula = useCallback(async () => {
+    if (!readyForFormulaAnalysis) return;
     if (await analyzeFormula()) setPhase('observing');
-  }, [analyzeFormula, intent, mode, readyForObservation]);
+  }, [analyzeFormula, readyForFormulaAnalysis]);
 
   const returnToPreparation = useCallback(() => setPhase('preparing'), []);
 
@@ -490,7 +518,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: discovery.token, save }),
+            body: JSON.stringify({ token: discovery.token, accept: save }),
           },
         );
         const body = (await response.json()) as DiscoveryResponse;
@@ -514,77 +542,148 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
     [pushToast, result.formulaDiscovery],
   );
 
-  const fire = useCallback(() => {
-    if (!cultivator || !readyForFiring || submitting) return;
-    openQiActionConfirm({
-      actionName: mode === 'formula' ? '依方炼制' : '随心炼制',
-      qiCost,
-      confirmLabel: '确认炼制',
-      onConfirm: async () => {
-        setPhase('firing');
-        setSubmitting(true);
-        setStatus('炉门闭合，地火正沿阵纹攀升……');
-        setResult(EMPTY_RESULT);
-        const firePulse = window.setTimeout(
-          () => setStatus('炉腹轰鸣，杂气正被地火逐层煅去……'),
-          700,
-        );
-        const essencePulse = window.setTimeout(
-          () => setStatus('药蕴回旋，主丹与副丹正在不同火层中凝形……'),
-          1500,
-        );
-        try {
-          const body = await mutate<CraftResult>(
-            fetch('/api/craft', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(submitPayload),
-            }),
+  const requestCraft = useCallback(
+    (expectedMode: AlchemyMode) => {
+      const ready =
+        expectedMode === 'improvised'
+          ? readyForImprovisedFire
+          : readyForFormulaFire;
+      if (!cultivator || mode !== expectedMode || !ready || submitting) return;
+      const totalDose = materials.ids.reduce(
+        (sum, id) => sum + (materials.doses[id] ?? ALCHEMY_MIN_DOSE),
+        0,
+      );
+      const details = buildCraftConfirmationDetails([
+        [
+          expectedMode === 'improvised' ? '炼制目标' : '丹方',
+          expectedMode === 'improvised'
+            ? intent.trim()
+            : (formula?.name ?? '未选择'),
+        ],
+        ['材料投入', `${materials.ids.length} 味 · 共 ${totalDose} 份`],
+        ['灵石消耗', `${readiness.estimatedSpiritStones ?? 0} 枚`],
+        ['天地灵气', `${qiCost} 点`],
+        ...(expectedMode === 'improvised'
+          ? ([
+              [
+                '结果说明',
+                '随心炼制无法预知丹药效果、品阶与数量，结果将在开鼎后揭晓。',
+              ],
+            ] as Array<[string, string]>)
+          : []),
+      ]);
+      openQiActionConfirm({
+        actionName: expectedMode === 'formula' ? '依方炼制' : '随心炼制',
+        qiCost,
+        confirmLabel:
+          expectedMode === 'improvised' ? '确认尝试' : '确认炼制',
+        details,
+        onConfirm: async () => {
+          setPhase('firing');
+          setSubmitting(true);
+          setStatus(
+            expectedMode === 'improvised'
+              ? '炉门闭合，陌生药气正在火中交汇……'
+              : '炉门闭合，地火正沿丹方阵纹攀升……',
           );
-          if (!body.consumable) throw new Error('炉中未能凝丹');
-          setResult({
-            consumable: body.consumable,
-            consumables: body.consumables ?? [body.consumable],
-            craftedConsumables: body.craftedConsumables ??
-              body.consumables ?? [body.consumable],
-            yieldProfile: body.yieldProfile ?? null,
-            formulaDiscovery: body.formulaDiscovery ?? null,
-            formulaProgress: body.formulaProgress ?? null,
-          });
-          setStatus('炉鸣三响，丹香已从炉隙逸出。');
-          setPhase('result');
-        } catch (error) {
-          setStatus(error instanceof Error ? error.message : '炼丹失败');
-          setPhase('observing');
-          pushToast({
-            message: error instanceof Error ? error.message : '炼丹失败',
-            tone: 'danger',
-          });
-        } finally {
-          window.clearTimeout(firePulse);
-          window.clearTimeout(essencePulse);
-          setSubmitting(false);
-        }
-      },
-    });
-  }, [
-    cultivator,
-    mode,
-    mutate,
-    openQiActionConfirm,
-    pushToast,
-    qiCost,
-    readyForFiring,
-    submitPayload,
-    submitting,
-  ]);
+          setResult(EMPTY_RESULT);
+          const firePulse = window.setTimeout(
+            () =>
+              setStatus(
+                expectedMode === 'improvised'
+                  ? '炉腹轰鸣，材料正在火中发生未知变化……'
+                  : '炉腹轰鸣，杂气正按既定火路逐层煅去……',
+              ),
+            700,
+          );
+          const essencePulse = window.setTimeout(
+            () =>
+              setStatus(
+                expectedMode === 'improvised'
+                  ? '炉火渐稳，最终结果仍要等开鼎才能知晓……'
+                  : '药蕴回旋，丹药正在不同火层中凝形……',
+              ),
+            1500,
+          );
+          try {
+            const body = await mutate<CraftResult>(
+              fetch('/api/craft', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(submitPayload),
+              }),
+            );
+            if (!body.consumable) throw new Error('炉中未能凝丹');
+            setResult({
+              consumable: body.consumable,
+              consumables: body.consumables ?? [body.consumable],
+              craftedConsumables:
+                body.craftedConsumables ??
+                body.consumables ?? [body.consumable],
+              yieldProfile: body.yieldProfile ?? null,
+              formulaDiscovery: body.formulaDiscovery ?? null,
+              formulaProgress: body.formulaProgress ?? null,
+            });
+            setStatus('炉鸣三响，丹香已从炉隙逸出。');
+            setPhase('result');
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : '炼丹失败';
+            setStatus(message);
+            const analysisInvalid =
+              expectedMode === 'formula' &&
+              (message.includes('请先推演药路') ||
+                message.includes('材料已发生变化'));
+            if (analysisInvalid) clearAnalysis();
+            setPhase(
+              expectedMode === 'improvised' || analysisInvalid
+                ? 'preparing'
+                : 'observing',
+            );
+            pushToast({ message, tone: 'danger' });
+          } finally {
+            window.clearTimeout(firePulse);
+            window.clearTimeout(essencePulse);
+            setSubmitting(false);
+          }
+        },
+      });
+    },
+    [
+      clearAnalysis,
+      cultivator,
+      formula?.name,
+      intent,
+      materials.doses,
+      materials.ids,
+      mode,
+      mutate,
+      openQiActionConfirm,
+      pushToast,
+      qiCost,
+      readiness.estimatedSpiritStones,
+      readyForFormulaFire,
+      readyForImprovisedFire,
+      submitPayload,
+      submitting,
+    ],
+  );
+
+  const requestImprovisedFire = useCallback(
+    () => requestCraft('improvised'),
+    [requestCraft],
+  );
+  const requestFormulaFire = useCallback(
+    () => requestCraft('formula'),
+    [requestCraft],
+  );
 
   const startNextBatch = useCallback(() => {
     setPhase('preparing');
     setIntentState('');
     setFormula(null);
     setMaterials(EMPTY_MATERIALS);
-    setPreview(EMPTY_PREVIEW);
+    setReadiness(EMPTY_READINESS);
     setResult(EMPTY_RESULT);
     setStatus('');
     clearAnalysis();
@@ -606,7 +705,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
     intent,
     formula,
     materials,
-    preview,
+    readiness,
     analysis,
     result,
     submitting,
@@ -616,8 +715,10 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
       (sum, id) => sum + (materials.doses[id] ?? ALCHEMY_MIN_DOSE),
       0,
     ),
-    readyForObservation,
-    readyForFiring,
+    readyForCostConfirmation,
+    readyForFormulaAnalysis,
+    readyForImprovisedFire,
+    readyForFormulaFire,
     setMode,
     setIntent,
     selectFormula,
@@ -625,9 +726,10 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
     toggleMaterial,
     removeMaterial,
     setMaterialDose,
-    observe,
+    analyzeFormula: analyzeCurrentFormula,
     returnToPreparation,
-    fire,
+    requestImprovisedFire,
+    requestFormulaFire,
     startNextBatch,
     resetDraft,
     resolveDiscovery,

@@ -216,7 +216,10 @@ function furnaceStatus(
   if (session.phase === 'firing') return '正在炼制';
   if (session.phase === 'result') return '结果待查看';
   if (session.phase === 'observing') return '预览待确认';
-  if (session.readyForObservation) return '可以查看预览';
+  if (session.mode === 'formula' && session.readyForFormulaAnalysis)
+    return '可以查看推演';
+  if (session.mode === 'improvised' && session.readyForImprovisedFire)
+    return '可以尝试炼制';
   if (session.materials.ids.length || session.formula || session.intent.trim())
     return '已有一炉正在准备';
   return '可以开始炼制';

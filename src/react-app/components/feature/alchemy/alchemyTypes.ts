@@ -1,6 +1,5 @@
 import type { SectScenePresentation } from '@shared/engine/sect';
 import type {
-  AlchemyBatchPreview,
   AlchemyFormula,
   AlchemyFormulaDiscoveryCandidate,
   AlchemyYieldDisplayProfile,
@@ -35,13 +34,12 @@ export type PreviewValidation = {
   warnings: string[];
 };
 
-export type PreviewState = {
+export type ReadinessState = {
   key: string | null;
   estimatedSpiritStones: number | null;
   validation: PreviewValidation | null;
-  batchPreview: AlchemyBatchPreview | null;
   canAfford: boolean;
-  previewError: string | null;
+  error: string | null;
   loading: boolean;
 };
 

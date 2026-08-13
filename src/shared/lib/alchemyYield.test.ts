@@ -7,6 +7,7 @@ import {
   rollAlchemyYieldProfile,
 } from './alchemyYield';
 import { PILL_UNIT_ESSENCE_BY_QUALITY } from '@shared/config/alchemyEssenceConfig';
+import { QUALITY_ORDER } from '@shared/types/constants';
 
 describe('alchemy yield engine', () => {
   it('scales raw essence by material dose and type', () => {
@@ -158,5 +159,44 @@ describe('alchemy yield engine', () => {
     expect(preview.essenceLossRatioRange.max).toBeLessThanOrEqual(1);
     expect(preview.possibleQualities.length).toBeGreaterThan(0);
     expect(Object.values(preview.appearanceHints).reduce((sum, value) => sum + (value ?? 0), 0)).toBeCloseTo(1);
+  });
+
+  it('keeps a formula roll inside the preview generated from identical factors', () => {
+    const materials = [
+      { rank: '玄品' as const, type: 'herb', dose: 18 },
+      { rank: '灵品' as const, type: 'aux', dose: 6 },
+    ];
+    const factors = {
+      synergyScore: 0.72,
+      conflictScore: 0.08,
+      fitMultiplier: 1.09,
+      stability: 82,
+      purity: 0.78,
+      masteryLevel: 4,
+      minQuality: '灵品' as const,
+    };
+    const preview = buildAlchemyYieldPreview({ materials, factors });
+    let state = Math.floor(0.43 * 0x7fffffff) || 1;
+    const result = rollAlchemyYieldProfile({
+      materials,
+      factors,
+      rng: () => {
+        state = (state * 48271) % 0x7fffffff;
+        return state / 0x7fffffff;
+      },
+    });
+
+    expect(result.totalQuantity).toBeGreaterThanOrEqual(
+      preview.totalQuantityRange.min,
+    );
+    expect(result.totalQuantity).toBeLessThanOrEqual(
+      preview.totalQuantityRange.max,
+    );
+    expect(QUALITY_ORDER[result.primaryQuality]).toBeGreaterThanOrEqual(
+      QUALITY_ORDER[preview.primaryQualityRange.min],
+    );
+    expect(QUALITY_ORDER[result.primaryQuality]).toBeLessThanOrEqual(
+      QUALITY_ORDER[preview.primaryQualityRange.max],
+    );
   });
 });

@@ -8,7 +8,6 @@ import {
   materials,
 } from '@server/lib/drizzle/schema';
 import {
-  buildAlchemyBatchPreview,
   buildAlchemyPropertyTags,
   describeAlchemyPropertyVector,
   getQuotaCategoryForFamily,
@@ -43,11 +42,7 @@ import type {
   RealmStage,
   RealmType,
 } from '@shared/types/constants';
-import type {
-  AlchemyBatchPreview,
-  AlchemyRecipePlan,
-  PillSpec,
-} from '@shared/types/consumable';
+import type { AlchemyRecipePlan, PillSpec } from '@shared/types/consumable';
 import type { Consumable, PreHeavenFate } from '@shared/types/cultivator';
 import type { ResourceOperationSettlement } from '@shared/engine/resource/types';
 import { and, eq, inArray, sql } from 'drizzle-orm';
@@ -86,7 +81,6 @@ export interface AlchemyPreviewResult {
   };
   canAfford: boolean;
   validation: AlchemySelectionValidation;
-  batchPreview: AlchemyBatchPreview;
 }
 
 export interface ImprovisedAlchemyCraftResult {
@@ -343,7 +337,6 @@ export async function previewAlchemySelection(
   availableSpiritStones: number,
   materialIds: string[],
   fates: PreHeavenFate[] = [],
-  materialQuantities?: Record<string, number>,
 ): Promise<AlchemyPreviewResult> {
   const { rows, blockingReason } = await loadPreviewMaterialRows(
     cultivatorId,
@@ -355,7 +348,6 @@ export async function previewAlchemySelection(
       cost: { spiritStones: 0 },
       canAfford: true,
       validation: createValidation(false, blockingReason),
-      batchPreview: buildAlchemyBatchPreview([]),
     };
   }
 
@@ -374,14 +366,10 @@ export async function previewAlchemySelection(
   );
 
   const validation = buildSelectionValidation(rows);
-  const preparedMaterials = validation.valid
-    ? buildPreparedMaterials(rows, materialQuantities)
-    : [];
   return {
     cost: { spiritStones },
     canAfford: availableSpiritStones >= spiritStones,
     validation,
-    batchPreview: buildAlchemyBatchPreview(preparedMaterials),
   };
 }
 

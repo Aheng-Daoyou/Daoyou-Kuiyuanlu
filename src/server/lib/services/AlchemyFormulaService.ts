@@ -12,7 +12,6 @@ import { redis } from '@server/lib/redis';
 import { parseRedisJson } from '@server/lib/redis/json';
 import {
   aggregateAlchemyProperties,
-  buildAlchemyBatchPreview,
   buildAlchemyBatchProfile,
   buildAlchemyPropertyTags,
   calculatePropertyVectorFit,
@@ -64,6 +63,7 @@ import {
   buildAlchemyYieldPreview,
   rollAlchemyYieldProfile,
   toAlchemyYieldDisplayProfile,
+  type AlchemyYieldFactors,
 } from '@shared/lib/alchemyYield';
 import {
   QUALITY_ORDER,
@@ -73,7 +73,6 @@ import {
   type RealmType,
 } from '@shared/types/constants';
 import type {
-  AlchemyBatchPreview,
   AlchemyBatchProfile,
   AlchemyBatchDisplayProfile,
   AlchemyFormula,
@@ -131,7 +130,6 @@ export interface FormulaPreviewResult {
     blockingReason?: string;
     warnings: string[];
   };
-  batchPreview: AlchemyBatchPreview;
 }
 
 export interface FormulaProgress {
@@ -181,8 +179,6 @@ interface FormulaAnalysisPayload {
   aggregatedPropertyVector: WeightedAlchemyProperty[];
   batchProfile: AlchemyBatchProfile;
   dominantElement: ElementType;
-  stability: number;
-  toxicityRating: number;
 }
 
 interface DiscoveryContext {
@@ -218,15 +214,11 @@ function stableStringify(value: unknown): string {
 function toAlchemyBatchDisplayProfile(
   profile: AlchemyBatchProfile,
   materials: PreparedAlchemyMaterial[],
+  factors: AlchemyYieldFactors,
 ): AlchemyBatchDisplayProfile {
-  const stability = profile.essenceSummary?.stability ?? 60;
   const preview = buildAlchemyYieldPreview({
     materials,
-    factors: {
-      synergyScore: profile.synergyScore,
-      conflictScore: profile.conflictScore,
-      stability,
-    },
+    factors,
   });
   return {
     compoundTier: profile.compoundTier,
@@ -634,6 +626,89 @@ export function calculateFormulaFitMultiplier(
   return clamp(0.85 + fit * 0.3 + elementBonus + qualityBonus, 0.85, 1.15);
 }
 
+function resolveFormulaCraftProjection(
+  formula: AlchemyFormula,
+  materialsList: PreparedAlchemyMaterial[],
+  analysis: Pick<
+    FormulaAnalysisPayload,
+    | 'fitScore'
+    | 'fitBand'
+    | 'batchProfile'
+    | 'dominantElement'
+    | 'aggregatedPropertyVector'
+  >,
+): {
+  fitMultiplier: number;
+  stability: number;
+  toxicityRating: number;
+  yieldFactors: AlchemyYieldFactors;
+} {
+  const fitBandPenaltyFactor =
+    analysis.fitBand === 'poor'
+      ? calculatePoorPenaltyFactor(analysis.fitScore)
+      : analysis.fitBand === 'degraded'
+        ? calculateDegradedPenaltyFactor(analysis.fitScore)
+        : 1;
+  const fitMultiplier = Number(
+    (
+      calculateFormulaFitMultiplier(
+        formula,
+        analysis.aggregatedPropertyVector,
+        analysis.dominantElement,
+        materialsList,
+      ) * fitBandPenaltyFactor
+    ).toFixed(4),
+  );
+  const degradedStabilityPenalty =
+    analysis.fitBand === 'degraded'
+      ? Math.round((FIT_ALIGNED_THRESHOLD - analysis.fitScore) * 40)
+      : 0;
+  const poorStabilityPenalty =
+    analysis.fitBand === 'poor'
+      ? Math.round((FIT_POOR_THRESHOLD - analysis.fitScore) * 120 + 25)
+      : 0;
+  const degradedToxicityPenalty =
+    analysis.fitBand === 'degraded'
+      ? Math.round((FIT_ALIGNED_THRESHOLD - analysis.fitScore) * 30)
+      : 0;
+  const poorToxicityPenalty =
+    analysis.fitBand === 'poor'
+      ? Math.round((FIT_POOR_THRESHOLD - analysis.fitScore) * 120 + 35)
+      : 0;
+  const stability = clamp(
+    formula.blueprint.targetStability +
+      formula.mastery.level * 2 -
+      degradedStabilityPenalty -
+      poorStabilityPenalty +
+      analysis.batchProfile.stabilityDelta,
+    15,
+    95,
+  );
+  const toxicityRating = clamp(
+    formula.blueprint.targetToxicity -
+      formula.mastery.level +
+      degradedToxicityPenalty +
+      poorToxicityPenalty +
+      analysis.batchProfile.toxicityDelta,
+    0,
+    100,
+  );
+  return {
+    fitMultiplier,
+    stability,
+    toxicityRating,
+    yieldFactors: {
+      synergyScore: analysis.batchProfile.synergyScore,
+      conflictScore: analysis.batchProfile.conflictScore,
+      fitMultiplier,
+      stability,
+      purity: analysis.batchProfile.essenceSummary?.purity,
+      masteryLevel: formula.mastery.level,
+      minQuality: formula.pattern.minQuality,
+    },
+  };
+}
+
 function buildFormulaAnalysisPayload(
   cultivatorId: string,
   formula: AlchemyFormula,
@@ -679,12 +754,6 @@ function buildFormulaAnalysisPayload(
     aggregatedPropertyVector: aggregated.rawPropertyVector,
     batchProfile,
     dominantElement: aggregated.dominantElement,
-    stability: clamp(aggregated.stability + batchProfile.stabilityDelta, 15, 95),
-    toxicityRating: clamp(
-      aggregated.toxicityRating + batchProfile.toxicityDelta,
-      0,
-      100,
-    ),
   };
 }
 
@@ -1269,6 +1338,12 @@ export async function analyzeFormulaMaterials(
     FORMULA_ANALYSIS_TTL_SECONDS,
   );
 
+  const projection = resolveFormulaCraftProjection(
+    formula,
+    materialsList,
+    payload,
+  );
+
   return {
     analysisId,
     valid: true,
@@ -1278,10 +1353,14 @@ export async function analyzeFormulaMaterials(
     warnings: payload.warnings,
     materialJudgments: payload.materialJudgments,
     aggregatedPropertyVector: payload.aggregatedPropertyVector,
-    batchProfile: toAlchemyBatchDisplayProfile(payload.batchProfile, materialsList),
+    batchProfile: toAlchemyBatchDisplayProfile(
+      payload.batchProfile,
+      materialsList,
+      projection.yieldFactors,
+    ),
     dominantElement: payload.dominantElement,
-    stability: payload.stability,
-    toxicityRating: payload.toxicityRating,
+    stability: projection.stability,
+    toxicityRating: projection.toxicityRating,
     cooldownRemainingSeconds: cooldown.remainingSeconds,
     expiresInSeconds: FORMULA_ANALYSIS_TTL_SECONDS,
   };
@@ -1309,7 +1388,6 @@ export async function previewFormulaCraft(
       cost: { spiritStones: 0 },
       canAfford: true,
       validation: createValidation(false, '部分材料已耗尽或不存在。'),
-      batchPreview: buildAlchemyBatchPreview([]),
     };
   }
   if (rows.some((row) => row.cultivatorId !== cultivatorId)) {
@@ -1317,7 +1395,6 @@ export async function previewFormulaCraft(
       cost: { spiritStones: 0 },
       canAfford: true,
       validation: createValidation(false, '非本人材料，不可动用。'),
-      batchPreview: buildAlchemyBatchPreview([]),
     };
   }
 
@@ -1330,7 +1407,6 @@ export async function previewFormulaCraft(
         cost: { spiritStones: 0 },
         canAfford: true,
         validation: createValidation(false, error.message),
-        batchPreview: buildAlchemyBatchPreview([]),
       };
     }
     throw error;
@@ -1353,7 +1429,6 @@ export async function previewFormulaCraft(
     cost: { spiritStones },
     canAfford: availableSpiritStones >= spiritStones,
     validation: validateFormulaIngredients(formula, materialsList),
-    batchPreview: buildAlchemyBatchPreview(materialsList),
   };
 }
 
@@ -1481,28 +1556,13 @@ export async function prepareFormulaCraft(
     });
 
     const dominantElement = aggregated.dominantElement;
-    const fitBandPenaltyFactor =
-      fitBand === 'poor'
-        ? calculatePoorPenaltyFactor(fit)
-        : fitBand === 'degraded'
-          ? calculateDegradedPenaltyFactor(fit)
-          : 1;
-    const fitMultiplier = Number(
-      (
-        calculateFormulaFitMultiplier(
-          formula,
-          aggregated.rawPropertyVector,
-          dominantElement,
-          materialsList,
-        ) * fitBandPenaltyFactor
-      ).toFixed(4),
-    );
-    const appearanceStabilityPenalty =
-      fitBand === 'poor'
-        ? Math.round((FIT_POOR_THRESHOLD - fit) * 120 + 28)
-        : fitBand === 'degraded'
-          ? Math.round((FIT_ALIGNED_THRESHOLD - fit) * 35)
-          : 0;
+    const projection = resolveFormulaCraftProjection(formula, materialsList, {
+      fitScore: fit,
+      fitBand,
+      batchProfile,
+      dominantElement,
+      aggregatedPropertyVector: aggregated.rawPropertyVector,
+    });
     const appearanceMasteryLevel =
       fitBand === 'poor'
         ? 0
@@ -1510,19 +1570,14 @@ export async function prepareFormulaCraft(
           ? Math.max(0, Math.floor(formula.mastery.level / 2))
           : formula.mastery.level;
     const appearance = rollPillAppearance({
-      stability: Math.max(
-        0,
-        aggregated.stability +
-          batchProfile.stabilityDelta -
-          appearanceStabilityPenalty,
-      ),
+      stability: projection.stability,
       propertyVector: formula.pattern.targetPropertyVector,
       masteryLevel: appearanceMasteryLevel,
     });
     const operations = appendFormulaPositiveToxicity(
       scaleFormulaOperations(
         formula.blueprint.operations,
-        fitMultiplier,
+        projection.fitMultiplier,
         highestMaterialRank,
         formula.pattern.minQuality,
       ),
@@ -1530,24 +1585,6 @@ export async function prepareFormulaCraft(
       'middle',
       formula.pattern.targetPropertyVector,
     );
-    const masteryBonusStability = formula.mastery.level * 2;
-    const masteryBonusToxicity = formula.mastery.level;
-    const degradedStabilityPenalty =
-      fitBand === 'degraded'
-        ? Math.round((FIT_ALIGNED_THRESHOLD - fit) * 40)
-        : 0;
-    const poorStabilityPenalty =
-      fitBand === 'poor'
-        ? Math.round((FIT_POOR_THRESHOLD - fit) * 120 + 25)
-        : 0;
-    const degradedToxicityPenalty =
-      fitBand === 'degraded'
-        ? Math.round((FIT_ALIGNED_THRESHOLD - fit) * 30)
-        : 0;
-    const poorToxicityPenalty =
-      fitBand === 'poor'
-        ? Math.round((FIT_POOR_THRESHOLD - fit) * 120 + 35)
-        : 0;
     const spec: PillSpec = {
       kind: 'pill',
       family: formula.family,
@@ -1566,26 +1603,10 @@ export async function prepareFormulaCraft(
         sourceMaterialVectors: aggregated.sourceMaterialVectors,
         fitScore: fit,
         fitBand,
-        fitMultiplier,
+        fitMultiplier: projection.fitMultiplier,
         dominantElement: formula.pattern.dominantElement ?? dominantElement,
-        stability: clamp(
-          formula.blueprint.targetStability +
-            masteryBonusStability -
-            degradedStabilityPenalty -
-            poorStabilityPenalty +
-            batchProfile.stabilityDelta,
-          15,
-          95,
-        ),
-        toxicityRating: clamp(
-          formula.blueprint.targetToxicity -
-            masteryBonusToxicity +
-            degradedToxicityPenalty +
-            poorToxicityPenalty +
-            batchProfile.toxicityDelta,
-          0,
-          100,
-        ),
+        stability: projection.stability,
+        toxicityRating: projection.toxicityRating,
         appearance,
         tags: buildAlchemyPropertyTags(
           formula.pattern.targetPropertyVector,
@@ -1629,7 +1650,7 @@ export async function prepareFormulaCraft(
         spec.alchemyMeta.stability,
         spec.alchemyMeta.toxicityRating,
         fit,
-        fitMultiplier,
+        projection.fitMultiplier,
         fitBand,
       ),
       score: 0,
@@ -1682,15 +1703,7 @@ export async function prepareFormulaCraft(
       // the user has actually confirmed the craft.
       const yieldProfile = rollAlchemyYieldProfile({
         materials: materialsList,
-        factors: {
-          synergyScore: batchProfile.synergyScore,
-          conflictScore: batchProfile.conflictScore,
-          fitMultiplier,
-          stability: spec.alchemyMeta.stability,
-          purity: batchProfile.essenceSummary?.purity,
-          masteryLevel: formula.mastery.level,
-          minQuality: formula.pattern.minQuality,
-        },
+        factors: projection.yieldFactors,
       });
       const outputConsumables = assembleAlchemyOutputConsumables(
         consumable,

@@ -10,11 +10,11 @@ import {
 
 export function FurnaceObservationStage() {
   const session = useAlchemyCraftSession();
-  const batch = session.preview.batchPreview;
+  const batch = session.analysis.value?.batchProfile ?? null;
   const fire = describeFireState({
     preview: batch,
-    blockingReason: session.preview.validation?.blockingReason,
-    canAfford: session.preview.canAfford,
+    blockingReason: session.readiness.validation?.blockingReason,
+    canAfford: session.readiness.canAfford,
   });
   const essence = describeEssenceState(batch);
   const omen = describeBatchOmen(batch);
@@ -74,6 +74,31 @@ export function FurnaceObservationStage() {
           {describeFormulaObservation(session.analysis.value)}
         </InkNotice>
       ) : null}
+      {session.analysis.value?.materialJudgments.length ? (
+        <section className="border-ink/15 border p-5">
+          <p className="text-ink-secondary text-xs tracking-[0.18em]">
+            材料判断
+          </p>
+          <div className="divide-ink/10 mt-3 divide-y">
+            {session.analysis.value.materialJudgments.map((judgment) => (
+              <div
+                key={judgment.materialId}
+                className="grid gap-1 py-3 sm:grid-cols-[8rem_minmax(0,1fr)]"
+              >
+                <span className="font-medium">{judgment.materialName}</span>
+                <span className="text-ink-secondary text-sm leading-6">
+                  {judgment.reason}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {session.analysis.value?.warnings.map((warning) => (
+        <InkNotice key={warning} tone="warning">
+          {warning}
+        </InkNotice>
+      ))}
       <section className="border-ink/15 border p-5">
         <p className="text-crimson text-center text-xs tracking-[0.28em]">
           炼制前确认
@@ -94,9 +119,9 @@ export function FurnaceObservationStage() {
           <ConfirmRow
             label="灵石"
             value={
-              session.preview.estimatedSpiritStones === null
+              session.readiness.estimatedSpiritStones === null
                 ? '待核'
-                : `${session.preview.estimatedSpiritStones} 枚`
+                : `${session.readiness.estimatedSpiritStones} 枚`
             }
           />
           <ConfirmRow label="天地灵气" value={`${session.qiCost} 点`} />
@@ -117,8 +142,8 @@ export function FurnaceObservationStage() {
         </InkButton>
         <InkButton
           variant="primary"
-          disabled={!session.readyForFiring}
-          onClick={session.fire}
+          disabled={!session.readyForFormulaFire}
+          onClick={session.requestFormulaFire}
         >
           确认炼制
         </InkButton>

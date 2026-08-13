@@ -22,11 +22,6 @@ export function FurnacePreparationStage() {
   const session = useAlchemyCraftSession();
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const [formulaPickerOpen, setFormulaPickerOpen] = useState(false);
-  const canObserve =
-    session.readyForObservation &&
-    (session.mode === 'formula'
-      ? Boolean(session.formula)
-      : Boolean(session.intent.trim()));
   return (
     <div className="space-y-6">
       <section>
@@ -37,7 +32,7 @@ export function FurnacePreparationStage() {
           <Choice
             active={session.mode === 'improvised'}
             title="随心炼丹"
-            detail="填写炼制目标，由所选材料生成丹药，也可能获得新丹方。"
+            detail="填写炼制目标并直接尝试，结果要等开鼎后才能知晓。"
             onClick={() => session.setMode('improvised')}
           />
           <Choice
@@ -50,7 +45,7 @@ export function FurnacePreparationStage() {
       </section>
 
       {session.mode === 'improvised' ? (
-        <section>
+        <section className="space-y-3">
           <label className="block">
             <span className="text-ink-secondary text-xs tracking-[0.2em]">
               炼制目标
@@ -78,6 +73,9 @@ export function FurnacePreparationStage() {
               {session.intent.length} / 300
             </span>
           </div>
+          <InkNotice tone="info">
+            没有丹方可供参照。丹药效果、品阶与数量都将在开鼎后揭晓。
+          </InkNotice>
         </section>
       ) : (
         <section className="border-ink/15 border p-4">
@@ -135,15 +133,15 @@ export function FurnacePreparationStage() {
         />
       </section>
 
-      {session.preview.loading ? (
-        <InkNotice tone="info">正在更新炼制预览……</InkNotice>
+      {session.readiness.loading ? (
+        <InkNotice tone="info">正在检查材料与炼制消耗……</InkNotice>
       ) : null}
-      {session.preview.previewError ? (
-        <InkNotice tone="warning">{session.preview.previewError}</InkNotice>
+      {session.readiness.error ? (
+        <InkNotice tone="warning">{session.readiness.error}</InkNotice>
       ) : null}
-      {session.preview.validation?.blockingReason ? (
+      {session.readiness.validation?.blockingReason ? (
         <InkNotice tone="warning">
-          {session.preview.validation.blockingReason}
+          {session.readiness.validation.blockingReason}
         </InkNotice>
       ) : null}
       {session.analysis.error ? (
@@ -153,12 +151,28 @@ export function FurnacePreparationStage() {
       <div className="flex justify-end">
         <InkButton
           variant="primary"
-          pending={session.analysis.loading}
-          pendingLabel="正在生成预览……"
-          disabled={!canObserve || session.analysis.cooldownRemaining > 0}
-          onClick={() => void session.observe()}
+          pending={
+            session.readiness.loading ||
+            (session.mode === 'formula' && session.analysis.loading)
+          }
+          pendingLabel={
+            session.mode === 'formula' ? '正在生成预览……' : '正在检查……'
+          }
+          disabled={
+            session.mode === 'improvised'
+              ? !session.readyForImprovisedFire
+              : !session.readyForFormulaAnalysis ||
+                session.analysis.cooldownRemaining > 0
+          }
+          onClick={() =>
+            session.mode === 'improvised'
+              ? session.requestImprovisedFire()
+              : void session.analyzeFormula()
+          }
         >
-          {session.analysis.cooldownRemaining > 0
+          {session.mode === 'improvised'
+            ? '尝试炼制'
+            : session.analysis.cooldownRemaining > 0
             ? `${session.analysis.cooldownRemaining} 秒后可再次预览`
             : '查看炼制预览'}
         </InkButton>

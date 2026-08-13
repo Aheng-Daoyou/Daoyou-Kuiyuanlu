@@ -168,24 +168,6 @@ export interface AlchemyBatchDisplayProfile {
   warnings: string[];
 }
 
-export interface AlchemyBatchPreview {
-  materialKindCount: number;
-  totalDose: number;
-  summary: string;
-  warnings: string[];
-  essenceLossRatioRange: { min: number; max: number };
-  totalQuantityRange: { min: number; max: number };
-  primaryQualityRange: { min: Quality; max: Quality };
-  possibleQualities: Quality[];
-  appearanceHints: Partial<Record<PillAppearanceGrade, number>>;
-  likelyLots: Array<{
-    quality: Quality;
-    minQuantity: number;
-    maxQuantity: number;
-    possibleAppearances: PillAppearanceGrade[];
-  }>;
-}
-
 export const FORMULA_MATERIAL_VERDICT_VALUES = [
   'core',
   'usable',

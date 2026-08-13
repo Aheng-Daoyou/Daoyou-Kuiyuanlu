@@ -36,7 +36,6 @@ import {
 } from '@shared/lib/alchemyProperties';
 import { getHealingCuredStatus } from '@shared/lib/healingPill';
 import {
-  buildAlchemyYieldPreview,
   calculateEffectiveEssence,
   calculateQualityPotential,
   calculateRawEssence,
@@ -51,7 +50,6 @@ import type {
 import { QUALITY_ORDER } from '@shared/types/constants';
 import type {
   AlchemyFocusMode,
-  AlchemyBatchPreview,
   AlchemyBatchProfile,
   AlchemyMaterialPropertyVector,
   AlchemyPropertyKey,
@@ -135,10 +133,6 @@ function getMaterialContribution(material: PreparedAlchemyMaterial): number {
 
 function roundScore(value: number): number {
   return Number(clamp(value, 0, 1).toFixed(4));
-}
-
-function sumMaterialDose(materials: PreparedAlchemyMaterial[]): number {
-  return materials.reduce((sum, material) => sum + Math.max(1, material.dose), 0);
 }
 
 export function getQuotaCategoryForFamily(
@@ -490,39 +484,6 @@ function buildStabilityAndToxicity(
   return {
     stability,
     toxicityRating,
-  };
-}
-
-export function buildAlchemyBatchPreview(
-  materials: PreparedAlchemyMaterial[],
-): AlchemyBatchPreview {
-  const materialKindCount = materials.length;
-  const totalDose = sumMaterialDose(materials);
-  const yieldPreview = buildAlchemyYieldPreview({
-    materials,
-    factors: {
-      stability: 60,
-    },
-  });
-  const possibleQualities = yieldPreview.possibleQualities;
-
-  return {
-    materialKindCount,
-    totalDose,
-    summary:
-      materialKindCount <= 1
-        ? '单材成丹，药路稳定但变化有限。'
-        : '多材合炉，实际产量取决于药性配伍与炉势。',
-    warnings: [],
-    essenceLossRatioRange: yieldPreview.essenceLossRatioRange,
-    totalQuantityRange: yieldPreview.totalQuantityRange,
-    primaryQualityRange: {
-      min: possibleQualities[possibleQualities.length - 1] ?? yieldPreview.primaryQuality,
-      max: possibleQualities[0] ?? yieldPreview.primaryQuality,
-    },
-    possibleQualities,
-    appearanceHints: yieldPreview.appearanceHints,
-    likelyLots: yieldPreview.likelyLots,
   };
 }
 
