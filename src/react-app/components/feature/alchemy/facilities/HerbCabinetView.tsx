@@ -1,6 +1,6 @@
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import type { Material } from '@shared/types/cultivator';
-import { AlchemyFacilityWorkspace } from '../AlchemyFacilityWorkspace';
+import { AlchemyToolWorkspace } from '../AlchemyToolWorkspace';
 import { useAlchemyCraftSession } from '../alchemyCraftContext';
 import { AlchemyMaterialShelf } from './AlchemyMaterialShelf';
 
@@ -32,16 +32,15 @@ export function HerbCabinetView({
     onOpenFurnace();
   };
   return (
-    <AlchemyFacilityWorkspace
-      sigil="🌿"
-      title="百草药柜"
-      description="辨认和查看已有灵材；真正的配伍与剂量调整在丹炉内完成。"
+    <AlchemyToolWorkspace
+      title="查看炼丹材料"
+      backLabel="百草药柜"
       onBack={onBack}
     >
       <AlchemyMaterialShelf
         cultivatorId={session.cultivator?.id}
         onCarry={carry}
       />
-    </AlchemyFacilityWorkspace>
+    </AlchemyToolWorkspace>
   );
 }

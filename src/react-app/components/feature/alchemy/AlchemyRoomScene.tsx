@@ -1,21 +1,38 @@
 import { RoomView, type RoomActorView } from '@app/components/feature/room';
 import { GameSceneFrame, GameSceneLoading } from '@app/components/game-shell';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useBlocker, useSearchParams } from 'react-router';
 import { AlchemyCraftSessionProvider } from './AlchemyCraftSessionProvider';
+import { ALCHEMY_FACILITIES } from './alchemyFacilities';
 import { useAlchemyCraftSession } from './alchemyCraftContext';
-import type { AlchemyFacilityId } from './alchemyTypes';
+import type {
+  AlchemyFacilityAction,
+  AlchemyFacilityId,
+} from './alchemyTypes';
+import {
+  AlchemyGuideConversation,
+  FormulaArchiveConversation,
+  FurnaceConversation,
+  HerbCabinetConversation,
+} from './facilities/AlchemyFacilityConversations';
 import { AlchemyGuideView } from './facilities/AlchemyGuideView';
 import { FormulaArchiveView } from './facilities/FormulaArchiveView';
 import { FurnaceWorkspace } from './facilities/FurnaceWorkspace';
 import { HerbCabinetView } from './facilities/HerbCabinetView';
 
-const FACILITY_IDS = new Set<AlchemyFacilityId>([
-  'furnace',
-  'cabinet',
-  'formulas',
-  'guide',
-]);
+const FACILITY_ACTIONS = {
+  furnace: new Set<AlchemyFacilityAction>([
+    'improvised',
+    'formula',
+    'current',
+  ]),
+  cabinet: new Set<AlchemyFacilityAction>(['materials']),
+  formulas: new Set<AlchemyFacilityAction>(['formula-library']),
+  guide: new Set<AlchemyFacilityAction>(['guide-basics', 'guide-reference']),
+} satisfies Record<AlchemyFacilityId, Set<AlchemyFacilityAction>>;
+
+const isFacilityId = (value: string | null): value is AlchemyFacilityId =>
+  value !== null && value in FACILITY_ACTIONS;
 
 export function AlchemyRoomScene() {
   return (
@@ -27,19 +44,32 @@ export function AlchemyRoomScene() {
 
 function AlchemyRoomContent() {
   const session = useAlchemyCraftSession();
+  const setCraftMode = session.setMode;
   const [searchParams, setSearchParams] = useSearchParams();
   const blocker = useBlocker(session.phase === 'firing');
   const rawFacility = searchParams.get('facility');
-  const selectedId = FACILITY_IDS.has(rawFacility as AlchemyFacilityId)
-    ? (rawFacility as AlchemyFacilityId)
-    : undefined;
+  const rawAction = searchParams.get('action');
+  const selectedId = isFacilityId(rawFacility) ? rawFacility : undefined;
+  const action =
+    selectedId &&
+    rawAction &&
+    FACILITY_ACTIONS[selectedId].has(rawAction as AlchemyFacilityAction)
+      ? (rawAction as AlchemyFacilityAction)
+      : undefined;
 
   useEffect(() => {
-    if (!rawFacility || selectedId) return;
+    if ((!rawFacility || selectedId) && (!rawAction || action)) return;
     const next = new URLSearchParams(searchParams);
-    next.delete('facility');
+    if (!selectedId) next.delete('facility');
+    next.delete('action');
     setSearchParams(next, { replace: true });
-  }, [rawFacility, searchParams, selectedId, setSearchParams]);
+  }, [action, rawAction, rawFacility, searchParams, selectedId, setSearchParams]);
+
+  useEffect(() => {
+    if (selectedId !== 'furnace') return;
+    if (action === 'improvised') setCraftMode('improvised');
+    else if (action === 'formula') setCraftMode('formula');
+  }, [action, selectedId, setCraftMode]);
 
   const blockerState = blocker.state;
   const resetBlockedNavigation =
@@ -48,28 +78,43 @@ function AlchemyRoomContent() {
     if (blockerState === 'blocked') resetBlockedNavigation?.();
   }, [blockerState, resetBlockedNavigation]);
 
+  const setLocation = useCallback(
+    (
+      facility: AlchemyFacilityId | undefined,
+      nextAction?: AlchemyFacilityAction,
+      replace = false,
+    ) => {
+      if (session.phase === 'firing') return;
+      const next = new URLSearchParams(searchParams);
+      if (facility) next.set('facility', facility);
+      else next.delete('facility');
+      if (nextAction) next.set('action', nextAction);
+      else next.delete('action');
+      setSearchParams(next, { replace });
+    },
+    [searchParams, session.phase, setSearchParams],
+  );
+
   if (session.loading && !session.cultivator)
     return <GameSceneLoading message="丹房禁制正在辨认来者……" />;
 
-  const open = (id: AlchemyFacilityId) => {
-    const next = new URLSearchParams(searchParams);
-    next.set('facility', id);
-    setSearchParams(next);
+  const openAction = (nextAction: AlchemyFacilityAction) => {
+    if (nextAction === 'formula' || nextAction === 'improvised') {
+      if (session.phase === 'result') session.startNextBatch();
+      session.setMode(nextAction);
+      setLocation('furnace', nextAction);
+      return;
+    }
+    setLocation(selectedId, nextAction);
   };
-  const back = () => {
-    if (session.phase === 'firing') return;
-    const next = new URLSearchParams(searchParams);
-    next.delete('facility');
-    setSearchParams(next);
-  };
+  const openFurnace = () =>
+    setLocation(
+      'furnace',
+      session.mode === 'formula' ? 'formula' : 'improvised',
+    );
   const actors: RoomActorView[] = [
     {
-      id: 'furnace',
-      sigil: '🔥',
-      name: '玄火丹炉',
-      identity: '核心炼丹设施',
-      responsibility: '准备材料、查看预览、确认炼制、领取结果',
-      appearance: 'facility',
+      ...ALCHEMY_FACILITIES.furnace,
       status: {
         label: furnaceStatus(session),
         tone:
@@ -81,72 +126,86 @@ function AlchemyRoomContent() {
       },
     },
     {
-      id: 'cabinet',
-      sigil: '🌿',
-      name: '百草药柜',
-      identity: '材料设施',
-      responsibility: '浏览、辨认与查看炼丹灵材',
-      appearance: 'facility',
+      ...ALCHEMY_FACILITIES.cabinet,
       status: { label: '库存可查', tone: 'neutral' },
     },
     {
-      id: 'formulas',
-      sigil: '📜',
-      name: '丹方玉简',
-      identity: '丹方设施',
-      responsibility: '查阅、筛选与管理已有丹方',
-      appearance: 'facility',
+      ...ALCHEMY_FACILITIES.formulas,
       status: { label: '玉简可阅', tone: 'neutral' },
     },
     {
-      id: 'guide',
-      sigil: '🪨',
-      name: '炉理碑',
-      identity: '指引设施',
-      responsibility: '阅读炼丹规则与第一炉建议',
-      appearance: 'facility',
+      ...ALCHEMY_FACILITIES.guide,
       status: {
-        label: session.starterTask ? '初次可先阅读' : '碑文可阅',
+        label: session.starterTask ? '建议先查看' : '碑文可阅',
         tone: session.starterTask ? 'attention' : 'neutral',
       },
     },
   ];
 
+  const workspace = action ? (
+    selectedId === 'furnace' ? (
+      <FurnaceWorkspace
+        onBack={() => setLocation('furnace', undefined, true)}
+        onReturn={() => setLocation(undefined, undefined, true)}
+      />
+    ) : selectedId === 'cabinet' ? (
+      <HerbCabinetView
+        onBack={() => setLocation('cabinet', undefined, true)}
+        onOpenFurnace={openFurnace}
+      />
+    ) : selectedId === 'formulas' ? (
+      <FormulaArchiveView
+        onBack={() => setLocation('formulas', undefined, true)}
+        onOpenFurnace={openFurnace}
+      />
+    ) : selectedId === 'guide' ? (
+      <AlchemyGuideView
+        starterTask={session.starterTask}
+        focus={action === 'guide-basics' ? 'basics' : 'reference'}
+        onBack={() => setLocation('guide', undefined, true)}
+        onOpenFurnace={openFurnace}
+      />
+    ) : null
+  ) : null;
+
   return (
     <GameSceneFrame
       title="【炼丹房】"
-      description="丹炉负责完整炼制；药柜、丹方玉简与炉理碑各守一职，可按需使用。"
+      description="丹炉、药柜、丹方玉简与炉理碑各有用途。先与设施交互，再选择要办理的事情。"
     >
-      <RoomView
-        eyebrow="丹火沉静 · 四处设施各司其职"
-        description="中央玄火丹炉可独立完成一整炉炼制。沿墙药柜供辨材，玉简供理方，炉理碑只记述炼丹之理。"
-        actors={actors}
-        selectedId={selectedId}
-        onSelect={(id) => open(id as AlchemyFacilityId)}
-        prompt="选择一处设施"
-        promptDetail="若要直接炼丹，只需走近玄火丹炉。"
-        detail={
-          selectedId === 'furnace' ? (
-            <FurnaceWorkspace onBack={back} />
-          ) : selectedId === 'cabinet' ? (
-            <HerbCabinetView
-              onBack={back}
-              onOpenFurnace={() => open('furnace')}
-            />
-          ) : selectedId === 'formulas' ? (
-            <FormulaArchiveView
-              onBack={back}
-              onOpenFurnace={() => open('furnace')}
-            />
-          ) : selectedId === 'guide' ? (
-            <AlchemyGuideView
-              starterTask={session.starterTask}
-              onBack={back}
-              onOpenFurnace={() => open('furnace')}
-            />
-          ) : undefined
-        }
-      />
+      {workspace ?? (
+        <RoomView
+          eyebrow="丹火沉静 · 四处设施各司其职"
+          description="中央丹炉火光微动，药柜、丹方玉简与炉理碑分列四周。走近一处设施，看看它能为你做什么。"
+          actors={actors}
+          selectedId={selectedId}
+          onSelect={(id) => setLocation(id as AlchemyFacilityId)}
+          prompt="选择一处设施进行交互"
+          detail={
+            selectedId === 'furnace' ? (
+              <FurnaceConversation
+                onExit={() => setLocation(undefined, undefined, true)}
+                onOpen={openAction}
+              />
+            ) : selectedId === 'cabinet' ? (
+              <HerbCabinetConversation
+                onExit={() => setLocation(undefined, undefined, true)}
+                onOpen={openAction}
+              />
+            ) : selectedId === 'formulas' ? (
+              <FormulaArchiveConversation
+                onExit={() => setLocation(undefined, undefined, true)}
+                onOpen={openAction}
+              />
+            ) : selectedId === 'guide' ? (
+              <AlchemyGuideConversation
+                onExit={() => setLocation(undefined, undefined, true)}
+                onOpen={openAction}
+              />
+            ) : undefined
+          }
+        />
+      )}
     </GameSceneFrame>
   );
 }
@@ -155,10 +214,10 @@ function furnaceStatus(
   session: ReturnType<typeof useAlchemyCraftSession>,
 ): string {
   if (session.phase === 'firing') return '正在炼制';
-  if (session.phase === 'result') return '结果待领取';
+  if (session.phase === 'result') return '结果待查看';
   if (session.phase === 'observing') return '预览待确认';
-  if (session.readyForObservation) return '可查看预览';
+  if (session.readyForObservation) return '可以查看预览';
   if (session.materials.ids.length || session.formula || session.intent.trim())
-    return '准备中';
+    return '已有一炉正在准备';
   return '可以开始炼制';
 }

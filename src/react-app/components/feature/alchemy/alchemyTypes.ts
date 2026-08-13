@@ -13,6 +13,15 @@ export type AlchemyWorkspacePhase =
 
 export type AlchemyFacilityId = 'cabinet' | 'formulas' | 'guide' | 'furnace';
 
+export type AlchemyFacilityAction =
+  | 'improvised'
+  | 'formula'
+  | 'current'
+  | 'materials'
+  | 'formula-library'
+  | 'guide-basics'
+  | 'guide-reference';
+
 export type AlchemySectContext = {
   facilityLevel: number;
   discountPercent: number;

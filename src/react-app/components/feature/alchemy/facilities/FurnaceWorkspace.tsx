@@ -1,4 +1,4 @@
-import { AlchemyFacilityWorkspace } from '../AlchemyFacilityWorkspace';
+import { AlchemyToolWorkspace } from '../AlchemyToolWorkspace';
 import { AlchemyRitualRail } from '../AlchemyRitualRail';
 import { useAlchemyCraftSession } from '../alchemyCraftContext';
 import { FurnaceFiringStage } from '../stages/FurnaceFiringStage';
@@ -6,17 +6,24 @@ import { FurnaceHarvestStage } from '../stages/FurnaceHarvestStage';
 import { FurnaceObservationStage } from '../stages/FurnaceObservationStage';
 import { FurnacePreparationStage } from '../stages/FurnacePreparationStage';
 
-export function FurnaceWorkspace({ onBack }: { onBack(): void }) {
+export function FurnaceWorkspace({
+  onBack,
+  onReturn = onBack,
+}: {
+  onBack(): void;
+  onReturn?(): void;
+}) {
   const session = useAlchemyCraftSession();
-  const title = session.sectContext?.facilityLabel ?? '玄火丹炉';
-  const description = session.sectContext
-    ? `宗门炼丹设施 · ${session.sectContext.facilityLevel} 阶；在此选择材料、确认预览并完成炼制。`
-    : '可在这里选择材料、查看炼制预览并完成炼制；其他设施均不是必经步骤。';
+  const title =
+    session.phase === 'result'
+      ? '查看炼制结果'
+      : session.mode === 'formula'
+        ? '按照丹方炼制'
+        : '随心炼丹';
   return (
-    <AlchemyFacilityWorkspace
-      sigil="🔥"
+    <AlchemyToolWorkspace
       title={title}
-      description={description}
+      backLabel={session.sectContext?.facilityLabel ?? '玄火丹炉'}
       onBack={onBack}
       backDisabled={session.phase === 'firing'}
     >
@@ -29,9 +36,9 @@ export function FurnaceWorkspace({ onBack }: { onBack(): void }) {
         {session.phase === 'observing' ? <FurnaceObservationStage /> : null}
         {session.phase === 'firing' ? <FurnaceFiringStage /> : null}
         {session.phase === 'result' ? (
-          <FurnaceHarvestStage onReturn={onBack} />
+          <FurnaceHarvestStage onReturn={onReturn} />
         ) : null}
       </div>
-    </AlchemyFacilityWorkspace>
+    </AlchemyToolWorkspace>
   );
 }

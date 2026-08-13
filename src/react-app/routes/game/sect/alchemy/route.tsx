@@ -74,6 +74,9 @@ function SectAlchemyBody() {
                   { replace: true },
                 )
               }
+              onReturn={() =>
+                navigate('/game/sect/alchemy', { replace: true })
+              }
             />
           </AlchemyCraftSessionProvider>
         </SectScene>

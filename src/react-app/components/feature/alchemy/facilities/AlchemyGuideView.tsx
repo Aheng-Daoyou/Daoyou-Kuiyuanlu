@@ -1,5 +1,5 @@
 import { InkButton, InkNotice } from '@app/components/ui';
-import { AlchemyFacilityWorkspace } from '../AlchemyFacilityWorkspace';
+import { AlchemyToolWorkspace } from '../AlchemyToolWorkspace';
 
 const SECTIONS = [
   {
@@ -34,22 +34,23 @@ const SECTIONS = [
 
 export function AlchemyGuideView({
   starterTask,
+  focus = 'reference',
   onBack,
   onOpenFurnace,
 }: {
   starterTask: boolean;
+  focus?: 'basics' | 'reference';
   onBack(): void;
   onOpenFurnace(): void;
 }) {
   return (
-    <AlchemyFacilityWorkspace
-      sigil="🪨"
-      title="炉理碑"
-      description="碑文只记述炼丹之理，不替玩家改变本炉配伍或炼制方式。"
+    <AlchemyToolWorkspace
+      title={focus === 'basics' ? '第一炉建议' : '炼丹说明'}
+      backLabel="炉理碑"
       onBack={onBack}
     >
       <div className="space-y-6">
-        {starterTask ? (
+        {starterTask && focus === 'basics' ? (
           <InkNotice tone="info">
             <div className="space-y-2">
               <p className="font-medium">第一炉建议</p>
@@ -75,6 +76,6 @@ export function AlchemyGuideView({
           </InkButton>
         </div>
       </div>
-    </AlchemyFacilityWorkspace>
+    </AlchemyToolWorkspace>
   );
 }
