@@ -8,7 +8,6 @@ import {
   usePlayerSession,
 } from '@app/lib/resources/player';
 import { findNextTutorialTask } from '@app/lib/tasks/taskClient';
-import { QI_ACTION_COSTS } from '@shared/config/qiSystem';
 import {
   ALCHEMY_MAX_DOSE,
   CREATION_INPUT_CONSTRAINTS,
@@ -43,6 +42,7 @@ const EMPTY_MATERIALS: MaterialDraft = { ids: [], map: {}, doses: {} };
 const EMPTY_READINESS: ReadinessState = {
   key: null,
   estimatedSpiritStones: null,
+  estimatedQi: null,
   validation: null,
   canAfford: true,
   error: null,
@@ -66,7 +66,7 @@ const EMPTY_ANALYSIS: FormulaAnalysisState = {
 type ReadinessResponse = {
   success: boolean;
   data?: {
-    cost: { spiritStones: number };
+    cost: { spiritStones: number; qi: number };
     canAfford: boolean;
     validation: ReadinessState['validation'];
   };
@@ -170,10 +170,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
       }),
     [formula?.id, materialQuantities, materials.ids, mode],
   );
-  const qiCost =
-    mode === 'formula'
-      ? QI_ACTION_COSTS.alchemy_formula
-      : QI_ACTION_COSTS.alchemy_improvised;
+  const qiCost = readiness.estimatedQi ?? 1;
   const readyForReadinessCheck =
     materials.ids.length > 0 && (mode === 'improvised' || Boolean(formula));
   const readinessIsFresh =
@@ -368,6 +365,7 @@ export function useAlchemyCraftSessionState(sectContext?: AlchemySectContext) {
         setReadiness({
           key: selectionKey,
           estimatedSpiritStones: body.data.cost.spiritStones,
+          estimatedQi: body.data.cost.qi,
           validation: body.data.validation,
           canAfford: body.data.canAfford,
           error: null,

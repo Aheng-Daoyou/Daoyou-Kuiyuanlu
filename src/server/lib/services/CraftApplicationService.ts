@@ -122,11 +122,13 @@ export async function executeCraftCommand(args: {
           cultivatorId: args.cultivatorId,
           action: craftQiAction('alchemy', mode),
           actionInstanceId,
+          cost: prepared.qiCost,
           metadata: {
             craftType: 'alchemy',
             alchemyMode: mode,
             materialCount: input.materialIds.length,
             formulaId: input.formulaId,
+            qiCost: prepared.qiCost,
           },
           tx,
         });

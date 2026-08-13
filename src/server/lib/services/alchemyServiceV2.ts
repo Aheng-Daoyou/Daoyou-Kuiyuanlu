@@ -15,6 +15,7 @@ import {
   synthesizeAlchemyFromPlan,
 } from '@server/lib/services/AlchemyRecipeRules';
 import {
+  calculateAlchemyQiCost,
   rollAlchemyYieldProfile,
   toAlchemyYieldDisplayProfile,
 } from '@shared/lib/alchemyYield';
@@ -78,6 +79,7 @@ export interface AlchemySelectionValidation {
 export interface AlchemyPreviewResult {
   cost: {
     spiritStones: number;
+    qi: number;
   };
   canAfford: boolean;
   validation: AlchemySelectionValidation;
@@ -93,6 +95,7 @@ export interface ImprovisedAlchemyCraftResult {
 }
 
 export interface PreparedImprovisedAlchemyCraft {
+  qiCost: number;
   commit(tx: DbTransaction): Promise<{
     result: ImprovisedAlchemyCraftResult;
     inventoryChanges: ResourceOperationSettlement['inventoryChanges'];
@@ -337,6 +340,7 @@ export async function previewAlchemySelection(
   availableSpiritStones: number,
   materialIds: string[],
   fates: PreHeavenFate[] = [],
+  materialQuantities?: Record<string, number>,
 ): Promise<AlchemyPreviewResult> {
   const { rows, blockingReason } = await loadPreviewMaterialRows(
     cultivatorId,
@@ -345,7 +349,7 @@ export async function previewAlchemySelection(
 
   if (blockingReason) {
     return {
-      cost: { spiritStones: 0 },
+      cost: { spiritStones: 0, qi: 1 },
       canAfford: true,
       validation: createValidation(false, blockingReason),
     };
@@ -366,8 +370,14 @@ export async function previewAlchemySelection(
   );
 
   const validation = buildSelectionValidation(rows);
+  const preparedMaterials = validation.valid
+    ? buildPreparedMaterials(rows, materialQuantities)
+    : [];
   return {
-    cost: { spiritStones },
+    cost: {
+      spiritStones,
+      qi: calculateAlchemyQiCost(preparedMaterials),
+    },
     canAfford: availableSpiritStones >= spiritStones,
     validation,
   };
@@ -436,6 +446,7 @@ export function createAlchemyService(
       selectedMaterials,
       options.materialQuantities,
     );
+    const qiCost = calculateAlchemyQiCost(preparedMaterials);
 
     let recipePlan: AlchemyRecipePlan;
     try {
@@ -527,6 +538,7 @@ export function createAlchemyService(
     };
     consumable.score = calculateSingleElixirScore(consumable);
     return {
+      qiCost,
       async commit(tx: DbTransaction) {
         const inventoryChanges: ResourceOperationSettlement['inventoryChanges'] =
           [];

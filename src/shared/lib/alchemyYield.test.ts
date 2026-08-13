@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  calculateAlchemyQiCost,
   applyQualityEssenceMigration,
   buildAlchemyYieldPreview,
   calculateEssenceBuckets,
@@ -10,6 +11,19 @@ import { PILL_UNIT_ESSENCE_BY_QUALITY } from '@shared/config/alchemyEssenceConfi
 import { QUALITY_ORDER } from '@shared/types/constants';
 
 describe('alchemy yield engine', () => {
+  it('charges one qi per 200 raw essence within the 1 to 20 limit', () => {
+    expect(calculateAlchemyQiCost([])).toBe(1);
+    expect(
+      calculateAlchemyQiCost([{ rank: '凡品', type: 'herb', dose: 25 }]),
+    ).toBe(1);
+    expect(
+      calculateAlchemyQiCost([{ rank: '凡品', type: 'herb', dose: 26 }]),
+    ).toBe(2);
+    expect(
+      calculateAlchemyQiCost([{ rank: '神品', type: 'tcdb', dose: 999 }]),
+    ).toBe(20);
+  });
+
   it('scales raw essence by material dose and type', () => {
     expect(
       calculateRawEssence([

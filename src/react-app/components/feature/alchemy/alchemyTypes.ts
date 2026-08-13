@@ -37,6 +37,7 @@ export type PreviewValidation = {
 export type ReadinessState = {
   key: string | null;
   estimatedSpiritStones: number | null;
+  estimatedQi: number | null;
   validation: PreviewValidation | null;
   canAfford: boolean;
   error: string | null;

@@ -61,6 +61,7 @@ import { getHealingCuredStatus } from '@shared/lib/healingPill';
 import { isAlchemyMaterialType } from '@shared/lib/alchemyMaterials';
 import {
   buildAlchemyYieldPreview,
+  calculateAlchemyQiCost,
   rollAlchemyYieldProfile,
   toAlchemyYieldDisplayProfile,
   type AlchemyYieldFactors,
@@ -123,6 +124,7 @@ type AlchemyFormulaRow = typeof alchemyFormulas.$inferSelect;
 export interface FormulaPreviewResult {
   cost: {
     spiritStones: number;
+    qi: number;
   };
   canAfford: boolean;
   validation: {
@@ -1385,14 +1387,14 @@ export async function previewFormulaCraft(
 
   if (rows.length !== materialIds.length) {
     return {
-      cost: { spiritStones: 0 },
+      cost: { spiritStones: 0, qi: 1 },
       canAfford: true,
       validation: createValidation(false, '部分材料已耗尽或不存在。'),
     };
   }
   if (rows.some((row) => row.cultivatorId !== cultivatorId)) {
     return {
-      cost: { spiritStones: 0 },
+      cost: { spiritStones: 0, qi: 1 },
       canAfford: true,
       validation: createValidation(false, '非本人材料，不可动用。'),
     };
@@ -1404,7 +1406,7 @@ export async function previewFormulaCraft(
   } catch (error) {
     if (error instanceof AlchemyServiceError) {
       return {
-        cost: { spiritStones: 0 },
+        cost: { spiritStones: 0, qi: 1 },
         canAfford: true,
         validation: createValidation(false, error.message),
       };
@@ -1426,13 +1428,17 @@ export async function previewFormulaCraft(
   );
 
   return {
-    cost: { spiritStones },
+    cost: {
+      spiritStones,
+      qi: calculateAlchemyQiCost(materialsList),
+    },
     canAfford: availableSpiritStones >= spiritStones,
     validation: validateFormulaIngredients(formula, materialsList),
   };
 }
 
 export interface PreparedFormulaCraft {
+  qiCost: number;
   commit(tx: DbTransaction): Promise<{
     result: {
       consumable: Consumable;
@@ -1563,6 +1569,7 @@ export async function prepareFormulaCraft(
       dominantElement,
       aggregatedPropertyVector: aggregated.rawPropertyVector,
     });
+    const qiCost = calculateAlchemyQiCost(materialsList);
     const appearanceMasteryLevel =
       fitBand === 'poor'
         ? 0
@@ -1668,6 +1675,7 @@ export async function prepareFormulaCraft(
     };
 
   return {
+    qiCost,
     async commit(tx: DbTransaction) {
       const inventoryChanges: ResourceOperationSettlement['inventoryChanges'] =
         [];

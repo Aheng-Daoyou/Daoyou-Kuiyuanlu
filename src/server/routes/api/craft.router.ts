@@ -197,6 +197,7 @@ router.get('/', requireActiveCultivatorRef(), async (c) => {
               readiness.spiritStones,
               materialIds,
               fateList,
+              materialQuantities,
             );
 
       return c.json({

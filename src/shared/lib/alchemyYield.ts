@@ -82,6 +82,14 @@ export function calculateRawEssence(materials: AlchemyEssenceMaterial[]): number
   );
 }
 
+/** 每 200 点原始药蕴消耗 1 点天地灵气，单炉限制在 1～20 点。 */
+export function calculateAlchemyQiCost(
+  materials: AlchemyEssenceMaterial[],
+): number {
+  const rawEssence = calculateRawEssence(materials);
+  return Math.min(20, Math.max(1, Math.ceil(rawEssence / 200)));
+}
+
 export function calculateEffectiveEssence(
   rawEssence: number,
   factors: AlchemyYieldFactors = {},
