@@ -1,39 +1,9 @@
 import { getPillAppearanceLabel } from '@shared/lib/pillAppearance';
 import type {
   AlchemyBatchPreview,
-  AlchemyMode,
   FormulaAnalysisResult,
   PillAppearanceGrade,
 } from '@shared/types/consumable';
-
-export type AlchemyWorkspacePhase =
-  'idle' | 'preparing' | 'observing' | 'confirming' | 'firing' | 'result';
-
-export function describeFurnaceGreeting({
-  phase,
-  materialCount,
-  mode,
-}: {
-  phase: AlchemyWorkspacePhase;
-  materialCount: number;
-  mode: AlchemyMode;
-}): string {
-  if (phase === 'firing')
-    return '炉门已闭，地火沿阵纹层层升起。药气正在炉腹中收束。';
-  if (phase === 'result')
-    return '炉盖轻震，丹香自缝隙间逸出。这一炉已经可以收取。';
-  if (phase === 'confirming')
-    return '三道炉纹同时亮起。只待引动地火，最终成丹便会在此刻落定。';
-  if (phase === 'observing')
-    return '你将神识探入炉腹，火势、药蕴与成丹征兆逐一显现。';
-  if (phase === 'preparing' && materialCount > 0)
-    return mode === 'formula'
-      ? '炉中已有药气盘旋，丹方火纹却仍在等待最后一次推演。'
-      : '炉身传来低沉回响。灵材已经入炉，只待一缕明确丹意。';
-  if (phase === 'preparing')
-    return '炉盖微启，暗红火纹缓慢游走，正在等待第一缕药气。';
-  return '炉腹中只余一点暗红火星。地火脉络仍然通畅，随时可以重新唤醒。';
-}
 
 export function describeFireState({
   preview,

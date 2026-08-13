@@ -1,84 +1,149 @@
-import {
-  NpcConversation,
-  RoomView,
-  type NpcConversationActor,
-  type RoomActorView,
-} from '@app/components/feature/room';
-import { GameSceneFrame } from '@app/components/game-shell';
-import { useState } from 'react';
-import { AlchemyScene } from '../craft/AlchemyScene';
+import { RoomView, type RoomActorView } from '@app/components/feature/room';
+import { GameSceneFrame, GameSceneLoading } from '@app/components/game-shell';
+import { useEffect } from 'react';
+import { useBlocker, useSearchParams } from 'react-router';
+import { AlchemyCraftSessionProvider } from './AlchemyCraftSessionProvider';
+import { useAlchemyCraftSession } from './alchemyCraftContext';
+import type { AlchemyFacilityId } from './alchemyTypes';
+import { AlchemyGuideView } from './facilities/AlchemyGuideView';
+import { FormulaArchiveView } from './facilities/FormulaArchiveView';
+import { FurnaceWorkspace } from './facilities/FurnaceWorkspace';
+import { HerbCabinetView } from './facilities/HerbCabinetView';
 
-const ROOM_ACTORS: readonly RoomActorView[] = [
-  {
-    id: 'furnace',
-    sigil: '鼎',
-    name: '玄火丹炉',
-    identity: '炼丹设施',
-    responsibility: '纳药、引火、聚蕴、凝丹',
-    appearance: 'facility',
-    status: { label: '炉火沉眠', tone: 'active' },
-  },
-  {
-    id: 'cabinet',
-    sigil: '草',
-    name: '百草药柜',
-    identity: '炉材设施',
-    responsibility: '按药性收纳可用灵材',
-    appearance: 'facility',
-    status: { label: '封签完整', tone: 'neutral' },
-  },
-  {
-    id: 'formulas',
-    sigil: '简',
-    name: '丹方玉简',
-    identity: '传承设施',
-    responsibility: '留存丹方与熟练心得',
-    appearance: 'facility',
-    status: { label: '灵光内敛', tone: 'neutral' },
-  },
-  {
-    id: 'guide',
-    sigil: '理',
-    name: '炉理碑',
-    identity: '指引设施',
-    responsibility: '记述投药、观火与收丹之理',
-    appearance: 'facility',
-    status: { label: '碑文可读', tone: 'neutral' },
-  },
-];
-
-const FACILITY_ACTORS: Record<string, NpcConversationActor> =
-  Object.fromEntries(ROOM_ACTORS.map((actor) => [actor.id, actor]));
+const FACILITY_IDS = new Set<AlchemyFacilityId>([
+  'furnace',
+  'cabinet',
+  'formulas',
+  'guide',
+]);
 
 export function AlchemyRoomScene() {
-  const [selectedId, setSelectedId] = useState<string>();
-  const selectedActor = selectedId ? FACILITY_ACTORS[selectedId] : undefined;
+  return (
+    <AlchemyCraftSessionProvider>
+      <AlchemyRoomContent />
+    </AlchemyCraftSessionProvider>
+  );
+}
+
+function AlchemyRoomContent() {
+  const session = useAlchemyCraftSession();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const blocker = useBlocker(session.phase === 'firing');
+  const rawFacility = searchParams.get('facility');
+  const selectedId = FACILITY_IDS.has(rawFacility as AlchemyFacilityId)
+    ? (rawFacility as AlchemyFacilityId)
+    : undefined;
+
+  useEffect(() => {
+    if (!rawFacility || selectedId) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('facility');
+    setSearchParams(next, { replace: true });
+  }, [rawFacility, searchParams, selectedId, setSearchParams]);
+
+  const blockerState = blocker.state;
+  const resetBlockedNavigation =
+    blocker.state === 'blocked' ? blocker.reset : undefined;
+  useEffect(() => {
+    if (blockerState === 'blocked') resetBlockedNavigation?.();
+  }, [blockerState, resetBlockedNavigation]);
+
+  if (session.loading && !session.cultivator)
+    return <GameSceneLoading message="丹房禁制正在辨认来者……" />;
+
+  const open = (id: AlchemyFacilityId) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('facility', id);
+    setSearchParams(next);
+  };
+  const back = () => {
+    if (session.phase === 'firing') return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('facility');
+    setSearchParams(next);
+  };
+  const actors: RoomActorView[] = [
+    {
+      id: 'furnace',
+      sigil: '鼎',
+      name: '玄火丹炉',
+      identity: '核心炼丹设施',
+      responsibility: '配炉、观火、引火、开鼎',
+      appearance: 'facility',
+      status: {
+        label: furnaceStatus(session),
+        tone:
+          session.phase === 'result'
+            ? 'attention'
+            : session.materials.ids.length || session.formula || session.intent
+              ? 'active'
+              : 'neutral',
+      },
+    },
+    {
+      id: 'cabinet',
+      sigil: '草',
+      name: '百草药柜',
+      identity: '材料设施',
+      responsibility: '浏览、辨认与查看炼丹灵材',
+      appearance: 'facility',
+      status: { label: '库存可查', tone: 'neutral' },
+    },
+    {
+      id: 'formulas',
+      sigil: '简',
+      name: '丹方玉简',
+      identity: '丹方设施',
+      responsibility: '查阅、筛选与管理已有丹方',
+      appearance: 'facility',
+      status: { label: '玉简可阅', tone: 'neutral' },
+    },
+    {
+      id: 'guide',
+      sigil: '理',
+      name: '炉理碑',
+      identity: '指引设施',
+      responsibility: '阅读炼丹规则与第一炉建议',
+      appearance: 'facility',
+      status: {
+        label: session.starterTask ? '初次可先阅读' : '碑文可阅',
+        tone: session.starterTask ? 'attention' : 'neutral',
+      },
+    },
+  ];
 
   return (
     <GameSceneFrame
       title="【炼丹房】"
-      description="炉火、药柜与丹方各守其位。先走近一处设施，再决定这一炉如何起手。"
+      description="丹炉负责完整炼制；药柜、丹方玉简与炉理碑各守一职，可按需使用。"
     >
       <RoomView
-        eyebrow="丹火沉静 · 草木余香"
-        description="室内中央立着一尊玄火丹炉，百草药柜沿墙封存，丹方玉简与炉理碑分列炉侧。"
-        actors={ROOM_ACTORS}
+        eyebrow="丹火沉静 · 四处设施各司其职"
+        description="中央玄火丹炉可独立完成一整炉炼制。沿墙药柜供辨材，玉简供理方，炉理碑只记述炼丹之理。"
+        actors={actors}
         selectedId={selectedId}
-        onSelect={setSelectedId}
-        prompt="点击设施，查看详情"
-        promptDetail="炼丹的全部操作都会围绕玄火丹炉展开。"
+        onSelect={(id) => open(id as AlchemyFacilityId)}
+        prompt="选择一处设施"
+        promptDetail="若要直接炼丹，只需走近玄火丹炉。"
         detail={
-          selectedActor ? (
-            selectedId === 'furnace' ? (
-              <AlchemyScene onExit={() => setSelectedId(undefined)} />
-            ) : (
-              <FacilityConversation
-                actor={selectedActor}
-                kind={selectedId ?? ''}
-                onExit={() => setSelectedId(undefined)}
-                onOpenFurnace={() => setSelectedId('furnace')}
-              />
-            )
+          selectedId === 'furnace' ? (
+            <FurnaceWorkspace onBack={back} />
+          ) : selectedId === 'cabinet' ? (
+            <HerbCabinetView
+              onBack={back}
+              onOpenFurnace={() => open('furnace')}
+            />
+          ) : selectedId === 'formulas' ? (
+            <FormulaArchiveView
+              onBack={back}
+              onOpenFurnace={() => open('furnace')}
+            />
+          ) : selectedId === 'guide' ? (
+            <AlchemyGuideView
+              starterTask={session.starterTask}
+              onBack={back}
+              onOpenFurnace={() => open('furnace')}
+            />
           ) : undefined
         }
       />
@@ -86,35 +151,14 @@ export function AlchemyRoomScene() {
   );
 }
 
-function FacilityConversation({
-  actor,
-  kind,
-  onExit,
-  onOpenFurnace,
-}: {
-  actor: NpcConversationActor;
-  kind: string;
-  onExit(): void;
-  onOpenFurnace(): void;
-}) {
-  const body =
-    kind === 'cabinet'
-      ? '柜门上的封签按药性依次排列。真正投药时，丹炉会从这里展开可用灵材。'
-      : kind === 'formulas'
-        ? '玉简中留着已经悟得的丹方与熟练心得。依方起炉时，可在丹炉前直接取用。'
-        : '碑文没有列出繁复算式，只反复强调三件事：投药要有主路，观火要辨风险，开炉前要核清代价。';
-  return (
-    <NpcConversation
-      actor={actor}
-      messages={[{ id: 'facility', body }]}
-      options={[
-        { id: 'furnace', label: '回到玄火丹炉', tone: 'primary' },
-        { id: 'leave', label: '返回炼丹房', tone: 'muted' },
-      ]}
-      onSelectOption={(optionId) => {
-        if (optionId === 'furnace') onOpenFurnace();
-        else onExit();
-      }}
-    />
-  );
+function furnaceStatus(
+  session: ReturnType<typeof useAlchemyCraftSession>,
+): string {
+  if (session.phase === 'firing') return '地火正盛';
+  if (session.phase === 'result') return '丹成待收';
+  if (session.phase === 'observing') return '火候已显';
+  if (session.readyForObservation) return '可观火';
+  if (session.materials.ids.length || session.formula || session.intent.trim())
+    return '配炉中';
+  return '空炉待启';
 }
