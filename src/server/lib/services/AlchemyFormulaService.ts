@@ -227,7 +227,7 @@ function toAlchemyBatchDisplayProfile(
     appearanceHints: preview.appearanceHints,
     essenceLossRatioRange: preview.essenceLossRatioRange,
     summary: profile.roleSummary,
-    warnings: preview.likelyLots.length > 8 ? ['本炉产出批次较多，部分相邻批次将合并展示。'] : [],
+    warnings: [],
   };
 }
 

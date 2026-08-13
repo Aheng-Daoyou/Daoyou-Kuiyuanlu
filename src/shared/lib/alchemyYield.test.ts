@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateAlchemyQiCost,
-  applyQualityEssenceMigration,
   buildAlchemyYieldPreview,
   calculateEssenceBuckets,
   calculateRawEssence,
@@ -86,21 +85,6 @@ describe('alchemy yield engine', () => {
     expect((shenBucket?.share ?? 0)).toBeGreaterThan(xuanBucket?.share ?? 0);
   });
 
-  it('migrates quality essence from a snapshot without cascading through multiple tiers', () => {
-    const buckets = calculateEssenceBuckets([
-      { rank: '凡品', type: 'herb', dose: 100 },
-    ]);
-    const migrated = applyQualityEssenceMigration(
-      buckets,
-      { stability: 100, synergyScore: 1 },
-      1000,
-    );
-    const ling = migrated.find((bucket) => bucket.quality === '灵品');
-    const xuan = migrated.find((bucket) => bucket.quality === '玄品');
-    expect(ling?.effectiveEssence).toBeGreaterThan(0);
-    expect(xuan?.effectiveEssence).toBe(0);
-  });
-
   it('preserves high-quality output when the high-quality essence supports it', () => {
     const result = rollAlchemyYieldProfile({
       materials: [
@@ -127,6 +111,46 @@ describe('alchemy yield engine', () => {
     expect(result.lots.reduce((sum, lot) => sum + lot.quantity, 0)).toBe(result.totalQuantity);
     expect(result.lots.reduce((sum, lot) => sum + lot.essenceSpent, 0)).toBeLessThanOrEqual(
       result.essence.effectiveEssence,
+    );
+  });
+
+  it('converts native remainder into at most one lower quality', () => {
+    const result = rollAlchemyYieldProfile({
+      materials: [{ rank: '真品', type: 'herb', dose: 6 }],
+      factors: { stability: 60, purity: 0.75 },
+      rng: () => 0.5,
+    });
+    expect(result.lots.some((lot) => lot.quality === '真品')).toBe(true);
+    expect(result.lots.some((lot) => lot.quality === '玄品')).toBe(true);
+    expect(result.lots.every((lot) => lot.quality !== '灵品')).toBe(true);
+  });
+
+  it('never uses a lower-quality fallback when no native pool can form a pill', () => {
+    const result = rollAlchemyYieldProfile({
+      materials: [
+        { rank: '真品', type: 'herb', dose: 1 },
+        { rank: '玄品', type: 'herb', dose: 1 },
+      ],
+      factors: { stability: 60, purity: 0.75 },
+      rng: () => 0.5,
+    });
+    expect(result.totalQuantity).toBe(0);
+    expect(result.lots).toHaveLength(0);
+  });
+
+  it('keeps total quantity when appearance lots are split', () => {
+    const result = rollAlchemyYieldProfile({
+      materials: [{ rank: '神品', type: 'herb', dose: 20 }],
+      factors: { stability: 75, purity: 0.75 },
+      rng: () => 0.5,
+    });
+    expect(result.lots.reduce((sum, lot) => sum + lot.quantity, 0)).toBe(result.totalQuantity);
+    expect(result.lots.length).toBeLessThanOrEqual(8);
+    expect(result.lots.reduce((sum, lot) => sum + lot.essenceSpent, 0)).toBe(
+      result.lots.reduce(
+        (sum, lot) => sum + lot.quantity * PILL_UNIT_ESSENCE_BY_QUALITY[lot.quality],
+        0,
+      ),
     );
   });
 
