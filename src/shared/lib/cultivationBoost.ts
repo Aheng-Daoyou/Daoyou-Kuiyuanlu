@@ -9,14 +9,14 @@ import { isConditionStatusActive } from './condition';
 export const CULTIVATION_BOOST_STATUS_KEY = 'cultivation_boost' as const;
 
 export const CULTIVATION_BOOST_BY_QUALITY: Record<Quality, number> = {
-  凡品: 0.5,
-  灵品: 0.6411,
-  玄品: 0.943,
-  真品: 1.3648,
-  地品: 1.8901,
-  天品: 2.5089,
-  仙品: 3.214,
-  神品: 4,
+  凡品: 0.4,
+  灵品: 0.7,
+  玄品: 1.2,
+  真品: 2,
+  地品: 3.2,
+  天品: 4.5,
+  仙品: 6,
+  神品: 8,
 };
 
 const MIN_CULTIVATION_BOOST = 0.3;

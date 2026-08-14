@@ -12,6 +12,7 @@ import type { ConditionOperation, PillSpec } from '@shared/types/consumable';
 import type { Cultivator } from '@shared/types/cultivator';
 import type { CultivatorDisplayInput } from '@shared/engine/battle-v5/adapters/CultivatorDisplayAdapter';
 import { isPillConsumable } from '@shared/lib/consumables';
+import { validateResolvedPillEffects } from '@shared/lib/alchemyEffectResolver';
 import {
   getPillUsageLimitReachedText,
   getPrimaryPillQuotaCategory,
@@ -647,6 +648,8 @@ export const PillOperationExecutor = {
     if (consumable.spec.consumeRules.scene !== 'out_of_battle_only') {
       throw new Error('该丹药当前不可在背包内直接服用。');
     }
+
+    validateResolvedPillEffects(consumable.spec);
 
     assertPillQualityAllowed(cultivator, consumable);
 

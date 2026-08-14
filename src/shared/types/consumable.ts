@@ -227,7 +227,7 @@ export type PillAlchemyMeta =
       appearance?: PillAppearanceGrade;
       tags: string[];
       batch?: AlchemyBatchProfile;
-      version?: 3;
+      version?: 3 | 4;
       breakthroughTargetRealm?: RealmType;
       breakthroughLabel?: string;
     }
@@ -247,7 +247,7 @@ export type PillAlchemyMeta =
       appearance?: PillAppearanceGrade;
       tags: string[];
       batch?: AlchemyBatchProfile;
-      version?: 3;
+      version?: 3 | 4;
       breakthroughTargetRealm?: RealmType;
       breakthroughLabel?: string;
     };
@@ -343,11 +343,34 @@ export interface TalismanSpec {
 export type ConsumableSpec = PillSpec | TalismanSpec;
 
 export interface AlchemyFormulaBlueprint {
-  /** 操作路线模板；炼制时按最终品质重新生成数值，不应作为绝对药效基准。 */
-  operations: ConditionOperation[];
+  version: 4;
+  route: AlchemyEffectRoute;
+  needsRebirth?: boolean;
   consumeRules: PillConsumeRules;
   targetStability: number;
   targetToxicity: number;
+}
+
+export type AlchemyEffectKey =
+  | 'restore_hp'
+  | 'restore_mp'
+  | 'detox'
+  | 'cultivation'
+  | 'insight'
+  | 'extend_lifespan'
+  | 'marrow_wash'
+  | 'body_skin'
+  | 'body_sinew_bone'
+  | 'body_organs'
+  | 'body_qi_blood'
+  | 'body_primordial_spirit'
+  | 'heal_wounds'
+  | 'clear_mind_support'
+  | 'protect_meridians_support'
+  | 'breakthrough_support';
+
+export interface AlchemyEffectRoute {
+  effects: Array<{ key: AlchemyEffectKey; weight: number }>;
 }
 
 export interface FormulaAnalysisResult {
