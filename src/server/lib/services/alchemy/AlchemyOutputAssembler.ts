@@ -1,6 +1,5 @@
 import { calculateSingleElixirScore } from '@server/utils/rankingUtils';
-import { scaleOperationsForOutputLot } from '@shared/lib/alchemyYield';
-import { buildFurnaceToxicityMultiplier } from '@shared/lib/pillEffectScaling';
+import { resolveAlchemyEffects } from '@shared/lib/alchemyEffectResolver';
 import type { AlchemyYieldProfile } from '@shared/types/consumable';
 import type { Consumable } from '@shared/types/cultivator';
 import type { Quality } from '@shared/types/constants';
@@ -15,17 +14,18 @@ export function assembleAlchemyOutputConsumables(
     const spec = base.spec.kind === 'pill'
       ? {
           ...base.spec,
-          operations: scaleOperationsForOutputLot(
-            base.spec.operations,
-            sourceQuality,
-            'middle',
-            lot.quality,
-            lot.appearance,
-            buildFurnaceToxicityMultiplier(base.spec.alchemyMeta.stability),
-          ),
+          operations: resolveAlchemyEffects({
+            route: { effects: base.spec.alchemyMeta.propertyVector ?? [] },
+            quality: lot.quality,
+            appearance: lot.appearance,
+            fitMultiplier: base.spec.alchemyMeta.source === 'formula'
+              ? base.spec.alchemyMeta.fitMultiplier
+              : 1,
+            stability: base.spec.alchemyMeta.stability,
+          }).operations,
           alchemyMeta: {
             ...base.spec.alchemyMeta,
-            version: 3 as const,
+            version: 4 as const,
             appearance: lot.appearance,
             batch: base.spec.alchemyMeta.batch
               ? {

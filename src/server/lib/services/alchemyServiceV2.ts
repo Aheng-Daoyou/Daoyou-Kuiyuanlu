@@ -252,7 +252,7 @@ function buildAlchemySpec(
     },
     alchemyMeta: {
       source: 'improvised',
-      version: 3,
+      version: 4,
       sourceMaterials: materialNames,
       analysisVersion: 2,
       propertyVector: synthesis.propertyVector,

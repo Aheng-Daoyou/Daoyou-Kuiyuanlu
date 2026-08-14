@@ -24,24 +24,7 @@ import {
   calculateHighestMaterialRank,
 } from '@shared/engine/creation-v2/CraftCostCalculator';
 import {
-  CULTIVATION_BOOST_STATUS_KEY,
-} from '@shared/lib/cultivationBoost';
-import { buildInsightGain } from '@shared/lib/alchemyProgress';
-import {
-  buildBodyTrackAdvance,
-  buildBreakthroughFocusOperation,
-  buildClearMindOperation,
-  buildCultivationBoostOperationV2,
-  buildDetoxPower,
-  buildLifespanGain,
-  buildPillToxicity,
-  buildProtectMeridiansOperation,
-  buildRestorePercent,
-  scalePillEffectOperation,
-} from '@shared/lib/pillEffectScaling';
-import {
   formatAlchemyPropertyVector,
-  getAlchemyPropertyTrackPath,
   normalizeWeightedAlchemyProperties,
 } from '@shared/lib/alchemyProperties';
 import {
@@ -54,7 +37,6 @@ import {
   getAlchemySpiritStoneMultiplier,
   scaleFateAdjustedCost,
 } from '@shared/lib/fates';
-import { getHealingCuredStatus } from '@shared/lib/healingPill';
 import { isAlchemyMaterialType } from '@shared/lib/alchemyMaterials';
 import {
   buildAlchemyYieldPreview,
@@ -78,15 +60,14 @@ import type {
   AlchemyFormulaMastery,
   AlchemyFormulaPattern,
   AlchemyRecipePlan,
-  ConditionOperation,
   FormulaAnalysisResult,
   FormulaFitBand,
   FormulaMaterialJudgment,
-  PillAppearanceGrade,
   PillFamily,
   PillSpec,
   WeightedAlchemyProperty,
 } from '@shared/types/consumable';
+import { resolveAlchemyEffects, validateAlchemyEffectRoute } from '@shared/lib/alchemyEffectResolver';
 import type { Consumable, PreHeavenFate } from '@shared/types/cultivator';
 import type { ResourceOperationSettlement } from '@shared/engine/resource/types';
 import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
@@ -273,6 +254,9 @@ function isValidFormulaPattern(
 function mapAlchemyFormulaRow(row: AlchemyFormulaRow): AlchemyFormula {
   if (!isValidFormulaPattern(row.pattern)) {
     throw new AlchemyServiceError('丹方数据已损坏，请删除后重新悟方。', 500);
+  }
+  if (!row.blueprint || (row.blueprint as { version?: number }).version !== 4) {
+    throw new AlchemyServiceError('此丹方需要升级后才能使用。', 409);
   }
 
   return {
@@ -579,7 +563,7 @@ export function buildFormulaSignature(
 ): string {
   return stableStringify({
     family: formula.family,
-    operations: formula.blueprint.operations,
+    route: formula.blueprint.route,
     consumeRules: formula.blueprint.consumeRules,
     dominantElement: formula.pattern.dominantElement ?? null,
     minQuality: formula.pattern.minQuality ?? null,
@@ -754,184 +738,6 @@ function buildFormulaAnalysisPayload(
     batchProfile,
     dominantElement: aggregated.dominantElement,
   };
-}
-
-function scaleFormulaOperations(
-  operations: ConditionOperation[],
-  fitMultiplier: number,
-  quality: Quality,
-  targetPropertyVector: WeightedAlchemyProperty[] = [],
-): ConditionOperation[] {
-  // A formula blueprint describes the operation route only. Its persisted
-  // numeric values may come from the pill that originally discovered the
-  // formula, so every value-bearing operation is rebuilt from the output
-  // quality before the formula fit multiplier is applied.
-  return operations.flatMap((operation): ConditionOperation[] => {
-    if (operation.type === 'restore_resource') {
-      return [
-        scalePillEffectOperation(
-          {
-            ...operation,
-            mode: 'percent',
-            value: buildRestorePercent(quality),
-          },
-          fitMultiplier,
-        ),
-      ];
-    }
-
-    if (operation.type === 'gain_progress') {
-      if (operation.target === 'cultivation_exp') {
-        return [buildCultivationBoostOperationV2(quality, fitMultiplier)];
-      }
-
-      return [
-        scalePillEffectOperation(
-          {
-            ...operation,
-            value: buildInsightGain(quality),
-          },
-          fitMultiplier,
-        ),
-      ];
-    }
-
-    if (
-      operation.type === 'remove_status' &&
-      (operation.status === 'minor_wound' ||
-        operation.status === 'major_wound' ||
-        operation.status === 'near_death')
-    ) {
-      return [
-        {
-          ...operation,
-          status: getHealingCuredStatus(quality),
-        },
-      ];
-    }
-
-    if (operation.type === 'advance_track') {
-      if (operation.track === 'marrow_wash' || operation.track.startsWith('body.')) {
-        const propertyIndex = targetPropertyVector.findIndex(
-          (property) => getAlchemyPropertyTrackPath(property.key) === operation.track,
-        );
-        const propertyScalar = propertyIndex === 0
-          ? 1
-          : propertyIndex === 1
-            ? 0.35
-            : propertyIndex >= 2
-              ? 0.2
-              : 1;
-        // Formula blueprints may have been discovered from an already-scaled
-        // pill. Rebuild body/marrow values from the canonical quality table so
-        // the persisted operation cannot become a second scaling baseline.
-        const canonicalValue = buildBodyTrackAdvance(quality) * propertyScalar;
-        return [
-          scalePillEffectOperation(
-            {
-              ...operation,
-              value: Math.max(1, Math.round(canonicalValue)),
-            },
-            fitMultiplier,
-          ),
-        ];
-      }
-      // No other long-term track is currently formula-generated. Keep the
-      // route, but never let an old blueprint value bypass the common scaler.
-      return [
-        scalePillEffectOperation(
-          { ...operation, value: Math.max(1, Math.round(operation.value)) },
-          fitMultiplier,
-        ),
-      ];
-    }
-
-    if (operation.type === 'increase_lifespan') {
-      return [
-        scalePillEffectOperation(
-          {
-            ...operation,
-            value: buildLifespanGain(quality),
-          },
-          fitMultiplier,
-        ),
-      ];
-    }
-
-    if (operation.type === 'change_gauge') {
-      if (operation.delta >= 0) {
-        return [];
-      }
-      return [
-        scalePillEffectOperation(
-          {
-            ...operation,
-            delta: -buildDetoxPower(quality),
-          },
-          fitMultiplier,
-        ),
-      ];
-    }
-
-    if (
-      operation.type === 'add_status' &&
-      operation.status === CULTIVATION_BOOST_STATUS_KEY
-    ) {
-      return [buildCultivationBoostOperationV2(quality, fitMultiplier)];
-    }
-
-    if (
-      operation.type === 'add_status' &&
-      operation.status === 'breakthrough_focus'
-    ) {
-      return [buildBreakthroughFocusOperation(quality, fitMultiplier)];
-    }
-
-    if (
-      operation.type === 'add_status' &&
-      operation.status === 'protect_meridians'
-    ) {
-      return [buildProtectMeridiansOperation(quality, fitMultiplier)];
-    }
-
-    if (
-      operation.type === 'add_status' &&
-      operation.status === 'clear_mind'
-    ) {
-      return [buildClearMindOperation(quality)];
-    }
-
-    return [operation];
-  });
-}
-
-function appendFormulaPositiveToxicity(
-  operations: ConditionOperation[],
-  quality: Quality,
-  appearance: PillAppearanceGrade,
-  propertyVector: WeightedAlchemyProperty[],
-): ConditionOperation[] {
-  if (propertyVector.some((property) => property.key === 'detox')) {
-    return operations;
-  }
-
-  if (!propertyVector.some((property) => property.key !== 'detox')) {
-    return operations;
-  }
-
-  const delta = buildPillToxicity(quality, appearance);
-  if (delta <= 0) {
-    return operations;
-  }
-
-  return [
-    ...operations,
-    {
-      type: 'change_gauge',
-      gauge: 'pillToxicity',
-      delta,
-    },
-  ];
 }
 
 function calculateFormulaMasteryGain(
@@ -1143,7 +949,10 @@ export async function buildDiscoveryCandidate(
     slotCount: materialsList.length,
   };
   const blueprint = {
-    operations: spec.operations,
+    version: 4 as const,
+    route: validateAlchemyEffectRoute({
+      effects: propertyVector ?? [],
+    }),
     consumeRules: spec.consumeRules,
     targetStability: spec.alchemyMeta.stability,
     targetToxicity: spec.alchemyMeta.toxicityRating,
@@ -1581,17 +1390,15 @@ export async function prepareFormulaCraft(
       aggregatedPropertyVector: aggregated.rawPropertyVector,
     });
     const qiCost = calculateAlchemyQiCost(materialsList);
-    const operations = appendFormulaPositiveToxicity(
-      scaleFormulaOperations(
-        formula.blueprint.operations,
-        projection.fitMultiplier,
-        highestMaterialRank,
-        formula.pattern.targetPropertyVector,
-      ),
-      highestMaterialRank,
-      'middle',
-      formula.pattern.targetPropertyVector,
-    );
+    if (formula.blueprint.version !== 4) {
+      throw new AlchemyServiceError('此丹方需要升级后才能炼制。', 409);
+    }
+    const operations = resolveAlchemyEffects({
+      route: formula.blueprint.route,
+      quality: highestMaterialRank,
+      appearance: 'middle',
+      fitMultiplier: projection.fitMultiplier,
+    }).operations;
     const spec: PillSpec = {
       kind: 'pill',
       family: formula.family,
@@ -1603,7 +1410,7 @@ export async function prepareFormulaCraft(
       alchemyMeta: {
         source: 'formula',
         formulaId: formula.id,
-        version: 3,
+        version: 4,
         sourceMaterials: materialsList.map((material) => material.name),
         analysisVersion: 2,
         propertyVector: formula.pattern.targetPropertyVector,

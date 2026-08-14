@@ -11,7 +11,6 @@ import {
   CULTIVATION_BOOST_STATUS_KEY,
   scaleCultivationBoostOperation,
 } from './cultivationBoost';
-import { PILL_APPEARANCE_EFFECT_MULTIPLIER } from '@shared/config/alchemyEssenceConfig';
 
 export const BREAKTHROUGH_FOCUS_STATUS_KEY = 'breakthrough_focus' as const;
 export const PROTECT_MERIDIANS_STATUS_KEY = 'protect_meridians' as const;
@@ -352,31 +351,6 @@ export function scalePillEffectOperation(
     default:
       return operation;
   }
-}
-
-export function applyPillAppearanceToOperations(
-  operations: ConditionOperation[],
-  appearance: PillAppearanceGrade,
-): ConditionOperation[] {
-  const effectMultiplier = PILL_APPEARANCE_EFFECT_MULTIPLIER[appearance];
-
-  return operations.map((operation) => {
-    if (
-      operation.type === 'add_status' &&
-      operation.status === CLEAR_MIND_STATUS_KEY
-    ) {
-      return {
-        ...operation,
-        usesRemaining:
-          appearance === 'perfect'
-            ? (operation.usesRemaining ?? 1) + 1
-            : operation.usesRemaining,
-      };
-    }
-    return scalePillEffectOperation(operation, effectMultiplier, {
-      final: true,
-    });
-  });
 }
 
 export function buildCultivationBoostOperationV2(
