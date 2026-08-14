@@ -1,3 +1,4 @@
+import { ALCHEMY_EFFECT_BASE_BY_QUALITY } from '@shared/config/alchemyEffectConfig';
 import type {
   ConditionStatusInstance,
   CultivatorCondition,
@@ -8,22 +9,13 @@ import { isConditionStatusActive } from './condition';
 
 export const CULTIVATION_BOOST_STATUS_KEY = 'cultivation_boost' as const;
 
-export const CULTIVATION_BOOST_BY_QUALITY: Record<Quality, number> = {
-  凡品: 0.4,
-  灵品: 0.7,
-  玄品: 1.2,
-  真品: 2,
-  地品: 3.2,
-  天品: 4.5,
-  仙品: 6,
-  神品: 8,
-};
+const MIN_CULTIVATION_BOOST = 0;
+const MAX_CULTIVATION_BOOST = 100;
 
-const MIN_CULTIVATION_BOOST = 0.3;
-const MAX_CULTIVATION_BOOST = 8;
-
-export interface CultivationBoostPayload
-  extends Record<string, string | number | boolean> {
+export interface CultivationBoostPayload extends Record<
+  string,
+  string | number | boolean
+> {
   boostPercent: number;
   retreatExpMultiplier: number;
 }
@@ -55,27 +47,14 @@ export function buildCultivationBoostOperation(
   quality: Quality,
   factor = 1,
 ): AddStatusOperation {
-  const base = CULTIVATION_BOOST_BY_QUALITY[quality] ?? MIN_CULTIVATION_BOOST;
+  const base =
+    ALCHEMY_EFFECT_BASE_BY_QUALITY[quality].cultivationBoost ??
+    MIN_CULTIVATION_BOOST;
   return {
     type: 'add_status',
     status: CULTIVATION_BOOST_STATUS_KEY,
     usesRemaining: 1,
     payload: buildCultivationBoostPayload(base * factor),
-  };
-}
-
-export function scaleCultivationBoostOperation(
-  operation: AddStatusOperation,
-  factor: number,
-): AddStatusOperation {
-  if (operation.status !== CULTIVATION_BOOST_STATUS_KEY) {
-    return operation;
-  }
-
-  const currentBoost = getCultivationBoostPercent(operation);
-  return {
-    ...operation,
-    payload: buildCultivationBoostPayload(currentBoost * factor),
   };
 }
 

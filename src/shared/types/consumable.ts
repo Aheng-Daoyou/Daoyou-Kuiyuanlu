@@ -40,8 +40,7 @@ export const PILL_APPEARANCE_GRADE_VALUES = [
   'perfect',
 ] as const;
 
-export type PillAppearanceGrade =
-  (typeof PILL_APPEARANCE_GRADE_VALUES)[number];
+export type PillAppearanceGrade = (typeof PILL_APPEARANCE_GRADE_VALUES)[number];
 
 export const ALCHEMY_PROPERTY_KEY_VALUES = [
   'restore_hp',
@@ -76,8 +75,7 @@ export type LegacyAlchemyPropertyKey =
   (typeof LEGACY_ALCHEMY_PROPERTY_KEY_VALUES)[number];
 
 export type CompatibleAlchemyPropertyKey =
-  | AlchemyPropertyKey
-  | LegacyAlchemyPropertyKey;
+  AlchemyPropertyKey | LegacyAlchemyPropertyKey;
 
 export interface WeightedAlchemyProperty {
   key: AlchemyPropertyKey;
@@ -123,7 +121,12 @@ export interface AlchemyYieldProfile {
 
 export interface AlchemyYieldDisplayProfile {
   primaryQuality: Quality;
-  lots: Array<Pick<AlchemyOutputLot, 'quality' | 'appearance' | 'quantity' | 'effectMultiplier'>>;
+  lots: Array<
+    Pick<
+      AlchemyOutputLot,
+      'quality' | 'appearance' | 'quantity' | 'effectMultiplier'
+    >
+  >;
   totalQuantity: number;
   essenceLossRatio: number;
   distributionSummary: string;
@@ -136,8 +139,7 @@ export const ALCHEMY_COMPOUND_TIER_VALUES = [
   'conflict',
 ] as const;
 
-export type AlchemyCompoundTier =
-  (typeof ALCHEMY_COMPOUND_TIER_VALUES)[number];
+export type AlchemyCompoundTier = (typeof ALCHEMY_COMPOUND_TIER_VALUES)[number];
 
 export interface AlchemyBatchProfile {
   /** @deprecated 新炼丹产量由 yieldProfile/批次引擎决定。仅兼容历史数据。 */
@@ -149,7 +151,8 @@ export interface AlchemyBatchProfile {
   roleSummary: string;
   stabilityDelta: number;
   toxicityDelta: number;
-  secondaryEffectMultiplierBonus: number;
+  /** @deprecated v4 效果槽位倍率固定，不再接受批次加成。 */
+  secondaryEffectMultiplierBonus?: number;
   essenceSummary?: AlchemyEssenceSummary;
   yieldProfile?: AlchemyYieldProfile;
   essenceLossRatio?: number;
@@ -177,11 +180,7 @@ export const FORMULA_MATERIAL_VERDICT_VALUES = [
 export type FormulaMaterialVerdict =
   (typeof FORMULA_MATERIAL_VERDICT_VALUES)[number];
 
-export const FORMULA_FIT_BAND_VALUES = [
-  'aligned',
-  'degraded',
-  'poor',
-] as const;
+export const FORMULA_FIT_BAND_VALUES = ['aligned', 'degraded', 'poor'] as const;
 
 export type FormulaFitBand = (typeof FORMULA_FIT_BAND_VALUES)[number];
 
@@ -211,7 +210,6 @@ export interface PillConsumeRules {
   scene: 'out_of_battle_only';
   quotaCategory: PillQuotaCategory;
 }
-
 
 export type PillAlchemyMeta =
   | {
@@ -351,23 +349,7 @@ export interface AlchemyFormulaBlueprint {
   targetToxicity: number;
 }
 
-export type AlchemyEffectKey =
-  | 'restore_hp'
-  | 'restore_mp'
-  | 'detox'
-  | 'cultivation'
-  | 'insight'
-  | 'extend_lifespan'
-  | 'marrow_wash'
-  | 'body_skin'
-  | 'body_sinew_bone'
-  | 'body_organs'
-  | 'body_qi_blood'
-  | 'body_primordial_spirit'
-  | 'heal_wounds'
-  | 'clear_mind_support'
-  | 'protect_meridians_support'
-  | 'breakthrough_support';
+export type AlchemyEffectKey = AlchemyPropertyKey;
 
 export interface AlchemyEffectRoute {
   effects: Array<{ key: AlchemyEffectKey; weight: number }>;

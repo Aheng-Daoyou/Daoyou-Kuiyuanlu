@@ -1,4 +1,12 @@
 import postgres from 'postgres';
+import {
+  normalizeAlchemyEffectRoute,
+  validateAlchemyEffectRoute,
+} from '../src/shared/lib/alchemyEffectResolver';
+import type {
+  AlchemyEffectKey,
+  AlchemyFormulaBlueprint,
+} from '../src/shared/types/consumable';
 
 type FormulaRow = {
   id: string;
@@ -28,13 +36,50 @@ function routeFromPattern(pattern: Record<string, unknown>) {
     const value = item as Record<string, unknown>;
     const key = LEGACY_KEY_MAP[String(value.key)] ?? value.key;
     const weight = Number(value.weight);
-    if (typeof key !== 'string' || !Number.isFinite(weight) || weight <= 0) continue;
+    if (typeof key !== 'string' || !Number.isFinite(weight) || weight <= 0)
+      continue;
     merged.set(key, (merged.get(key) ?? 0) + weight);
   }
-  return [...merged.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([key, weight]) => ({ key, weight: Number(Math.min(1, weight).toFixed(4)) }));
+  const route = normalizeAlchemyEffectRoute({
+    effects: [...merged.entries()].map(([key, weight]) => ({
+      key: key as AlchemyEffectKey,
+      weight,
+    })),
+  });
+  if (route.effects.length > 0) validateAlchemyEffectRoute(route);
+  return route.effects;
+}
+
+function buildBlueprintV4(
+  pattern: Record<string, unknown>,
+  blueprint: Record<string, unknown>,
+): AlchemyFormulaBlueprint {
+  const effects = routeFromPattern(pattern);
+  const consumeRules = blueprint.consumeRules as
+    AlchemyFormulaBlueprint['consumeRules'] | undefined;
+  return {
+    version: 4,
+    route: { effects },
+    needsRebirth: effects.length === 0 ? true : undefined,
+    consumeRules: consumeRules ?? {
+      scene: 'out_of_battle_only',
+      quotaCategory: 'none',
+    },
+    targetStability: Number(blueprint.targetStability ?? 60),
+    targetToxicity: Number(blueprint.targetToxicity ?? 0),
+  };
+}
+
+function needsUpgrade(
+  blueprint: Record<string, unknown>,
+  nextBlueprint: AlchemyFormulaBlueprint,
+): boolean {
+  return (
+    blueprint.version !== 4 ||
+    Object.prototype.hasOwnProperty.call(blueprint, 'operations') ||
+    JSON.stringify(blueprint.route) !== JSON.stringify(nextBlueprint.route) ||
+    (blueprint.needsRebirth === true) !== (nextBlueprint.needsRebirth === true)
+  );
 }
 
 const rows = await sql<FormulaRow[]>`
@@ -45,20 +90,50 @@ const rows = await sql<FormulaRow[]>`
 
 let upgraded = 0;
 let skipped = 0;
-const preview: Array<{ id: string; routeCount: number; needsRebirth: boolean }> = [];
+const preview: Array<{
+  id: string;
+  routeCount: number;
+  needsRebirth: boolean;
+}> = [];
+const updates: Record<string, AlchemyFormulaBlueprint> = {};
+
+for (const row of rows) {
+  const pattern = (
+    typeof row.pattern === 'string' ? JSON.parse(row.pattern) : row.pattern
+  ) as Record<string, unknown>;
+  const blueprint = (
+    typeof row.blueprint === 'string'
+      ? JSON.parse(row.blueprint)
+      : row.blueprint
+  ) as Record<string, unknown>;
+  const nextBlueprint = buildBlueprintV4(pattern, blueprint);
+  if (!needsUpgrade(blueprint, nextBlueprint)) continue;
+  updates[row.id] = nextBlueprint;
+  const needsRebirth = nextBlueprint.needsRebirth === true;
+  preview.push({
+    id: row.id,
+    routeCount: nextBlueprint.route.effects.length,
+    needsRebirth,
+  });
+  if (needsRebirth) skipped += 1;
+  else upgraded += 1;
+}
 
 try {
   if (dryRun) {
-    for (const row of rows) {
-      const pattern = (typeof row.pattern === 'string' ? JSON.parse(row.pattern) : row.pattern) as Record<string, unknown>;
-      const blueprint = typeof row.blueprint === 'string' ? JSON.parse(row.blueprint) : row.blueprint;
-      if (blueprint?.version === 4) continue;
-      const effects = routeFromPattern(pattern);
-      const needsRebirth = effects.length === 0;
-      preview.push({ id: row.id, routeCount: effects.length, needsRebirth });
-      if (needsRebirth) skipped += 1; else upgraded += 1;
-    }
-    console.log(JSON.stringify({ dryRun: true, total: rows.length, upgraded, needsRebirth: skipped, preview }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          dryRun: true,
+          total: rows.length,
+          upgraded,
+          needsRebirth: skipped,
+          preview,
+        },
+        null,
+        2,
+      ),
+    );
   } else {
     await sql.unsafe(`
         CREATE TABLE IF NOT EXISTS wanjiedaoyou_alchemy_formula_v3_backup (
@@ -70,42 +145,30 @@ try {
           PRIMARY KEY (migration_id, formula_id)
         )
       `);
+    await sql.begin(async (transaction) => {
       const migrationId = crypto.randomUUID();
-      await sql.unsafe(
+      await transaction.unsafe(
         `INSERT INTO wanjiedaoyou_alchemy_formula_v3_backup (migration_id, formula_id, pattern, blueprint)
-         SELECT $1, id, pattern, blueprint FROM wanjiedaoyou_alchemy_formulas`,
+           SELECT $1, id, pattern, blueprint FROM wanjiedaoyou_alchemy_formulas`,
         [migrationId],
       );
-      const updates: Record<string, unknown> = {};
-      for (const row of rows) {
-        const pattern = (typeof row.pattern === 'string' ? JSON.parse(row.pattern) : row.pattern) as Record<string, unknown>;
-        const blueprint = typeof row.blueprint === 'string' ? JSON.parse(row.blueprint) : row.blueprint;
-        if (blueprint?.version === 4) continue;
-        const effects = routeFromPattern(pattern);
-        const nextBlueprint = {
-          version: 4,
-          route: { effects },
-          needsRebirth: effects.length === 0 ? true : undefined,
-          consumeRules: blueprint?.consumeRules ?? {
-            scene: 'out_of_battle_only',
-            quotaCategory: 'none',
-          },
-          targetStability: Number(blueprint?.targetStability ?? 60),
-          targetToxicity: Number(blueprint?.targetToxicity ?? 0),
-        };
-        updates[row.id] = nextBlueprint;
-        if (effects.length === 0) skipped += 1; else upgraded += 1;
-      }
-      if (Object.keys(updates).length > 0) {
-        await sql.unsafe(
-          `UPDATE wanjiedaoyou_alchemy_formulas AS f
+      if (Object.keys(updates).length === 0) return;
+      await transaction.unsafe(
+        `UPDATE wanjiedaoyou_alchemy_formulas AS f
            SET blueprint = u.blueprint, updated_at = now()
            FROM jsonb_each($1::text::jsonb) AS u(id, blueprint)
            WHERE f.id = u.id::uuid`,
-          [JSON.stringify(updates)],
-        );
-      }
-    console.log(JSON.stringify({ dryRun: false, total: rows.length, upgraded, needsRebirth: skipped }));
+        [JSON.stringify(updates)],
+      );
+    });
+    console.log(
+      JSON.stringify({
+        dryRun: false,
+        total: rows.length,
+        upgraded,
+        needsRebirth: skipped,
+      }),
+    );
   }
 } finally {
   await sql.end();
