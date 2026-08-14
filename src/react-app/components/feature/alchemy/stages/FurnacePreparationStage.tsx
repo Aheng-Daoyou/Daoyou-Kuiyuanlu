@@ -153,6 +153,16 @@ export function FurnacePreparationStage({
           {session.readiness.validation.blockingReason}
         </InkNotice>
       ) : null}
+      {session.readiness.estimatedSpiritStones !== null &&
+      !session.readiness.loading &&
+      !session.readiness.canAfford ? (
+        <InkNotice tone="warning">
+          灵石不足：本次炼制需要{' '}
+          {session.readiness.estimatedSpiritStones.toLocaleString('zh-CN')} 枚，
+          当前仅有{' '}
+          {(session.cultivator?.spiritStones ?? 0).toLocaleString('zh-CN')} 枚。
+        </InkNotice>
+      ) : null}
       {session.analysis.error ? (
         <InkNotice tone="warning">{session.analysis.error}</InkNotice>
       ) : null}
