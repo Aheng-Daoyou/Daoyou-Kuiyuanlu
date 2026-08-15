@@ -4,10 +4,7 @@ import {
 } from '@server/lib/hono/middleware';
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
-import {
-  approvedBlackMarketReplyPrice,
-  blackMarketConversationService,
-} from '@server/lib/services/black-market/BlackMarketConversationService';
+import { blackMarketConversationService } from '@server/lib/services/black-market/BlackMarketConversationService';
 import {
   BlackMarketServiceError,
   commitBlackMarketPurchase,
@@ -22,7 +19,6 @@ import {
   QiInsufficientError,
   QiServiceError,
 } from '@server/lib/services/QiService';
-import { finalizeBlackMarketReply } from '@shared/lib/blackMarketReply';
 import type { BlackMarketInteractStreamEvent } from '@shared/types/blackMarket';
 import { BLACK_MARKET_NPC_IDS } from '@shared/types/blackMarket';
 import { Hono, type Context } from 'hono';
@@ -170,7 +166,7 @@ router.post('/:nodeId/sessions/:sessionId/interact', async (c) => {
           close();
           return;
         }
-        let draft = '';
+        let body = '';
         try {
           const reply = blackMarketConversationService.streamTurnReply({
             context: prepared.replyContext,
@@ -179,30 +175,19 @@ router.post('/:nodeId/sessions/:sessionId/interact', async (c) => {
             abortSignal: c.req.raw.signal,
           });
           for await (const chunk of reply.textStream) {
-            draft += chunk;
-            if (draft.length > 360)
-              throw new Error('black market reply too long');
-          }
-          const body = finalizeBlackMarketReply({
-            draft,
-            approvedPrice: approvedBlackMarketReplyPrice({
-              context: prepared.replyContext,
-              proposal: prepared.proposal,
-              negotiationOutcome: prepared.negotiationOutcome,
-            }),
-          });
-          if (!body) throw new Error('invalid black market reply');
-          for (let offset = 0; offset < body.length; offset += 12) {
+            body += chunk;
             if (
               !enqueue({
                 type: 'reply-chunk',
                 messageId: prepared.messageId,
-                text: body.slice(offset, offset + 12),
+                text: chunk,
               })
             ) {
               throw new Error('black market reply stream disconnected');
             }
           }
+          body = body.trim();
+          if (!body) throw new Error('empty black market reply');
           await completeBlackMarketReply({
             sessionId: prepared.sessionId,
             messageId: prepared.messageId,
@@ -228,8 +213,9 @@ router.post('/:nodeId/sessions/:sessionId/interact', async (c) => {
     return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
       },
     });
   } catch (error) {

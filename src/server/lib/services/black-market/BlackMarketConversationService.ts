@@ -2,7 +2,6 @@ import { renderPrompt } from '@server/lib/prompts';
 import { generateAiObject, streamAiText } from '@server/utils/aiClient';
 import { truncateText } from '@server/utils/llmPayload';
 import type { BlackMarketNegotiationOutcome } from '@shared/lib/blackMarketNegotiation';
-import { BLACK_MARKET_APPROVED_PRICE_TOKEN } from '@shared/lib/blackMarketReply';
 import { z } from 'zod';
 import type { BlackMarketTurnContext, BlackMarketTurnProposal } from './types';
 
@@ -171,7 +170,7 @@ function replyPayload(input: {
   proposal: BlackMarketTurnProposal;
   negotiationOutcome?: BlackMarketNegotiationOutcome;
 }): string {
-  const approvedPrice = input.negotiationOutcome
+  const finalPrice = input.negotiationOutcome
     ? input.negotiationOutcome.nextPrice
     : input.proposal.intent === 'buy'
       ? input.context.currentPrice
@@ -199,23 +198,15 @@ function replyPayload(input: {
     reasoning: input.proposal.reasoning,
     claimPlan: input.proposal.claimPlan ?? null,
     negotiationResult: input.negotiationOutcome
-      ? { outcome: input.negotiationOutcome.outcome }
-      : null,
-    approvedPriceToken:
-      approvedPrice == null ? null : BLACK_MARKET_APPROVED_PRICE_TOKEN,
+      ? {
+          outcome: input.negotiationOutcome.outcome,
+          finalPrice,
+        }
+      : input.proposal.intent === 'buy'
+        ? { outcome: 'accepted', finalPrice }
+        : null,
     turnsRemaining: input.context.turnsRemaining,
   });
-}
-
-export function approvedBlackMarketReplyPrice(input: {
-  context: BlackMarketTurnContext;
-  proposal: BlackMarketTurnProposal;
-  negotiationOutcome?: BlackMarketNegotiationOutcome;
-}): number | undefined {
-  if (input.negotiationOutcome) return input.negotiationOutcome.nextPrice;
-  return input.proposal.intent === 'buy'
-    ? input.context.currentPrice
-    : undefined;
 }
 
 export class BlackMarketConversationService {

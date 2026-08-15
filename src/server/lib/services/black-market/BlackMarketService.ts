@@ -1095,7 +1095,7 @@ export async function completeBlackMarketReply(input: {
   messageId: string;
   body: string;
 }): Promise<void> {
-  const body = input.body.trim().slice(0, 180);
+  const body = input.body.trim();
   if (!body) return;
   await withRedisLock(
     {
