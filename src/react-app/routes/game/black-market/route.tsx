@@ -8,7 +8,6 @@ import { InkNotice } from '@app/components/ui';
 import { useResourceMutation } from '@app/lib/resources/mutations';
 import { useCultivatorCurrency } from '@app/lib/resources/player';
 import type {
-  BlackMarketInspectionKind,
   BlackMarketNegotiationMood,
   BlackMarketNpcId,
   BlackMarketOverview,
@@ -126,29 +125,25 @@ export default function BlackMarketPage() {
     [overview, session?.npcId],
   );
 
-  const runInteraction = async (
-    input:
-      | { action: 'inspect'; inspectionKind: BlackMarketInspectionKind }
-      | { action: 'question'; message: string }
-      | { action: 'haggle'; message?: string; offeredPrice: number },
-  ) => {
+  const runInteraction = async (message?: string, offeredPrice?: number) => {
     if (!session) return;
     setBusy(true);
     setError(undefined);
     setNotice(undefined);
     try {
       const result = await interactWithBlackMarket(nodeId, session.id, {
-        ...input,
+        message,
+        offeredPrice,
         version: session.version,
       });
       setSession(result.session);
       if (result.notice) {
         setNotice(result.notice);
-      } else if (input.action === 'haggle') {
+      } else if (offeredPrice != null) {
         const feedback =
           result.outcome === 'accepted'
             ? `摊主点头认价：${result.session.currentPrice.toLocaleString()} 灵石。`
-            : result.outcome === 'conceded' || result.outcome === 'countered'
+            : result.outcome === 'countered'
               ? `摊主松了口：现在要价 ${result.session.currentPrice.toLocaleString()} 灵石。`
               : result.outcome === 'locked'
                 ? '这一下压得太狠，摊主把价彻底咬死了。'
@@ -252,14 +247,8 @@ export default function BlackMarketPage() {
       busy={busy}
       error={error}
       notice={notice}
-      onInspect={(inspectionKind) =>
-        void runInteraction({ action: 'inspect', inspectionKind })
-      }
-      onQuestion={(message) =>
-        void runInteraction({ action: 'question', message })
-      }
-      onHaggle={(message, offeredPrice) =>
-        void runInteraction({ action: 'haggle', message, offeredPrice })
+      onSubmit={(message, offeredPrice) =>
+        void runInteraction(message, offeredPrice)
       }
       onCommit={handleCommit}
       onLeave={() => void handleLeave()}

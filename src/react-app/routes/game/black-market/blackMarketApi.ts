@@ -1,5 +1,5 @@
 import type {
-  BlackMarketInspectionKind,
+  BlackMarketInteractCommand,
   BlackMarketInteractionResult,
   BlackMarketNpcId,
   BlackMarketOverview,
@@ -42,19 +42,7 @@ export async function openBlackMarketSession(
 export async function interactWithBlackMarket(
   nodeId: string,
   sessionId: string,
-  input:
-    | {
-        action: 'inspect';
-        inspectionKind: BlackMarketInspectionKind;
-        version: number;
-      }
-    | { action: 'question'; message: string; version: number }
-    | {
-        action: 'haggle';
-        message?: string;
-        offeredPrice: number;
-        version: number;
-      },
+  input: BlackMarketInteractCommand,
 ): Promise<BlackMarketInteractionResult> {
   return readJson(
     await fetch(

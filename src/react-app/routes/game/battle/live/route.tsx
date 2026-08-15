@@ -146,6 +146,7 @@ export default function LiveBattleMatchPage() {
     null,
   );
   const readyReportedResultRef = useRef<string | null>(null);
+  const presentationBoundarySyncAttemptRef = useRef<string | null>(null);
   const autoCommitAttemptRef = useRef<string | null>(null);
   const commitRequestRef = useRef<{
     epoch: string;
@@ -569,6 +570,7 @@ export default function LiveBattleMatchPage() {
   useEffect(() => {
     presentationDirectorRef.current?.cancel();
     readyReportedResultRef.current = null;
+    presentationBoundarySyncAttemptRef.current = null;
     autoCommitAttemptRef.current = null;
     commitRequestRef.current = null;
     const clearTimer = window.setTimeout(() => {
@@ -757,6 +759,55 @@ export default function LiveBattleMatchPage() {
     });
     return () => presentationDirectorRef.current?.cancel();
   }, [actions, phaserReady, presentationKey]);
+
+  useEffect(() => {
+    const presentation = view?.presentationWindow;
+    if (
+      connectionStatus !== 'connected' ||
+      view?.status !== 'presenting' ||
+      !presentation ||
+      !actions
+    ) {
+      return;
+    }
+    const estimatedServerNow =
+      view.serverNow +
+      (viewReceivedAt === null ? 0 : Date.now() - viewReceivedAt);
+    const eventSeq = view.clientEventSeq;
+    const resultId = presentation.resultId;
+    const boundarySyncKey = `${view.matchId}:${resultId}:${eventSeq}`;
+    const delay = Math.max(
+      0,
+      presentation.scheduledEndsAt - estimatedServerNow + 500,
+    );
+    const timer = window.setTimeout(() => {
+      const current = playbackInputRef.current.view;
+      if (
+        !current ||
+        current.matchId !== matchId ||
+        current.status !== 'presenting' ||
+        current.presentationWindow?.resultId !== resultId ||
+        current.clientEventSeq !== eventSeq ||
+        presentationBoundarySyncAttemptRef.current === boundarySyncKey
+      ) {
+        return;
+      }
+      presentationBoundarySyncAttemptRef.current = boundarySyncKey;
+      actions.syncLatest();
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [
+    actions,
+    connectionStatus,
+    matchId,
+    presentationKey,
+    view?.clientEventSeq,
+    view?.matchId,
+    view?.presentationWindow,
+    view?.serverNow,
+    view?.status,
+    viewReceivedAt,
+  ]);
 
   useEffect(() => {
     if (view?.status !== 'finished' || !matchId) return;

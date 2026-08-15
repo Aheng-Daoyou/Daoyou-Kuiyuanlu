@@ -2,6 +2,9 @@ import alchemyFormulaAnalysisPrompt from '@server/prompts/alchemy-formula-analys
 import alchemyImprovisedCopyPrompt from '@server/prompts/alchemy-improvised-copy.md?raw';
 import alchemyRecipePlanPrompt from '@server/prompts/alchemy-recipe-plan.md?raw';
 import blackMarketConversationPrompt from '@server/prompts/black-market-conversation.md?raw';
+import blackMarketTurnPrompt from '@server/prompts/black-market-turn.md?raw';
+import blackMarketReplyPrompt from '@server/prompts/black-market-reply.md?raw';
+import blackMarketDescriptionHintsPrompt from '@server/prompts/black-market-description-hints.md?raw';
 import breakthroughStoryPrompt from '@server/prompts/breakthrough-story.md?raw';
 import characterGenerationPrompt from '@server/prompts/character-generation.md?raw';
 import divineFortunePrompt from '@server/prompts/divine-fortune.md?raw';
@@ -35,6 +38,9 @@ const bundledPromptSources: Record<string, string> = {
   'alchemy-improvised-copy.md': alchemyImprovisedCopyPrompt,
   'alchemy-recipe-plan.md': alchemyRecipePlanPrompt,
   'black-market-conversation.md': blackMarketConversationPrompt,
+  'black-market-turn.md': blackMarketTurnPrompt,
+  'black-market-reply.md': blackMarketReplyPrompt,
+  'black-market-description-hints.md': blackMarketDescriptionHintsPrompt,
   'breakthrough-story.md': breakthroughStoryPrompt,
   'character-generation.md': characterGenerationPrompt,
   'divine-fortune.md': divineFortunePrompt,

@@ -13,10 +13,7 @@ import {
   openBlackMarketSession,
 } from '@server/lib/services/black-market/BlackMarketService';
 import { toPlayerStateMutationResponse } from '@server/lib/services/ResourceMutationResponse';
-import {
-  BLACK_MARKET_INSPECTION_KINDS,
-  BLACK_MARKET_NPC_IDS,
-} from '@shared/types/blackMarket';
+import { BLACK_MARKET_NPC_IDS } from '@shared/types/blackMarket';
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 
@@ -26,21 +23,16 @@ const OpenSessionSchema = z.object({
 
 const InteractSchema = z
   .object({
-    action: z.enum(['inspect', 'question', 'haggle']),
-    inspectionKind: z.enum(BLACK_MARKET_INSPECTION_KINDS).optional(),
     message: z.string().trim().min(1).max(240).optional(),
     offeredPrice: z.number().int().min(1).max(2_000_000_000).optional(),
     version: z.number().int().min(1),
   })
   .superRefine((value, context) => {
-    if (value.action === 'inspect' && !value.inspectionKind) {
-      context.addIssue({ code: 'custom', message: '请选择调查方式' });
-    }
-    if (value.action === 'question' && !value.message) {
-      context.addIssue({ code: 'custom', message: '请输入想问的问题' });
-    }
-    if (value.action === 'haggle' && !value.offeredPrice) {
-      context.addIssue({ code: 'custom', message: '请输入灵石报价' });
+    if (!value.message && !value.offeredPrice) {
+      context.addIssue({
+        code: 'custom',
+        message: '请说点什么，或给出灵石报价',
+      });
     }
   });
 

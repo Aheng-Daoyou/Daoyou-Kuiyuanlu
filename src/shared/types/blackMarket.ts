@@ -85,9 +85,9 @@ export interface BlackMarketRevealedMaterial {
 
 export interface BlackMarketReveal {
   material: BlackMarketRevealedMaterial;
-  initialPrice?: number;
+  ownerAskPrice: number;
   paidPrice: number;
-  anchorValue: number;
+  trueValue: number;
   valueRatio: number;
   rating: BlackMarketRevealRating;
   epilogue: string;
@@ -112,11 +112,21 @@ export interface BlackMarketSessionView {
   reveal?: BlackMarketReveal;
 }
 
-export type BlackMarketInteractionAction = 'inspect' | 'question' | 'haggle';
+export interface BlackMarketInteractCommand {
+  message?: string;
+  offeredPrice?: number;
+  version: number;
+}
+
+export type BlackMarketTurnOutcome =
+  | 'accepted'
+  | 'countered'
+  | 'rejected'
+  | 'locked';
 
 export interface BlackMarketInteractionResult {
   session: BlackMarketSessionView;
-  outcome?: 'accepted' | 'countered' | 'conceded' | 'rejected' | 'locked';
+  outcome?: BlackMarketTurnOutcome;
   degraded?: boolean;
   notice?: string;
 }

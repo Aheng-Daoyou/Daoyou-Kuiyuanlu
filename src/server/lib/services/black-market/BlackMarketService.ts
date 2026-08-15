@@ -11,15 +11,19 @@ import { readCultivatorRealm } from '@server/lib/services/cultivator/CultivatorF
 import { mapMaterialRow } from '@server/lib/services/cultivator/CultivatorInventoryRepository';
 import { addMaterialStackToInventory } from '@server/lib/services/materialInventory';
 import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
-import { blackMarketInspectionPlayerBody } from '@shared/lib/blackMarketMessages';
+import {
+  applyBlackMarketPriceDecision,
+  assessOffer,
+} from '@shared/lib/blackMarketNegotiation';
+import {
+  computeBlackMarketTrueValue,
+  createBlackMarketPricing,
+} from '@shared/lib/blackMarketPricing';
 import {
   BLACK_MARKET_MAX_INSPECTIONS,
   BLACK_MARKET_REFRESH_MS,
   blackMarketUnit,
   classifyBlackMarketReveal,
-  computeBlackMarketAnchorValue,
-  createBlackMarketPricing,
-  evaluateBlackMarketHaggle,
 } from '@shared/lib/blackMarketRules';
 import {
   BLACK_MARKET_QUALITY_WEIGHTS,
@@ -30,6 +34,7 @@ import {
   validateLayerAccess,
 } from '@shared/lib/game/marketConfig';
 import {
+  type BlackMarketInteractCommand,
   type BlackMarketInteractionResult,
   type BlackMarketNegotiationMood,
   type BlackMarketNpcId,
@@ -47,15 +52,15 @@ import { createHmac } from 'node:crypto';
 import {
   buildBlackMarketMask,
   buildBlackMarketSafeClues,
-  inferQuestionClueKind,
 } from './BlackMarketClueService';
 import { blackMarketConversationService } from './BlackMarketConversationService';
+import { blackMarketDescriptionHintService } from './BlackMarketDescriptionHintService';
 import { BLACK_MARKET_NPCS, getBlackMarketNpc } from './BlackMarketNpcConfig';
 import { blackMarketSessionRepository } from './BlackMarketSessionRepository';
 import type {
-  BlackMarketInteractCommand,
   BlackMarketInternalSession,
-  BlackMarketSafeClue,
+  BlackMarketTurnContext,
+  BlackMarketTurnProposal,
 } from './types';
 
 const PURCHASE_SOURCE = 'black_market_purchase';
@@ -176,7 +181,6 @@ function selectMaterialPreferences(seed: string, nodeId: string) {
     ),
   };
 }
-
 function appendMessages(
   session: BlackMarketInternalSession,
   messages: BlackMarketInternalSession['messages'],
@@ -186,20 +190,22 @@ function appendMessages(
   );
 }
 
+function negotiationMood(
+  session: BlackMarketInternalSession,
+): BlackMarketNegotiationMood {
+  if (session.phase === 'deal_ready' || session.phase === 'completed') {
+    return 'agreed';
+  }
+  if (session.pricing.patience <= 0) return 'closed';
+  if (session.pricing.patience === 1) return 'impatient';
+  if (session.pricing.patience === 2) return 'guarded';
+  return 'calm';
+}
+
 function publicSession(
   session: BlackMarketInternalSession,
 ): BlackMarketSessionView {
   const revealed = new Set(session.revealedClueIds);
-  const negotiationMood: BlackMarketNegotiationMood =
-    session.phase === 'deal_ready' || session.phase === 'completed'
-      ? 'agreed'
-      : session.pricing.patience <= 0
-        ? 'closed'
-        : session.pricing.patience === 1
-          ? 'impatient'
-          : session.pricing.patience === 2
-            ? 'guarded'
-            : 'calm';
   return {
     id: session.id,
     nodeId: session.nodeId,
@@ -221,7 +227,7 @@ function publicSession(
       session.cycle === currentCycle() &&
       session.phase === 'talking' &&
       session.pricing.patience > 0,
-    negotiationMood,
+    negotiationMood: negotiationMood(session),
     revealedClues: session.clues
       .filter((clue) => revealed.has(clue.id))
       .map(({ id, kind, text }) => ({ id, kind, text })),
@@ -306,23 +312,20 @@ async function generateSession(input: {
     throw new BlackMarketServiceError(503, '黑市今日无货，请稍后再来');
   }
   const hiddenItem = materialLibraryEntryToMaterial(entry);
-  const profile = getRegionProfile(input.nodeId);
-  const regionFactor =
-    profile.priceModifier.min +
-    blackMarketUnit(identity.seed, 'region-price') *
-      (profile.priceModifier.max - profile.priceModifier.min);
-  const anchorValue = computeBlackMarketAnchorValue({
+  const trueValue = computeBlackMarketTrueValue({
     quality: hiddenItem.rank,
     materialType: hiddenItem.type,
-    regionFactor,
   });
   const pricing = createBlackMarketPricing({
     seed: identity.seed,
     npcId: input.npcId,
-    anchorValue,
+    trueValue,
   });
   const mask = buildBlackMarketMask(hiddenItem, identity.seed);
   const npc = getBlackMarketNpc(input.npcId);
+  const descriptionHints = await blackMarketDescriptionHintService.build({
+    item: hiddenItem,
+  });
   const now = Date.now();
   const session: BlackMarketInternalSession = {
     id: identity.sessionId,
@@ -347,7 +350,10 @@ async function generateSession(input: {
       npcId: input.npcId,
       seed: identity.seed,
       regionTags: getNodeRegionTags(input.nodeId),
+      trueValue,
     }),
+    descriptionHints,
+    revealedDescriptionHintIds: [],
     messages: [
       {
         id: `${identity.sessionId}:opening`,
@@ -429,51 +435,169 @@ async function getOrGenerateInternal(input: {
   );
 }
 
-function selectClue(
+function buildTurnContext(
   session: BlackMarketInternalSession,
+  npc: ReturnType<typeof getBlackMarketNpc>,
   command: BlackMarketInteractCommand,
-): BlackMarketSafeClue {
+): BlackMarketTurnContext {
   const revealed = new Set(session.revealedClueIds);
-  const available = session.clues.filter((clue) => !revealed.has(clue.id));
-  const requestedKind =
-    command.action === 'inspect'
-      ? command.inspectionKind
-      : inferQuestionClueKind(command.message ?? '');
-  const selected = requestedKind
-    ? available.find((clue) => clue.kind === requestedKind)
-    : available[
-        Math.floor(
-          blackMarketUnit(
-            session.seed,
-            `free-question:${session.inspectTurnsUsed}:${command.message ?? ''}`,
-          ) * available.length,
-        )
-      ];
-  if (!selected) {
-    throw new BlackMarketServiceError(
-      409,
-      requestedKind
-        ? '这个方向已经查过，换个角度试试'
-        : '已经没有新的线索可问了',
-    );
-  }
-  return selected;
+  const regionTags = getNodeRegionTags(session.nodeId);
+  const knownClues = session.clues
+    .filter((clue) => revealed.has(clue.id))
+    .map((clue) => ({
+      id: clue.id,
+      kind: clue.kind,
+      text: clue.text || clue.fact,
+    }));
+  const availableClues = session.clues
+    .filter((clue) => !revealed.has(clue.id))
+    .map((clue) => ({
+      id: clue.id,
+      kind: clue.kind,
+      safeFact: clue.fact,
+    }));
+  const revealedDescriptionHints = new Set(
+    session.revealedDescriptionHintIds,
+  );
+  const availableDescriptionHints = session.descriptionHints
+    .filter((hint) => !revealedDescriptionHints.has(hint.id))
+    .map((hint) => ({
+      id: hint.id,
+      safeText: hint.safeText,
+      sensitivity: hint.sensitivity,
+    }));
+
+  return {
+    scene: {
+      title: '暗巷黑市',
+      description: `${regionTags[1] ?? '坊市'}灯火照不到的窄巷里，三道身影各守着一件不肯明说来历的货。`,
+    },
+    npc: {
+      name: npc.name,
+      voice: npc.voice,
+      identity: npc.identity,
+      mood: negotiationMood(session),
+      flexibilityLevel: session.pricing.flexibilityLevel,
+    },
+    listing: {
+      disguisedName: session.disguisedName,
+      disguisedDescription: session.disguisedDescription,
+    },
+    currentPrice: session.pricing.currentPrice,
+    offerAssessment:
+      command.offeredPrice != null
+        ? assessOffer({
+            currentPrice: session.pricing.currentPrice,
+            floorPrice: session.pricing.floorPrice,
+            offeredPrice: command.offeredPrice,
+          })
+        : undefined,
+    canInspect:
+      session.phase === 'talking' &&
+      session.inspectTurnsUsed < BLACK_MARKET_MAX_INSPECTIONS,
+    canHaggle:
+      session.phase === 'talking' && session.pricing.patience > 0,
+    dealReady: session.phase === 'deal_ready',
+    knownClues,
+    availableClues,
+    availableDescriptionHints,
+    revealedDescriptionHints: session.descriptionHints
+      .filter((hint) => revealedDescriptionHints.has(hint.id))
+      .map((hint) => ({
+        id: hint.id,
+        safeText: hint.safeText,
+        sensitivity: hint.sensitivity,
+      })),
+    conversation: session.messages,
+    playerMessage: command.message?.trim() ?? '',
+    offeredPrice: command.offeredPrice,
+  };
 }
 
-function negotiationReply(input: {
-  preface: string;
-  outcome: ReturnType<typeof evaluateBlackMarketHaggle>['outcome'];
-  price: number;
-}): string {
-  const suffix =
-    input.outcome === 'accepted'
-      ? `行，就按你说的，${input.price}灵石。`
-      : input.outcome === 'countered' || input.outcome === 'conceded'
-        ? `最多让到${input.price}灵石。`
-        : input.outcome === 'locked'
-          ? `价就定在${input.price}灵石，再谈便不卖了。`
-          : `这个价不成，仍是${input.price}灵石。`;
-  return `${input.preface.trim()} ${suffix}`.trim();
+function validateProposal(
+  session: BlackMarketInternalSession,
+  proposal: BlackMarketTurnProposal,
+  hasOffer: boolean,
+): void {
+  const revealed = new Set(session.revealedClueIds);
+
+  if (proposal.revealClueIds.length > 0) {
+    const remaining = BLACK_MARKET_MAX_INSPECTIONS - session.inspectTurnsUsed;
+    if (remaining <= 0) {
+      throw new BlackMarketServiceError(409, '三次查验机会已经用尽');
+    }
+    if (proposal.revealClueIds.length > remaining) {
+      throw new BlackMarketServiceError(409, '这轮没有那么多查验机会');
+    }
+    for (const id of proposal.revealClueIds) {
+      if (revealed.has(id) || !session.clues.some((clue) => clue.id === id)) {
+        throw new BlackMarketServiceError(409, '这条线索暂时无法透露');
+      }
+    }
+  }
+
+  if (proposal.revealDescriptionHintIds.length > 1) {
+    throw new BlackMarketServiceError(409, '这轮只能透露一条货物细节');
+  }
+  const revealedDescription = new Set(session.revealedDescriptionHintIds);
+  for (const id of proposal.revealDescriptionHintIds) {
+    const hint = session.descriptionHints.find(
+      (candidate) => candidate.id === id,
+    );
+    if (!hint || revealedDescription.has(id)) {
+      throw new BlackMarketServiceError(409, '这条货物细节暂时无法透露');
+    }
+    if (
+      hint.sensitivity === 'strong' &&
+      session.revealedClueIds.length < 2
+    ) {
+      throw new BlackMarketServiceError(
+        409,
+        '现在还没有足够依据让摊主说出这么具体的细节',
+      );
+    }
+  }
+
+  for (const id of proposal.referencedClueIds) {
+    if (!revealed.has(id)) {
+      throw new BlackMarketServiceError(409, '不能引用尚未掌握的线索');
+    }
+  }
+
+  if (hasOffer && !proposal.negotiation) {
+    // The LLM is allowed to miss negotiation structure under load. The server
+    // applies a conservative default so the turn still behaves like haggling.
+    return;
+  }
+}
+
+function applyReveals(
+  session: BlackMarketInternalSession,
+  proposal: BlackMarketTurnProposal,
+): void {
+  for (const id of proposal.revealClueIds) {
+    const clue = session.clues.find((candidate) => candidate.id === id);
+    if (!clue) {
+      throw new BlackMarketServiceError(409, '线索已经失效');
+    }
+    clue.text = proposal.reply || clue.fact;
+    session.revealedClueIds.push(clue.id);
+    session.inspectTurnsUsed += 1;
+  }
+
+  for (const id of proposal.revealDescriptionHintIds) {
+    if (!session.revealedDescriptionHintIds.includes(id)) {
+      session.revealedDescriptionHintIds.push(id);
+    }
+  }
+}
+
+function playerBody(command: BlackMarketInteractCommand): string {
+  if (command.message?.trim()) return command.message.trim();
+  if (command.offeredPrice != null) {
+    return `我出${command.offeredPrice.toLocaleString()}灵石。`;
+  }
+  return '（沉默）';
 }
 
 export async function getBlackMarketOverview(input: {
@@ -549,41 +673,21 @@ export async function interactWithBlackMarket(input: {
   if (snapshot.version !== input.command.version) {
     throw new BlackMarketServiceError(409, '摊前情形已经变化，请刷新后再试');
   }
-  const npc = getBlackMarketNpc(snapshot.npcId);
-  const knownClues = snapshot.clues
-    .filter((clue) => snapshot.revealedClueIds.includes(clue.id))
-    .map((clue) => ({ id: clue.id, text: clue.text }));
-
-  let selectedClue: BlackMarketSafeClue | undefined;
-  if (
-    input.command.action === 'inspect' ||
-    input.command.action === 'question'
-  ) {
-    if (snapshot.inspectTurnsUsed >= BLACK_MARKET_MAX_INSPECTIONS) {
-      throw new BlackMarketServiceError(409, '三次查验机会已经用尽');
-    }
-    selectedClue = selectClue(snapshot, input.command);
-  } else if (snapshot.pricing.patience <= 0) {
+  if (input.command.offeredPrice != null && snapshot.pricing.patience <= 0) {
     throw new BlackMarketServiceError(409, '摊主已经不愿继续议价');
   }
 
-  const judged = await blackMarketConversationService.judge({
-    action: input.command.action,
-    message: input.command.message,
-    offeredPrice: input.command.offeredPrice,
-    npc,
-    allowedClue: selectedClue,
-    knownClues,
-    currentPrice: snapshot.pricing.currentPrice,
+  const snapshotNpc = getBlackMarketNpc(snapshot.npcId);
+  const snapshotContext = buildTurnContext(
+    snapshot,
+    snapshotNpc,
+    input.command,
+  );
+  const judged = await blackMarketConversationService.proposeTurn({
+    context: snapshotContext,
     abortSignal: input.abortSignal,
   });
-  if (judged.degraded && input.command.action === 'haggle') {
-    return {
-      session: publicSession(snapshot),
-      degraded: true,
-      notice: '摊主没有听清这轮出价，本次不计入砍价次数。',
-    };
-  }
+  const proposal = judged.proposal;
 
   return withRedisLock(
     {
@@ -603,68 +707,59 @@ export async function interactWithBlackMarket(input: {
           '摊前情形已经变化，请刷新后再试',
         );
       }
+
+      const npc = getBlackMarketNpc(session.npcId);
+      const turnContext = buildTurnContext(session, npc, input.command);
+      validateProposal(session, proposal, input.command.offeredPrice != null);
+
       const now = Date.now();
-      const playerBody =
-        input.command.message?.trim() ||
-        (selectedClue
-          ? blackMarketInspectionPlayerBody(selectedClue.kind)
-          : input.command.action === 'haggle' && input.command.offeredPrice
-            ? `我出${input.command.offeredPrice.toLocaleString()}灵石。`
-            : '再次出价');
+      const body = playerBody(input.command);
       let outcome: BlackMarketInteractionResult['outcome'];
-      let npcReply = judged.judgment.reply;
+      let npcReply = proposal.reply;
 
       if (
-        input.command.action === 'inspect' ||
-        input.command.action === 'question'
+        proposal.revealClueIds.length > 0 ||
+        proposal.revealDescriptionHintIds.length > 0
       ) {
-        if (!selectedClue)
-          throw new BlackMarketServiceError(409, '没有可用线索');
-        const storedClue = session.clues.find(
-          (clue) => clue.id === selectedClue.id,
-        );
-        if (!storedClue) throw new BlackMarketServiceError(409, '线索已经失效');
-        storedClue.text = judged.judgment.reply;
-        session.revealedClueIds.push(selectedClue.id);
-        session.inspectTurnsUsed += 1;
-      } else {
+        applyReveals(session, proposal);
+      }
+
+      if (input.command.offeredPrice != null) {
         const offeredPrice = input.command.offeredPrice;
         if (
           !Number.isSafeInteger(offeredPrice) ||
-          !offeredPrice ||
           offeredPrice < 1
         ) {
           throw new BlackMarketServiceError(400, '请给出有效的灵石报价');
         }
-        const knownIds = new Set(session.revealedClueIds);
-        const validEvidenceCount = new Set(
-          judged.judgment.referencedClueIds.filter((id) => knownIds.has(id)),
-        ).size;
-        const decision = evaluateBlackMarketHaggle({
-          seed: session.seed,
-          npcId: session.npcId,
+
+        const negotiation = proposal.negotiation ?? {
+          decision: 'counter' as const,
+          concession: 0.25,
+          patienceDelta: -1 as const,
+        };
+        const decision = applyBlackMarketPriceDecision({
           currentPrice: session.pricing.currentPrice,
           floorPrice: session.pricing.floorPrice,
           offeredPrice,
           patience: session.pricing.patience,
-          strategy: judged.judgment.strategy,
-          argumentQuality: judged.judgment.argumentQuality,
-          validEvidenceCount,
-          randomRoll: blackMarketUnit(
-            session.seed,
-            `haggle:${session.haggleTurnsUsed}:${offeredPrice}`,
-          ),
+          decision: negotiation.decision,
+          concession: negotiation.concession,
+          patienceDelta: negotiation.patienceDelta,
         });
+
         session.haggleTurnsUsed += 1;
         session.pricing.currentPrice = decision.nextPrice;
         session.pricing.patience = decision.nextPatience;
         session.phase =
           decision.outcome === 'accepted' ? 'deal_ready' : 'talking';
         outcome = decision.outcome;
-        npcReply = negotiationReply({
-          preface: judged.judgment.reply,
-          outcome: decision.outcome,
-          price: decision.nextPrice,
+
+        npcReply = await blackMarketConversationService.renderTurnReply({
+          context: turnContext,
+          proposal,
+          negotiationOutcome: decision,
+          abortSignal: input.abortSignal,
         });
       }
 
@@ -672,7 +767,7 @@ export async function interactWithBlackMarket(input: {
         {
           id: `${session.id}:${session.version}:player`,
           role: 'player',
-          body: playerBody,
+          body,
           createdAt: now,
         },
         {
@@ -734,7 +829,7 @@ async function preparePurchase(
   const inventoryItem = mapMaterialRow(row);
   const assessment = classifyBlackMarketReveal(
     price,
-    session.pricing.anchorValue,
+    session.pricing.trueValue,
   );
   const npc = getBlackMarketNpc(session.npcId);
   const reveal: BlackMarketReveal = {
@@ -747,9 +842,9 @@ async function preparePurchase(
       description: session.hiddenItem.description,
       quantity: 1,
     },
-    initialPrice: session.pricing.initialPrice,
+    ownerAskPrice: session.pricing.initialPrice,
     paidPrice: price,
-    anchorValue: session.pricing.anchorValue,
+    trueValue: session.pricing.trueValue,
     valueRatio: assessment.valueRatio,
     rating: assessment.rating,
     epilogue: npc.epilogue,
