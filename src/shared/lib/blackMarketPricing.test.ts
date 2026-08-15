@@ -17,8 +17,8 @@ describe('black market pricing', () => {
   it('keeps the cognition multiplier inside the configured range', () => {
     for (let index = 0; index < 200; index += 1) {
       const multiplier = sampleCognitionMultiplier(`seed-${index}`);
-      expect(multiplier).toBeGreaterThanOrEqual(0.2);
-      expect(multiplier).toBeLessThanOrEqual(2);
+      expect(multiplier).toBeGreaterThanOrEqual(0.05);
+      expect(multiplier).toBeLessThanOrEqual(3);
     }
   });
 

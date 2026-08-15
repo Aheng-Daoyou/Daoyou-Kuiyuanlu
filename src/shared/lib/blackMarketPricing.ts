@@ -47,12 +47,15 @@ const COGNITION_BUCKETS: ReadonlyArray<{
   max: number;
   weight: number;
 }> = [
-  { min: 0.2, max: 0.5, weight: 8 },
-  { min: 0.5, max: 0.8, weight: 18 },
-  { min: 0.8, max: 1.0, weight: 24 },
-  { min: 1.0, max: 1.3, weight: 26 },
-  { min: 1.3, max: 1.6, weight: 15 },
-  { min: 1.6, max: 2.0, weight: 9 },
+  { min: 0.05, max: 0.2, weight: 5 },
+  { min: 0.2, max: 0.5, weight: 10 },
+  { min: 0.5, max: 0.8, weight: 14 },
+  { min: 0.8, max: 1.0, weight: 21 },
+  { min: 1.0, max: 1.3, weight: 21 },
+  { min: 1.3, max: 1.6, weight: 14 },
+  { min: 1.6, max: 2.0, weight: 7 },
+  { min: 2.0, max: 2.5, weight: 5 },
+  { min: 2.5, max: 3.0, weight: 3 },
 ];
 
 function clamp(value: number, min: number, max: number): number {
@@ -92,8 +95,8 @@ export function sampleCognitionMultiplier(seed: string): number {
 
   return clamp(
     selected.min + (selected.max - selected.min) * detailUnit,
-    0.2,
-    2,
+    0.05,
+    3,
   );
 }
 
