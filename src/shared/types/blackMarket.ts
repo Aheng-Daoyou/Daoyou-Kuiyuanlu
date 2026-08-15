@@ -23,7 +23,11 @@ export type BlackMarketInspectionKind =
 export type BlackMarketSessionPhase =
   'talking' | 'deal_ready' | 'completed' | 'abandoned' | 'expired';
 
-export type BlackMarketNpcStatus = 'available' | 'in_progress' | 'completed';
+export type BlackMarketNpcStatus =
+  | 'available'
+  | 'granted'
+  | 'in_progress'
+  | 'completed';
 
 export type BlackMarketNegotiationMood =
   'calm' | 'guarded' | 'impatient' | 'agreed' | 'closed';
@@ -66,8 +70,14 @@ export interface BlackMarketNpcSummary {
 
 export interface BlackMarketOverview {
   nodeId: string;
-  cycle: number;
-  nextRefresh: number;
+  dayKey: string;
+  resetsAt: number;
+  entryPolicy: {
+    usedEntries: number;
+    freeEntryAvailable: boolean;
+    nextEntryCost: 0 | 5;
+    paidEntryCost: 5;
+  };
   access: MarketAccessState;
   scene: {
     title: string;
@@ -104,6 +114,7 @@ export interface BlackMarketReveal {
   rating: BlackMarketRevealRating;
   epilogue: string;
   ownerBeliefSummary?: string;
+  ownerFinalBeliefSummary?: string;
   clueReview?: Array<{
     observation: string;
     ownerInterpretation: string;
@@ -111,7 +122,7 @@ export interface BlackMarketReveal {
   }>;
   claimReview?: Array<{
     claim: string;
-    verdict: '误判' | '虚张声势' | '无法证实';
+    verdict: '主观判断' | '误判' | '虚张声势' | '无法证实';
   }>;
 }
 
@@ -119,7 +130,7 @@ export interface BlackMarketSessionView {
   id: string;
   nodeId: string;
   npcId: BlackMarketNpcId;
-  cycle: number;
+  dayKey: string;
   phase: BlackMarketSessionPhase;
   listing: BlackMarketListingMask;
   initialPrice: number;
@@ -127,14 +138,33 @@ export interface BlackMarketSessionView {
   canInspect: boolean;
   inspectionRemaining: number;
   canHaggle: boolean;
+  canInteract: boolean;
+  turnsRemaining: number;
   negotiationMood: BlackMarketNegotiationMood;
   observations: BlackMarketObservation[];
   sellerClaims: BlackMarketSellerClaim[];
   messages: BlackMarketMessage[];
   version: number;
-  expiresAt: number;
   reveal?: BlackMarketReveal;
 }
+
+export interface BlackMarketEntryResult {
+  cost: 0 | 5;
+  free: boolean;
+  replayed: boolean;
+}
+
+export type BlackMarketOpenResult =
+  | {
+      status: 'ready';
+      session: BlackMarketSessionView;
+      entry: BlackMarketEntryResult;
+    }
+  | {
+      status: 'retryable';
+      entry: BlackMarketEntryResult;
+      message: string;
+    };
 
 export interface BlackMarketInteractCommand {
   message?: string;

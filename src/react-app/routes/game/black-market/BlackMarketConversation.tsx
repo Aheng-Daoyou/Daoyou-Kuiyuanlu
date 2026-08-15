@@ -60,7 +60,8 @@ export function BlackMarketConversation({
     null,
   );
   const dealReady = session.phase === 'deal_ready';
-  const actionDisabled = busy || dealReady;
+  const conversationClosed = !session.canInteract && !dealReady;
+  const actionDisabled = busy || dealReady || conversationClosed;
   const composerFormId = `black-market-composer-${session.id}`;
 
   const confirmPurchase = () => {
@@ -124,50 +125,26 @@ export function BlackMarketConversation({
       )
       .map((observation) => [observation.revealedAtTurn!, observation]),
   );
-  const claimsByTurn = new Map(
-    session.sellerClaims
-      .filter((claim) => claim.turn != null)
-      .map((claim) => [claim.turn!, claim]),
-  );
   const messages = session.messages.map((entry) => {
     const observation =
       entry.role === 'npc' && entry.turn != null
         ? inspectionObservationsByTurn.get(entry.turn)
         : undefined;
-    const claim =
-      entry.role === 'npc' && entry.turn != null
-        ? claimsByTurn.get(entry.turn)
-        : undefined;
-    const after =
-      observation || claim ? (
+    const after = observation ? (
         <div className="border-crimson/25 space-y-1.5 border-l pl-3 text-sm leading-6">
-          {observation ? (
-            <button
-              type="button"
-              disabled={actionDisabled}
-              onClick={() =>
-                fillAndOpenComposer(`关于“${observation.text}”，我想再问清楚。`)
-              }
-              className="text-ink-secondary hover:text-crimson focus-visible:outline-crimson block w-full text-left transition-colors focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="text-crimson">
-                你看出·{observationTopicLabel[observation.topic]}
-              </span>
-              ：{observation.text}
-            </button>
-          ) : null}
-          {claim ? (
-            <button
-              type="button"
-              disabled={actionDisabled}
-              onClick={() =>
-                fillAndOpenComposer(`你方才说“${claim.text}”，有什么依据？`)
-              }
-              className="text-ink-secondary hover:text-gold focus-visible:outline-gold block w-full text-left transition-colors focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="text-gold">你记下</span>：{claim.text}
-            </button>
-          ) : null}
+          <button
+            type="button"
+            disabled={actionDisabled}
+            onClick={() =>
+              fillAndOpenComposer(`关于“${observation.text}”，我想再问清楚。`)
+            }
+            className="text-ink-secondary hover:text-crimson focus-visible:outline-crimson block w-full text-left transition-colors focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="text-crimson">
+              你看出·{observationTopicLabel[observation.topic]}
+            </span>
+            ：{observation.text}
+          </button>
         </div>
       ) : undefined;
     return {
@@ -212,11 +189,18 @@ export function BlackMarketConversation({
             ：{observation.text}
           </button>
         ))}
-      <p className="text-ink-secondary/80 pt-1 text-xs">
-        {session.inspectionRemaining > 0
-          ? `尚可细查 ${session.inspectionRemaining} 处`
-          : '能查验的地方已经看遍'}
-      </p>
+      <div className="text-ink-secondary/80 flex flex-wrap gap-x-4 pt-1 text-xs">
+        <span>
+          {session.inspectionRemaining > 0
+            ? `尚可细查 ${session.inspectionRemaining} 处`
+            : '能查验的地方已经看遍'}
+        </span>
+        <span>
+          {session.turnsRemaining > 0
+            ? `尚可交谈 ${session.turnsRemaining} 次`
+            : '今日能说的已经说尽'}
+        </span>
+      </div>
     </div>
   );
 
@@ -225,6 +209,9 @@ export function BlackMarketConversation({
       {notice ? <InkNotice>{notice}</InkNotice> : null}
       {dealReady ? (
         <InkNotice>摊主已经点头认下这个价。此刻只等你落定交易。</InkNotice>
+      ) : null}
+      {conversationClosed ? (
+        <InkNotice>摊主已不愿多谈，你仍可按当前价拿下或离开。</InkNotice>
       ) : null}
       <div className="flex items-center justify-between gap-3">
         <span className="text-ink-secondary text-sm">
@@ -251,7 +238,7 @@ export function BlackMarketConversation({
         containedTranscript
         density="compact"
         options={
-          dealReady
+          dealReady || conversationClosed
             ? [{ id: 'leave', label: '先离开摊位', tone: 'muted' }]
             : [
                 { id: 'talk', label: '开口交谈', tone: 'primary' },
@@ -274,7 +261,7 @@ export function BlackMarketConversation({
         onClose={() => setConfirmDialog(null)}
       />
       <InkDetailDrawer
-        isOpen={composerOpen && !dealReady}
+        isOpen={composerOpen && !dealReady && session.canInteract}
         onClose={() => setComposerOpen(false)}
         title={`与${npc.name}交谈`}
         description={`当前要价 ${session.currentPrice.toLocaleString()} 灵石。快捷语只会填入说辞，不会直接发送。`}

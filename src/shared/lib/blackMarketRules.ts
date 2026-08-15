@@ -1,7 +1,50 @@
 import type { BlackMarketRevealRating } from '@shared/types/blackMarket';
 
-export const BLACK_MARKET_REFRESH_MS = 2 * 60 * 60 * 1000;
 export const BLACK_MARKET_MAX_INSPECTIONS = 3;
+export const BLACK_MARKET_MAX_TURNS = 6;
+export const BLACK_MARKET_ENTRY_COST = 5;
+export const BLACK_MARKET_QUALITIES = [
+  '地品',
+  '天品',
+  '仙品',
+  '神品',
+] as const;
+
+const CHINA_TIME_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function blackMarketDayKey(now = Date.now()): string {
+  return new Date(now + CHINA_TIME_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+export function blackMarketDayEnd(now = Date.now()): number {
+  return (
+    Math.floor((now + CHINA_TIME_OFFSET_MS) / DAY_MS) * DAY_MS +
+    DAY_MS -
+    CHINA_TIME_OFFSET_MS
+  );
+}
+
+export function blackMarketEntryCost(usedEntries: number): 0 | 5 {
+  return Math.max(0, Math.floor(usedEntries)) === 0
+    ? 0
+    : BLACK_MARKET_ENTRY_COST;
+}
+
+export function blackMarketEntryId(input: {
+  dayKey: string;
+  nodeId: string;
+  npcId: string;
+}): string {
+  return `${input.dayKey}:${input.nodeId}:${input.npcId}`;
+}
+
+export function blackMarketTurnsRemaining(turnsUsed: number): number {
+  return Math.max(
+    0,
+    BLACK_MARKET_MAX_TURNS - Math.max(0, Math.floor(turnsUsed)),
+  );
+}
 
 /**
  * Stable, platform-independent unit interval value. The server must feed this

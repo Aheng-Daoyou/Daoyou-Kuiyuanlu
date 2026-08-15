@@ -18,6 +18,10 @@ import {
   prepareBlackMarketInteraction,
 } from '@server/lib/services/black-market/BlackMarketService';
 import { toPlayerStateMutationResponse } from '@server/lib/services/ResourceMutationResponse';
+import {
+  QiInsufficientError,
+  QiServiceError,
+} from '@server/lib/services/QiService';
 import { finalizeBlackMarketReply } from '@shared/lib/blackMarketReply';
 import type { BlackMarketInteractStreamEvent } from '@shared/types/blackMarket';
 import { BLACK_MARKET_NPC_IDS } from '@shared/types/blackMarket';
@@ -67,6 +71,21 @@ function errorResponse(c: Context<AppEnv>, error: unknown) {
   if (error instanceof BlackMarketServiceError) {
     return jsonWithStatus(c, { error: error.message }, error.status);
   }
+  if (error instanceof QiInsufficientError) {
+    return c.json(
+      {
+        error: error.code,
+        message: error.message,
+        required: error.required,
+        current: error.current,
+        action: error.action,
+      },
+      409,
+    );
+  }
+  if (error instanceof QiServiceError) {
+    return jsonWithStatus(c, { error: error.message }, error.status);
+  }
   console.error('black market api error:', error);
   return c.json({ error: '黑市暂时闭门，请稍后再来' }, 500);
 }
@@ -94,13 +113,12 @@ router.get('/:nodeId', async (c) => {
 router.post('/:nodeId/sessions', async (c) => {
   try {
     const parsed = OpenSessionSchema.parse(await c.req.json());
-    return c.json(
-      await openBlackMarketSession({
+    const opened = await openBlackMarketSession({
         actor: actor(c),
         nodeId: c.req.param('nodeId'),
         npcId: parsed.npcId,
-      }),
-    );
+      });
+    return c.json(toPlayerStateMutationResponse(opened));
   } catch (error) {
     return errorResponse(c, error);
   }

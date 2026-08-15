@@ -43,8 +43,18 @@ export function BlackMarketRevealPanel({
 
       {reveal.ownerBeliefSummary ? (
         <div className="border-ink/15 mt-7 w-full max-w-2xl border-l-2 px-4 py-3 text-left text-sm leading-7">
-          <p className="text-ink-secondary text-xs tracking-[0.2em]">货主原判</p>
+          <p className="text-ink-secondary text-xs tracking-[0.2em]">
+            货主最初判断
+          </p>
           <p className="mt-1">{reveal.ownerBeliefSummary}</p>
+          {reveal.ownerFinalBeliefSummary ? (
+            <>
+              <p className="text-ink-secondary mt-3 text-xs tracking-[0.2em]">
+                成交前判断
+              </p>
+              <p className="mt-1">{reveal.ownerFinalBeliefSummary}</p>
+            </>
+          ) : null}
         </div>
       ) : null}
 
@@ -63,7 +73,9 @@ export function BlackMarketRevealPanel({
 
       {reveal.claimReview?.length ? (
         <div className="mt-6 w-full max-w-2xl text-left text-sm leading-7">
-          <p className="text-ink-secondary text-xs tracking-[0.2em]">摊前说法</p>
+          <p className="text-ink-secondary text-xs tracking-[0.2em]">
+            摊前说法性质
+          </p>
           {reveal.claimReview.map((item, index) => (
             <p key={`${item.claim}-${index}`} className="mt-2">
               “{item.claim}” · <span className="text-crimson">{item.verdict}</span>

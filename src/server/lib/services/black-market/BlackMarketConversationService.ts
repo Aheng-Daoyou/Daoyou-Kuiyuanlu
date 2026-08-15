@@ -30,6 +30,22 @@ const turnProposalSchema = z.object({
     z.literal(0),
     z.literal(1),
   ]),
+  beliefPatch: z.object({
+    confidenceDelta: z.union([
+      z.literal(-1),
+      z.literal(0),
+      z.literal(1),
+    ]),
+    beliefSummary: z.string().trim().min(1).max(180).optional(),
+    interpretationUpdates: z
+      .array(
+        z.object({
+          observationId: z.string().trim().min(1).max(64),
+          interpretation: z.string().trim().min(1).max(120),
+        }),
+      )
+      .max(2),
+  }),
   claimPlan: z
     .object({
       topic: z.string().trim().min(1).max(40),
@@ -68,6 +84,10 @@ function degradedProposal(
         : 'profit',
     },
     beliefPressure: 0,
+    beliefPatch: {
+      confidenceDelta: 0,
+      interpretationUpdates: [],
+    },
     claimPlan: { topic: '态度', mode: 'evasion', summary: '暂不表露更多判断' },
     negotiation: hasOffer
       ? { decision: 'counter', concession: 0.25, patienceDelta: -1 }
@@ -88,22 +108,30 @@ export function fallbackTurnReply(input: {
   proposal: BlackMarketTurnProposal;
   negotiationOutcome?: BlackMarketNegotiationOutcome;
 }): string {
+  const withClaim = (body: string) =>
+    input.proposal.claimPlan?.summary
+      ? `${input.proposal.claimPlan.summary} ${body}`
+      : body;
   if (!input.negotiationOutcome) {
     if (input.proposal.intent === 'buy')
-      return `既然你认这个价，便按${input.context.currentPrice}灵石成交。`;
+      return withClaim(
+        `既然你认这个价，便按${input.context.currentPrice}灵石成交。`,
+      );
     if (input.proposal.intent === 'leave')
-      return '买卖不成也无妨，暗巷里没人拦你的路。';
+      return withClaim('买卖不成也无妨，暗巷里没人拦你的路。');
     return (
       input.proposal.claimPlan?.summary ||
       '你看你的，我卖我的；没有把握的话，便再想清楚。'
     );
   }
   const { outcome, nextPrice } = input.negotiationOutcome;
-  if (outcome === 'accepted') return `行，就按你说的，${nextPrice}灵石。`;
+  if (outcome === 'accepted')
+    return withClaim(`行，就按你说的，${nextPrice}灵石。`);
   if (outcome === 'countered')
-    return `你说得有几分道理，但最多让到${nextPrice}灵石。`;
-  if (outcome === 'locked') return `价就定在${nextPrice}灵石，再谈便不卖了。`;
-  return `这个价不成，仍是${nextPrice}灵石。`;
+    return withClaim(`你说得有几分道理，但最多让到${nextPrice}灵石。`);
+  if (outcome === 'locked')
+    return withClaim(`价就定在${nextPrice}灵石，再谈便不卖了。`);
+  return withClaim(`这个价不成，仍是${nextPrice}灵石。`);
 }
 
 function turnPayload(context: BlackMarketTurnContext): string {
@@ -127,6 +155,7 @@ function turnPayload(context: BlackMarketTurnContext): string {
     dealReady: context.dealReady,
     canInspect: context.canInspect,
     canHaggle: context.canHaggle,
+    turnsRemaining: context.turnsRemaining,
     offerAssessment: context.offerAssessment ?? null,
     offeredPrice: context.offeredPrice ?? null,
     playerMessage: truncateText(context.playerMessage, 240),
@@ -174,6 +203,7 @@ function replyPayload(input: {
       : null,
     approvedPriceToken:
       approvedPrice == null ? null : BLACK_MARKET_APPROVED_PRICE_TOKEN,
+    turnsRemaining: input.context.turnsRemaining,
   });
 }
 

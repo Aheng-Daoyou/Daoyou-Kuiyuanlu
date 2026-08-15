@@ -1,5 +1,6 @@
 import type { BlackMarketObservationCandidate } from '@shared/lib/blackMarketObservations';
 import type { BlackMarketPricingState } from '@shared/lib/blackMarketPricing';
+import type { BlackMarketBeliefPatch } from '@shared/lib/blackMarketBelief';
 import type {
   BlackMarketInspectionKind,
   BlackMarketMessage,
@@ -56,7 +57,7 @@ export interface BlackMarketInternalSession {
   cultivatorId: string;
   nodeId: string;
   npcId: BlackMarketNpcId;
-  cycle: number;
+  dayKey: string;
   listingId: string;
   phase: BlackMarketSessionPhase;
   seed: string;
@@ -70,8 +71,16 @@ export interface BlackMarketInternalSession {
   revealedObservationIds: string[];
   observations: BlackMarketInternalObservation[];
   belief: BlackMarketNpcBeliefState;
+  initialBeliefSummary: string;
   memory: BlackMarketConversationMemory;
   messages: BlackMarketMessage[];
+  turnsUsed: number;
+  maxTurns: number;
+  pendingTurn?: {
+    token: string;
+    version: number;
+    startedAt: number;
+  };
   version: number;
   expiresAt: number;
   reveal?: BlackMarketReveal;
@@ -95,6 +104,7 @@ export interface BlackMarketTurnProposal {
     dominantMotive: 'profit' | 'urgency' | 'pride' | 'caution';
   };
   beliefPressure: -2 | -1 | 0 | 1;
+  beliefPatch: BlackMarketBeliefPatch;
   claimPlan?: {
     topic: string;
     mode: BlackMarketClaimMode;
@@ -129,6 +139,7 @@ export interface BlackMarketTurnContext {
   offerAssessment?: 'insulting' | 'low' | 'reasonable' | 'strong';
   canInspect: boolean;
   canHaggle: boolean;
+  turnsRemaining: number;
   dealReady: boolean;
   belief: BlackMarketNpcBeliefState;
   memory: BlackMarketConversationMemory;

@@ -12,6 +12,10 @@ import { mapMaterialRow } from '@server/lib/services/cultivator/CultivatorInvent
 import { addMaterialStackToInventory } from '@server/lib/services/materialInventory';
 import type { ResourceChangeDescriptor } from '@shared/contracts/resources';
 import {
+  applyBlackMarketBeliefPatch,
+  describeBlackMarketClaimMode,
+} from '@shared/lib/blackMarketBelief';
+import {
   applyBlackMarketPriceDecision,
   assessOffer,
 } from '@shared/lib/blackMarketNegotiation';
@@ -21,8 +25,14 @@ import {
   createBlackMarketPricing,
 } from '@shared/lib/blackMarketPricing';
 import {
+  BLACK_MARKET_ENTRY_COST,
   BLACK_MARKET_MAX_INSPECTIONS,
-  BLACK_MARKET_REFRESH_MS,
+  BLACK_MARKET_MAX_TURNS,
+  BLACK_MARKET_QUALITIES,
+  blackMarketDayEnd,
+  blackMarketDayKey,
+  blackMarketEntryCost,
+  blackMarketTurnsRemaining,
   blackMarketUnit,
   classifyBlackMarketReveal,
 } from '@shared/lib/blackMarketRules';
@@ -39,17 +49,22 @@ import {
   type BlackMarketInteractionResult,
   type BlackMarketNegotiationMood,
   type BlackMarketNpcId,
+  type BlackMarketOpenResult,
   type BlackMarketOverview,
   type BlackMarketReveal,
   type BlackMarketSessionView,
 } from '@shared/types/blackMarket';
 import { MATERIAL_TYPE_VALUES, QUALITY_ORDER } from '@shared/types/constants';
 import { and, eq, sql } from 'drizzle-orm';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import {
   blackMarketConversationService,
   fallbackTurnReply,
 } from './BlackMarketConversationService';
+import {
+  grantBlackMarketEntry,
+  listBlackMarketEntryGrants,
+} from './BlackMarketEntryService';
 import { buildBlackMarketMask } from './BlackMarketMaskService';
 import { BLACK_MARKET_NPCS, getBlackMarketNpc } from './BlackMarketNpcConfig';
 import { blackMarketObservationService } from './BlackMarketObservationService';
@@ -64,14 +79,7 @@ import type {
 
 const PURCHASE_SOURCE = 'black_market_purchase';
 const SESSION_MESSAGE_LIMIT = 24;
-const BLACK_MARKET_QUALITIES = [
-  '真品',
-  '地品',
-  '天品',
-  '仙品',
-  '神品',
-] as const;
-
+const PENDING_TURN_STALE_MS = 30_000;
 type Actor = { userId: string; cultivatorId: string };
 
 export class BlackMarketServiceError extends Error {
@@ -81,14 +89,6 @@ export class BlackMarketServiceError extends Error {
   ) {
     super(message);
   }
-}
-
-function currentCycle(now = Date.now()): number {
-  return Math.floor(now / BLACK_MARKET_REFRESH_MS);
-}
-
-function cycleEnd(cycle: number): number {
-  return (cycle + 1) * BLACK_MARKET_REFRESH_MS;
 }
 
 function secret(): string {
@@ -108,13 +108,13 @@ function sessionIdentity(input: {
   cultivatorId: string;
   nodeId: string;
   npcId: BlackMarketNpcId;
-  cycle: number;
+  dayKey: string;
 }) {
   const seed = derive([
     input.cultivatorId,
     input.nodeId,
     input.npcId,
-    input.cycle,
+    input.dayKey,
   ]);
   return {
     seed,
@@ -126,9 +126,9 @@ function sessionIdentity(input: {
 function purchaseRequestId(input: {
   nodeId: string;
   npcId: BlackMarketNpcId;
-  cycle: number;
+  dayKey: string;
 }): string {
-  return `${input.nodeId}:${input.cycle}:${input.npcId}`;
+  return `${input.dayKey}:${input.nodeId}:${input.npcId}`;
 }
 
 function weightedPick<T extends string>(
@@ -210,12 +210,23 @@ function publicSession(
   session: BlackMarketInternalSession,
 ): BlackMarketSessionView {
   const revealed = new Set(session.revealedObservationIds);
+  const isCurrentDay = session.dayKey === blackMarketDayKey();
+  const turnsRemaining = blackMarketTurnsRemaining(session.turnsUsed);
+  const pendingTurnActive = Boolean(
+    session.pendingTurn &&
+      Date.now() - session.pendingTurn.startedAt < PENDING_TURN_STALE_MS,
+  );
+  const canInteract =
+    isCurrentDay &&
+    session.phase === 'talking' &&
+    turnsRemaining > 0 &&
+    !pendingTurnActive;
   return {
     id: session.id,
     nodeId: session.nodeId,
     npcId: session.npcId,
-    cycle: session.cycle,
-    phase: session.cycle === currentCycle() ? session.phase : 'expired',
+    dayKey: session.dayKey,
+    phase: isCurrentDay ? session.phase : 'expired',
     listing: {
       id: session.listingId,
       disguisedName: session.disguisedName,
@@ -224,17 +235,16 @@ function publicSession(
     initialPrice: session.pricing.initialPrice,
     currentPrice: session.pricing.currentPrice,
     canInspect:
-      session.cycle === currentCycle() &&
-      session.phase === 'talking' &&
+      canInteract &&
       session.inspectTurnsUsed < BLACK_MARKET_MAX_INSPECTIONS,
     inspectionRemaining: Math.max(
       0,
       BLACK_MARKET_MAX_INSPECTIONS - session.inspectTurnsUsed,
     ),
     canHaggle:
-      session.cycle === currentCycle() &&
-      session.phase === 'talking' &&
-      session.pricing.patience > 0,
+      canInteract && session.pricing.patience > 0,
+    canInteract,
+    turnsRemaining,
     negotiationMood: negotiationMood(session),
     observations: session.observations
       .filter(
@@ -257,7 +267,6 @@ function publicSession(
     })),
     messages: session.messages,
     version: session.version,
-    expiresAt: session.expiresAt,
     reveal: session.reveal,
   };
 }
@@ -272,7 +281,7 @@ function assertCurrentSession(
   ) {
     throw new BlackMarketServiceError(404, '没有找到这场黑市交易');
   }
-  if (session.cycle !== currentCycle() || session.expiresAt <= Date.now()) {
+  if (session.dayKey !== blackMarketDayKey() || session.expiresAt <= Date.now()) {
     throw new BlackMarketServiceError(410, '这批黑市货物已经收摊');
   }
   if (session.phase === 'completed') {
@@ -287,18 +296,27 @@ function assertConversationOpen(session: BlackMarketInternalSession): void {
       '摊主已经点头，这个价只等你成交或转身离开',
     );
   }
+  if (blackMarketTurnsRemaining(session.turnsUsed) <= 0) {
+    throw new BlackMarketServiceError(
+      409,
+      '今日能说的已经说尽，可按当前价成交或离开',
+    );
+  }
+  if (session.pendingTurn) {
+    throw new BlackMarketServiceError(409, '摊主正在斟酌上一句话');
+  }
 }
 
 async function completedPurchase(
   cultivatorId: string,
   nodeId: string,
   npcId: BlackMarketNpcId,
-  cycle: number,
+  dayKey: string,
 ) {
   return findPlayerMutationRequest(
     cultivatorId,
     PURCHASE_SOURCE,
-    purchaseRequestId({ nodeId, npcId, cycle }),
+    purchaseRequestId({ nodeId, npcId, dayKey }),
   );
 }
 
@@ -319,13 +337,13 @@ async function generateSession(input: {
   actor: Actor;
   nodeId: string;
   npcId: BlackMarketNpcId;
-  cycle: number;
+  dayKey: string;
 }): Promise<BlackMarketInternalSession> {
   const identity = sessionIdentity({
     cultivatorId: input.actor.cultivatorId,
     nodeId: input.nodeId,
     npcId: input.npcId,
-    cycle: input.cycle,
+    dayKey: input.dayKey,
   });
   const preferences = selectMaterialPreferences(identity.seed, input.nodeId);
   const entry = await sampleMaterialLibraryEntryByPreferences({
@@ -375,7 +393,7 @@ async function generateSession(input: {
     cultivatorId: input.actor.cultivatorId,
     nodeId: input.nodeId,
     npcId: input.npcId,
-    cycle: input.cycle,
+    dayKey: input.dayKey,
     listingId: identity.listingId,
     phase: 'talking',
     seed: identity.seed,
@@ -389,6 +407,7 @@ async function generateSession(input: {
     revealedObservationIds: [],
     observations,
     belief: perceived.belief,
+    initialBeliefSummary: perceived.belief.beliefSummary,
     memory: {
       claims: [],
       playerOffers: [],
@@ -406,15 +425,17 @@ async function generateSession(input: {
         turn: 0,
       },
     ],
+    turnsUsed: 0,
+    maxTurns: BLACK_MARKET_MAX_TURNS,
     version: 1,
-    expiresAt: cycleEnd(input.cycle),
+    expiresAt: blackMarketDayEnd(),
   };
 
   const existingPurchase = await completedPurchase(
     input.actor.cultivatorId,
     input.nodeId,
     input.npcId,
-    input.cycle,
+    input.dayKey,
   );
   if (existingPurchase) {
     const result = existingPurchase.result as { reveal?: BlackMarketReveal };
@@ -430,12 +451,12 @@ async function getOrGenerateInternal(input: {
   nodeId: string;
   npcId: BlackMarketNpcId;
 }): Promise<BlackMarketInternalSession> {
-  const cycle = currentCycle();
+  const dayKey = blackMarketDayKey();
   const identity = sessionIdentity({
     cultivatorId: input.actor.cultivatorId,
     nodeId: input.nodeId,
     npcId: input.npcId,
-    cycle,
+    dayKey,
   });
   return withRedisLock(
     {
@@ -453,7 +474,7 @@ async function getOrGenerateInternal(input: {
           input.actor.cultivatorId,
           input.nodeId,
           input.npcId,
-          cycle,
+          dayKey,
         );
         if (purchase) {
           const result = purchase.result as { reveal?: BlackMarketReveal };
@@ -472,7 +493,7 @@ async function getOrGenerateInternal(input: {
         }
         return existing;
       }
-      const created = await generateSession({ ...input, cycle });
+      const created = await generateSession({ ...input, dayKey });
       await blackMarketSessionRepository.save(created);
       return created;
     },
@@ -537,6 +558,7 @@ function buildTurnContext(
       session.phase === 'talking' &&
       session.inspectTurnsUsed < BLACK_MARKET_MAX_INSPECTIONS,
     canHaggle: session.phase === 'talking' && session.pricing.patience > 0,
+    turnsRemaining: blackMarketTurnsRemaining(session.turnsUsed),
     dealReady: session.phase === 'deal_ready',
     belief: session.belief,
     memory: session.memory,
@@ -576,11 +598,22 @@ function sanitizeProposal(
     (id) => knownIds.has(id),
   );
   let claimPlan = proposal.claimPlan;
+  let downgradedEvasionSummary: string | undefined;
   if (
     claimPlan?.mode === 'bluff' &&
     session.belief.bluffsUsed >= session.belief.bluffBudget
   ) {
-    claimPlan = { ...claimPlan, mode: 'evasion' };
+    const evasionSummary: Record<BlackMarketNpcId, string> = {
+      'smiling-keeper': '含笑避谈来路，只让买家从眼前货物自行判断。',
+      'silent-elder': '拒绝继续解释，只认可眼前已经看见的痕迹。',
+      'urgent-cultivator': '回避货物来源，催促买家自行决定是否接手。',
+    };
+    downgradedEvasionSummary = evasionSummary[session.npcId];
+    claimPlan = {
+      topic: claimPlan.topic,
+      mode: 'evasion',
+      summary: downgradedEvasionSummary,
+    };
   }
   return {
     ...proposal,
@@ -610,7 +643,9 @@ function sanitizeProposal(
         claimPlan?.mode === 'bluff'
           ? proposal.memoryPatch.activeBluffs.slice(0, 2)
           : [],
-      turnSummary: proposal.memoryPatch.turnSummary.slice(0, 160),
+      turnSummary:
+        downgradedEvasionSummary ??
+        proposal.memoryPatch.turnSummary.slice(0, 160),
     },
   };
 }
@@ -647,32 +682,54 @@ export async function getBlackMarketOverview(input: {
   nodeId: string;
 }): Promise<BlackMarketOverview> {
   const access = await assertAccess(input.actor, input.nodeId);
-  const cycle = currentCycle();
+  const now = Date.now();
+  const dayKey = blackMarketDayKey(now);
+  const grants = await listBlackMarketEntryGrants({
+    cultivatorId: input.actor.cultivatorId,
+    dayKey,
+  });
+  const grantedNpcIds = new Set(
+    grants
+      .filter((grant) => grant.nodeId === input.nodeId)
+      .map((grant) => grant.npcId),
+  );
   const statuses = await Promise.all(
     BLACK_MARKET_NPCS.map(async (npc) => {
       const identity = sessionIdentity({
         cultivatorId: input.actor.cultivatorId,
         nodeId: input.nodeId,
         npcId: npc.id,
-        cycle,
+        dayKey,
       });
       const [purchase, session] = await Promise.all([
         completedPurchase(
           input.actor.cultivatorId,
           input.nodeId,
           npc.id,
-          cycle,
+          dayKey,
         ),
         blackMarketSessionRepository.find(identity.sessionId),
       ]);
-      return purchase ? 'completed' : session ? 'in_progress' : 'available';
+      return purchase
+        ? ('completed' as const)
+        : session
+          ? ('in_progress' as const)
+          : grantedNpcIds.has(npc.id)
+            ? ('granted' as const)
+            : ('available' as const);
     }),
   );
   const nodeTags = getNodeRegionTags(input.nodeId);
   return {
     nodeId: input.nodeId,
-    cycle,
-    nextRefresh: cycleEnd(cycle),
+    dayKey,
+    resetsAt: blackMarketDayEnd(now),
+    entryPolicy: {
+      usedEntries: grants.length,
+      freeEntryAvailable: grants.length === 0,
+      nextEntryCost: blackMarketEntryCost(grants.length),
+      paidEntryCost: BLACK_MARKET_ENTRY_COST,
+    },
     access,
     scene: {
       title: '暗巷黑市',
@@ -693,9 +750,43 @@ export async function openBlackMarketSession(input: {
   actor: Actor;
   nodeId: string;
   npcId: BlackMarketNpcId;
-}): Promise<BlackMarketSessionView> {
+}) {
   await assertAccess(input.actor, input.nodeId);
-  return publicSession(await getOrGenerateInternal(input));
+  const dayKey = blackMarketDayKey();
+  const committed = await grantBlackMarketEntry({
+    userId: input.actor.userId,
+    cultivatorId: input.actor.cultivatorId,
+    dayKey,
+    nodeId: input.nodeId,
+    npcId: input.npcId,
+  });
+  const entry = {
+    cost: committed.result.cost,
+    free: committed.result.free,
+    replayed: Boolean(committed.state.replayed),
+  };
+  let result: BlackMarketOpenResult;
+  try {
+    result = {
+      status: 'ready',
+      session: publicSession(await getOrGenerateInternal(input)),
+      entry,
+    };
+  } catch (error) {
+    console.warn('[black-market] granted entry session generation failed', {
+      cultivatorId: input.actor.cultivatorId,
+      dayKey,
+      nodeId: input.nodeId,
+      npcId: input.npcId,
+      error,
+    });
+    result = {
+      status: 'retryable',
+      entry,
+      message: '入场凭证已记下，可重新靠近，不会重复扣费。',
+    };
+  }
+  return { result, state: committed.state };
 }
 
 export async function prepareBlackMarketInteraction(input: {
@@ -706,22 +797,50 @@ export async function prepareBlackMarketInteraction(input: {
   abortSignal?: AbortSignal;
 }): Promise<BlackMarketPreparedTurn> {
   await assertAccess(input.actor, input.nodeId);
-  const snapshot = await blackMarketSessionRepository.find(input.sessionId);
-  if (!snapshot || snapshot.nodeId !== input.nodeId) {
-    throw new BlackMarketServiceError(404, '没有找到这场黑市交易');
-  }
-  assertCurrentSession(snapshot, input.actor);
-  assertConversationOpen(snapshot);
-  if (snapshot.version !== input.command.version) {
-    throw new BlackMarketServiceError(409, '摊前情形已经变化，请刷新后再试');
-  }
-  if (
-    input.command.offeredPrice != null &&
-    input.command.offeredPrice < snapshot.pricing.currentPrice &&
-    snapshot.pricing.patience <= 0
-  ) {
-    throw new BlackMarketServiceError(409, '摊主已经不愿继续议价');
-  }
+  const pendingToken = randomUUID();
+  const snapshot = await withRedisLock(
+    {
+      key: redisLockKeys.blackMarketSession(input.sessionId),
+      context: 'black-market-turn-reserve',
+      timeoutMs: 10_000,
+      retries: 0,
+    },
+    async () => {
+      const session = await blackMarketSessionRepository.find(input.sessionId);
+      if (!session || session.nodeId !== input.nodeId) {
+        throw new BlackMarketServiceError(404, '没有找到这场黑市交易');
+      }
+      if (
+        session.pendingTurn &&
+        Date.now() - session.pendingTurn.startedAt >= PENDING_TURN_STALE_MS
+      ) {
+        session.pendingTurn = undefined;
+      }
+      assertCurrentSession(session, input.actor);
+      assertConversationOpen(session);
+      if (session.version !== input.command.version) {
+        throw new BlackMarketServiceError(
+          409,
+          '摊前情形已经变化，请刷新后再试',
+        );
+      }
+      if (
+        input.command.offeredPrice != null &&
+        input.command.offeredPrice < session.pricing.currentPrice &&
+        session.pricing.patience <= 0
+      ) {
+        throw new BlackMarketServiceError(409, '摊主已经不愿继续议价');
+      }
+      session.pendingTurn = {
+        token: pendingToken,
+        version: session.version,
+        startedAt: Date.now(),
+      };
+      session.turnsUsed += 1;
+      await blackMarketSessionRepository.save(session);
+      return session;
+    },
+  );
 
   const snapshotNpc = getBlackMarketNpc(snapshot.npcId);
   const snapshotContext = buildTurnContext(
@@ -729,10 +848,17 @@ export async function prepareBlackMarketInteraction(input: {
     snapshotNpc,
     input.command,
   );
-  const judged = await blackMarketConversationService.proposeTurn({
-    context: snapshotContext,
-    abortSignal: input.abortSignal,
-  });
+  let judged: Awaited<
+    ReturnType<typeof blackMarketConversationService.proposeTurn>
+  >;
+  try {
+    judged = await blackMarketConversationService.proposeTurn({
+      context: snapshotContext,
+    });
+  } catch (error) {
+    await clearPendingBlackMarketTurn(input.sessionId, pendingToken);
+    throw error;
+  }
   const proposed = judged.proposal;
 
   return withRedisLock(
@@ -746,12 +872,17 @@ export async function prepareBlackMarketInteraction(input: {
       const session = await blackMarketSessionRepository.find(input.sessionId);
       if (!session) throw new BlackMarketServiceError(404, '黑市会话已经失效');
       assertCurrentSession(session, input.actor);
-      assertConversationOpen(session);
       if (session.version !== input.command.version) {
         throw new BlackMarketServiceError(
           409,
           '摊前情形已经变化，请刷新后再试',
         );
+      }
+      if (
+        session.pendingTurn?.token !== pendingToken ||
+        session.pendingTurn.version !== input.command.version
+      ) {
+        throw new BlackMarketServiceError(409, '这轮交谈已经失效');
       }
 
       const npc = getBlackMarketNpc(session.npcId);
@@ -778,6 +909,9 @@ export async function prepareBlackMarketInteraction(input: {
         ReturnType<typeof applyBlackMarketPriceDecision> | undefined;
 
       applyReveals(session, proposal);
+      const hasCredibleEvidence =
+        proposal.reasoning.evidenceStrength === 'credible' &&
+        proposal.referencedObservationIds.length > 0;
       session.pricing.currentFloorPrice = applyBlackMarketBeliefPressure({
         initialPrice: session.pricing.initialPrice,
         currentPrice: session.pricing.currentPrice,
@@ -785,10 +919,39 @@ export async function prepareBlackMarketInteraction(input: {
         floorMaxPrice: session.pricing.floorMaxPrice,
         currentFloorPrice: session.pricing.currentFloorPrice,
         pressure: proposal.beliefPressure,
-        hasCredibleEvidence:
-          proposal.reasoning.evidenceStrength === 'credible' &&
-          proposal.referencedObservationIds.length > 0,
+        hasCredibleEvidence,
       });
+      const relevantObservationIds = new Set(
+        proposal.revealObservationId
+          ? [
+              ...proposal.referencedObservationIds,
+              proposal.revealObservationId,
+            ]
+          : proposal.referencedObservationIds,
+      );
+      const beliefSummaryFallback =
+        proposal.beliefPressure < 0
+          ? '货主重新审视玩家引用的客观痕迹，对原先估量的把握有所下降。'
+          : proposal.beliefPressure > 0
+            ? '货主听过玩家的说法后，反而更坚持原先的估量。'
+            : undefined;
+      const beliefUpdate = applyBlackMarketBeliefPatch({
+        belief: session.belief,
+        patch: {
+          ...proposal.beliefPatch,
+          beliefSummary:
+            proposal.beliefPatch.beliefSummary ?? beliefSummaryFallback,
+        },
+        relevantObservationIds,
+        negativeChangeAllowed: hasCredibleEvidence,
+        summaryChangeAllowed:
+          proposal.beliefPressure !== 0 ||
+          (proposal.reasoning.conflictsWithBelief && hasCredibleEvidence),
+      });
+      session.belief.confidence = beliefUpdate.belief.confidence;
+      session.belief.beliefSummary = beliefUpdate.belief.beliefSummary;
+      session.belief.clueInterpretations =
+        beliefUpdate.belief.clueInterpretations;
 
       if (input.command.offeredPrice != null) {
         const offeredPrice = input.command.offeredPrice;
@@ -826,6 +989,16 @@ export async function prepareBlackMarketInteraction(input: {
         session.phase = 'abandoned';
       }
 
+      // Stage B may see the updated belief and server-approved negotiation state,
+      // but not memory that has not yet been spoken in this turn.
+      const messageId = `${session.id}:${session.version}:npc`;
+      const replyContext = buildTurnContext(session, npc, input.command);
+      const fallbackBody = fallbackTurnReply({
+        context: replyContext,
+        proposal,
+        negotiationOutcome,
+      });
+
       session.memory.citedObservationIds = Array.from(
         new Set([
           ...session.memory.citedObservationIds,
@@ -842,12 +1015,11 @@ export async function prepareBlackMarketInteraction(input: {
       ].slice(-6);
       session.memory.turnSummary = proposal.memoryPatch.turnSummary;
 
-      const messageId = `${session.id}:${session.version}:npc`;
       if (proposal.claimPlan) {
         session.memory.claims.push({
           id: `${messageId}:claim`,
           topic: proposal.claimPlan.topic,
-          text: proposal.claimPlan.summary,
+          text: fallbackBody,
           mode: proposal.claimPlan.mode,
           turn: session.version,
         });
@@ -859,13 +1031,6 @@ export async function prepareBlackMarketInteraction(input: {
           );
         }
       }
-
-      const replyContext = buildTurnContext(session, npc, input.command);
-      const fallbackBody = fallbackTurnReply({
-        context: replyContext,
-        proposal,
-        negotiationOutcome,
-      });
 
       appendMessages(session, [
         {
@@ -884,6 +1049,7 @@ export async function prepareBlackMarketInteraction(input: {
           gesture: proposal.gesture,
         },
       ]);
+      session.pendingTurn = undefined;
       session.version += 1;
       await blackMarketSessionRepository.save(session);
       return {
@@ -900,6 +1066,26 @@ export async function prepareBlackMarketInteraction(input: {
         proposal,
         negotiationOutcome,
       };
+    },
+  );
+}
+
+async function clearPendingBlackMarketTurn(
+  sessionId: string,
+  pendingToken: string,
+): Promise<void> {
+  await withRedisLock(
+    {
+      key: redisLockKeys.blackMarketSession(sessionId),
+      context: 'black-market-turn-release',
+      timeoutMs: 10_000,
+      retries: 0,
+    },
+    async () => {
+      const session = await blackMarketSessionRepository.find(sessionId);
+      if (!session || session.pendingTurn?.token !== pendingToken) return;
+      session.pendingTurn = undefined;
+      await blackMarketSessionRepository.save(session);
     },
   );
 }
@@ -926,6 +1112,10 @@ export async function completeBlackMarketReply(input: {
       );
       if (!message || message.role !== 'npc') return;
       message.body = body;
+      const claim = session.memory.claims.find(
+        (item) => item.id === `${input.messageId}:claim`,
+      );
+      if (claim) claim.text = body;
       await blackMarketSessionRepository.save(session);
     },
   );
@@ -991,7 +1181,11 @@ async function preparePurchase(
     valueRatio: assessment.valueRatio,
     rating: assessment.rating,
     epilogue: npc.epilogue,
-    ownerBeliefSummary: session.belief.beliefSummary,
+    ownerBeliefSummary: session.initialBeliefSummary,
+    ownerFinalBeliefSummary:
+      session.belief.beliefSummary === session.initialBeliefSummary
+        ? undefined
+        : session.belief.beliefSummary,
     clueReview: session.observations
       .filter(
         (observation) =>
@@ -1009,12 +1203,7 @@ async function preparePurchase(
       })),
     claimReview: session.memory.claims.slice(-3).map((claim) => ({
       claim: claim.text,
-      verdict:
-        claim.mode === 'bluff'
-          ? ('虚张声势' as const)
-          : claim.mode === 'belief'
-            ? ('误判' as const)
-            : ('无法证实' as const),
+      verdict: describeBlackMarketClaimMode(claim.mode),
     })),
   };
   return {
@@ -1036,11 +1225,11 @@ export async function commitBlackMarketPurchase(input: {
   if (!snapshot || snapshot.nodeId !== input.nodeId) {
     throw new BlackMarketServiceError(404, '没有找到这场黑市交易');
   }
-  if (snapshot.cycle !== currentCycle()) {
+  if (snapshot.dayKey !== blackMarketDayKey()) {
     throw new BlackMarketServiceError(410, '这批黑市货物已经收摊');
   }
   const requestId = purchaseRequestId(snapshot);
-  const fingerprint = `${snapshot.nodeId}:${snapshot.cycle}:${snapshot.npcId}:${snapshot.listingId}`;
+  const fingerprint = `${snapshot.dayKey}:${snapshot.nodeId}:${snapshot.npcId}:${snapshot.listingId}`;
 
   return withRedisLock(
     {
@@ -1061,8 +1250,11 @@ export async function commitBlackMarketPurchase(input: {
       ) {
         throw new BlackMarketServiceError(404, '没有找到这场黑市交易');
       }
-      if (session.cycle !== currentCycle()) {
+      if (session.dayKey !== blackMarketDayKey()) {
         throw new BlackMarketServiceError(410, '这批黑市货物已经收摊');
+      }
+      if (session.pendingTurn) {
+        throw new BlackMarketServiceError(409, '摊主还在斟酌上一句话');
       }
       if (
         session.phase !== 'completed' &&
@@ -1155,6 +1347,9 @@ export async function leaveBlackMarketSession(input: {
           409,
           '摊前情形已经变化，请刷新后再试',
         );
+      }
+      if (session.pendingTurn) {
+        throw new BlackMarketServiceError(409, '摊主还在斟酌上一句话');
       }
       if (session.phase !== 'deal_ready') {
         session.phase = 'abandoned';

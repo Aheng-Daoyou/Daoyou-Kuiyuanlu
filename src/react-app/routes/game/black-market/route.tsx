@@ -4,17 +4,23 @@ import {
   GameSceneFrame,
 } from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
-import { InkNotice } from '@app/components/ui';
+import {
+  InkDialog,
+  InkNotice,
+  type InkDialogState,
+} from '@app/components/ui';
 import { useResourceMutation } from '@app/lib/resources/mutations';
 import { useCultivatorCurrency } from '@app/lib/resources/player';
 import type {
   BlackMarketNpcId,
+  BlackMarketOpenResult,
   BlackMarketOverview,
   BlackMarketSessionView,
 } from '@shared/types/blackMarket';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { BlackMarketConversation } from './BlackMarketConversation';
+import { BlackMarketEntryPreview } from './BlackMarketEntryPreview';
 import { BlackMarketRevealPanel } from './BlackMarketReveal';
 import { BlackMarketRoom } from './BlackMarketRoom';
 import {
@@ -27,14 +33,6 @@ import {
 
 const DEFAULT_NODE_ID = 'TN_YUE_01';
 
-function formatCountdown(target: number): string {
-  const seconds = Math.max(0, Math.floor((target - Date.now()) / 1000));
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const rest = seconds % 60;
-  return `${hours > 0 ? `${hours}时` : ''}${minutes}分${rest}秒`;
-}
-
 export default function BlackMarketPage() {
   const [searchParams] = useSearchParams();
   const nodeId = searchParams.get('nodeId') || DEFAULT_NODE_ID;
@@ -43,11 +41,14 @@ export default function BlackMarketPage() {
   const { pushToast } = useInkUI();
   const [overview, setOverview] = useState<BlackMarketOverview>();
   const [session, setSession] = useState<BlackMarketSessionView>();
+  const [selectedNpcId, setSelectedNpcId] = useState<BlackMarketNpcId>();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const [timeLeft, setTimeLeft] = useState('');
+  const [retryableMessage, setRetryableMessage] = useState<string>();
+  const [openingStep, setOpeningStep] = useState<number>();
+  const [entryDialog, setEntryDialog] = useState<InkDialogState | null>(null);
   const interactionControllerRef = useRef<AbortController | undefined>(
     undefined,
   );
@@ -66,7 +67,6 @@ export default function BlackMarketPage() {
         const next = await loadOverview(controller.signal);
         if (!controller.signal.aborted) {
           setOverview(next);
-          setTimeLeft(formatCountdown(next.nextRefresh));
         }
       } catch (reason) {
         if (!controller.signal.aborted) {
@@ -82,10 +82,6 @@ export default function BlackMarketPage() {
   useEffect(() => {
     if (!overview) return;
     let cancelled = false;
-    const timer = window.setInterval(
-      () => setTimeLeft(formatCountdown(overview.nextRefresh)),
-      1000,
-    );
     const rolloverTimer = window.setTimeout(
       () => {
         void (async () => {
@@ -93,8 +89,8 @@ export default function BlackMarketPage() {
             const nextOverview = await loadOverview();
             if (cancelled) return;
             setSession(undefined);
+            setSelectedNpcId(undefined);
             setOverview(nextOverview);
-            setTimeLeft(formatCountdown(nextOverview.nextRefresh));
             setError(undefined);
             setNotice(undefined);
           } catch (reason) {
@@ -107,18 +103,17 @@ export default function BlackMarketPage() {
           }
         })();
       },
-      Math.max(250, overview.nextRefresh - Date.now() + 250),
+      Math.max(250, overview.resetsAt - Date.now() + 250),
     );
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
       window.clearTimeout(rolloverTimer);
     };
   }, [loadOverview, overview, pushToast]);
 
   const selectedNpc = useMemo(
-    () => overview?.npcs.find((npc) => npc.id === session?.npcId),
-    [overview, session?.npcId],
+    () => overview?.npcs.find((npc) => npc.id === selectedNpcId),
+    [overview, selectedNpcId],
   );
 
   const runInteraction = async (message?: string, offeredPrice?: number) => {
@@ -238,9 +233,9 @@ export default function BlackMarketPage() {
       }
       if (result.session.phase === 'abandoned') {
         setSession(undefined);
+        setSelectedNpcId(undefined);
         const nextOverview = await loadOverview();
         setOverview(nextOverview);
-        setTimeLeft(formatCountdown(nextOverview.nextRefresh));
       }
     } catch (reason) {
       if (!controller.signal.aborted) {
@@ -255,20 +250,73 @@ export default function BlackMarketPage() {
     }
   };
 
-  const handleSelect = async (npcId: BlackMarketNpcId) => {
+  const startOpening = async (npcId: BlackMarketNpcId) => {
     setBusy(true);
     setError(undefined);
     setNotice(undefined);
+    setRetryableMessage(undefined);
+    setOpeningStep(0);
+    const transitionTimer = window.setInterval(
+      () => setOpeningStep((current) => Math.min(2, (current ?? 0) + 1)),
+      2_400,
+    );
     try {
-      setSession(await openBlackMarketSession(nodeId, npcId));
+      const result = await mutate<BlackMarketOpenResult>(
+        openBlackMarketSession(nodeId, npcId),
+      );
+      if (result.status === 'ready') {
+        setSession(result.session);
+      } else {
+        setSession(undefined);
+        setRetryableMessage(result.message);
+      }
+      setOverview(await loadOverview());
     } catch (reason) {
-      pushToast({
-        message: reason instanceof Error ? reason.message : '摊主没有理会你',
-        tone: 'warning',
-      });
+      setError(reason instanceof Error ? reason.message : '摊主没有理会你');
     } finally {
+      window.clearInterval(transitionTimer);
+      setOpeningStep(undefined);
       setBusy(false);
     }
+  };
+
+  const handleSelect = (npcId: BlackMarketNpcId) => {
+    setSelectedNpcId(npcId);
+    setSession(undefined);
+    setError(undefined);
+    setNotice(undefined);
+    setRetryableMessage(undefined);
+  };
+
+  const handleEnter = () => {
+    if (!overview || !selectedNpc) return;
+    const needsPayment =
+      selectedNpc.status === 'available' &&
+      overview.entryPolicy.nextEntryCost === 5;
+    if (!needsPayment) {
+      void startOpening(selectedNpc.id);
+      return;
+    }
+    setEntryDialog({
+      id: `black-market-entry:${overview.dayKey}:${selectedNpc.id}`,
+      title: '确认走近摊位',
+      content: (
+        <div className="space-y-2 text-sm leading-7">
+          <p>
+            今日的免费机会已用，此次入场需消耗
+            <span className="text-teal mx-1">5点天地灵气</span>。
+          </p>
+          <p className="text-ink-secondary">
+            当前灵气：{currency.data?.qi ?? '读取中'}
+          </p>
+        </div>
+      ),
+      confirmLabel: '支付并入场',
+      cancelLabel: '再想想',
+      onConfirm: () => {
+        void startOpening(selectedNpc.id);
+      },
+    });
   };
 
   const handleCommit = async () => {
@@ -300,7 +348,6 @@ export default function BlackMarketPage() {
       try {
         const nextOverview = await loadOverview();
         setOverview(nextOverview);
-        setTimeLeft(formatCountdown(nextOverview.nextRefresh));
       } catch {
         pushToast({
           message: '交易已经完成，但摊位状态暂未刷新',
@@ -321,9 +368,9 @@ export default function BlackMarketPage() {
     try {
       await leaveBlackMarketSession(nodeId, session.id, session.version);
       setSession(undefined);
+      setSelectedNpcId(undefined);
       const nextOverview = await loadOverview();
       setOverview(nextOverview);
-      setTimeLeft(formatCountdown(nextOverview.nextRefresh));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '离开失败');
     } finally {
@@ -334,7 +381,10 @@ export default function BlackMarketPage() {
   const detail = session?.reveal ? (
     <BlackMarketRevealPanel
       reveal={session.reveal}
-      onBack={() => setSession(undefined)}
+      onBack={() => {
+        setSession(undefined);
+        setSelectedNpcId(undefined);
+      }}
     />
   ) : session && selectedNpc ? (
     <BlackMarketConversation
@@ -349,36 +399,56 @@ export default function BlackMarketPage() {
       onCommit={handleCommit}
       onLeave={() => void handleLeave()}
     />
+  ) : selectedNpc && overview ? (
+    <BlackMarketEntryPreview
+      npc={selectedNpc}
+      entryCost={
+        selectedNpc.status === 'available'
+          ? overview.entryPolicy.nextEntryCost
+          : 0
+      }
+      currentQi={currency.data?.qi}
+      busy={busy}
+      openingStep={openingStep}
+      error={error}
+      retryableMessage={retryableMessage}
+      onEnter={handleEnter}
+      onBack={() => {
+        setSelectedNpcId(undefined);
+        setError(undefined);
+        setRetryableMessage(undefined);
+      }}
+    />
   ) : undefined;
 
   return (
-    <GameSceneFrame
-      title="【暗巷黑市】"
-      description="灯火之外，来历不明的货只在低声交谈中显出几分真相。"
-      aside={
-        <>
-          <GameSceneAsideSection title="暗巷余时">
-            <div className="space-y-2 text-sm leading-7">
-              <p>本轮收摊：{timeLeft || '读取中'}</p>
-              <p>灵石余额：{currency.data?.spiritStones ?? '读取中'}</p>
-            </div>
+    <>
+      <GameSceneFrame
+        title="【暗巷黑市】"
+        description="灯火之外，来历不明的货只在低声交谈中显出几分真相。"
+        aside={
+          <GameSceneAsideSection title="随身资用">
+            <p className="text-sm leading-7">
+              灵石余额：{currency.data?.spiritStones ?? '读取中'}
+            </p>
           </GameSceneAsideSection>
-        </>
-      }
-    >
-      {loading ? (
-        <GameLoadingState message="正在寻找暗巷入口……" variant="inline" />
-      ) : overview ? (
-        <BlackMarketRoom
-          overview={overview}
-          selectedNpcId={session?.npcId}
-          busy={busy}
-          detail={detail}
-          onSelect={(npcId) => void handleSelect(npcId)}
-        />
-      ) : (
-        <InkNotice>{error || '黑市暂未开门。'}</InkNotice>
-      )}
-    </GameSceneFrame>
+        }
+      >
+        {loading ? (
+          <GameLoadingState message="正在寻找暗巷入口……" variant="inline" />
+        ) : overview ? (
+          <BlackMarketRoom
+            overview={overview}
+            selectedNpcId={selectedNpcId}
+            busy={busy}
+            detail={detail}
+            onSelect={handleSelect}
+          />
+        ) : (
+          <InkNotice>{error || '黑市暂未开门。'}</InkNotice>
+        )}
+      </GameSceneFrame>
+      <InkDialog dialog={entryDialog} onClose={() => setEntryDialog(null)} />
+    </>
   );
 }

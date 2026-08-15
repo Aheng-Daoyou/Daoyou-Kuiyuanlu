@@ -10,7 +10,7 @@ import type {
 async function readJson<T>(response: Response): Promise<T> {
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload?.error || '暗巷里的交谈突然中断');
+    throw new Error(payload?.message || payload?.error || '暗巷里的交谈突然中断');
   }
   return payload as T;
 }
@@ -30,14 +30,12 @@ export async function fetchBlackMarketOverview(
 export async function openBlackMarketSession(
   nodeId: string,
   npcId: BlackMarketNpcId,
-): Promise<BlackMarketSessionView> {
-  return readJson(
-    await fetch(`/api/black-market/${encodeURIComponent(nodeId)}/sessions`, {
+): Promise<Response> {
+  return fetch(`/api/black-market/${encodeURIComponent(nodeId)}/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ npcId }),
-    }),
-  );
+    });
 }
 
 export async function interactWithBlackMarket(
