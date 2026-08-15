@@ -35,12 +35,24 @@ export interface BlackMarketMessage {
   role: BlackMarketMessageRole;
   body: string;
   createdAt: number;
+  turn?: number;
+  gesture?: string;
 }
 
-export interface BlackMarketClue {
+export interface BlackMarketObservation {
   id: string;
-  kind: BlackMarketInspectionKind;
+  topic: BlackMarketInspectionKind;
+  source: 'surface' | 'inspection';
   text: string;
+  reliability: 'direct' | 'inferred';
+  revealedAtTurn?: number;
+}
+
+export interface BlackMarketSellerClaim {
+  id: string;
+  topic: string;
+  text: string;
+  turn?: number;
 }
 
 export interface BlackMarketNpcSummary {
@@ -91,6 +103,16 @@ export interface BlackMarketReveal {
   valueRatio: number;
   rating: BlackMarketRevealRating;
   epilogue: string;
+  ownerBeliefSummary?: string;
+  clueReview?: Array<{
+    observation: string;
+    ownerInterpretation: string;
+    truth: string;
+  }>;
+  claimReview?: Array<{
+    claim: string;
+    verdict: '误判' | '虚张声势' | '无法证实';
+  }>;
 }
 
 export interface BlackMarketSessionView {
@@ -103,9 +125,11 @@ export interface BlackMarketSessionView {
   initialPrice: number;
   currentPrice: number;
   canInspect: boolean;
+  inspectionRemaining: number;
   canHaggle: boolean;
   negotiationMood: BlackMarketNegotiationMood;
-  revealedClues: BlackMarketClue[];
+  observations: BlackMarketObservation[];
+  sellerClaims: BlackMarketSellerClaim[];
   messages: BlackMarketMessage[];
   version: number;
   expiresAt: number;
@@ -119,10 +143,7 @@ export interface BlackMarketInteractCommand {
 }
 
 export type BlackMarketTurnOutcome =
-  | 'accepted'
-  | 'countered'
-  | 'rejected'
-  | 'locked';
+  'accepted' | 'countered' | 'rejected' | 'locked';
 
 export interface BlackMarketInteractionResult {
   session: BlackMarketSessionView;
@@ -130,3 +151,27 @@ export interface BlackMarketInteractionResult {
   degraded?: boolean;
   notice?: string;
 }
+
+export type BlackMarketInteractStreamEvent =
+  | {
+      type: 'resolved';
+      result: BlackMarketInteractionResult;
+      messageId: string;
+      gesture: string;
+      fallbackBody: string;
+    }
+  | {
+      type: 'reply-chunk';
+      messageId: string;
+      text: string;
+    }
+  | {
+      type: 'reply-complete';
+      messageId: string;
+      body: string;
+    }
+  | {
+      type: 'reply-error';
+      messageId: string;
+      fallbackBody: string;
+    };

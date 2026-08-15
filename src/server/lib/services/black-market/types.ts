@@ -1,9 +1,6 @@
-import type {
-  BlackMarketDescriptionHint,
-} from '@shared/lib/blackMarketDescriptionHints';
+import type { BlackMarketObservationCandidate } from '@shared/lib/blackMarketObservations';
 import type { BlackMarketPricingState } from '@shared/lib/blackMarketPricing';
 import type {
-  BlackMarketClue,
   BlackMarketInspectionKind,
   BlackMarketMessage,
   BlackMarketNpcId,
@@ -12,17 +9,45 @@ import type {
 } from '@shared/types/blackMarket';
 import type { Material } from '@shared/types/cultivator';
 
-export interface BlackMarketValueHintBand {
-  lowMultiplier: number;
-  highMultiplier: number;
+export interface BlackMarketInternalObservation extends BlackMarketObservationCandidate {
+  source: 'surface' | 'inspection';
+  revealedAtTurn?: number;
 }
 
-export interface BlackMarketSafeClue extends BlackMarketClue {
-  fact: string;
-  fallbackText: string;
-  valueHintBand?: BlackMarketValueHintBand;
-  confidence: number;
-  reliability: 'solid' | 'speculative';
+export type BlackMarketClaimMode = 'belief' | 'bluff' | 'evasion';
+
+export interface BlackMarketNpcBeliefState {
+  suspectedTypes: string[];
+  suspectedQualityLabel: string;
+  confidence: 'low' | 'medium' | 'high';
+  perceivedValueBand: { low: number; high: number };
+  clueInterpretations: Array<{
+    observationId: string;
+    interpretation: string;
+  }>;
+  mistakenAssumptions: string[];
+  guardedTopics: string[];
+  beliefSummary: string;
+  deceptionStyle: 'bluffing' | 'withholding' | 'evasive';
+  bluffBudget: number;
+  bluffsUsed: number;
+}
+
+export interface BlackMarketConversationClaim {
+  id: string;
+  topic: string;
+  text: string;
+  mode: BlackMarketClaimMode;
+  turn: number;
+}
+
+export interface BlackMarketConversationMemory {
+  claims: BlackMarketConversationClaim[];
+  playerOffers: number[];
+  citedObservationIds: string[];
+  promises: string[];
+  activeBluffs: string[];
+  turnSummary: string;
 }
 
 export interface BlackMarketInternalSession {
@@ -42,10 +67,10 @@ export interface BlackMarketInternalSession {
   pricing: BlackMarketPricingState;
   inspectTurnsUsed: number;
   haggleTurnsUsed: number;
-  revealedClueIds: string[];
-  clues: BlackMarketSafeClue[];
-  descriptionHints: BlackMarketDescriptionHint[];
-  revealedDescriptionHintIds: string[];
+  revealedObservationIds: string[];
+  observations: BlackMarketInternalObservation[];
+  belief: BlackMarketNpcBeliefState;
+  memory: BlackMarketConversationMemory;
   messages: BlackMarketMessage[];
   version: number;
   expiresAt: number;
@@ -53,19 +78,35 @@ export interface BlackMarketInternalSession {
 }
 
 export interface BlackMarketTurnNegotiation {
-  decision: 'accept' | 'counter' | 'reject';
+  decision: 'accept' | 'counter' | 'reject' | 'end';
   concession: number;
-  patienceDelta: -2 | -1 | 0;
+  patienceDelta: -2 | -1;
 }
 
 export interface BlackMarketTurnProposal {
-  intent: 'chat' | 'inspect' | 'question' | 'haggle' | 'buy' | 'leave';
-  reply: string;
-  revealClueIds: string[];
-  revealDescriptionHintIds: string[];
-  referencedClueIds: string[];
+  intent:
+    'chat' | 'observe' | 'question' | 'challenge' | 'haggle' | 'buy' | 'leave';
+  referencedObservationIds: string[];
+  revealObservationId?: string;
+  reasoning: {
+    evidenceStrength: 'none' | 'weak' | 'credible';
+    conflictsWithBelief: boolean;
+    feelsManipulated: boolean;
+    dominantMotive: 'profit' | 'urgency' | 'pride' | 'caution';
+  };
+  beliefPressure: -2 | -1 | 0 | 1;
+  claimPlan?: {
+    topic: string;
+    mode: BlackMarketClaimMode;
+    summary: string;
+  };
   negotiation?: BlackMarketTurnNegotiation;
-  tone?: 'normal' | 'defensive' | 'impatient' | 'pleased' | 'cagey';
+  gesture: string;
+  memoryPatch: {
+    promises: string[];
+    activeBluffs: string[];
+    turnSummary: string;
+  };
 }
 
 export interface BlackMarketTurnContext {
@@ -89,21 +130,18 @@ export interface BlackMarketTurnContext {
   canInspect: boolean;
   canHaggle: boolean;
   dealReady: boolean;
-  knownClues: Array<{ id: string; kind: BlackMarketInspectionKind; text: string }>;
-  availableClues: Array<{
+  belief: BlackMarketNpcBeliefState;
+  memory: BlackMarketConversationMemory;
+  knownObservations: Array<{
     id: string;
-    kind: BlackMarketInspectionKind;
+    topic: BlackMarketInspectionKind;
+    text: string;
+    reliability: 'direct' | 'inferred';
+  }>;
+  availableObservations: Array<{
+    id: string;
+    topic: BlackMarketInspectionKind;
     safeFact: string;
-  }>;
-  availableDescriptionHints: Array<{
-    id: string;
-    safeText: string;
-    sensitivity: 'vague' | 'moderate' | 'strong';
-  }>;
-  revealedDescriptionHints: Array<{
-    id: string;
-    safeText: string;
-    sensitivity: 'vague' | 'moderate' | 'strong';
   }>;
   conversation: BlackMarketMessage[];
   playerMessage: string;
@@ -113,4 +151,15 @@ export interface BlackMarketTurnContext {
 export interface BlackMarketTurnResult {
   proposal: BlackMarketTurnProposal;
   degraded: boolean;
+}
+
+export interface BlackMarketPreparedTurn {
+  result: import('@shared/types/blackMarket').BlackMarketInteractionResult;
+  sessionId: string;
+  messageId: string;
+  gesture: string;
+  fallbackBody: string;
+  replyContext: BlackMarketTurnContext;
+  proposal: BlackMarketTurnProposal;
+  negotiationOutcome?: import('@shared/lib/blackMarketNegotiation').BlackMarketNegotiationOutcome;
 }

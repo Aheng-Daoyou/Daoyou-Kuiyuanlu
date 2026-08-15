@@ -17,13 +17,15 @@ export interface BlackMarketPricingState {
   cognitionMultiplier: number;
   initialPrice: number;
   currentPrice: number;
-  floorPrice: number;
+  floorMinPrice: number;
+  floorMaxPrice: number;
+  currentFloorPrice: number;
   patience: number;
   disposition: BlackMarketDisposition;
   flexibilityLevel: BlackMarketFlexibilityLevel;
 }
 
-const DISPOSITION_FLOOR_RANGE: Record<
+export const BLACK_MARKET_DISPOSITION_FLOOR_RANGE: Record<
   BlackMarketDisposition,
   { min: number; max: number }
 > = {
@@ -107,7 +109,7 @@ export function computeOwnerFloorPrice(
   disposition: BlackMarketDisposition,
   seed: string,
 ): number {
-  const range = DISPOSITION_FLOOR_RANGE[disposition];
+  const range = BLACK_MARKET_DISPOSITION_FLOOR_RANGE[disposition];
   const ratio =
     range.min +
     (range.max - range.min) *
@@ -159,22 +161,57 @@ export function createBlackMarketPricing(input: {
     input.trueValue,
     cognitionMultiplier,
   );
-  const floorPrice = computeOwnerFloorPrice(
+  const floorRange = BLACK_MARKET_DISPOSITION_FLOOR_RANGE[disposition];
+  const floorMinPrice = Math.max(1, Math.round(initialPrice * floorRange.min));
+  const floorMaxPrice = Math.max(
+    floorMinPrice,
+    Math.round(initialPrice * floorRange.max),
+  );
+  const currentFloorPrice = computeOwnerFloorPrice(
     initialPrice,
     disposition,
     input.seed,
   );
   const patience = initialPatience(disposition);
-  const floorRatio = floorPrice / Math.max(1, initialPrice);
+  const floorRatio = currentFloorPrice / Math.max(1, initialPrice);
 
   return {
     trueValue: input.trueValue,
     cognitionMultiplier,
     initialPrice,
     currentPrice: initialPrice,
-    floorPrice,
+    floorMinPrice,
+    floorMaxPrice,
+    currentFloorPrice,
     patience,
     disposition,
     flexibilityLevel: flexibilityLevel(floorRatio),
   };
+}
+
+export function applyBlackMarketBeliefPressure(input: {
+  initialPrice: number;
+  currentPrice: number;
+  floorMinPrice: number;
+  floorMaxPrice: number;
+  currentFloorPrice: number;
+  pressure: -2 | -1 | 0 | 1;
+  hasCredibleEvidence: boolean;
+}): number {
+  const initialPrice = Math.max(1, Math.round(input.initialPrice));
+  const currentPrice = Math.max(1, Math.round(input.currentPrice));
+  const floorMinPrice = clamp(Math.round(input.floorMinPrice), 1, currentPrice);
+  const floorMaxPrice = clamp(
+    Math.round(input.floorMaxPrice),
+    floorMinPrice,
+    currentPrice,
+  );
+  const pressure =
+    input.pressure < 0 && !input.hasCredibleEvidence ? 0 : input.pressure;
+  const delta = Math.round(initialPrice * 0.03 * pressure);
+  return clamp(
+    Math.round(input.currentFloorPrice) + delta,
+    floorMinPrice,
+    Math.min(floorMaxPrice, currentPrice),
+  );
 }

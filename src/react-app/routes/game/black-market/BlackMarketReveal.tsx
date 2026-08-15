@@ -41,6 +41,37 @@ export function BlackMarketRevealPanel({
         {reveal.material.description || '灵光褪去伪装，真容终于显露。'}
       </p>
 
+      {reveal.ownerBeliefSummary ? (
+        <div className="border-ink/15 mt-7 w-full max-w-2xl border-l-2 px-4 py-3 text-left text-sm leading-7">
+          <p className="text-ink-secondary text-xs tracking-[0.2em]">货主原判</p>
+          <p className="mt-1">{reveal.ownerBeliefSummary}</p>
+        </div>
+      ) : null}
+
+      {reveal.clueReview?.length ? (
+        <div className="mt-6 w-full max-w-2xl space-y-3 text-left">
+          <p className="text-ink-secondary text-xs tracking-[0.2em]">线索回看</p>
+          {reveal.clueReview.map((item, index) => (
+            <div key={`${item.observation}-${index}`} className="bg-ink/[0.025] px-4 py-3 text-sm leading-7">
+              <p>所见：{item.observation}</p>
+              <p className="text-ink-secondary">货主判断：{item.ownerInterpretation}</p>
+              <p className="text-gold">真相：{item.truth}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {reveal.claimReview?.length ? (
+        <div className="mt-6 w-full max-w-2xl text-left text-sm leading-7">
+          <p className="text-ink-secondary text-xs tracking-[0.2em]">摊前说法</p>
+          {reveal.claimReview.map((item, index) => (
+            <p key={`${item.claim}-${index}`} className="mt-2">
+              “{item.claim}” · <span className="text-crimson">{item.verdict}</span>
+            </p>
+          ))}
+        </div>
+      ) : null}
+
       <div className="border-ink/15 mt-8 grid w-full max-w-xl gap-3 border-y py-5 text-sm sm:grid-cols-2 sm:text-base">
         <p>
           货主开价：

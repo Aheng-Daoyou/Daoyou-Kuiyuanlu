@@ -1,106 +1,112 @@
 import { renderPrompt } from '@server/lib/prompts';
-import { generateAiObject, generateAiText } from '@server/utils/aiClient';
+import { generateAiObject, streamAiText } from '@server/utils/aiClient';
 import { truncateText } from '@server/utils/llmPayload';
 import type { BlackMarketNegotiationOutcome } from '@shared/lib/blackMarketNegotiation';
+import { BLACK_MARKET_APPROVED_PRICE_TOKEN } from '@shared/lib/blackMarketReply';
 import { z } from 'zod';
-import type {
-  BlackMarketTurnContext,
-  BlackMarketTurnProposal,
-} from './types';
+import type { BlackMarketTurnContext, BlackMarketTurnProposal } from './types';
 
 const turnProposalSchema = z.object({
   intent: z.enum([
     'chat',
-    'inspect',
+    'observe',
     'question',
+    'challenge',
     'haggle',
     'buy',
     'leave',
   ]),
-  reply: z.string().trim().min(1).max(220),
-  revealClueIds: z.array(z.string().min(1).max(64)).max(3),
-  revealDescriptionHintIds: z.array(z.string().min(1).max(64)).max(1),
-  referencedClueIds: z.array(z.string().min(1).max(64)).max(3),
-  negotiation: z
+  referencedObservationIds: z.array(z.string().min(1).max(64)).max(5),
+  revealObservationId: z.string().min(1).max(64).optional(),
+  reasoning: z.object({
+    evidenceStrength: z.enum(['none', 'weak', 'credible']),
+    conflictsWithBelief: z.boolean(),
+    feelsManipulated: z.boolean(),
+    dominantMotive: z.enum(['profit', 'urgency', 'pride', 'caution']),
+  }),
+  beliefPressure: z.union([
+    z.literal(-2),
+    z.literal(-1),
+    z.literal(0),
+    z.literal(1),
+  ]),
+  claimPlan: z
     .object({
-      decision: z.enum(['accept', 'counter', 'reject']),
-      concession: z.number().min(0).max(1),
-      patienceDelta: z.union([z.literal(-2), z.literal(-1), z.literal(0)]),
+      topic: z.string().trim().min(1).max(40),
+      mode: z.enum(['belief', 'bluff', 'evasion']),
+      summary: z.string().trim().min(1).max(120),
     })
     .optional(),
-  tone: z
-    .enum(['normal', 'defensive', 'impatient', 'pleased', 'cagey'])
+  negotiation: z
+    .object({
+      decision: z.enum(['accept', 'counter', 'reject', 'end']),
+      concession: z.number().min(0).max(1),
+      patienceDelta: z.union([z.literal(-2), z.literal(-1)]),
+    })
     .optional(),
+  gesture: z.string().trim().min(1).max(100),
+  memoryPatch: z.object({
+    promises: z.array(z.string().trim().min(1).max(80)).max(2),
+    activeBluffs: z.array(z.string().trim().min(1).max(80)).max(2),
+    turnSummary: z.string().trim().min(1).max(160),
+  }),
 });
 
 function degradedProposal(
   context: BlackMarketTurnContext,
 ): BlackMarketTurnProposal {
+  const hasOffer = context.offeredPrice != null;
   return {
-    intent: context.offeredPrice != null ? 'haggle' : 'chat',
-    reply:
-      context.offeredPrice != null
-        ? '摊主盯着你看了片刻，没有立刻接下这轮讨价还价。'
-        : '摊主没有听清你的话，只是不置可否地看了你一眼。',
-    revealClueIds: [],
-    revealDescriptionHintIds: [],
-    referencedClueIds: [],
-    negotiation:
-      context.offeredPrice != null
-        ? { decision: 'counter', concession: 0.25, patienceDelta: -1 }
-        : undefined,
+    intent: hasOffer ? 'haggle' : 'chat',
+    referencedObservationIds: [],
+    reasoning: {
+      evidenceStrength: 'none',
+      conflictsWithBelief: false,
+      feelsManipulated: false,
+      dominantMotive: context.npc.identity.includes('亡命')
+        ? 'urgency'
+        : 'profit',
+    },
+    beliefPressure: 0,
+    claimPlan: { topic: '态度', mode: 'evasion', summary: '暂不表露更多判断' },
+    negotiation: hasOffer
+      ? { decision: 'counter', concession: 0.25, patienceDelta: -1 }
+      : undefined,
+    gesture: hasOffer
+      ? '他用指节轻敲摊沿，重新掂量这份报价。'
+      : '他没有立刻接话，只把货物往阴影里挪了半寸。',
+    memoryPatch: {
+      promises: [],
+      activeBluffs: [],
+      turnSummary: '货主暂时保持原有判断。',
+    },
   };
 }
 
-function fallbackReply(
-  outcome: BlackMarketNegotiationOutcome['outcome'],
-  price: number,
-): string {
-  switch (outcome) {
-    case 'accepted':
-      return `行，就按你说的，${price}灵石。`;
-    case 'countered':
-      return `最多让到${price}灵石。`;
-    case 'locked':
-      return `价就定在${price}灵石，再谈便不卖了。`;
-    case 'rejected':
-      return `这个价不成，仍是${price}灵石。`;
+export function fallbackTurnReply(input: {
+  context: BlackMarketTurnContext;
+  proposal: BlackMarketTurnProposal;
+  negotiationOutcome?: BlackMarketNegotiationOutcome;
+}): string {
+  if (!input.negotiationOutcome) {
+    if (input.proposal.intent === 'buy')
+      return `既然你认这个价，便按${input.context.currentPrice}灵石成交。`;
+    if (input.proposal.intent === 'leave')
+      return '买卖不成也无妨，暗巷里没人拦你的路。';
+    return (
+      input.proposal.claimPlan?.summary ||
+      '你看你的，我卖我的；没有把握的话，便再想清楚。'
+    );
   }
+  const { outcome, nextPrice } = input.negotiationOutcome;
+  if (outcome === 'accepted') return `行，就按你说的，${nextPrice}灵石。`;
+  if (outcome === 'countered')
+    return `你说得有几分道理，但最多让到${nextPrice}灵石。`;
+  if (outcome === 'locked') return `价就定在${nextPrice}灵石，再谈便不卖了。`;
+  return `这个价不成，仍是${nextPrice}灵石。`;
 }
 
 function turnPayload(context: BlackMarketTurnContext): string {
-  const knownClues = context.knownClues.map((clue) => ({
-    id: clue.id,
-    kind: clue.kind,
-    text: truncateText(clue.text, 120),
-  }));
-  const availableClues = context.availableClues.map((clue) => ({
-    id: clue.id,
-    kind: clue.kind,
-    safeFact: truncateText(clue.safeFact, 120),
-  }));
-  const availableDescriptionHints = context.availableDescriptionHints.map(
-    (hint) => ({
-      id: hint.id,
-      safeText: truncateText(hint.safeText, 120),
-      sensitivity: hint.sensitivity,
-    }),
-  );
-  const revealedDescriptionHints = context.revealedDescriptionHints.map(
-    (hint) => ({
-      id: hint.id,
-      safeText: truncateText(hint.safeText, 120),
-      sensitivity: hint.sensitivity,
-    }),
-  );
-  const conversation = context.conversation.slice(-6).map((message) => ({
-    role: message.role,
-    body: truncateText(message.body, 120),
-  }));
-
-  // Insertion order is intentional: stable fields first, turn-specific fields
-  // last. JSON.stringify preserves this order, unlike stableCompactStringify
-  // which sorts keys and breaks DeepSeek prefix caching.
   return JSON.stringify({
     scene: context.scene,
     listing: context.listing,
@@ -110,61 +116,90 @@ function turnPayload(context: BlackMarketTurnContext): string {
       flexibilityLevel: context.npc.flexibilityLevel,
       mood: context.npc.mood,
     },
+    belief: context.belief,
+    memory: {
+      ...context.memory,
+      claims: context.memory.claims.slice(-8),
+    },
     currentPrice: context.currentPrice,
-    knownClues,
-    availableClues,
-    availableDescriptionHints,
-    revealedDescriptionHints,
+    knownObservations: context.knownObservations,
+    availableObservations: context.availableObservations,
     dealReady: context.dealReady,
     canInspect: context.canInspect,
     canHaggle: context.canHaggle,
     offerAssessment: context.offerAssessment ?? null,
     offeredPrice: context.offeredPrice ?? null,
     playerMessage: truncateText(context.playerMessage, 240),
-    conversation,
+    conversation: context.conversation.slice(-6).map((message) => ({
+      role: message.role,
+      body: truncateText(message.body, 140),
+    })),
   });
 }
 
-function replyPayload(
-  context: BlackMarketTurnContext,
-  proposal: BlackMarketTurnProposal,
-  negotiationOutcome: BlackMarketNegotiationOutcome,
-): string {
-  const lastPlayerMessage =
-    [...context.conversation]
-      .reverse()
-      .find((message) => message.role === 'player')?.body ??
-    context.playerMessage;
-
+function replyPayload(input: {
+  context: BlackMarketTurnContext;
+  proposal: BlackMarketTurnProposal;
+  negotiationOutcome?: BlackMarketNegotiationOutcome;
+}): string {
+  const approvedPrice = input.negotiationOutcome
+    ? input.negotiationOutcome.nextPrice
+    : input.proposal.intent === 'buy'
+      ? input.context.currentPrice
+      : undefined;
+  const narrativeBelief = {
+    ...input.context.belief,
+    perceivedValueBand: undefined,
+  };
+  const narrativeMemory = {
+    ...input.context.memory,
+    playerOffers: undefined,
+  };
   return JSON.stringify({
     npc: {
-      name: context.npc.name,
-      voice: context.npc.voice,
-      mood: context.npc.mood,
+      name: input.context.npc.name,
+      voice: input.context.npc.voice,
+      identity: input.context.npc.identity,
+      mood: input.context.npc.mood,
     },
-    lastPlayerMessage: truncateText(lastPlayerMessage, 240),
-    proposalTone: proposal.tone ?? null,
-    negotiationResult: {
-      outcome: negotiationOutcome.outcome,
-      previousPrice: negotiationOutcome.previousPrice,
-      nextPrice: negotiationOutcome.nextPrice,
-      nextPatience: negotiationOutcome.nextPatience,
-    },
+    belief: narrativeBelief,
+    memory: narrativeMemory,
+    playerMessage: truncateText(input.context.playerMessage, 240),
+    gesture: input.proposal.gesture,
+    intent: input.proposal.intent,
+    reasoning: input.proposal.reasoning,
+    claimPlan: input.proposal.claimPlan ?? null,
+    negotiationResult: input.negotiationOutcome
+      ? { outcome: input.negotiationOutcome.outcome }
+      : null,
+    approvedPriceToken:
+      approvedPrice == null ? null : BLACK_MARKET_APPROVED_PRICE_TOKEN,
   });
+}
+
+export function approvedBlackMarketReplyPrice(input: {
+  context: BlackMarketTurnContext;
+  proposal: BlackMarketTurnProposal;
+  negotiationOutcome?: BlackMarketNegotiationOutcome;
+}): number | undefined {
+  if (input.negotiationOutcome) return input.negotiationOutcome.nextPrice;
+  return input.proposal.intent === 'buy'
+    ? input.context.currentPrice
+    : undefined;
 }
 
 export class BlackMarketConversationService {
   async proposeTurn(input: {
     context: BlackMarketTurnContext;
     abortSignal?: AbortSignal;
-  }): Promise<{
-    proposal: BlackMarketTurnProposal;
-    degraded: boolean;
-  }> {
+  }) {
     const { system, user } = renderPrompt('black-market-turn', {
       payloadJson: turnPayload(input.context),
     });
-
+    const timeoutSignal = AbortSignal.timeout(10_000);
+    const abortSignal = input.abortSignal
+      ? AbortSignal.any([input.abortSignal, timeoutSignal])
+      : timeoutSignal;
     try {
       const response = await generateAiObject({
         system,
@@ -172,59 +207,37 @@ export class BlackMarketConversationService {
         schema: turnProposalSchema,
         name: 'BlackMarketTurnProposal',
         sceneId: 'black-market-turn',
-        abortSignal: input.abortSignal,
-        maxOutputTokens: 600,
+        abortSignal,
+        maxOutputTokens: 800,
       });
       return { proposal: response.output, degraded: false };
     } catch (error) {
       if (input.abortSignal?.aborted) throw error;
-      console.warn('[black-market] turn proposal LLM fallback', {
-        error,
-      });
-      return {
-        proposal: degradedProposal(input.context),
-        degraded: true,
-      };
+      console.warn('[black-market] turn proposal LLM fallback', { error });
+      return { proposal: degradedProposal(input.context), degraded: true };
     }
   }
 
-  async renderTurnReply(input: {
+  streamTurnReply(input: {
     context: BlackMarketTurnContext;
     proposal: BlackMarketTurnProposal;
-    negotiationOutcome: BlackMarketNegotiationOutcome;
+    negotiationOutcome?: BlackMarketNegotiationOutcome;
     abortSignal?: AbortSignal;
-  }): Promise<string> {
+  }) {
     const { system, user } = renderPrompt('black-market-reply', {
-      payloadJson: replyPayload(
-        input.context,
-        input.proposal,
-        input.negotiationOutcome,
-      ),
+      payloadJson: replyPayload(input),
     });
-
-    try {
-      const response = await generateAiText({
-        system,
-        prompt: user,
-        sceneId: 'black-market-reply',
-        abortSignal: input.abortSignal,
-        maxOutputTokens: 220,
-      });
-      const reply = response.text?.trim();
-      if (!reply) {
-        throw new Error('empty black market turn reply');
-      }
-      return truncateText(reply, 220);
-    } catch (error) {
-      if (input.abortSignal?.aborted) throw error;
-      console.warn('[black-market] turn reply LLM fallback', {
-        error,
-      });
-      return fallbackReply(
-        input.negotiationOutcome.outcome,
-        input.negotiationOutcome.nextPrice,
-      );
-    }
+    const timeoutSignal = AbortSignal.timeout(15_000);
+    const abortSignal = input.abortSignal
+      ? AbortSignal.any([input.abortSignal, timeoutSignal])
+      : timeoutSignal;
+    return streamAiText({
+      system,
+      prompt: user,
+      sceneId: 'black-market-reply',
+      abortSignal,
+      maxOutputTokens: 220,
+    });
   }
 }
 

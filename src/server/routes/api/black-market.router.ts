@@ -5,14 +5,21 @@ import {
 import { jsonWithStatus } from '@server/lib/hono/response';
 import type { AppEnv } from '@server/lib/hono/types';
 import {
+  approvedBlackMarketReplyPrice,
+  blackMarketConversationService,
+} from '@server/lib/services/black-market/BlackMarketConversationService';
+import {
   BlackMarketServiceError,
   commitBlackMarketPurchase,
+  completeBlackMarketReply,
   getBlackMarketOverview,
-  interactWithBlackMarket,
   leaveBlackMarketSession,
   openBlackMarketSession,
+  prepareBlackMarketInteraction,
 } from '@server/lib/services/black-market/BlackMarketService';
 import { toPlayerStateMutationResponse } from '@server/lib/services/ResourceMutationResponse';
+import { finalizeBlackMarketReply } from '@shared/lib/blackMarketReply';
+import type { BlackMarketInteractStreamEvent } from '@shared/types/blackMarket';
 import { BLACK_MARKET_NPC_IDS } from '@shared/types/blackMarket';
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
@@ -64,6 +71,13 @@ function errorResponse(c: Context<AppEnv>, error: unknown) {
   return c.json({ error: '黑市暂时闭门，请稍后再来' }, 500);
 }
 
+function encodeStreamEvent(
+  encoder: TextEncoder,
+  event: BlackMarketInteractStreamEvent,
+): Uint8Array {
+  return encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
+}
+
 router.get('/:nodeId', async (c) => {
   try {
     return c.json(
@@ -95,15 +109,111 @@ router.post('/:nodeId/sessions', async (c) => {
 router.post('/:nodeId/sessions/:sessionId/interact', async (c) => {
   try {
     const command = InteractSchema.parse(await c.req.json());
-    return c.json(
-      await interactWithBlackMarket({
-        actor: actor(c),
-        nodeId: c.req.param('nodeId'),
-        sessionId: c.req.param('sessionId'),
-        command,
-        abortSignal: c.req.raw.signal,
-      }),
-    );
+    const prepared = await prepareBlackMarketInteraction({
+      actor: actor(c),
+      nodeId: c.req.param('nodeId'),
+      sessionId: c.req.param('sessionId'),
+      command,
+      abortSignal: c.req.raw.signal,
+    });
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        let streamClosed = false;
+        const enqueue = (event: BlackMarketInteractStreamEvent) => {
+          if (streamClosed) return false;
+          try {
+            controller.enqueue(encodeStreamEvent(encoder, event));
+            return true;
+          } catch {
+            streamClosed = true;
+            return false;
+          }
+        };
+        const close = () => {
+          if (streamClosed) return;
+          try {
+            controller.close();
+          } catch {
+            // The client may have disconnected while Stage B was still running.
+          } finally {
+            streamClosed = true;
+          }
+        };
+        if (
+          !enqueue({
+            type: 'resolved',
+            result: prepared.result,
+            messageId: prepared.messageId,
+            gesture: prepared.gesture,
+            fallbackBody: prepared.fallbackBody,
+          })
+        ) {
+          close();
+          return;
+        }
+        let draft = '';
+        try {
+          const reply = blackMarketConversationService.streamTurnReply({
+            context: prepared.replyContext,
+            proposal: prepared.proposal,
+            negotiationOutcome: prepared.negotiationOutcome,
+            abortSignal: c.req.raw.signal,
+          });
+          for await (const chunk of reply.textStream) {
+            draft += chunk;
+            if (draft.length > 360)
+              throw new Error('black market reply too long');
+          }
+          const body = finalizeBlackMarketReply({
+            draft,
+            approvedPrice: approvedBlackMarketReplyPrice({
+              context: prepared.replyContext,
+              proposal: prepared.proposal,
+              negotiationOutcome: prepared.negotiationOutcome,
+            }),
+          });
+          if (!body) throw new Error('invalid black market reply');
+          for (let offset = 0; offset < body.length; offset += 12) {
+            if (
+              !enqueue({
+                type: 'reply-chunk',
+                messageId: prepared.messageId,
+                text: body.slice(offset, offset + 12),
+              })
+            ) {
+              throw new Error('black market reply stream disconnected');
+            }
+          }
+          await completeBlackMarketReply({
+            sessionId: prepared.sessionId,
+            messageId: prepared.messageId,
+            body,
+          });
+          enqueue({
+            type: 'reply-complete',
+            messageId: prepared.messageId,
+            body,
+          });
+        } catch (error) {
+          console.warn('[black-market] reply stream fallback', { error });
+          enqueue({
+            type: 'reply-error',
+            messageId: prepared.messageId,
+            fallbackBody: prepared.fallbackBody,
+          });
+        } finally {
+          close();
+        }
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
   } catch (error) {
     return errorResponse(c, error);
   }

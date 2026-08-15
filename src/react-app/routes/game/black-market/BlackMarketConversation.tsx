@@ -1,6 +1,7 @@
 import { NpcConversation } from '@app/components/feature/room';
 import {
   InkButton,
+  InkDetailDrawer,
   InkDialog,
   type InkDialogState,
   InkNotice,
@@ -24,6 +25,14 @@ const quickMessages = [
   '问问这货的来历',
   '问问他为何急着出手',
 ];
+
+const observationTopicLabel = {
+  appearance: '外观',
+  aura: '气息',
+  damage: '痕迹',
+  origin: '来历',
+  sale_reason: '出手缘由',
+} as const;
 
 const moodCopy: Record<BlackMarketNegotiationMood, string> = {
   calm: '神色从容',
@@ -54,27 +63,14 @@ export function BlackMarketConversation({
 }) {
   const [message, setMessage] = useState('');
   const [offeredPrice, setOfferedPrice] = useState('');
+  const [showOffer, setShowOffer] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<InkDialogState | null>(
     null,
   );
-  const inspectExhausted = !session.canInspect;
   const dealReady = session.phase === 'deal_ready';
   const actionDisabled = busy || dealReady;
-
-  const messages = session.messages.map((message) => ({
-    id: message.id,
-    speaker: message.role === 'npc' ? npc.name : undefined,
-    body:
-      message.role === 'player'
-        ? `你：${normalizeBlackMarketPlayerBody(message.body)}`
-        : message.body,
-    tone:
-      message.role === 'player'
-        ? ('muted' as const)
-        : message.role === 'system'
-          ? ('attention' as const)
-          : ('normal' as const),
-  }));
+  const composerFormId = `black-market-composer-${session.id}`;
 
   const confirmPurchase = () => {
     setConfirmDialog({
@@ -105,13 +101,179 @@ export function BlackMarketConversation({
     const text = message.trim();
     const price = Number(offeredPrice);
     if (!text && (!offeredPrice || !Number.isSafeInteger(price))) return;
-    onSubmit(
-      text || undefined,
-      offeredPrice ? price : undefined,
-    );
+    onSubmit(text || undefined, offeredPrice ? price : undefined);
     setMessage('');
     setOfferedPrice('');
+    setShowOffer(false);
+    setComposerOpen(false);
   };
+
+  const fillMessage = (text: string) => {
+    setMessage((current) =>
+      current.trim() ? `${current.trim()} ${text}` : text,
+    );
+  };
+
+  const openComposer = (withOffer = false) => {
+    if (withOffer) setShowOffer(true);
+    setComposerOpen(true);
+  };
+
+  const fillAndOpenComposer = (text: string) => {
+    fillMessage(text);
+    setComposerOpen(true);
+  };
+
+  const inspectionObservationsByTurn = new Map(
+    session.observations
+      .filter(
+        (observation) =>
+          observation.source === 'inspection' &&
+          observation.revealedAtTurn != null,
+      )
+      .map((observation) => [observation.revealedAtTurn!, observation]),
+  );
+  const claimsByTurn = new Map(
+    session.sellerClaims
+      .filter((claim) => claim.turn != null)
+      .map((claim) => [claim.turn!, claim]),
+  );
+  const messages = session.messages.map((entry) => {
+    const observation =
+      entry.role === 'npc' && entry.turn != null
+        ? inspectionObservationsByTurn.get(entry.turn)
+        : undefined;
+    const claim =
+      entry.role === 'npc' && entry.turn != null
+        ? claimsByTurn.get(entry.turn)
+        : undefined;
+    const after =
+      observation || claim ? (
+        <div className="border-crimson/25 space-y-2 border-l pl-3 text-sm leading-7">
+          {observation ? (
+            <button
+              type="button"
+              disabled={actionDisabled}
+              onClick={() =>
+                fillAndOpenComposer(`关于“${observation.text}”，我想再问清楚。`)
+              }
+              className="text-ink-secondary hover:text-crimson focus-visible:outline-crimson block w-full text-left transition-colors focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span className="text-crimson">
+                你看出·{observationTopicLabel[observation.topic]}
+              </span>
+              ：{observation.text}
+            </button>
+          ) : null}
+          {claim ? (
+            <button
+              type="button"
+              disabled={actionDisabled}
+              onClick={() =>
+                fillAndOpenComposer(`你方才说“${claim.text}”，有什么依据？`)
+              }
+              className="text-ink-secondary hover:text-gold focus-visible:outline-gold block w-full text-left transition-colors focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span className="text-gold">你记下</span>：{claim.text}
+            </button>
+          ) : null}
+        </div>
+      ) : undefined;
+    return {
+      id: entry.id,
+      speaker: entry.role === 'npc' ? npc.name : undefined,
+      body:
+        entry.role === 'player'
+          ? `你：${normalizeBlackMarketPlayerBody(entry.body)}`
+          : entry.body,
+      tone:
+        entry.role === 'player'
+          ? ('muted' as const)
+          : entry.role === 'system'
+            ? ('attention' as const)
+            : ('normal' as const),
+      gesture: entry.gesture,
+      after,
+      align: entry.role === 'player' ? ('end' as const) : ('start' as const),
+    };
+  });
+
+  const lotContext = (
+    <div className="border-ink/15 space-y-3 border-b border-dashed pb-4">
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-ink text-lg">{session.listing.disguisedName}</p>
+          <p className="text-ink-secondary mt-1 text-sm leading-7">
+            {session.listing.description}
+          </p>
+        </div>
+        <strong className="text-gold text-sm">
+          当前报价：{session.currentPrice.toLocaleString()} 灵石
+        </strong>
+      </div>
+      <p className="text-ink-secondary text-xs">
+        还可细查 {session.inspectionRemaining} 处 · 摊主
+        {moodCopy[session.negotiationMood]}
+      </p>
+    </div>
+  );
+
+  const openingObservations = (
+    <div className="border-ink/15 space-y-2 border-b border-dashed pb-4 text-sm leading-7">
+      <p className="text-ink-secondary text-xs tracking-[0.12em]">
+        你在开口前先看见
+      </p>
+      {session.observations
+        .filter((observation) => observation.source === 'surface')
+        .map((observation) => (
+          <button
+            key={observation.id}
+            type="button"
+            disabled={actionDisabled}
+            onClick={() =>
+              fillAndOpenComposer(`关于“${observation.text}”，我想再问清楚。`)
+            }
+            className="text-ink-secondary hover:text-crimson focus-visible:outline-crimson block w-full text-left text-sm leading-7 transition-colors focus-visible:outline-2"
+          >
+            <span className="text-crimson/80">
+              {observationTopicLabel[observation.topic]}
+            </span>
+            ：{observation.text}
+          </button>
+        ))}
+    </div>
+  );
+
+  const composer = (
+    <div className="border-ink/15 space-y-2 border-t border-dashed pt-3">
+      {notice ? <InkNotice>{notice}</InkNotice> : null}
+      {dealReady ? (
+        <InkNotice>摊主已经点头认下这个价。此刻只等你落定交易。</InkNotice>
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <InkButton
+            type="button"
+            variant="primary"
+            disabled={actionDisabled}
+            onClick={() => openComposer()}
+          >
+            开口交谈
+          </InkButton>
+          <InkButton
+            type="button"
+            variant="secondary"
+            disabled={actionDisabled || !session.canHaggle}
+            onClick={() => openComposer(true)}
+          >
+            附价试探
+          </InkButton>
+          <span className="text-ink-secondary text-xs">
+            可自由询问、查验或议价
+          </span>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -120,103 +282,130 @@ export function BlackMarketConversation({
         messages={messages}
         busy={busy}
         error={error}
+        context={lotContext}
+        transcriptIntro={openingObservations}
+        containedTranscript
+        composer={composer}
       >
-        <div className="space-y-5">
-          <div className="border-ink/15 flex flex-wrap items-center justify-between gap-3 border-y py-3 text-sm">
-            <span>{session.listing.disguisedName}</span>
-            <strong className="text-gold">
-              当前报价：{session.currentPrice.toLocaleString()} 灵石
-            </strong>
-            <span className="text-ink-secondary">
-              摊主：{moodCopy[session.negotiationMood]}
-            </span>
-          </div>
-
-          <p className="text-ink-secondary text-sm leading-7">
-            {session.listing.description}
-          </p>
-          {notice ? <InkNotice>{notice}</InkNotice> : null}
-
-          {dealReady ? (
-            <InkNotice>
-              摊主已经点头认下这个价。此刻再压价只会坏了规矩。
-            </InkNotice>
-          ) : (
-            <>
-              <div className="flex flex-wrap gap-2">
-                {quickMessages.map((quick) => (
-                  <InkButton
-                    key={quick}
-                    onClick={() => onSubmit(quick)}
-                    disabled={actionDisabled || inspectExhausted}
-                    variant="secondary"
-                  >
-                    {quick}
-                  </InkButton>
-                ))}
-              </div>
-
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  submitTurn();
-                }}
-                className="border-ink/20 bg-paper/40 focus-within:border-crimson/45 border"
-              >
-                <textarea
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  maxLength={240}
-                  disabled={busy}
-                  rows={2}
-                  className="w-full resize-none bg-transparent px-3 py-3 outline-none"
-                  placeholder="跟他说点什么……"
-                  aria-label="跟摊主说点什么"
-                />
-                <div className="border-ink/15 flex flex-wrap items-center gap-2 border-t px-3 py-2">
-                  <span className="text-ink-secondary text-sm">我的出价</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={2_000_000_000}
-                    value={offeredPrice}
-                    onChange={(event) => setOfferedPrice(event.target.value)}
-                    disabled={busy || !session.canHaggle}
-                    className="text-ink min-w-28 flex-1 bg-transparent px-2 py-1 text-right outline-none"
-                    placeholder="可选"
-                    aria-label="我的灵石出价"
-                  />
-                  <span className="text-ink-secondary text-sm">灵石</span>
-                  <InkButton
-                    type="submit"
-                    disabled={actionDisabled || (!message.trim() && !offeredPrice)}
-                    variant="primary"
-                  >
-                    开口
-                  </InkButton>
-                </div>
-              </form>
-            </>
-          )}
-
-          <div className="flex flex-wrap justify-between gap-2 pt-2">
-            <InkButton onClick={onLeave} disabled={busy} variant="secondary">
-              先离开摊位
-            </InkButton>
-            <InkButton
-              onClick={confirmPurchase}
-              disabled={busy}
-              variant="primary"
-            >
-              {dealReady ? '一手交钱，一手交货' : '按当前价格拿下'}
-            </InkButton>
-          </div>
+        <div className="flex flex-wrap justify-between gap-2 pt-1">
+          <InkButton onClick={onLeave} disabled={busy} variant="secondary">
+            先离开摊位
+          </InkButton>
+          <InkButton
+            onClick={confirmPurchase}
+            disabled={busy}
+            variant="primary"
+          >
+            {dealReady ? '一手交钱，一手交货' : '按当前价格拿下'}
+          </InkButton>
         </div>
       </NpcConversation>
       <InkDialog
         dialog={confirmDialog}
         onClose={() => setConfirmDialog(null)}
       />
+      <InkDetailDrawer
+        isOpen={composerOpen && !dealReady}
+        onClose={() => setComposerOpen(false)}
+        title={`与${npc.name}交谈`}
+        description={`当前要价 ${session.currentPrice.toLocaleString()} 灵石。快捷语只会填入说辞，不会直接发送。`}
+        size="md"
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-ink-secondary text-xs">
+              {message.length}/240
+            </span>
+            <button
+              type="submit"
+              form={composerFormId}
+              disabled={actionDisabled || (!message.trim() && !offeredPrice)}
+              className="text-crimson focus-visible:outline-crimson hover:text-crimson/80 cursor-pointer px-1.5 py-1 font-sans text-[0.95rem] leading-[1.6] font-semibold tracking-[0.08em] whitespace-nowrap transition-colors focus-visible:outline-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              [开口]
+            </button>
+          </div>
+        }
+      >
+        <form
+          id={composerFormId}
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitTurn();
+          }}
+          className="space-y-5"
+        >
+          <div>
+            <p className="text-ink-secondary mb-2 text-xs tracking-[0.12em]">
+              快捷问法
+            </p>
+            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm leading-7">
+              {quickMessages.map((quick) => (
+                <button
+                  key={quick}
+                  type="button"
+                  onClick={() => fillMessage(quick)}
+                  className="text-ink-secondary hover:text-crimson focus-visible:outline-crimson cursor-pointer text-left transition-colors focus-visible:outline-2"
+                >
+                  ［{quick}］
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-ink/20 bg-paper/40 focus-within:border-crimson/45 border">
+            <textarea
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              maxLength={240}
+              disabled={busy}
+              rows={5}
+              autoFocus
+              className="w-full resize-none bg-transparent px-3 py-3 leading-7 outline-none"
+              placeholder="说出你的观察、疑问或试探……"
+              aria-label="跟摊主说点什么"
+            />
+          </div>
+
+          {showOffer ? (
+            <div className="border-ink/15 flex items-center gap-2 border-b border-dashed pb-2">
+              <span className="text-ink-secondary shrink-0 text-sm">
+                我的出价
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={2_000_000_000}
+                value={offeredPrice}
+                onChange={(event) => setOfferedPrice(event.target.value)}
+                disabled={busy || !session.canHaggle}
+                className="text-ink min-w-20 flex-1 bg-transparent px-2 py-1 text-right outline-none"
+                placeholder="输入报价"
+                aria-label="我的灵石出价"
+              />
+              <span className="text-ink-secondary shrink-0 text-sm">灵石</span>
+              <InkButton
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setShowOffer(false);
+                  setOfferedPrice('');
+                }}
+              >
+                移除
+              </InkButton>
+            </div>
+          ) : (
+            <InkButton
+              type="button"
+              variant="secondary"
+              disabled={busy || !session.canHaggle}
+              onClick={() => setShowOffer(true)}
+            >
+              附上报价
+            </InkButton>
+          )}
+        </form>
+      </InkDetailDrawer>
     </>
   );
 }

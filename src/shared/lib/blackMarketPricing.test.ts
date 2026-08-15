@@ -1,6 +1,7 @@
 import {
   computeBlackMarketTrueValue,
   computeOwnerAskPrice,
+  applyBlackMarketBeliefPressure,
   createBlackMarketPricing,
   flexibilityLevel,
   initialPatience,
@@ -30,8 +31,12 @@ describe('black market pricing', () => {
       });
       expect(pricing.initialPrice).toBeGreaterThanOrEqual(1);
       expect(pricing.currentPrice).toBe(pricing.initialPrice);
-      expect(pricing.floorPrice).toBeGreaterThanOrEqual(1);
-      expect(pricing.floorPrice).toBeLessThanOrEqual(pricing.initialPrice);
+      expect(pricing.currentFloorPrice).toBeGreaterThanOrEqual(
+        pricing.floorMinPrice,
+      );
+      expect(pricing.currentFloorPrice).toBeLessThanOrEqual(
+        pricing.floorMaxPrice,
+      );
     }
   });
 
@@ -46,5 +51,37 @@ describe('black market pricing', () => {
 
   it('computes the owner ask price directly', () => {
     expect(computeOwnerAskPrice(10_000, 1.5)).toBe(15_000);
+  });
+
+  it('applies bounded belief pressure and requires evidence to lower the floor', () => {
+    const input = {
+      initialPrice: 10_000,
+      currentPrice: 9_000,
+      floorMinPrice: 6_000,
+      floorMaxPrice: 9_500,
+      currentFloorPrice: 7_500,
+    };
+    expect(
+      applyBlackMarketBeliefPressure({
+        ...input,
+        pressure: -2,
+        hasCredibleEvidence: false,
+      }),
+    ).toBe(7_500);
+    expect(
+      applyBlackMarketBeliefPressure({
+        ...input,
+        pressure: -2,
+        hasCredibleEvidence: true,
+      }),
+    ).toBe(6_900);
+    expect(
+      applyBlackMarketBeliefPressure({
+        ...input,
+        currentFloorPrice: 8_900,
+        pressure: 1,
+        hasCredibleEvidence: false,
+      }),
+    ).toBe(9_000);
   });
 });

@@ -4,7 +4,8 @@ export type BlackMarketOfferAssessment =
 export type BlackMarketNegotiationDecision =
   | 'accept'
   | 'counter'
-  | 'reject';
+  | 'reject'
+  | 'end';
 
 export interface BlackMarketNegotiationInput {
   currentPrice: number;
@@ -13,7 +14,7 @@ export interface BlackMarketNegotiationInput {
   patience: number;
   decision: BlackMarketNegotiationDecision;
   concession: number;
-  patienceDelta: -2 | -1 | 0;
+  patienceDelta: -2 | -1;
 }
 
 export interface BlackMarketNegotiationOutcome {
@@ -100,10 +101,18 @@ export function applyBlackMarketPriceDecision(
     currentPrice,
   );
   const concession = clamp(input.concession, 0, 1);
-  const patienceDelta = clamp(input.patienceDelta, -2, 0) as
+  const patienceDelta = clamp(input.patienceDelta, -2, -1) as
     | -2
-    | -1
-    | 0;
+    | -1;
+
+  if (input.decision === 'end') {
+    return {
+      outcome: 'locked',
+      previousPrice: currentPrice,
+      nextPrice: currentPrice,
+      nextPatience: 0,
+    };
+  }
 
   if (input.decision === 'accept') {
     if (offeredPrice >= floorPrice) {

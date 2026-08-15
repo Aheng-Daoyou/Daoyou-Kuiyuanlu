@@ -8,12 +8,11 @@ import { InkNotice } from '@app/components/ui';
 import { useResourceMutation } from '@app/lib/resources/mutations';
 import { useCultivatorCurrency } from '@app/lib/resources/player';
 import type {
-  BlackMarketNegotiationMood,
   BlackMarketNpcId,
   BlackMarketOverview,
   BlackMarketSessionView,
 } from '@shared/types/blackMarket';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { BlackMarketConversation } from './BlackMarketConversation';
 import { BlackMarketRevealPanel } from './BlackMarketReveal';
@@ -27,14 +26,6 @@ import {
 } from './blackMarketApi';
 
 const DEFAULT_NODE_ID = 'TN_YUE_01';
-
-const NEGOTIATION_MOOD_LABEL: Record<BlackMarketNegotiationMood, string> = {
-  calm: '神色从容',
-  guarded: '开始掂量',
-  impatient: '已有不耐',
-  agreed: '已经认价',
-  closed: '咬死价格',
-};
 
 function formatCountdown(target: number): string {
   const seconds = Math.max(0, Math.floor((target - Date.now()) / 1000));
@@ -57,6 +48,11 @@ export default function BlackMarketPage() {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [timeLeft, setTimeLeft] = useState('');
+  const interactionControllerRef = useRef<AbortController | undefined>(
+    undefined,
+  );
+
+  useEffect(() => () => interactionControllerRef.current?.abort(), []);
 
   const loadOverview = useCallback(
     (signal?: AbortSignal) => fetchBlackMarketOverview(nodeId, signal),
@@ -127,16 +123,104 @@ export default function BlackMarketPage() {
 
   const runInteraction = async (message?: string, offeredPrice?: number) => {
     if (!session) return;
+    const activeSession = session;
+    const controller = new AbortController();
+    interactionControllerRef.current?.abort();
+    interactionControllerRef.current = controller;
     setBusy(true);
     setError(undefined);
     setNotice(undefined);
+    const optimisticId = `${activeSession.id}:${activeSession.version}:optimistic`;
+    const optimisticBody = message?.trim()
+      ? offeredPrice != null
+        ? `${message.trim()}（报价：${offeredPrice.toLocaleString()}灵石）`
+        : message.trim()
+      : `我出${offeredPrice?.toLocaleString()}灵石。`;
+    setSession((current) =>
+      current
+        ? {
+            ...current,
+            messages: [
+              ...current.messages,
+              {
+                id: `${optimisticId}:player`,
+                role: 'player',
+                body: optimisticBody,
+                createdAt: Date.now(),
+                turn: activeSession.version,
+              },
+              {
+                id: `${optimisticId}:npc`,
+                role: 'npc',
+                body: '……',
+                gesture:
+                  offeredPrice != null
+                    ? '他没有立刻接价，只用指节轻敲摊沿。'
+                    : '他重新打量着你指出的地方。',
+                createdAt: Date.now() + 1,
+                turn: activeSession.version,
+              },
+            ],
+          }
+        : current,
+    );
     try {
-      const result = await interactWithBlackMarket(nodeId, session.id, {
-        message,
-        offeredPrice,
-        version: session.version,
-      });
-      setSession(result.session);
+      const result = await interactWithBlackMarket(
+        nodeId,
+        activeSession.id,
+        { message, offeredPrice, version: activeSession.version },
+        {
+          onResolved: (event) => {
+            setSession({
+              ...event.result.session,
+              messages: event.result.session.messages.map((item) =>
+                item.id === event.messageId ? { ...item, body: '' } : item,
+              ),
+            });
+          },
+          onReplyChunk: (messageId, text) => {
+            setSession((current) =>
+              current
+                ? {
+                    ...current,
+                    messages: current.messages.map((item) =>
+                      item.id === messageId
+                        ? { ...item, body: `${item.body}${text}` }
+                        : item,
+                    ),
+                  }
+                : current,
+            );
+          },
+          onReplyComplete: (messageId, body) => {
+            setSession((current) =>
+              current
+                ? {
+                    ...current,
+                    messages: current.messages.map((item) =>
+                      item.id === messageId ? { ...item, body } : item,
+                    ),
+                  }
+                : current,
+            );
+          },
+          onReplyError: (messageId, fallbackBody) => {
+            setSession((current) =>
+              current
+                ? {
+                    ...current,
+                    messages: current.messages.map((item) =>
+                      item.id === messageId
+                        ? { ...item, body: fallbackBody }
+                        : item,
+                    ),
+                  }
+                : current,
+            );
+          },
+        },
+        controller.signal,
+      );
       if (result.notice) {
         setNotice(result.notice);
       } else if (offeredPrice != null) {
@@ -152,10 +236,22 @@ export default function BlackMarketPage() {
                   : undefined;
         if (feedback) setNotice(feedback);
       }
+      if (result.session.phase === 'abandoned') {
+        setSession(undefined);
+        const nextOverview = await loadOverview();
+        setOverview(nextOverview);
+        setTimeLeft(formatCountdown(nextOverview.nextRefresh));
+      }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '交谈暂时中断');
+      if (!controller.signal.aborted) {
+        setSession(activeSession);
+        setError(reason instanceof Error ? reason.message : '交谈暂时中断');
+      }
     } finally {
-      setBusy(false);
+      if (interactionControllerRef.current === controller) {
+        interactionControllerRef.current = undefined;
+        setBusy(false);
+      }
     }
   };
 
@@ -267,17 +363,6 @@ export default function BlackMarketPage() {
               <p>灵石余额：{currency.data?.spiritStones ?? '读取中'}</p>
             </div>
           </GameSceneAsideSection>
-          {session ? (
-            <GameSceneAsideSection title="手中线索">
-              <div className="space-y-2 text-sm leading-7">
-                <p>已知线索：{session.revealedClues.length} 条</p>
-                <p>
-                  摊主态度：{NEGOTIATION_MOOD_LABEL[session.negotiationMood]}
-                </p>
-                <p>当前报价：{session.currentPrice.toLocaleString()} 灵石</p>
-              </div>
-            </GameSceneAsideSection>
-          ) : null}
         </>
       }
     >

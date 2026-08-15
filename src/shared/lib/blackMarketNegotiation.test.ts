@@ -103,4 +103,22 @@ describe('black market negotiation', () => {
       }
     }
   });
+
+  it('ends negotiation immediately when the npc closes the conversation', () => {
+    const result = applyBlackMarketPriceDecision({
+      currentPrice: 10_000,
+      floorPrice: 6_000,
+      offeredPrice: 7_000,
+      patience: 3,
+      decision: 'end',
+      concession: 0,
+      patienceDelta: -1,
+    });
+    expect(result).toEqual({
+      outcome: 'locked',
+      previousPrice: 10_000,
+      nextPrice: 10_000,
+      nextPatience: 0,
+    });
+  });
 });
