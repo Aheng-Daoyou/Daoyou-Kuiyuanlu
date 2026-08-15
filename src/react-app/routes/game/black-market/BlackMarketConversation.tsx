@@ -9,7 +9,6 @@ import {
 import { normalizeBlackMarketPlayerBody } from '@shared/lib/blackMarketMessages';
 import { getGameConceptInfo } from '@shared/lib/gameConceptDisplay';
 import type {
-  BlackMarketNegotiationMood,
   BlackMarketNpcSummary,
   BlackMarketSessionView,
 } from '@shared/types/blackMarket';
@@ -33,14 +32,6 @@ const observationTopicLabel = {
   origin: '来历',
   sale_reason: '出手缘由',
 } as const;
-
-const moodCopy: Record<BlackMarketNegotiationMood, string> = {
-  calm: '神色从容',
-  guarded: '开始掂量你的来意',
-  impatient: '已经有些不耐烦',
-  agreed: '已经点头认价',
-  closed: '已经把价咬死',
-};
 
 export function BlackMarketConversation({
   npc,
@@ -149,7 +140,7 @@ export function BlackMarketConversation({
         : undefined;
     const after =
       observation || claim ? (
-        <div className="border-crimson/25 space-y-2 border-l pl-3 text-sm leading-7">
+        <div className="border-crimson/25 space-y-1.5 border-l pl-3 text-sm leading-6">
           {observation ? (
             <button
               type="button"
@@ -198,30 +189,10 @@ export function BlackMarketConversation({
     };
   });
 
-  const lotContext = (
-    <div className="border-ink/15 space-y-3 border-b border-dashed pb-4">
-      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-ink text-lg">{session.listing.disguisedName}</p>
-          <p className="text-ink-secondary mt-1 text-sm leading-7">
-            {session.listing.description}
-          </p>
-        </div>
-        <strong className="text-gold text-sm">
-          当前报价：{session.currentPrice.toLocaleString()} 灵石
-        </strong>
-      </div>
-      <p className="text-ink-secondary text-xs">
-        还可细查 {session.inspectionRemaining} 处 · 摊主
-        {moodCopy[session.negotiationMood]}
-      </p>
-    </div>
-  );
-
   const openingObservations = (
-    <div className="border-ink/15 space-y-2 border-b border-dashed pb-4 text-sm leading-7">
+    <div className="border-ink/15 space-y-1.5 border-b border-dashed pb-3 text-sm leading-6">
       <p className="text-ink-secondary text-xs tracking-[0.12em]">
-        你在开口前先看见
+        你在摊前先看见
       </p>
       {session.observations
         .filter((observation) => observation.source === 'surface')
@@ -233,7 +204,7 @@ export function BlackMarketConversation({
             onClick={() =>
               fillAndOpenComposer(`关于“${observation.text}”，我想再问清楚。`)
             }
-            className="text-ink-secondary hover:text-crimson focus-visible:outline-crimson block w-full text-left text-sm leading-7 transition-colors focus-visible:outline-2"
+            className="text-ink-secondary hover:text-crimson focus-visible:outline-crimson block w-full text-left text-sm leading-6 transition-colors focus-visible:outline-2"
           >
             <span className="text-crimson/80">
               {observationTopicLabel[observation.topic]}
@@ -241,37 +212,31 @@ export function BlackMarketConversation({
             ：{observation.text}
           </button>
         ))}
+      <p className="text-ink-secondary/80 pt-1 text-xs">
+        {session.inspectionRemaining > 0
+          ? `尚可细查 ${session.inspectionRemaining} 处`
+          : '能查验的地方已经看遍'}
+      </p>
     </div>
   );
 
-  const composer = (
-    <div className="border-ink/15 space-y-2 border-t border-dashed pt-3">
+  const decisionFooter = (
+    <div className="border-ink/15 space-y-3 border-t border-dashed pt-3">
       {notice ? <InkNotice>{notice}</InkNotice> : null}
       {dealReady ? (
         <InkNotice>摊主已经点头认下这个价。此刻只等你落定交易。</InkNotice>
-      ) : (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <InkButton
-            type="button"
-            variant="primary"
-            disabled={actionDisabled}
-            onClick={() => openComposer()}
-          >
-            开口交谈
-          </InkButton>
-          <InkButton
-            type="button"
-            variant="secondary"
-            disabled={actionDisabled || !session.canHaggle}
-            onClick={() => openComposer(true)}
-          >
-            附价试探
-          </InkButton>
-          <span className="text-ink-secondary text-xs">
-            可自由询问、查验或议价
-          </span>
-        </div>
-      )}
+      ) : null}
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-ink-secondary text-sm">
+          当前报价：
+          <strong className="text-gold font-normal">
+            {session.currentPrice.toLocaleString()} 灵石
+          </strong>
+        </span>
+        <InkButton onClick={confirmPurchase} disabled={busy} variant="primary">
+          {dealReady ? '一手交钱，一手交货' : '按此价拿下'}
+        </InkButton>
+      </div>
     </div>
   );
 
@@ -282,24 +247,28 @@ export function BlackMarketConversation({
         messages={messages}
         busy={busy}
         error={error}
-        context={lotContext}
         transcriptIntro={openingObservations}
         containedTranscript
-        composer={composer}
-      >
-        <div className="flex flex-wrap justify-between gap-2 pt-1">
-          <InkButton onClick={onLeave} disabled={busy} variant="secondary">
-            先离开摊位
-          </InkButton>
-          <InkButton
-            onClick={confirmPurchase}
-            disabled={busy}
-            variant="primary"
-          >
-            {dealReady ? '一手交钱，一手交货' : '按当前价格拿下'}
-          </InkButton>
-        </div>
-      </NpcConversation>
+        density="compact"
+        options={
+          dealReady
+            ? [{ id: 'leave', label: '先离开摊位', tone: 'muted' }]
+            : [
+                { id: 'talk', label: '开口交谈', tone: 'primary' },
+                {
+                  id: 'offer',
+                  label: '附价试探',
+                  disabled: !session.canHaggle,
+                },
+                { id: 'leave', label: '先离开摊位', tone: 'muted' },
+              ]
+        }
+        onSelectOption={(optionId) => {
+          if (optionId === 'leave') onLeave();
+          else openComposer(optionId === 'offer');
+        }}
+        footer={decisionFooter}
+      />
       <InkDialog
         dialog={confirmDialog}
         onClose={() => setConfirmDialog(null)}
