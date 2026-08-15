@@ -1,9 +1,6 @@
 import { renderPrompt } from '@server/lib/prompts';
 import { generateAiObject, generateAiText } from '@server/utils/aiClient';
-import {
-  stableCompactStringify,
-  truncateText,
-} from '@server/utils/llmPayload';
+import { truncateText } from '@server/utils/llmPayload';
 import type { BlackMarketNegotiationOutcome } from '@shared/lib/blackMarketNegotiation';
 import { z } from 'zod';
 import type {
@@ -71,6 +68,91 @@ function fallbackReply(
   }
 }
 
+function turnPayload(context: BlackMarketTurnContext): string {
+  const knownClues = context.knownClues.map((clue) => ({
+    id: clue.id,
+    kind: clue.kind,
+    text: truncateText(clue.text, 120),
+  }));
+  const availableClues = context.availableClues.map((clue) => ({
+    id: clue.id,
+    kind: clue.kind,
+    safeFact: truncateText(clue.safeFact, 120),
+  }));
+  const availableDescriptionHints = context.availableDescriptionHints.map(
+    (hint) => ({
+      id: hint.id,
+      safeText: truncateText(hint.safeText, 120),
+      sensitivity: hint.sensitivity,
+    }),
+  );
+  const revealedDescriptionHints = context.revealedDescriptionHints.map(
+    (hint) => ({
+      id: hint.id,
+      safeText: truncateText(hint.safeText, 120),
+      sensitivity: hint.sensitivity,
+    }),
+  );
+  const conversation = context.conversation.slice(-6).map((message) => ({
+    role: message.role,
+    body: truncateText(message.body, 120),
+  }));
+
+  // Insertion order is intentional: stable fields first, turn-specific fields
+  // last. JSON.stringify preserves this order, unlike stableCompactStringify
+  // which sorts keys and breaks DeepSeek prefix caching.
+  return JSON.stringify({
+    scene: context.scene,
+    listing: context.listing,
+    npc: {
+      voice: context.npc.voice,
+      identity: context.npc.identity,
+      flexibilityLevel: context.npc.flexibilityLevel,
+      mood: context.npc.mood,
+    },
+    currentPrice: context.currentPrice,
+    knownClues,
+    availableClues,
+    availableDescriptionHints,
+    revealedDescriptionHints,
+    dealReady: context.dealReady,
+    canInspect: context.canInspect,
+    canHaggle: context.canHaggle,
+    offerAssessment: context.offerAssessment ?? null,
+    offeredPrice: context.offeredPrice ?? null,
+    playerMessage: truncateText(context.playerMessage, 240),
+    conversation,
+  });
+}
+
+function replyPayload(
+  context: BlackMarketTurnContext,
+  proposal: BlackMarketTurnProposal,
+  negotiationOutcome: BlackMarketNegotiationOutcome,
+): string {
+  const lastPlayerMessage =
+    [...context.conversation]
+      .reverse()
+      .find((message) => message.role === 'player')?.body ??
+    context.playerMessage;
+
+  return JSON.stringify({
+    npc: {
+      name: context.npc.name,
+      voice: context.npc.voice,
+      mood: context.npc.mood,
+    },
+    lastPlayerMessage: truncateText(lastPlayerMessage, 240),
+    proposalTone: proposal.tone ?? null,
+    negotiationResult: {
+      outcome: negotiationOutcome.outcome,
+      previousPrice: negotiationOutcome.previousPrice,
+      nextPrice: negotiationOutcome.nextPrice,
+      nextPatience: negotiationOutcome.nextPatience,
+    },
+  });
+}
+
 export class BlackMarketConversationService {
   async proposeTurn(input: {
     context: BlackMarketTurnContext;
@@ -79,31 +161,8 @@ export class BlackMarketConversationService {
     proposal: BlackMarketTurnProposal;
     degraded: boolean;
   }> {
-    const payload = stableCompactStringify({
-      scene: input.context.scene,
-      npc: input.context.npc,
-      listing: input.context.listing,
-      currentPrice: input.context.currentPrice,
-      offerAssessment: input.context.offerAssessment ?? null,
-      canInspect: input.context.canInspect,
-      canHaggle: input.context.canHaggle,
-      dealReady: input.context.dealReady,
-      knownClues: input.context.knownClues,
-      availableClues: input.context.availableClues,
-      availableDescriptionHints: input.context.availableDescriptionHints,
-      revealedDescriptionHints: input.context.revealedDescriptionHints,
-      conversation: input.context.conversation
-        .slice(-12)
-        .map((message) => ({
-          role: message.role,
-          body: truncateText(message.body, 220),
-        })),
-      playerMessage: truncateText(input.context.playerMessage, 240),
-      offeredPrice: input.context.offeredPrice ?? null,
-    });
-
     const { system, user } = renderPrompt('black-market-turn', {
-      payloadJson: payload,
+      payloadJson: turnPayload(input.context),
     });
 
     try {
@@ -135,29 +194,12 @@ export class BlackMarketConversationService {
     negotiationOutcome: BlackMarketNegotiationOutcome;
     abortSignal?: AbortSignal;
   }): Promise<string> {
-    const payload = stableCompactStringify({
-      npc: input.context.npc,
-      listing: input.context.listing,
-      currentPrice: input.context.currentPrice,
-      knownClues: input.context.knownClues,
-      conversation: input.context.conversation
-        .slice(-12)
-        .map((message) => ({
-          role: message.role,
-          body: truncateText(message.body, 220),
-        })),
-      playerMessage: truncateText(input.context.playerMessage, 240),
-      proposal: input.proposal,
-      negotiationResult: {
-        outcome: input.negotiationOutcome.outcome,
-        previousPrice: input.negotiationOutcome.previousPrice,
-        nextPrice: input.negotiationOutcome.nextPrice,
-        nextPatience: input.negotiationOutcome.nextPatience,
-      },
-    });
-
     const { system, user } = renderPrompt('black-market-reply', {
-      payloadJson: payload,
+      payloadJson: replyPayload(
+        input.context,
+        input.proposal,
+        input.negotiationOutcome,
+      ),
     });
 
     try {

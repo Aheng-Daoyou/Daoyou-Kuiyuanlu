@@ -325,6 +325,7 @@ async function generateSession(input: {
   const npc = getBlackMarketNpc(input.npcId);
   const descriptionHints = await blackMarketDescriptionHintService.build({
     item: hiddenItem,
+    itemLibraryItemId: entry.itemId,
   });
   const now = Date.now();
   const session: BlackMarketInternalSession = {
