@@ -1,3 +1,4 @@
+import { MeritStamp } from '@app/components/feature/merit/MeritStamp';
 import { GameSceneFrame } from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton } from '@app/components/ui/InkButton';
@@ -9,7 +10,7 @@ import {
   type SponsorshipTierId,
 } from '@shared/lib/sponsorship';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MeritStamp, MeritTierCard } from './components/MeritTierCard';
+import { MeritTierCard } from './components/MeritTierCard';
 import { MeritWall, type MeritPublicRow } from './components/MeritWall';
 
 type Tab = 'mine' | 'world' | 'support';

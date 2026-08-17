@@ -1,9 +1,9 @@
+import { MeritStamp } from '@app/components/feature/merit/MeritStamp';
 import {
   SPONSORSHIP_TIER_IDS,
   SPONSORSHIP_TIER_META,
   type SponsorshipTierId,
 } from '@shared/lib/sponsorship';
-import { MeritStamp } from './MeritTierCard';
 
 export type MeritPublicRow = {
   cultivatorId: string;

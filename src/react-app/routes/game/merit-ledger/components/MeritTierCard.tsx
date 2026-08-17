@@ -1,43 +1,34 @@
+import { MeritStamp } from '@app/components/feature/merit/MeritStamp';
 import { cn } from '@shared/lib/cn';
 import type { SponsorshipTierId } from '@shared/lib/sponsorship';
 import { SPONSORSHIP_TIER_META } from '@shared/lib/sponsorship';
 import type { ReactNode } from 'react';
 
 type TierPresentation = {
-  stampSrc: string;
   cardClassName: string;
   ruleClassName: string;
-  stampClassName: string;
 };
 
 const MERIT_TIER_PRESENTATION: Record<SponsorshipTierId, TierPresentation> = {
   faint_light: {
-    stampSrc: '/assets/sponsors/yidengweiguang.webp',
     cardClassName:
       'border-[#9a7954]/55 bg-[#ede0c5] text-[#2a1a12] shadow-[0_6px_18px_rgba(72,45,24,0.06)]',
     ruleClassName: 'bg-[#7c5b39]/55',
-    stampClassName: 'rotate-[1.5deg]',
   },
   fellow_traveler: {
-    stampSrc: '/assets/sponsors/shanshuitongcheng.webp',
     cardClassName:
       'border-[#718084]/55 bg-[#dce2e0] text-[#253034] shadow-[0_6px_18px_rgba(45,62,64,0.06)]',
     ruleClassName: 'bg-[#596a6e]/55',
-    stampClassName: '-rotate-[1deg]',
   },
   night_guardian: {
-    stampSrc: '/assets/sponsors/changyehudao.webp',
     cardClassName:
       'border-[#b69649]/70 bg-[#27241e] text-[#d7b666] shadow-[0_8px_20px_rgba(21,17,11,0.16)]',
     ruleClassName: 'bg-[#c6a653]/65',
-    stampClassName: 'rotate-[0.5deg]',
   },
   immortality_witness: {
-    stampSrc: '/assets/sponsors/gongzhengchangsheng.webp',
     cardClassName:
       'border-[#9e9a64]/55 bg-[#e4e4d2] text-[#292719] shadow-[0_6px_18px_rgba(64,61,34,0.06)]',
     ruleClassName: 'bg-[#77733f]/55',
-    stampClassName: '-rotate-[0.5deg]',
   },
 };
 
@@ -47,27 +38,6 @@ function CardCorner({ className }: { className: string }) {
       aria-hidden="true"
       className={cn(
         'pointer-events-none absolute h-2.5 w-2.5 border-current opacity-20',
-        className,
-      )}
-    />
-  );
-}
-
-export function MeritStamp({
-  tier,
-  className,
-}: {
-  tier: SponsorshipTierId;
-  className?: string;
-}) {
-  const presentation = MERIT_TIER_PRESENTATION[tier];
-  return (
-    <img
-      src={presentation.stampSrc}
-      alt={`${SPONSORSHIP_TIER_META[tier].name}印戳`}
-      className={cn(
-        'pointer-events-none block aspect-square size-8 object-contain drop-shadow-[0_1px_1px_rgba(91,15,10,0.18)]',
-        presentation.stampClassName,
         className,
       )}
     />
