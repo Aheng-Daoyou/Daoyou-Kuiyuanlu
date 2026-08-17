@@ -1,7 +1,4 @@
-import {
-  GameSceneAsideSection,
-  GameSceneFrame,
-} from '@app/components/game-shell';
+import { GameSceneFrame } from '@app/components/game-shell';
 import { useInkUI } from '@app/components/providers/InkUIProvider';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkInput } from '@app/components/ui/InkInput';
@@ -12,6 +9,8 @@ import {
   type SponsorshipTierId,
 } from '@shared/lib/sponsorship';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { MeritStamp, MeritTierCard } from './components/MeritTierCard';
+import { MeritWall, type MeritPublicRow } from './components/MeritWall';
 
 type Tab = 'mine' | 'world' | 'support';
 type ClientConfig = {
@@ -32,23 +31,47 @@ type MeritState = {
     isPublic: boolean;
     highestTier: SponsorshipTierId;
     firstSupportedAt: string;
+    lastSupportedAt: string;
+    meritCount: number;
   } | null;
   records: { id: string; tier: SponsorshipTierId; supportedAt: string }[];
+  pending: {
+    id: string;
+    tier: SponsorshipTierId;
+    status: string;
+    expiresAt: string;
+    createdAt: string;
+  }[];
 };
-type PublicRow = {
-  cultivatorId: string;
-  name: string;
-  title: string | null;
-  realm: string;
-  realmStage: string;
-  highestTier: SponsorshipTierId;
-  firstSupportedMonth: string;
-};
+function formatMonth(value: string): string {
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+  }).format(new Date(value));
+}
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error ?? '请求失败');
   return data as T;
+}
+
+async function fetchWorld(): Promise<MeritPublicRow[]> {
+  const pageSize = 50;
+  const first = await readJson<{ items: MeritPublicRow[]; total: number }>(
+    await fetch(`/api/sponsorship/public?page=1&pageSize=${pageSize}`),
+  );
+  const totalPages = Math.ceil(first.total / pageSize);
+  const remaining = await Promise.all(
+    Array.from({ length: totalPages - 1 }, async (_, index) =>
+      readJson<{ items: MeritPublicRow[]; total: number }>(
+        await fetch(
+          `/api/sponsorship/public?page=${index + 2}&pageSize=${pageSize}`,
+        ),
+      ),
+    ),
+  );
+  return [first, ...remaining].flatMap((page) => page.items);
 }
 
 export default function MeritLedgerPage() {
@@ -57,9 +80,7 @@ export default function MeritLedgerPage() {
   const [tab, setTab] = useState<Tab>('mine');
   const [config, setConfig] = useState<ClientConfig | null>(null);
   const [mine, setMine] = useState<MeritState | null>(null);
-  const [world, setWorld] = useState<PublicRow[]>([]);
-  const [worldPage, setWorldPage] = useState(1);
-  const [worldTotal, setWorldTotal] = useState(0);
+  const [world, setWorld] = useState<MeritPublicRow[]>([]);
   const [publicListing, setPublicListing] = useState(true);
   const [claimCode, setClaimCode] = useState('');
   const [pendingCheckoutUrl, setPendingCheckoutUrl] = useState<string | null>(
@@ -69,18 +90,14 @@ export default function MeritLedgerPage() {
   const pollingGeneration = useRef(0);
 
   const load = useCallback(async () => {
-    const [nextConfig, nextMine, publicList] = await Promise.all([
+    const [nextConfig, nextMine, nextWorld] = await Promise.all([
       readJson<ClientConfig>(await fetch('/api/sponsorship/config')),
       readJson<MeritState>(await fetch('/api/sponsorship/me')),
-      readJson<{ items: PublicRow[]; total: number }>(
-        await fetch('/api/sponsorship/public?page=1&pageSize=50'),
-      ),
+      fetchWorld(),
     ]);
     setConfig(nextConfig);
     setMine(nextMine);
-    setWorld(publicList.items);
-    setWorldPage(1);
-    setWorldTotal(publicList.total);
+    setWorld(nextWorld);
     setPublicListing(nextMine.profile?.isPublic ?? true);
   }, []);
 
@@ -103,15 +120,6 @@ export default function MeritLedgerPage() {
     },
     [],
   );
-
-  const loadWorldPage = async (page: number) => {
-    const result = await readJson<{ items: PublicRow[]; total: number }>(
-      await fetch(`/api/sponsorship/public?page=${page}&pageSize=50`),
-    );
-    setWorld(result.items);
-    setWorldPage(page);
-    setWorldTotal(result.total);
-  };
 
   const updateVisibility = async (checked: boolean) => {
     setPublicListing(checked);
@@ -210,18 +218,15 @@ export default function MeritLedgerPage() {
 
   return (
     <GameSceneFrame
-      variant="lite"
+      variant="default"
       title="功德簿"
       description="不记灵石多寡，只录同行之缘。每笔支持留下一页功德与一封无附件谢信。"
-      aside={
-        <GameSceneAsideSection title="留名规则" className="text-sm leading-7">
-          <p>
-            默认公开角色名、称号、境界、最高档位与首次支持月份；次数和金额从不公开，可随时关闭留名。
-          </p>
-        </GameSceneAsideSection>
-      }
+      contentClassName="!mt-4"
     >
-      <div className="mb-5 flex flex-wrap gap-2">
+      <nav
+        aria-label="功德簿页签"
+        className="border-ink/20 mb-6 flex flex-wrap gap-x-5 gap-y-2 border-b border-dashed pb-3"
+      >
         {(
           [
             ['mine', '我的功德'],
@@ -231,110 +236,94 @@ export default function MeritLedgerPage() {
         ).map(([id, label]) => (
           <InkButton
             key={id}
-            variant={tab === id ? 'primary' : 'secondary'}
+            variant={tab === id ? 'primary' : 'ghost'}
+            className="text-base"
             onClick={() => setTab(id)}
           >
             {label}
           </InkButton>
         ))}
-      </div>
+      </nav>
 
       {tab === 'mine' && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           {mine?.profile ? (
-            <div className="border-ink/20 bg-paper border border-dashed p-5">
-              <p className="text-xl">
-                {SPONSORSHIP_TIER_META[mine.profile.highestTier].theme}
+            <MeritTierCard
+              tier={mine.profile.highestTier}
+              eyebrow="当前角色功德总卡"
+            >
+              <p className="text-sm leading-6">
+                初录于 {formatMonth(mine.profile.firstSupportedAt)}
               </p>
-              <p className="text-ink-secondary mt-2 text-sm">
-                最高留名：{SPONSORSHIP_TIER_META[mine.profile.highestTier].name}
+            </MeritTierCard>
+          ) : (
+            <div className="border-ink/20 bg-ink/[0.025] border-l-2 px-5 py-8">
+              <p className="text-lg">此页尚待落印</p>
+              <p className="text-ink-secondary mt-2 text-sm leading-7">
+                当前角色尚未在功德簿留名，同行之缘自下一笔开始记述。
               </p>
             </div>
-          ) : (
-            <p className="text-ink-secondary">当前角色尚未在功德簿留名。</p>
           )}
-          <label className="flex items-start gap-3 text-sm">
+
+          <label className="border-ink/15 flex items-start gap-3 border-y border-dashed py-4 text-sm leading-7">
             <input
               type="checkbox"
               checked={publicListing}
+              className="mt-1.5 size-4 accent-[#a51f18]"
               onChange={(event) => void updateVisibility(event.target.checked)}
             />
-            <span>
-              公开留名（仅展示角色名、称号、境界、最高档位与首次支持月份）
+            <span className="min-w-0">
+              <span className="block text-base">向天下道友公开此页留名</span>
+              <span className="text-ink-secondary block text-xs leading-6">
+                仅展示角色名、称号、境界、最高档位与首次支持月份。
+              </span>
             </span>
           </label>
-          <div className="space-y-2">
+
+          {mine?.pending.length ? (
+            <section className="border-crimson/35 bg-crimson/[0.025] border-l-2 px-4 py-3">
+              <p className="text-sm font-medium">尚有功德正在核验</p>
+              {mine.pending.map((item) => (
+                <p key={item.id} className="text-ink-secondary mt-1 text-xs">
+                  {SPONSORSHIP_TIER_META[item.tier].name} ·
+                  请勿重复支付，结果会自动续入此页
+                </p>
+              ))}
+            </section>
+          ) : null}
+
+          <section>
+            <div className="mb-2 flex items-baseline justify-between gap-4">
+              <h3 className="text-base font-medium tracking-[0.12em]">册页</h3>
+              <span className="text-ink-secondary text-xs">按时间由近及远</span>
+            </div>
             {mine?.records.map((record) => (
               <div
                 key={record.id}
-                className="border-ink/15 flex justify-between border-b py-2 text-sm"
+                className="border-ink/15 group flex items-center justify-between gap-4 border-b py-3 text-sm"
               >
-                <span>{SPONSORSHIP_TIER_META[record.tier].name}</span>
-                <span>
+                <span className="flex min-w-0 items-center gap-3">
+                  <MeritStamp
+                    tier={record.tier}
+                    className="size-8 shrink-0 opacity-75"
+                  />
+                  <span>{SPONSORSHIP_TIER_META[record.tier].name}</span>
+                </span>
+                <span className="text-ink-secondary shrink-0 text-xs">
                   {new Date(record.supportedAt).toLocaleDateString('zh-CN')}
                 </span>
               </div>
             ))}
-          </div>
+          </section>
         </div>
       )}
 
-      {tab === 'world' && (
-        <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            {world.map((row) => (
-              <article
-                key={row.cultivatorId}
-                className="border-ink/20 bg-paper border border-dashed p-4"
-              >
-                <p className="text-lg">
-                  {row.name}
-                  {row.title ? ` · ${row.title}` : ''}
-                </p>
-                <p className="text-ink-secondary mt-1 text-sm">
-                  {row.realm} · {row.realmStage}
-                </p>
-                <p className="mt-3 text-sm">
-                  {SPONSORSHIP_TIER_META[row.highestTier].theme} ·{' '}
-                  {row.firstSupportedMonth}
-                </p>
-              </article>
-            ))}
-          </div>
-          <div className="flex items-center justify-center gap-3">
-            <InkButton
-              variant="secondary"
-              disabled={worldPage <= 1}
-              onClick={() =>
-                void loadWorldPage(worldPage - 1).catch((error) =>
-                  pushToast({ message: error.message, tone: 'danger' }),
-                )
-              }
-            >
-              上一页
-            </InkButton>
-            <span className="text-ink-secondary text-sm">
-              第 {worldPage} 页 · 共 {worldTotal} 位道友
-            </span>
-            <InkButton
-              variant="secondary"
-              disabled={worldPage * 50 >= worldTotal}
-              onClick={() =>
-                void loadWorldPage(worldPage + 1).catch((error) =>
-                  pushToast({ message: error.message, tone: 'danger' }),
-                )
-              }
-            >
-              下一页
-            </InkButton>
-          </div>
-        </div>
-      )}
+      {tab === 'world' && <MeritWall rows={world} />}
 
       {tab === 'support' && (
-        <div className="space-y-6">
+        <div className="space-y-7">
           {pendingCheckoutUrl && (
-            <p className="border-ink/15 border border-dashed p-3 text-sm">
+            <p className="border-crimson/35 bg-crimson/[0.025] border-l-2 px-4 py-3 text-sm">
               支付窗口未打开？
               <a
                 className="ml-2 underline"
@@ -346,39 +335,51 @@ export default function MeritLedgerPage() {
               </a>
             </p>
           )}
-          <label className="flex items-start gap-3 text-sm">
+          {!config?.enabled ? (
+            <p className="border-ink/15 text-ink-secondary border-y border-dashed py-3 text-sm">
+              续添功德暂未开放；已有功德与站外订单认领不受影响。
+            </p>
+          ) : null}
+          <label className="flex items-start gap-3 text-sm leading-7">
             <input
               type="checkbox"
               checked={publicListing}
+              className="mt-1.5 size-4 accent-[#a51f18]"
               onChange={(event) => setPublicListing(event.target.checked)}
             />
-            <span>本次功德完成后公开留名（默认开启，不公开金额和次数）</span>
+            <span>
+              <span className="block text-base">本次功德完成后公开留名</span>
+              <span className="text-ink-secondary block text-xs leading-6">
+                默认开启，只公开角色基础信息与最高档位，不公开金额和次数。
+              </span>
+            </span>
           </label>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             {SPONSORSHIP_TIER_IDS.map((tier) => {
               const item = config?.tiers[tier];
               return (
-                <article
+                <MeritTierCard
                   key={tier}
-                  className="border-ink/20 bg-paper border border-dashed p-5"
+                  tier={tier}
+                  action={
+                    <InkButton
+                      variant="outline"
+                      className="!px-0 !text-current"
+                      disabled={busy || !config?.enabled || !item?.configured}
+                      onClick={() => void checkout(tier)}
+                    >
+                      落印结缘
+                    </InkButton>
+                  }
                 >
-                  <p className="text-xl">{SPONSORSHIP_TIER_META[tier].name}</p>
-                  <p className="text-ink-secondary mt-1 text-sm">
-                    {SPONSORSHIP_TIER_META[tier].theme}
+                  <p className="max-w-48 opacity-65">
+                    一纸落印，只记同行，不添战力与数值。
                   </p>
-                  <InkButton
-                    className="mt-4"
-                    variant="primary"
-                    disabled={busy || !config?.enabled || !item?.configured}
-                    onClick={() => void checkout(tier)}
-                  >
-                    前往爱发电
-                  </InkButton>
-                </article>
+                </MeritTierCard>
               );
             })}
           </div>
-          <div className="border-ink/15 border-t pt-5">
+          <section className="border-ink/20 grid items-end gap-4 border-t border-dashed pt-6 md:grid-cols-[minmax(0,1fr)_auto]">
             <InkInput
               label="站外订单认领码"
               value={claimCode}
@@ -387,14 +388,14 @@ export default function MeritLedgerPage() {
               disabled={busy}
             />
             <InkButton
-              className="mt-3"
-              variant="secondary"
+              variant="outline"
               pending={busy}
+              disabled={!claimCode.trim()}
               onClick={() => void claim()}
             >
               认领至当前角色
             </InkButton>
-          </div>
+          </section>
         </div>
       )}
     </GameSceneFrame>
