@@ -1,6 +1,6 @@
-import { createDeepSeek, deepSeek } from '@ai-sdk/deepseek';
 import { getCurrentContext } from '@server/lib/http/context';
 import { recordLlmCallMetric } from '@server/lib/llm/metricsStore';
+import { LLM_PROVIDERS } from '@server/lib/llm/providers';
 import type {
   LlmCallAttemptMetrics,
   LlmCallMetrics,
@@ -11,7 +11,12 @@ import {
   stableCompactStringify,
   truncateText,
 } from '@server/utils/llmPayload';
-import { DEEPSEEK_DEFAULT_MODEL } from '@shared/config/deepseek';
+import {
+  LLM_PROVIDER_IDS,
+  LlmProviderIdSchema,
+  type LlmByokConfig,
+  type LlmProviderId,
+} from '@shared/config/llm';
 import {
   generateText,
   JSONParseError,
@@ -19,6 +24,7 @@ import {
   Output,
   streamText,
   TypeValidationError,
+  type LanguageModel,
   type LanguageModelCallOptions,
   type LanguageModelUsage,
 } from 'ai';
@@ -119,6 +125,7 @@ export interface AiArrayOptions<ELEMENT, RESULT = ELEMENT[]>
 
 type MetricContext = {
   sceneId: LlmSceneId;
+  provider: LlmProviderId;
   model: string;
   systemChars: number;
   userChars: number;
@@ -126,7 +133,8 @@ type MetricContext = {
 };
 
 type ResolvedModel = {
-  model: ReturnType<typeof deepSeek>;
+  model: LanguageModel;
+  provider: LlmProviderId;
   modelName: string;
 };
 
@@ -142,7 +150,7 @@ type StructuredGenerationAttempt = {
   maxOutputTokens?: number;
 };
 
-function getRequestConfig() {
+function getRequestConfig(): LlmByokConfig | undefined {
   try {
     return getCurrentContext().get('llmConfig');
   } catch {
@@ -150,25 +158,68 @@ function getRequestConfig() {
   }
 }
 
+function resolveServerProviderId(): LlmProviderId {
+  const configured = process.env.LLM_PROVIDER?.trim();
+  if (configured) {
+    const parsed = LlmProviderIdSchema.safeParse(configured);
+    if (!parsed.success) {
+      throw new Error(
+        `Invalid LLM_PROVIDER "${configured}". Expected one of: ${LLM_PROVIDER_IDS.join(', ')}`,
+      );
+    }
+    return parsed.data;
+  }
+
+  if (process.env.ALIBABA_API_KEY?.trim()) {
+    return 'alibaba';
+  }
+
+  if (process.env.DEEPSEEK_API_KEY?.trim()) {
+    return 'deepseek';
+  }
+
+  throw new Error(
+    'No LLM provider configured. Set ALIBABA_API_KEY or DEEPSEEK_API_KEY (or LLM_PROVIDER).',
+  );
+}
+
+function resolveModelName(
+  providerId: LlmProviderId,
+  requestConfig: LlmByokConfig | undefined,
+): string {
+  if (requestConfig?.model) {
+    return requestConfig.model;
+  }
+
+  const globalModel = process.env.LLM_MODEL?.trim();
+  if (globalModel) {
+    return globalModel;
+  }
+
+  if (providerId === 'deepseek') {
+    const legacyModel = process.env.DEEPSEEK_MODEL?.trim();
+    if (legacyModel) {
+      return legacyModel;
+    }
+  }
+
+  return LLM_PROVIDERS[providerId].defaultModel;
+}
+
 function resolveModel(sceneId: LlmSceneId): ResolvedModel {
   const requestConfig = getRequestConfig();
-  const modelName =
-    requestConfig?.model ||
-    process.env.DEEPSEEK_MODEL?.trim() ||
-    DEEPSEEK_DEFAULT_MODEL;
+  const providerId = requestConfig?.provider ?? resolveServerProviderId();
+  const def = LLM_PROVIDERS[providerId];
+  const modelName = resolveModelName(providerId, requestConfig);
   const debugFetch = LLM_DEBUG_ENABLED
     ? createLlmDebugFetch(sceneId, modelName)
     : undefined;
-  const provider =
-    requestConfig || debugFetch
-      ? createDeepSeek({
-          apiKey: requestConfig?.apiKey,
-          fetch: debugFetch,
-        })
-      : deepSeek;
+  const apiKey =
+    requestConfig?.apiKey ?? process.env[def.apiKeyEnv]?.trim();
 
   return {
-    model: provider(modelName),
+    model: def.create({ apiKey, fetch: debugFetch })(modelName),
+    provider: providerId,
     modelName,
   };
 }
@@ -239,7 +290,7 @@ function recordMetrics(
 ): void {
   const metrics: LlmCallMetrics = {
     sceneId: context.sceneId,
-    provider: 'deepseek',
+    provider: context.provider,
     model: context.model,
     systemChars: context.systemChars,
     userChars: context.userChars,
@@ -261,11 +312,13 @@ function recordMetrics(
 
 function createMetricContext(
   options: AiTextOptions,
+  provider: LlmProviderId,
   model: string,
   schemaChars = 0,
 ): MetricContext {
   return {
     sceneId: options.sceneId,
+    provider,
     model,
     systemChars: options.system.length,
     userChars: options.prompt.length,
@@ -430,8 +483,8 @@ function getStructuredRetryMaxOutputTokens(
 }
 
 export async function generateAiText(options: AiTextOptions) {
-  const { model, modelName } = resolveModel(options.sceneId);
-  const metrics = createMetricContext(options, modelName);
+  const { model, modelName, provider } = resolveModel(options.sceneId);
+  const metrics = createMetricContext(options, provider, modelName);
 
   try {
     const result = await generateText({
@@ -454,8 +507,8 @@ export async function generateAiText(options: AiTextOptions) {
 }
 
 export function streamAiText(options: AiTextOptions) {
-  const { model, modelName } = resolveModel(options.sceneId);
-  const metrics = createMetricContext(options, modelName);
+  const { model, modelName, provider } = resolveModel(options.sceneId);
+  const metrics = createMetricContext(options, provider, modelName);
   let terminalMetricRecorded = false;
 
   const recordTerminalMetric = (
@@ -606,9 +659,10 @@ async function generateStructured<
 export async function generateAiObject<GENERATED, RESULT = GENERATED>(
   options: AiObjectOptions<GENERATED, RESULT>,
 ) {
-  const { model, modelName } = resolveModel(options.sceneId);
+  const { model, modelName, provider } = resolveModel(options.sceneId);
   const metrics = createMetricContext(
     options,
+    provider,
     modelName,
     getSchemaChars(options.schema),
   );
@@ -644,9 +698,10 @@ export async function generateAiObject<GENERATED, RESULT = GENERATED>(
 export async function generateAiArray<ELEMENT, RESULT = ELEMENT[]>(
   options: AiArrayOptions<ELEMENT, RESULT>,
 ) {
-  const { model, modelName } = resolveModel(options.sceneId);
+  const { model, modelName, provider } = resolveModel(options.sceneId);
   const metrics = createMetricContext(
     options,
+    provider,
     modelName,
     getSchemaChars(z.array(options.elementSchema)),
   );
