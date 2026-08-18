@@ -11,12 +11,13 @@ import {
   stableCompactStringify,
   truncateText,
 } from '@server/utils/llmPayload';
+import type { LlmByokConfig, LlmProviderId } from '@shared/config/llm';
 import {
-  LLM_PROVIDER_IDS,
-  LlmProviderIdSchema,
-  type LlmByokConfig,
-  type LlmProviderId,
-} from '@shared/config/llm';
+  pickHighestWeightLlmRoute,
+  pickLlmRouteByUserHash,
+  resolveServerLlmRoutes,
+  type LlmRoute,
+} from '@shared/config/llmRouting';
 import {
   generateText,
   JSONParseError,
@@ -158,59 +159,47 @@ function getRequestConfig(): LlmByokConfig | undefined {
   }
 }
 
-function resolveServerProviderId(): LlmProviderId {
-  const configured = process.env.LLM_PROVIDER?.trim();
-  if (configured) {
-    const parsed = LlmProviderIdSchema.safeParse(configured);
-    if (!parsed.success) {
-      throw new Error(
-        `Invalid LLM_PROVIDER "${configured}". Expected one of: ${LLM_PROVIDER_IDS.join(', ')}`,
-      );
-    }
-    return parsed.data;
+function getRequestUserId(): string | undefined {
+  try {
+    return getCurrentContext().get('user')?.id;
+  } catch {
+    return undefined;
   }
-
-  if (process.env.ALIBABA_API_KEY?.trim()) {
-    return 'alibaba';
-  }
-
-  if (process.env.DEEPSEEK_API_KEY?.trim()) {
-    return 'deepseek';
-  }
-
-  throw new Error(
-    'No LLM provider configured. Set ALIBABA_API_KEY or DEEPSEEK_API_KEY (or LLM_PROVIDER).',
-  );
 }
 
-function resolveModelName(
-  providerId: LlmProviderId,
-  requestConfig: LlmByokConfig | undefined,
-): string {
-  if (requestConfig?.model) {
-    return requestConfig.model;
+function listConfiguredServerRoutes(): LlmRoute[] {
+  return resolveServerLlmRoutes({
+    providerSpec: process.env.LLM_PROVIDER,
+    availableProviders: {
+      alibaba: Boolean(process.env.ALIBABA_API_KEY?.trim()),
+      deepseek: Boolean(process.env.DEEPSEEK_API_KEY?.trim()),
+    },
+  });
+}
+
+function resolveServerRoute(): LlmRoute {
+  const routes = listConfiguredServerRoutes();
+  if (routes.length === 1) {
+    return routes[0];
   }
 
-  const globalModel = process.env.LLM_MODEL?.trim();
-  if (globalModel) {
-    return globalModel;
-  }
-
-  if (providerId === 'deepseek') {
-    const legacyModel = process.env.DEEPSEEK_MODEL?.trim();
-    if (legacyModel) {
-      return legacyModel;
-    }
-  }
-
-  return LLM_PROVIDERS[providerId].defaultModel;
+  const userId = getRequestUserId();
+  return userId
+    ? pickLlmRouteByUserHash(routes, userId)
+    : pickHighestWeightLlmRoute(routes);
 }
 
 function resolveModel(sceneId: LlmSceneId): ResolvedModel {
   const requestConfig = getRequestConfig();
-  const providerId = requestConfig?.provider ?? resolveServerProviderId();
+  const route = requestConfig
+    ? {
+        provider: requestConfig.provider,
+        model: requestConfig.model,
+      }
+    : resolveServerRoute();
+  const providerId = route.provider;
   const def = LLM_PROVIDERS[providerId];
-  const modelName = resolveModelName(providerId, requestConfig);
+  const modelName = route.model;
   const debugFetch = LLM_DEBUG_ENABLED
     ? createLlmDebugFetch(sceneId, modelName)
     : undefined;
