@@ -20,6 +20,8 @@ export type LlmSceneId =
   | 'material-generation'
   | 'material-semantic-enrichment'
   | 'product-naming'
+  | 'spirit-field-interpret'
+  | 'spirit-field-narrative'
   | 'yield-story';
 
 export type LlmStructuredFailureKind =
