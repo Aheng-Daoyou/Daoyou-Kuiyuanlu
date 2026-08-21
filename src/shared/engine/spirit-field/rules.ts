@@ -157,14 +157,46 @@ export function deterministicUnit(seed: string): number {
   return (hash >>> 0) / 4294967296;
 }
 
-export function chooseCareNeed(seed: string): SpiritFieldCareNeed {
+export function getCareNeedWeights(
+  plant?: SpiritFieldPlantSnapshot | null,
+): Record<SpiritFieldCareNeed, number> {
+  const weights: Record<SpiritFieldCareNeed, number> = {
+    moisture_high: 1,
+    moisture_low: 1,
+    qi_stagnant: 1,
+    weak_growth: 1,
+  };
+  const tags = new Set(plant?.careStyleTags ?? []);
+
+  // 习性只影响“更容易遇到什么问题”，不改变最终奖励公式。
+  if (tags.has('moisture-loving')) weights.moisture_low += 1.5;
+  if (tags.has('drought-tolerant')) weights.moisture_high += 0.75;
+  if (tags.has('water-sensitive')) weights.moisture_high += 1.5;
+  if (tags.has('qi-sensitive')) weights.qi_stagnant += 1.5;
+  if (tags.has('fertile-soil')) weights.weak_growth += 1.25;
+  if (tags.has('loose-soil')) weights.qi_stagnant += 0.75;
+
+  return weights;
+}
+
+export function chooseCareNeed(
+  seed: string,
+  plant?: SpiritFieldPlantSnapshot | null,
+): SpiritFieldCareNeed {
   const needs: SpiritFieldCareNeed[] = [
     'moisture_high',
     'moisture_low',
     'qi_stagnant',
     'weak_growth',
   ];
-  return needs[Math.floor(deterministicUnit(seed) * needs.length)]!;
+  const weights = getCareNeedWeights(plant);
+  const total = needs.reduce((sum, need) => sum + weights[need], 0);
+  let cursor = deterministicUnit(seed) * total;
+  for (const need of needs) {
+    cursor -= weights[need];
+    if (cursor <= 0) return need;
+  }
+  return needs[needs.length - 1]!;
 }
 
 export function buildSpiritFieldObservations(

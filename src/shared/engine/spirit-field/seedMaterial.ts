@@ -7,9 +7,19 @@ import {
   type RealmType,
 } from '@shared/types/constants';
 import type { Material } from '@shared/types/cultivator';
-import type {
-  SpiritFieldPlantSnapshot,
-  SpiritFieldSeedSpecV2,
+import {
+  SPIRIT_SEED_CARE_STYLE_TAGS,
+  SPIRIT_SEED_GROWTH_FORMS,
+  SPIRIT_SEED_HABITAT_TAGS,
+  SPIRIT_SEED_HARVEST_PARTS,
+  SPIRIT_SEED_USE_TAGS,
+  type SpiritFieldPlantSnapshot,
+  type SpiritFieldSeedSpecV2,
+  type SpiritSeedCareStyleTag,
+  type SpiritSeedGrowthForm,
+  type SpiritSeedHabitatTag,
+  type SpiritSeedHarvestPart,
+  type SpiritSeedUseTag,
 } from './types';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -26,6 +36,31 @@ function isElement(value: unknown): value is ElementType {
 
 function isRealm(value: unknown): value is RealmType {
   return typeof value === 'string' && REALM_VALUES.includes(value as RealmType);
+}
+
+function enumOrDefault<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  return typeof value === 'string' && allowed.includes(value as T)
+    ? (value as T)
+    : fallback;
+}
+
+function enumArray<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: readonly T[],
+  max = 3,
+): T[] {
+  if (!Array.isArray(value)) return [...fallback];
+  const next = value.filter(
+    (item): item is T => typeof item === 'string' && allowed.includes(item as T),
+  );
+  return [...new Set(next)].slice(0, max).length > 0
+    ? [...new Set(next)].slice(0, max)
+    : [...fallback];
 }
 
 export function readSpiritFieldSeedSpec(details: unknown): SpiritFieldSeedSpecV2 | null {
@@ -52,6 +87,17 @@ export function readSpiritFieldSeedSpec(details: unknown): SpiritFieldSeedSpecV2
     return null;
   }
 
+  const growthForm = enumOrDefault<SpiritSeedGrowthForm>(
+    plant.growthForm,
+    SPIRIT_SEED_GROWTH_FORMS,
+    'herb',
+  );
+  const harvestPart = enumOrDefault<SpiritSeedHarvestPart>(
+    plant.harvestPart,
+    SPIRIT_SEED_HARVEST_PARTS,
+    growthForm === 'root' ? 'root' : growthForm === 'fungus' ? 'whole' : 'leaf',
+  );
+
   return {
     version: 2,
     plant: {
@@ -65,6 +111,35 @@ export function readSpiritFieldSeedSpec(details: unknown): SpiritFieldSeedSpecV2
       careSlots: Math.max(1, Math.floor(plant.careSlots)),
       careCooldownMs: Math.max(0, Math.floor(plant.careCooldownMs)),
       description: plant.description,
+      seedDescription:
+        typeof plant.seedDescription === 'string'
+          ? plant.seedDescription
+          : `${plant.name}的种体，内蕴尚未舒展的灵机，可播入个人灵田。`,
+      appearance:
+        typeof plant.appearance === 'string'
+          ? plant.appearance
+          : '枝叶间可见淡淡灵光，形态会随生长逐渐舒展。',
+      matureSign:
+        typeof plant.matureSign === 'string'
+          ? plant.matureSign
+          : '成熟时灵光由散转凝，主要采收部位会出现明显变化。',
+      growthForm,
+      harvestPart,
+      habitatTags: enumArray<SpiritSeedHabitatTag>(
+        plant.habitatTags,
+        SPIRIT_SEED_HABITAT_TAGS,
+        ['mountain'],
+      ),
+      careStyleTags: enumArray<SpiritSeedCareStyleTag>(
+        plant.careStyleTags,
+        SPIRIT_SEED_CARE_STYLE_TAGS,
+        ['qi-sensitive'],
+      ),
+      useTags: enumArray<SpiritSeedUseTag>(
+        plant.useTags,
+        SPIRIT_SEED_USE_TAGS,
+        ['alchemy'],
+      ),
       baseYieldMin: Math.max(1, Math.floor(plant.baseYieldMin)),
       baseYieldMax: Math.max(
         Math.max(1, Math.floor(plant.baseYieldMin)),
@@ -98,7 +173,7 @@ export function buildSpiritFieldSeedMaterialFromPlant(
     type: 'aux',
     rank: plant.quality,
     element: plant.element,
-    description: `${plant.name}的灵种。其生长与产出参数在生成时已经固化，可在个人灵田播种。`,
+    description: plant.seedDescription,
     details: buildSpiritFieldSeedDetails(plant),
     quantity: Math.max(1, Math.floor(quantity)),
   };

@@ -25,8 +25,25 @@ export const SPIRIT_FIELD_PLOT_UNLOCKS: ReadonlyArray<{
 
 /**
  * 这里仅保存“品质级别”的经济/时间平衡，不保存具体灵植目录。
- * 具体灵植名称、描述和元素由 SpiritSeedGenerator -> MaterialGenerator 动态生成。
+ * 具体灵植身份由独立 SpiritSeedGenerator + spirit-seed-generation Prompt 生成；
+ * 不依赖 MaterialGenerator。
  */
+
+/**
+ * 灵种自己的品质权重。暂时与材料大盘接近，但独立维护，后续可以单独做灵种稀有度调优。
+ * 市场传入 rankRange 时会先限制到市场层级范围，再按该权重抽取。
+ */
+export const SPIRIT_SEED_QUALITY_CHANCE_MAP: Record<Quality, number> = {
+  凡品: 0.3,
+  灵品: 0.3,
+  玄品: 0.2,
+  真品: 0.1,
+  地品: 0.04,
+  天品: 0.03,
+  仙品: 0.02,
+  神品: 0.01,
+};
+
 export const SPIRIT_FIELD_QUALITY_BALANCE: Record<
   Quality,
   {

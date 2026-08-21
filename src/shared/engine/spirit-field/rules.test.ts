@@ -6,6 +6,7 @@ import {
   createDefaultSpiritFieldPlots,
   evaluateCareAction,
   getSpiritFieldCareScore,
+  getCareNeedWeights,
   getSpiritFieldQualityUpgradeChance,
   isSpiritFieldPlotUnlocked,
 } from '.';
@@ -21,6 +22,14 @@ const plant: SpiritFieldPlantSnapshot = {
   careSlots: 3,
   careCooldownMs: 10 * 60_000,
   description: '测试用灵植。',
+  seedDescription: '青色种籽，表面有细密木纹。',
+  appearance: '叶片细长，脉络泛青。',
+  matureSign: '成熟时叶脉灵光凝成一线。',
+  growthForm: 'herb',
+  harvestPart: 'leaf',
+  habitatTags: ['mountain', 'shaded'],
+  careStyleTags: ['moisture-loving', 'qi-sensitive'],
+  useTags: ['alchemy'],
   baseYieldMin: 3,
   baseYieldMax: 5,
 };
@@ -53,6 +62,18 @@ describe('spirit field rules', () => {
     });
     expect(evaluateCareAction('weak_growth', 'fertilize').grade).toBe('excellent');
     expect(evaluateCareAction('moisture_high', 'moisten').careScore).toBe(35);
+  });
+
+
+  it('seed care-style tags only bias anomaly tendency, not reward numbers', () => {
+    const neutral = getCareNeedWeights({ ...plant, careStyleTags: [] });
+    const sensitive = getCareNeedWeights({
+      ...plant,
+      careStyleTags: ['moisture-loving', 'qi-sensitive'],
+    });
+    expect(sensitive.moisture_low).toBeGreaterThan(neutral.moisture_low);
+    expect(sensitive.qi_stagnant).toBeGreaterThan(neutral.qi_stagnant);
+    expect(sensitive.weak_growth).toBe(neutral.weak_growth);
   });
 
   it('good care produces more yield and a higher quality-upgrade chance', () => {

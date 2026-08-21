@@ -99,6 +99,13 @@ export async function interpretSpiritFieldCare(input: {
         quality: input.plant.quality,
         element: input.plant.element,
         description: input.plant.description,
+        appearance: input.plant.appearance,
+        matureSign: input.plant.matureSign,
+        growthForm: input.plant.growthForm,
+        harvestPart: input.plant.harvestPart,
+        habitatTags: input.plant.habitatTags,
+        careStyleTags: input.plant.careStyleTags,
+        useTags: input.plant.useTags,
       },
       observations: input.observations.map((entry) => ({
         label: entry.label,

@@ -15,6 +15,7 @@ import fateNamingPrompt from '@server/prompts/fate-naming.md?raw';
 import identityReshapePrompt from '@server/prompts/identity-reshape.md?raw';
 import lifespanExhaustedPrompt from '@server/prompts/lifespan-exhausted.md?raw';
 import materialGenerationPrompt from '@server/prompts/material-generation.md?raw';
+import spiritSeedGenerationPrompt from '@server/prompts/spirit-seed-generation.md?raw';
 import materialSemanticEnrichmentPrompt from '@server/prompts/material-semantic-enrichment.md?raw';
 import productNamingPrompt from '@server/prompts/product-naming.md?raw';
 import spiritFieldInterpretPrompt from '@server/prompts/spirit-field-interpret.md?raw';
@@ -53,6 +54,7 @@ const bundledPromptSources: Record<string, string> = {
   'identity-reshape.md': identityReshapePrompt,
   'lifespan-exhausted.md': lifespanExhaustedPrompt,
   'material-generation.md': materialGenerationPrompt,
+  'spirit-seed-generation.md': spiritSeedGenerationPrompt,
   'material-semantic-enrichment.md': materialSemanticEnrichmentPrompt,
   'product-naming.md': productNamingPrompt,
   'spirit-field-interpret.md': spiritFieldInterpretPrompt,

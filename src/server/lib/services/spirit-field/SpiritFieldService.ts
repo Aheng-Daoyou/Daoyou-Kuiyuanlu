@@ -325,6 +325,7 @@ export async function sowSpiritField(actor: SpiritFieldActor, input: SpiritField
         lastCareAt: null,
         careNeed: chooseCareNeed(
           `${actor.cultivatorId}:${input.plotIndex}:${plantedAt}:${plant.id}`,
+          plant,
         ),
       };
       await updateSpiritField(tx, field.id, { plots });
@@ -441,7 +442,10 @@ export async function careSpiritField(actor: SpiritFieldActor, input: SpiritFiel
         careNeed:
           nextCareCount >= plant.careSlots
             ? null
-            : chooseCareNeed(`${plant.id}:${plot.plantedAt}:${nextCareCount}:${action}`),
+            : chooseCareNeed(
+                `${plant.id}:${plot.plantedAt}:${nextCareCount}:${action}`,
+                plant,
+              ),
       };
       await updateSpiritField(tx, field.id, {
         plots,
