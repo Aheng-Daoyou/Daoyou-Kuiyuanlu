@@ -73,6 +73,7 @@ describe('creation-v2 affix match contract', () => {
         params: { tag: GameplayTags.ABILITY.FUNCTION.CONTROL },
       },
     ]);
+    expect(result.params).toMatchObject({ logTriggerName: '控制共鸣' });
   });
 
   it('多 debuff 协同应显式声明 debuff_count_at_least 条件', () => {
@@ -108,6 +109,7 @@ describe('creation-v2 affix match contract', () => {
         params: { value: 2 },
       },
     ]);
+    expect(result.params).toMatchObject({ logTriggerName: 'debuff协同' });
   });
 
   it('递归 effect 模板应解析为 battle-v5 EffectConfig', () => {
