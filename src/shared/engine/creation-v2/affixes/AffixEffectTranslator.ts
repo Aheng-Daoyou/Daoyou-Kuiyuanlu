@@ -46,7 +46,9 @@ export class AffixEffectTranslator {
   ): EffectConfig {
     if (
       effect.type !== 'percent_damage_modifier' ||
-      !affix.effectTemplate.conditions?.length
+      !affix.effectTemplate.conditions?.some(
+        (condition) => condition.type === 'chance',
+      )
     ) {
       return effect;
     }
