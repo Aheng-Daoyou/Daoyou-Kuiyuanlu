@@ -4,7 +4,7 @@ import type { AbilityConfig } from '../../core/configs';
 import { EventBus } from '../../core/EventBus';
 import type {
   DeathPreventEvent,
-  DamageRequestEvent,
+  DamageSegmentRequestedEvent,
 } from '../../core/events';
 import {
   AbilityType,
@@ -79,7 +79,7 @@ describe('DeathPreventEffect source-scoped triggers', () => {
 
   function dealLethalDamage(attacker: Unit, defender: Unit): void {
     publishTestDamageRequest({
-      type: 'DamageRequestEvent',
+      type: 'DamageSegmentRequestedEvent',
       timestamp: Date.now(),
       caster: attacker,
       target: defender,

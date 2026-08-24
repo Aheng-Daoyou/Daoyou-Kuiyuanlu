@@ -1,5 +1,5 @@
 import { DeathPreventParams } from '../core/configs';
-import { DamageTakenEvent, DeathPreventEvent } from '../core/events';
+import { DamageSegmentAppliedEvent, DeathPreventEvent } from '../core/events';
 import { getBattleRuntimeState } from '../core/runtimeState';
 import { EffectRegistry } from '../factories/EffectRegistry';
 import { EffectExecutionContextV3, GameplayEffect } from './Effect';
@@ -15,11 +15,11 @@ export class DeathPreventEffect extends GameplayEffect {
   execute(context: EffectExecutionContextV3): void {
     const { target, triggerEvent, ability, buff } = context;
 
-    if (!triggerEvent || triggerEvent.type !== 'DamageTakenEvent') {
+    if (!triggerEvent || triggerEvent.type !== 'DamageSegmentAppliedEvent') {
       return;
     }
 
-    const damageTakenEvent = triggerEvent as DamageTakenEvent;
+    const damageTakenEvent = triggerEvent as DamageSegmentAppliedEvent;
 
     if (
       damageTakenEvent.hpReachedZeroBeforeReactions &&
