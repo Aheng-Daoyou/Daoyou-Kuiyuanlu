@@ -10,6 +10,7 @@ import type {
   ActionStateView,
 } from './actionState';
 import { AbilityConfig, EffectConfig } from './configs';
+import type { DamageSource } from './types';
 
 export interface RuntimeMutationScopeV3 {
   attribution: CombatAttributionV3;
@@ -60,6 +61,8 @@ export interface BattleRuntimeState {
   activeEffectGuards: Set<string>;
   globalUniqueEffects: Map<string, object>;
   deathPreventTriggers: Set<string>;
+  /** The current damage stream is already covered by one death-prevent source. */
+  deathProtectedHit?: { hitId: string; damageSource?: DamageSource };
   deathCommitted: boolean;
   sequences: Map<string, number>;
   dealtDamageSinceLastCheck: boolean;
@@ -102,6 +105,24 @@ export interface SerializableBattleRuntimeStateV1 {
 
 export function getBattleRuntimeState(unit: Unit): BattleRuntimeState {
   return unit.runtime.states.getUnitState(unit);
+}
+
+export function markDeathProtectedHit(
+  unit: Unit,
+  hitId: string,
+  damageSource?: DamageSource,
+): void {
+  getBattleRuntimeState(unit).deathProtectedHit = { hitId, damageSource };
+}
+
+export function isDeathProtectedHit(
+  unit: Unit,
+  hitId: string,
+  damageSource?: DamageSource,
+): boolean {
+  const protectedHit = getBattleRuntimeState(unit).deathProtectedHit;
+  return protectedHit?.hitId === hitId &&
+    protectedHit.damageSource === damageSource;
 }
 
 export function queueSkippedActions(
@@ -548,6 +569,7 @@ export function restoreBattleRuntimeState(
   state.counters = new Map(snapshot.counters);
   state.activeEffectGuards.clear();
   state.deathPreventTriggers = new Set(snapshot.deathPreventTriggers);
+  state.deathProtectedHit = undefined;
   state.deathCommitted = snapshot.deathCommitted ?? false;
   state.sequences = new Map(snapshot.sequences);
   state.dealtDamageSinceLastCheck = snapshot.dealtDamageSinceLastCheck;

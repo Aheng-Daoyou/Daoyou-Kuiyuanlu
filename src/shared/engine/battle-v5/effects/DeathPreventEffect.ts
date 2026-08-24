@@ -1,6 +1,9 @@
 import { DeathPreventParams } from '../core/configs';
 import { DamageSegmentAppliedEvent, DeathPreventEvent } from '../core/events';
-import { getBattleRuntimeState } from '../core/runtimeState';
+import {
+  getBattleRuntimeState,
+  markDeathProtectedHit,
+} from '../core/runtimeState';
 import { EffectRegistry } from '../factories/EffectRegistry';
 import { EffectExecutionContextV3, GameplayEffect } from './Effect';
 
@@ -41,6 +44,13 @@ export class DeathPreventEffect extends GameplayEffect {
       }
       target.setHp(hpFloor, 'death_prevent'); // 将气血设置为 hpFloor，避免死亡
       runtimeState.deathPreventTriggers.add(sourceKey);
+      if (damageTakenEvent.resolution) {
+        markDeathProtectedHit(
+          target,
+          damageTakenEvent.resolution.hitId,
+          damageTakenEvent.damageSource,
+        );
+      }
 
       context.commit(target, {
         type: 'death_prevented',

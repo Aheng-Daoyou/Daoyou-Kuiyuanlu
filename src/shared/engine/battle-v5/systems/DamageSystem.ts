@@ -15,6 +15,7 @@ import {
 } from '../core/events';
 import {
   hasCommittedDeath,
+  isDeathProtectedHit,
   markDamageDealt,
   markDeathCommitted,
 } from '../core/runtimeState';
@@ -457,8 +458,18 @@ export class DamageSystem {
     }
 
     // 2. 应用剩余伤害到气血
-    target.takeDamage(remainingDamage);
+    const protectedHit = damageEvent.resolution?.hitId !== undefined &&
+      isDeathProtectedHit(
+        target,
+        damageEvent.resolution.hitId,
+        damageEvent.damageSource,
+      );
+    const hpDamage = protectedHit
+      ? Math.min(remainingDamage, Math.max(0, beforeHp - 1))
+      : remainingDamage;
+    target.takeDamage(hpDamage);
     const actualHpDamage = Math.max(0, beforeHp - target.getCurrentHp());
+    if (actualHpDamage + absorbedAmount <= 0) return;
     if (actualHpDamage + absorbedAmount > 0) {
       markDamageDealt(caster);
       if (damageEvent.damageSource === DamageSource.DIRECT) {
