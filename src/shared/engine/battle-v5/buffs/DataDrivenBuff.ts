@@ -7,6 +7,7 @@ import {
 import {
   claimGlobalUniqueEffect,
   releaseGlobalUniqueEffects,
+  shouldTickBuffDuration,
 } from '../core/runtimeState';
 import { BuffId, CombatEvent } from '../core/types';
 import {
@@ -47,6 +48,7 @@ export class DataDrivenBuff extends Buff {
       config.stackPriority,
       config.dispelMode,
       config.removeOnDeath,
+      config.durationUnit,
     );
     this._config = config;
   }
@@ -151,6 +153,15 @@ export class DataDrivenBuff extends Buff {
   ): void {
     if (!this._owner) return; // 仅检查是否存在，不检查存活，以便处理免死逻辑
 
+    // 回合型 Buff 在施加当回合不立即跳一次，避免“施加即结算”导致额外触发。
+    if (
+      event.type === 'RoundPostEvent' &&
+      this.durationUnit === 'round' &&
+      !shouldTickBuffDuration(this._owner, this)
+    ) {
+      return;
+    }
+
     if (!shouldExecuteListener(this._owner, event, runtime, this)) {
       return;
     }
@@ -171,6 +182,7 @@ export class DataDrivenBuff extends Buff {
       target: resolved.target,
       triggerEvent: event, // 关键：注入触发事件
       buff: this,
+      resolution: event.resolution,
     });
 
     for (const { effect } of effects) {
@@ -205,8 +217,8 @@ export class DataDrivenBuff extends Buff {
           ...listener.runtime,
           mapping: { ...listener.runtime.mapping },
           guard: { ...listener.runtime.guard },
-          budget: listener.runtime.budget
-            ? { ...listener.runtime.budget }
+          triggerPolicy: listener.runtime.triggerPolicy
+            ? { ...listener.runtime.triggerPolicy }
             : undefined,
           conditions: listener.runtime.conditions?.map((condition) => ({
             ...condition,

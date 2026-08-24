@@ -1,9 +1,11 @@
 import type { ActiveSkill } from '@shared/engine/battle-v5/abilities/ActiveSkill';
 import { EventBus } from '@shared/engine/battle-v5/core/EventBus';
+import { createHitResolution } from '@shared/engine/battle-v5/core/resolution';
 import type {
   ActionPreEvent,
-  DamageRequestEvent,
-  DamageTakenEvent,
+  RoundPostEvent,
+  DamageSegmentRequestedEvent,
+  DamageSegmentAppliedEvent,
   RoundStartEvent,
   SkillCastEvent,
 } from '@shared/engine/battle-v5/core/events';
@@ -71,8 +73,14 @@ function setup(pathId: TianyanPathId, nodes: string[] = []) {
 }
 
 function cast(skill: ActiveSkill, caster: Unit, target: Unit): void {
+  const resolution = createHitResolution({
+    actionId: `${caster.id}:tianyan-path-cast`,
+    castId: `${skill.id}:tianyan-path-cast`,
+    caster,
+    target,
+  });
   skill.prepareCast({ caster, target });
-  skill.execute({ caster, target });
+  skill.execute({ caster, target, resolution });
 }
 
 function castWithRoll(
@@ -87,11 +95,17 @@ function castWithRoll(
     caster,
     target,
     ability: skill,
+    resolution: createHitResolution({
+      actionId: `${caster.id}:tianyan-path-test-action`,
+      castId: `${skill.id}:tianyan-path-test-cast`,
+      caster,
+      target,
+    }),
   };
   skill.prepareCast({ caster, target });
   withBattleRandomSource({ next: () => roll }, () => {
     EventBus.instance.publish(event);
-    skill.execute({ caster, target, shouldApplyEffects: event.isHit });
+    skill.execute({ caster, target, shouldApplyEffects: event.isHit, resolution: event.resolution });
   });
   return event;
 }
@@ -116,9 +130,9 @@ describe('天衍衍数与双道途实际结算', () => {
     enemy.buffs.addBuff(BuffFactory.create(createElementSeal('wood', 2)), owner);
     const hpBefore = owner.getCurrentHp();
     const mpBefore = owner.getCurrentMp();
-    let directRequest: DamageRequestEvent | undefined;
-    EventBus.instance.subscribe<DamageRequestEvent>(
-      'DamageRequestEvent',
+    let directRequest: DamageSegmentRequestedEvent | undefined;
+    EventBus.instance.subscribe<DamageSegmentRequestedEvent>(
+      'DamageSegmentRequestedEvent',
       (event) => {
         if (event.damageSource === DamageSource.DIRECT) directRequest = event;
       },
@@ -159,9 +173,9 @@ describe('天衍衍数与双道途实际结算', () => {
     const { owner, enemy, skill } = setup(TIANYAN_LUOSHU_PATH_ID);
     owner.combatResources.set(TIANYAN_DERIVATION, 2);
     enemy.buffs.addBuff(BuffFactory.create(createElementSeal('fire', 2)), owner);
-    const followUps: DamageTakenEvent[] = [];
-    EventBus.instance.subscribe<DamageTakenEvent>(
-      'DamageTakenEvent',
+    const followUps: DamageSegmentAppliedEvent[] = [];
+    EventBus.instance.subscribe<DamageSegmentAppliedEvent>(
+      'DamageSegmentAppliedEvent',
       (event) => {
         if (event.damageSource === DamageSource.FOLLOW_UP) followUps.push(event);
       },
@@ -297,9 +311,9 @@ describe('天衍衍数与双道途实际结算', () => {
       'luoshu-reverse-two',
     ]);
     enemy.buffs.addBuff(BuffFactory.create(createElementSeal('water', 2)), owner);
-    const directRequests: DamageRequestEvent[] = [];
-    EventBus.instance.subscribe<DamageRequestEvent>(
-      'DamageRequestEvent',
+    const directRequests: DamageSegmentRequestedEvent[] = [];
+    EventBus.instance.subscribe<DamageSegmentRequestedEvent>(
+      'DamageSegmentRequestedEvent',
       (event) => {
         if (event.damageSource === DamageSource.DIRECT) directRequests.push(event);
       },
@@ -353,6 +367,7 @@ describe('天衍衍数与双道途实际结算', () => {
     ]);
     const startRound = (turn: number) => EventBus.instance.publish<RoundStartEvent>({
       type: 'RoundStartEvent',
+      resolution: createHitResolution({ actionId: `tianyan:path:round:${turn}`, castId: `tianyan:path:round:${turn}`, caster: owner, target: enemy }),
       timestamp: Date.now(),
       turn,
     });
@@ -401,9 +416,9 @@ describe('天衍衍数与双道途实际结算', () => {
     enemy.updateDerivedStats();
     enemy.setHp(3_500);
     enemy.buffs.addBuff(BuffFactory.create(createElementSeal('fire', 2)), owner);
-    const followUps: DamageTakenEvent[] = [];
-    EventBus.instance.subscribe<DamageTakenEvent>(
-      'DamageTakenEvent',
+    const followUps: DamageSegmentAppliedEvent[] = [];
+    EventBus.instance.subscribe<DamageSegmentAppliedEvent>(
+      'DamageSegmentAppliedEvent',
       (event) => {
         if (event.damageSource === DamageSource.FOLLOW_UP) followUps.push(event);
       },
@@ -430,9 +445,9 @@ describe('天衍衍数与双道途实际结算', () => {
     const { owner, enemy, skill } = setup(TIANYAN_LUOSHU_PATH_ID, [
       'luoshu-heaven-ends',
     ]);
-    const requests: DamageRequestEvent[] = [];
-    EventBus.instance.subscribe<DamageRequestEvent>(
-      'DamageRequestEvent',
+    const requests: DamageSegmentRequestedEvent[] = [];
+    EventBus.instance.subscribe<DamageSegmentRequestedEvent>(
+      'DamageSegmentRequestedEvent',
       (event) => {
         if (event.damageSource === DamageSource.DIRECT) requests.push(event);
       },
@@ -468,6 +483,7 @@ describe('天衍衍数与双道途实际结算', () => {
     owner.setHp(Math.floor(owner.getMaxHp() * 0.99));
     const beforeShield = owner.getCurrentShield();
 
+
     cast(skill('verdant-pulse'), owner, enemy);
     const afterFirst = owner.getCurrentShield();
     enemy.setHp(enemy.getMaxHp());
@@ -488,12 +504,13 @@ describe('天衍衍数与双道途实际结算', () => {
     cast(skill('myriad-wood-renewal'), owner, owner);
     expect(owner.getCurrentShield()).toBe(0);
 
-    for (let action = 0; action < 2; action += 1) {
+    for (let turn = 0; turn < 2; turn += 1) {
       beginRuntimeAction(owner);
-      EventBus.instance.publish<ActionPreEvent>({
-        type: 'ActionPreEvent',
+      EventBus.instance.publish<RoundPostEvent>({
+        type: 'RoundPostEvent',
+        resolution: createHitResolution({ actionId: `tianyan:hot:${turn}`, castId: `tianyan:hot:${turn}`, caster: owner, target: owner }),
         timestamp: Date.now(),
-        caster: owner,
+        turn: turn + 1,
       });
     }
 

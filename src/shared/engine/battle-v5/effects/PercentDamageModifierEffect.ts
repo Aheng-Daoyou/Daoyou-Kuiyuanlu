@@ -1,12 +1,12 @@
 import { PercentDamageModifierParams } from '../core/configs';
-import { DamageRequestEvent } from '../core/events';
+import { DamageSegmentRequestedEvent } from '../core/events';
 import { DamageSource } from '../core/types';
 import { EffectRegistry } from '../factories/EffectRegistry';
 import { EffectExecutionContextV3, GameplayEffect } from './Effect';
 
 /**
  * 百分比增减伤原子效果
- * 仅写入 DamageRequestEvent 的同乘区桶，不直接乘算伤害。
+ * 仅写入 DamageSegmentRequestedEvent 的同乘区桶，不直接乘算伤害。
  */
 export class PercentDamageModifierEffect extends GameplayEffect {
   constructor(private params: PercentDamageModifierParams) {
@@ -15,9 +15,9 @@ export class PercentDamageModifierEffect extends GameplayEffect {
 
   execute(context: EffectExecutionContextV3): void {
     const { triggerEvent } = context;
-    if (!triggerEvent || triggerEvent.type !== 'DamageRequestEvent') return;
+    if (!triggerEvent || triggerEvent.type !== 'DamageSegmentRequestedEvent') return;
 
-    const damageRequestEvent = triggerEvent as DamageRequestEvent;
+    const damageRequestEvent = triggerEvent as DamageSegmentRequestedEvent;
     if (damageRequestEvent.calculationMode === 'resolved_final') return;
     if (damageRequestEvent.damageSource === DamageSource.REFLECT) return;
     if (
@@ -41,10 +41,20 @@ export class PercentDamageModifierEffect extends GameplayEffect {
     if (this.params.mode === 'increase') {
       damageRequestEvent.damageIncreasePctBucket =
         (damageRequestEvent.damageIncreasePctBucket ?? 0) + value;
-      return;
     } else if (this.params.mode === 'reduce') {
       damageRequestEvent.damageReductionPctBucket =
         (damageRequestEvent.damageReductionPctBucket ?? 0) + value;
+    }
+
+    if (this.params.logTriggerName && value > 0) {
+      context.commit(damageRequestEvent.target, {
+        type: 'mechanic',
+        code: 'conditional_damage_modifier_trigger',
+        payload: {
+          kind: 'named_trigger',
+          label: this.params.logTriggerName,
+        },
+      });
     }
   }
 }

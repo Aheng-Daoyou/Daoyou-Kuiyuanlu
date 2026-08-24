@@ -142,6 +142,7 @@ export interface SectMembershipRecord {
   cultivatorId: string;
   discipleRank: SectDiscipleRank;
   contribution: number;
+  lifetimeContribution: number;
 }
 
 export interface SectTaskRecord {
@@ -329,7 +330,11 @@ export interface SectRewardGateway {
     amount: number,
     reason: string,
     referenceId: string,
-  ): Promise<{ value: number; effects: SectCommandEffects }>;
+  ): Promise<{
+    value: number;
+    lifetimeContribution: number;
+    effects: SectCommandEffects;
+  }>;
   grantSpiritStones(
     cultivatorId: string,
     amount: number,
@@ -384,7 +389,10 @@ export interface SectEconomyRepository extends SectEconomyReadRepository {
     amount: number,
     reason: string,
     referenceId: string,
-  ): Promise<number | null>;
+  ): Promise<{
+    contribution: number;
+    lifetimeContribution: number;
+  } | null>;
   recordStipendClaim(input: {
     membershipId: string;
     weekKey: string;
@@ -402,7 +410,7 @@ export interface SectConstructionRepository {
     amount: number,
     reason: string,
     referenceId: string,
-  ): Promise<number>;
+  ): Promise<{ contribution: number; lifetimeContribution: number }>;
 }
 
 export interface SectModuleResolver {

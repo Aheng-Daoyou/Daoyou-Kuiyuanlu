@@ -1,11 +1,12 @@
 import { EventBus } from '../../core/EventBus';
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import { EffectConfig } from '../../core/configs';
-import { DamageEvent, DamageImmuneEvent, EventPriorityLevel, ManaShieldAbsorbEvent } from '../../core/events';
+import { DamageSegmentRequestedEvent, DamageImmuneEvent, EventPriorityLevel, ManaShieldAbsorbEvent } from '../../core/events';
 import { AbilityType, AttributeType, BuffType, DamageType } from '../../core/types';
 import { AbilityFactory } from '../../factories/AbilityFactory';
 import { BuffFactory } from '../../factories/BuffFactory';
 import { Unit } from '../../units/Unit';
+import type { CombatResultCommittedEventV3 } from '../../v3/events';
 
 describe('免疫效果集成测试', () => {
   beforeEach(() => {
@@ -22,7 +23,11 @@ describe('免疫效果集成测试', () => {
     });
   }
 
-  function addPassiveDamageListener(unit: Unit, effects: Array<EffectConfig>): void {
+  function addPassiveDamageListener(
+    unit: Unit,
+    effects: Array<EffectConfig>,
+    eventType: 'DamageSegmentRequestedEvent' = 'DamageSegmentRequestedEvent',
+  ): void {
     unit.abilities.addAbility(
       AbilityFactory.create({
         slug: `passive_${effects.map((effect) => effect.type).join('_')}`,
@@ -31,7 +36,7 @@ describe('免疫效果集成测试', () => {
         tags: [GameplayTags.ABILITY.KIND.PASSIVE],
         listeners: [
           {
-            eventType: 'DamageEvent',
+            eventType,
             scope: 'owner_as_target',
             priority: EventPriorityLevel.DAMAGE_APPLY,
             effects,
@@ -40,6 +45,54 @@ describe('免疫效果集成测试', () => {
       }),
     );
   }
+
+  it('条件减伤实际生效时应提交带词条名称的战斗日志事实', () => {
+    const attacker = createUnit('attacker', '进攻者');
+    const defender = createUnit('defender', '防御者');
+    addPassiveDamageListener(
+      defender,
+      [
+        {
+          type: 'percent_damage_modifier',
+          params: { mode: 'reduce', value: 0.5, logTriggerName: '金甲' },
+        },
+      ],
+      'DamageSegmentRequestedEvent',
+    );
+
+    const committed: CombatResultCommittedEventV3[] = [];
+    const handler = (event: CombatResultCommittedEventV3) => {
+      committed.push(event);
+    };
+    EventBus.instance.subscribe<CombatResultCommittedEventV3>(
+      'CombatResultCommittedEventV3',
+      handler,
+      EventPriorityLevel.COMBAT_LOG,
+    );
+
+    const damageRequest = {
+      type: 'DamageSegmentRequestedEvent' as const,
+      timestamp: Date.now(),
+      caster: attacker,
+      target: defender,
+      damageType: DamageType.PHYSICAL,
+      baseDamage: 100,
+      finalDamage: 100,
+    };
+    EventBus.instance.publish(damageRequest);
+
+    expect(damageRequest.damageReductionPctBucket).toBe(0.5);
+    expect(committed.map((event) => event.result)).toContainEqual({
+      type: 'mechanic',
+      code: 'conditional_damage_modifier_trigger',
+      payload: { kind: 'named_trigger', label: '金甲' },
+    });
+
+    EventBus.instance.unsubscribe<CombatResultCommittedEventV3>(
+      'CombatResultCommittedEventV3',
+      handler,
+    );
+  });
 
   it('魔法盾应消耗法力并吸收 98% 伤害', () => {
     const attacker = createUnit('attacker', '进攻者');
@@ -53,8 +106,8 @@ describe('免疫效果集成测试', () => {
     EventBus.instance.subscribe<ManaShieldAbsorbEvent>('ManaShieldAbsorbEvent', handler, EventPriorityLevel.COMBAT_LOG);
 
     const beforeMp = defender.getCurrentMp();
-    const damageEvent: DamageEvent = {
-      type: 'DamageEvent',
+    const damageEvent: DamageSegmentRequestedEvent = {
+      type: 'DamageSegmentRequestedEvent',
       timestamp: Date.now(),
       caster: attacker,
       target: defender,
@@ -82,8 +135,8 @@ describe('免疫效果集成测试', () => {
 
     defender.takeMp(defender.getCurrentMp() - 30);
 
-    const damageEvent: DamageEvent = {
-      type: 'DamageEvent',
+    const damageEvent: DamageSegmentRequestedEvent = {
+      type: 'DamageSegmentRequestedEvent',
       timestamp: Date.now(),
       caster: attacker,
       target: defender,
@@ -121,8 +174,8 @@ describe('免疫效果集成测试', () => {
     };
     EventBus.instance.subscribe<DamageImmuneEvent>('DamageImmuneEvent', handler, EventPriorityLevel.COMBAT_LOG);
 
-    const damageEvent: DamageEvent = {
-      type: 'DamageEvent',
+    const damageEvent: DamageSegmentRequestedEvent = {
+      type: 'DamageSegmentRequestedEvent',
       timestamp: Date.now(),
       caster: attacker,
       target: defender,
@@ -162,8 +215,8 @@ describe('免疫效果集成测试', () => {
       effects: [],
     });
 
-    const damageEvent: DamageEvent = {
-      type: 'DamageEvent',
+    const damageEvent: DamageSegmentRequestedEvent = {
+      type: 'DamageSegmentRequestedEvent',
       timestamp: Date.now(),
       caster: attacker,
       target: defender,
@@ -199,8 +252,8 @@ describe('免疫效果集成测试', () => {
         effects: [],
       });
 
-      const blocked: DamageEvent = {
-        type: 'DamageEvent',
+      const blocked: DamageSegmentRequestedEvent = {
+      type: 'DamageSegmentRequestedEvent',
         timestamp: Date.now(),
         caster: attacker,
         target: defender,
@@ -208,7 +261,7 @@ describe('免疫效果集成测试', () => {
         damageType: blockedType,
         finalDamage: 120,
       };
-      const allowed: DamageEvent = {
+      const allowed: DamageSegmentRequestedEvent = {
         ...blocked,
         damageType: allowedType,
         finalDamage: 120,
@@ -241,8 +294,8 @@ describe('免疫效果集成测试', () => {
       tags: [GameplayTags.BUFF.DOT.ROOT, GameplayTags.BUFF.DOT.BURN],
     });
 
-    const damageEvent: DamageEvent = {
-      type: 'DamageEvent',
+    const damageEvent: DamageSegmentRequestedEvent = {
+      type: 'DamageSegmentRequestedEvent',
       timestamp: Date.now(),
       caster: attacker,
       target: defender,

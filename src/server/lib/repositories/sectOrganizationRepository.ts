@@ -96,12 +96,17 @@ export async function addSectContribution(
     .update(sectMemberships)
     .set({
       contribution: sql`${sectMemberships.contribution} + ${amount}`,
+      lifetimeContribution:
+        sql`${sectMemberships.lifetimeContribution} + ${amount}`,
       updatedAt: new Date(),
     })
     .where(eq(sectMemberships.id, membershipId))
-    .returning({ contribution: sectMemberships.contribution });
+    .returning({
+      contribution: sectMemberships.contribution,
+      lifetimeContribution: sectMemberships.lifetimeContribution,
+    });
   if (!membership) throw new Error('宗门成员不存在');
-  return membership.contribution;
+  return membership;
 }
 
 export async function spendSectContribution(
@@ -121,9 +126,12 @@ export async function spendSectContribution(
         sql`${sectMemberships.contribution} >= ${amount}`,
       ),
     )
-    .returning({ contribution: sectMemberships.contribution });
+    .returning({
+      contribution: sectMemberships.contribution,
+      lifetimeContribution: sectMemberships.lifetimeContribution,
+    });
   if (!membership) return null;
-  return membership.contribution;
+  return membership;
 }
 
 export async function promoteSectMembership(

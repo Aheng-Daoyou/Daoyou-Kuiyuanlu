@@ -270,6 +270,7 @@ function membershipQueryAdapter(
             cultivatorId: row.cultivatorId,
             discipleRank: row.discipleRank as SectDiscipleRank,
             contribution: row.contribution,
+            lifetimeContribution: row.lifetimeContribution,
           }
         : null;
     },
@@ -630,14 +631,21 @@ function rewardAdapter(q: DbExecutor | DbTransaction, userId: string) {
         q,
       );
       const effects = emptySectCommandEffects();
-      effects.settlement.contribution = balance;
+      effects.settlement.contribution = balance.contribution;
       effects.resourceChanges.push({
         resourceTopic: 'sect.membership',
         eventType: 'sect.task_contribution_settled',
         operation: 'merge',
-        payload: { contribution: balance },
+        payload: {
+          contribution: balance.contribution,
+          lifetimeContribution: balance.lifetimeContribution,
+        },
       });
-      return { value: balance, effects };
+      return {
+        value: balance.contribution,
+        lifetimeContribution: balance.lifetimeContribution,
+        effects,
+      };
     },
     async grantSpiritStones(
       cultivatorId: string,
@@ -877,6 +885,7 @@ export function createPostgresSectCommandContext(args: {
               cultivatorId: row.cultivatorId,
               discipleRank: row.discipleRank as SectDiscipleRank,
               contribution: row.contribution,
+              lifetimeContribution: row.lifetimeContribution,
             }
           : null;
       },
@@ -1051,6 +1060,7 @@ export function createPostgresSectQueryContext(args: {
               cultivatorId: row.cultivatorId,
               discipleRank: row.discipleRank as SectDiscipleRank,
               contribution: row.contribution,
+              lifetimeContribution: row.lifetimeContribution,
             }
           : null;
       },
