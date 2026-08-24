@@ -84,6 +84,8 @@ export interface SkillPreCastEvent extends CombatEvent {
   fallbackTarget?: Unit;
   ability: Ability;
   isInterrupted: boolean;
+  /** 整个技能被免疫；优先于普通不可打断规则。 */
+  isImmune?: boolean;
   interruptPolicy?: ActionInterruptPolicy;
   hitPolicy?: ActionHitPolicy;
   queuedActionState?: {

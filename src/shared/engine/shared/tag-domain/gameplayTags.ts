@@ -74,6 +74,7 @@ export const GameplayTags = {
       CONTROL: 'Ability.Function.Control',
       HEAL: 'Ability.Function.Heal',
       BUFF: 'Ability.Function.Buff',
+      DEBUFF: 'Ability.Function.Debuff',
     },
     CHANNEL: {
       ROOT: 'Ability.Channel',
@@ -93,6 +94,7 @@ export const GameplayTags = {
       ARTIFACT: 'Ability.Kind.Artifact',
       GONGFA: 'Ability.Kind.GongFa',
       SECT: 'Ability.Kind.Sect',
+      BASIC: 'Ability.Kind.Basic',
     },
     SECT: {
       ROOT: 'Ability.Sect',

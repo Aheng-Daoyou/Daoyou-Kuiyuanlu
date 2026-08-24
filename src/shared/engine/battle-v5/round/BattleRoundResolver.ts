@@ -481,6 +481,7 @@ function castAbility(
     targets,
     ability,
     isInterrupted: false,
+    isImmune: false,
     interruptPolicy: options.interruptPolicy,
     hitPolicy: options.hitPolicy ?? ability.hitPolicy,
     queuedActionState: options.queuedActionState,
