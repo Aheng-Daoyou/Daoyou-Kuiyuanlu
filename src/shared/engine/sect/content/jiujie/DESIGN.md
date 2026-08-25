@@ -381,11 +381,11 @@
 | 心法 | 成长曲线 | 面板基础加成 | 设定理由 |
 | --- | --- | --- | --- |
 | 《九劫天书》 | balanced | 无 | 雷法以神识引动天威，主心法成长直接作用于关联神通 |
-| 《劫眼观世经》 | early | `MAX_HP`，ADD | 以身为劫眼，必须具备承受第一轮灾厄的肉身 |
+| 《劫眼观世》 | early | `MAX_HP`，ADD | 以身为劫眼，必须具备承受第一轮灾厄的肉身 |
 | 《天谴录》 | balanced | `MAGIC_ATK`，ADD，满级15% | 天听落罪最终仍以雷法威能兑现，不把宗门主轴放在控制命中 |
-| 《雷狱镇魂篇》 | late | `MAGIC_PENETRATION`，FIXED | 雷狱穿透护持与灵力屏障，强化雷法对法防目标的有效性 |
-| 《因果问罪诀》 | balanced | `MAX_MP`，ADD | 记录因果、维持劫雷和执行清算都需要稳定的法力储备 |
-| 《渡劫归真法》 | early | `MAGIC_DEF`，ADD | 渡劫不是只会降雷，也要求门人拥有在天罚后继续站立的法身 |
+| 《雷狱镇魂》 | late | `MAGIC_PENETRATION`，FIXED | 雷狱穿透护持与灵力屏障，强化雷法对法防目标的有效性 |
+| 《因果问罪》 | balanced | `MAX_MP`，ADD | 记录因果、维持劫雷和执行清算都需要稳定的法力储备 |
+| 《渡劫归真》 | early | `MAGIC_DEF`，ADD | 渡劫不是只会降雷，也要求门人拥有在天罚后继续站立的法身 |
 
 说明：
 
@@ -405,10 +405,10 @@
 | 《惊雷指》 | default | fallback | 《九劫天书》1级 |
 | 《天听引雷》 | active | generator | 《九劫天书》1级 |
 | 《劫簿落印》 | active | generator | 《天谴录》1级 |
-| 《承天受劫》 | active | defensive | 《劫眼观世经》1级 |
-| 《雷狱问行》 | active | combo | 《雷狱镇魂篇》1级 |
-| 《借劫回身》 | active | defensive / utility | 《渡劫归真法》1级 |
-| 《因果回响》 | active | utility | 《因果问罪诀》5级 |
+| 《承天受劫》 | active | defensive | 《劫眼观世》1级 |
+| 《雷狱问行》 | active | combo | 《雷狱镇魂》1级 |
+| 《借劫回身》 | active | defensive / utility | 《渡劫归真》1级 |
+| 《因果回响》 | active | utility | 《因果问罪》5级 |
 | 《九霄清算》 | active | finisher | 《九劫天书》10级 |
 | 《天威裁决》 | passive | defensive | always，内部能力及 `foundationPassiveId` |
 

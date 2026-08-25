@@ -104,7 +104,7 @@ export default function SectTransferPage() {
         tone: 'success',
       });
       navigate(
-        `/game/sect/onboarding?sectId=${encodeURIComponent(preview.target.sectId)}`,
+        `/game/sect/onboarding?sectId=${encodeURIComponent(preview.target.sectId)}&entry=transfer`,
         { replace: true },
       );
     } catch (reason) {
@@ -183,21 +183,7 @@ export default function SectTransferPage() {
       {error && <InkNotice tone="danger">{error}</InkNotice>}
       {preview && !loading && (
         <>
-          <GameSceneSection
-            title="转宗后的变化"
-            actions={
-              <InkButton
-                variant="secondary"
-                onClick={() => {
-                  const next = !reversePaths;
-                  setReversePaths(next);
-                  void loadPreview(targetSectId, next);
-                }}
-              >
-                交换两条流派对应
-              </InkButton>
-            }
-          >
+          <GameSceneSection title="转宗后的变化">
             <div className="grid gap-3 sm:grid-cols-3">
               <InkCard>
                 <p className="text-ink-secondary text-xs">弟子身份</p>
@@ -237,7 +223,21 @@ export default function SectTransferPage() {
             </div>
           </GameSceneSection>
 
-          <GameSceneSection title="流派进度保留">
+          <GameSceneSection
+            title="流派进度保留"
+            actions={
+              <InkButton
+                variant="secondary"
+                onClick={() => {
+                  const next = !reversePaths;
+                  setReversePaths(next);
+                  void loadPreview(targetSectId, next);
+                }}
+              >
+                交换两条流派对应
+              </InkButton>
+            }
+          >
             <p className="text-ink-secondary mb-3 text-sm leading-6">
               默认按顺序对应两条流派；如果想交换对应关系，可点击右上角按钮查看另一种结果。
             </p>

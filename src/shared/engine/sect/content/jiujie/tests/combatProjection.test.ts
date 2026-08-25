@@ -147,14 +147,18 @@ describe('九劫天宫宗门投影', () => {
 
   it('地图素材与节点主题已挂载', () => {
     expect(JIUJIE_SECT_PRESENTATION.map?.image).toBe('/assets/sect/jiujie-map.webp');
+    expect(JIUJIE_SECT_PRESENTATION.map?.aspectRatio).toBe(1.5);
     expect(JIUJIE_SECT_PRESENTATION.map?.hotspots).toHaveLength(16);
     expect(JIUJIE_SECT_PRESENTATION.map?.hotspots?.map((spot) => spot.label)).toEqual(expect.arrayContaining(['劫眼峰', '天谴司']));
     expect(JIUJIE_SECT_PRESENTATION.map?.hotspots?.find((spot) => spot.id === 'formation')).toMatchObject({ locked: true });
     expect(JIUJIE_SECT_PRESENTATION.facilityLabels).toMatchObject({
       alchemy: '听雷丹房',
       herb_garden: '天听木圃',
+      formation: '渡厄天梯',
     });
     expect(JIUJIE_SECT_PRESENTATION.map?.hotspots?.find((spot) => spot.id === 'alchemy')?.label).toBe('听雷丹房');
+    expect(JIUJIE_SECT_PRESENTATION.map?.hotspots?.find((spot) => spot.id === 'alchemy')?.facility).toBe('workshop');
+    expect(JIUJIE_SECT_PRESENTATION.map?.hotspots?.find((spot) => spot.id === 'refinery')?.facility).toBe('workshop');
   });
 
   it('入门演出使用独立的天宫叙事素材，并完整呈现两道途', () => {

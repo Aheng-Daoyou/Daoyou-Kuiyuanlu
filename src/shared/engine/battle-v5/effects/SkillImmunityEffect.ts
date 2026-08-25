@@ -26,7 +26,7 @@ export class SkillImmunityEffect extends GameplayEffect {
 
     skillEvent.isImmune = true;
     skillEvent.isInterrupted = true;
-    void this.params.reason;
+    skillEvent.immunityReason = this.params.reason;
   }
 }
 

@@ -193,7 +193,7 @@ export function compileJiujieBase(context: SectProjectionContext, builder: SectB
   compileRuntime(builder, settings);
   const d = (id: string) => { const item = JIUJIE_BASE_DEFINITION.abilities.find((a) => a.id === id); if (!item || (item.kind !== 'active' && item.kind !== 'default')) throw new Error(`九劫天宫神通缺失: ${id}`); return item; };
   const thunder = thunderBuff(settings);
-  ability(builder, 'thunder-finger', { definition: d('thunder-finger'), effects: [damage(0.8)], targetPolicy: { team: 'enemy', scope: 'single' }, extraTags: [GameplayTags.ABILITY.ELEMENT.THUNDER], detailRows: ['Fallback 普攻，仅造成基础雷属性伤害。'] });
+  ability(builder, 'thunder-finger', { definition: d('thunder-finger'), effects: [damage(0.8)], targetPolicy: { team: 'enemy', scope: 'single' }, extraTags: [GameplayTags.ABILITY.ELEMENT.THUNDER], detailRows: ['普攻，仅造成基础雷属性伤害。'] });
   ability(builder, 'heaven-hearing', { definition: d('heaven-hearing'), effects: [damage(0.45), apply(thunder)], targetPolicy: { team: 'enemy', scope: 'single' }, extraTags: [GameplayTags.ABILITY.ELEMENT.THUNDER], detailRows: [`施加不可驱散劫雷，持续${settings.thunderDuration}回合。`] });
   ability(builder, 'receive-calamity', {
     definition: d('receive-calamity'),
@@ -238,5 +238,5 @@ export function compileJiujieBase(context: SectProjectionContext, builder: SectB
     { type: 'consume_status_trigger', params: { match: { id: JIUJIE_REOFFEND }, displayName: '重犯', consume: 'all', scaleEffectsByLayer: true, target: 'target', effects: [damage(settings.reoffendBonus, DamageSource.FOLLOW_UP)] } },
     ...(settings.pathId === JIUJIE_CONDEMNATION_PATH_ID ? [{ type: 'consume_status_trigger', params: { match: { tags: [jiujieTag('sin')] }, displayName: '主罪', consume: 'all', target: 'target', effects: [] } } satisfies EffectConfig] : []),
   ];
-  ability(builder, 'nine-sky-settlement', { definition: d('nine-sky-settlement'), castConditions: [c('combat_resource_at_least', { resourceId: JIUJIE_CALAMITY, value: 2 }), c('has_tag', { scope: 'target', tag: calamityTag })], effects: settlementEffects, targetPolicy: { team: 'enemy', scope: 'single' }, extraTags: [GameplayTags.ABILITY.ELEMENT.THUNDER], detailRows: ['消耗2～3点劫数，清算劫债与重犯记录，并按道途节点维持劫雷。'] });
+  ability(builder, 'nine-sky-settlement', { definition: d('nine-sky-settlement'), castConditions: [c('combat_resource_at_least', { scope: 'caster', resourceId: JIUJIE_CALAMITY, value: 2 }), c('has_tag', { scope: 'target', tag: calamityTag })], effects: settlementEffects, targetPolicy: { team: 'enemy', scope: 'single' }, extraTags: [GameplayTags.ABILITY.ELEMENT.THUNDER], detailRows: ['消耗2～3点劫数，清算劫债与重犯记录，并按道途节点维持劫雷。'] });
 }

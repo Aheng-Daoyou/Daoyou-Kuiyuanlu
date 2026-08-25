@@ -29,6 +29,7 @@ import type {
 import { buildSectTransferPlan, type SectRuntime } from '@shared/engine/sect';
 import type { Consumable } from '@shared/types/cultivator';
 import { and, asc, eq, sql } from 'drizzle-orm';
+import { getSectDateKey, getSectWeekKey } from './SectOrganizationClock';
 
 async function loadTransferTalisman(
   cultivatorId: string,
@@ -102,14 +103,24 @@ async function inspectTasks(
 ) {
   const rows = await q
     .select({
+      kind: sectTaskRecords.kind,
+      periodKey: sectTaskRecords.periodKey,
       status: sectTaskRecords.status,
       claimedAt: sectTaskRecords.claimedAt,
     })
     .from(sectTaskRecords)
     .where(eq(sectTaskRecords.membershipId, membershipId));
+  const dateKey = getSectDateKey();
+  const weekKey = getSectWeekKey();
+  const currentRows = rows.filter((row) => {
+    if (row.kind === 'daily') return row.periodKey === dateKey;
+    if (row.kind === 'weekly') return row.periodKey === weekKey;
+    return row.periodKey === 'permanent';
+  });
   return {
-    activeTaskCount: rows.filter((row) => row.status === 'active').length,
-    hasClaimableTasks: rows.some(
+    activeTaskCount: currentRows.filter((row) => row.status === 'active')
+      .length,
+    hasClaimableTasks: currentRows.some(
       (row) => row.status === 'completed' && !row.claimedAt,
     ),
   };
