@@ -3,7 +3,8 @@ import { EventBus } from '@shared/engine/battle-v5/core/EventBus';
 import { StackRule } from '@shared/engine/battle-v5/buffs/Buff';
 import { beginRuntimeAction } from '@shared/engine/battle-v5/core/runtimeState';
 import { getBattleRuntimeState } from '@shared/engine/battle-v5/core/runtimeState';
-import type { DamageRequestEvent, DamageTakenEvent, SkillCastEvent, SkillPreCastEvent } from '@shared/engine/battle-v5/core/events';
+import { createHitResolution } from '@shared/engine/battle-v5/core/resolution';
+import type { DamageSegmentAppliedEvent, DamageSegmentRequestedEvent, SkillCastEvent, SkillPreCastEvent } from '@shared/engine/battle-v5/core/events';
 import { AbilityType, AttributeType, BuffType, DamageSource, DamageType } from '@shared/engine/battle-v5/core/types';
 import { AbilityFactory } from '@shared/engine/battle-v5/factories/AbilityFactory';
 import { BuffFactory } from '@shared/engine/battle-v5/factories/BuffFactory';
@@ -12,15 +13,15 @@ import { Unit } from '@shared/engine/battle-v5/units/Unit';
 import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { projectSectCombat, resolveSectAbility } from '../..';
-import { JIUJIE_CALAMITY, JIUJIE_CONDEMNATION_PATH_ID, JIUJIE_DEBT, JIUJIE_EYE, JIUJIE_EYE_PATH_ID, JIUJIE_REOFFEND, JIUJIE_SIN_DAMAGE, JIUJIE_SIN_SUPPORT, JIUJIE_THUNDER } from '../ids';
+import { JIUJIE_CALAMITY, JIUJIE_CONDEMNATION_PATH_ID, JIUJIE_DAMAGE_SENTENCE, JIUJIE_DEBT, JIUJIE_EYE, JIUJIE_EYE_PATH_ID, JIUJIE_REOFFEND, JIUJIE_SIN_DAMAGE, JIUJIE_SIN_SUPPORT, JIUJIE_THUNDER, jiujieTag } from '../ids';
 import type { CultivatorSectState } from '../../../core';
 
-function state(pathId: string = JIUJIE_EYE_PATH_ID): CultivatorSectState {
+function state(pathId: string = JIUJIE_EYE_PATH_ID, nodeIds: string[] = []): CultivatorSectState {
   return {
     membershipId: 'jiujie-core-runtime', sectId: 'jiujie', status: 'active', contribution: 0, configVersion: 1,
     activePathId: pathId,
     methods: { 'jiujie-canon': 10, 'calamity-eye': 5, 'heavenly-record': 5, 'thunder-prison': 5, 'cause-judgment': 5, 'crossing-calamity': 5 },
-    paths: [{ pathId, unlockedLayerIds: ['1', '2', '3'], tacticId: pathId === JIUJIE_EYE_PATH_ID ? 'bear-and-return' : 'record-and-judge', activeMeridianSlot: 1, meridianLoadouts: [{ slot: 1, nodeIds: [], version: 1 }, { slot: 2, nodeIds: [], version: 1 }, { slot: 3, nodeIds: [], version: 1 }] }],
+    paths: [{ pathId, unlockedLayerIds: ['1', '2', '3', '4', '5', 'ultimate'], tacticId: pathId === JIUJIE_EYE_PATH_ID ? 'bear-and-return' : 'record-and-judge', activeMeridianSlot: 1, meridianLoadouts: [{ slot: 1, nodeIds, version: 1 }, { slot: 2, nodeIds: [], version: 1 }, { slot: 3, nodeIds: [], version: 1 }] }],
     abilityLoadout: ['heaven-hearing', 'receive-calamity', 'thunder-prison-question', 'nine-sky-settlement'],
   };
 }
@@ -31,8 +32,8 @@ function unit(id: string): Unit {
   return result;
 }
 
-function setup(pathId: string = JIUJIE_EYE_PATH_ID) {
-  const sect = state(pathId);
+function setup(pathId: string = JIUJIE_EYE_PATH_ID, nodeIds: string[] = []) {
+  const sect = state(pathId, nodeIds);
   const projection = projectSectCombat({ sect, realm: '化神' })!;
   const owner = unit('owner');
   const enemy = unit('enemy');
@@ -47,13 +48,44 @@ function setup(pathId: string = JIUJIE_EYE_PATH_ID) {
   return { owner, enemy, skill, projection };
 }
 
-function cast(skill: ActiveSkill, caster: Unit, target: Unit): void {
-  skill.prepareCast({ caster, target });
-  skill.execute({ caster, target });
+let testResolutionSequence = 0;
+
+function resolution(caster: Unit, target: Unit, ability: ActiveSkill) {
+  const sequence = ++testResolutionSequence;
+  return createHitResolution({
+    actionId: `${caster.id}:jiujie-test:${sequence}`,
+    castId: `${ability.id}:jiujie-test:${sequence}`,
+    caster,
+    target,
+  });
 }
 
-function publishSkill(caster: Unit, target: Unit, ability: ActiveSkill): void {
-  EventBus.instance.publish<SkillCastEvent>({ type: 'SkillCastEvent', timestamp: Date.now(), caster, target, ability });
+function damageResolution(caster: Unit, target: Unit, label: string) {
+  const sequence = ++testResolutionSequence;
+  return createHitResolution({
+    actionId: `${caster.id}:jiujie-${label}:${sequence}`,
+    castId: `${caster.id}:jiujie-${label}:${sequence}`,
+    caster,
+    target,
+  });
+}
+
+function cast(skill: ActiveSkill, caster: Unit, target: Unit): void {
+  skill.prepareCast({ caster, target });
+  skill.execute({ caster, target, resolution: resolution(caster, target, skill) });
+}
+
+function publishSkill(caster: Unit, target: Unit, ability: ActiveSkill, actionId?: string): void {
+  const sequence = ++testResolutionSequence;
+  EventBus.instance.publish<SkillCastEvent>({
+    type: 'SkillCastEvent', timestamp: Date.now(), caster, target, ability,
+    resolution: createHitResolution({
+      actionId: actionId ?? `${caster.id}:jiujie-test:${sequence}`,
+      castId: `${ability.id}:jiujie-test:${sequence}`,
+      caster,
+      target,
+    }),
+  });
 }
 
 describe('九劫天宫核心战斗语义', () => {
@@ -63,8 +95,8 @@ describe('九劫天宫核心战斗语义', () => {
   it('劫雷行动触发只产生一次DOT伤害，普攻不增加劫债或劫数', () => {
     const { owner, enemy, skill, projection } = setup();
     cast(skill('heaven-hearing'), owner, enemy);
-    const requests: DamageRequestEvent[] = [];
-    EventBus.instance.subscribe<DamageRequestEvent>('DamageRequestEvent', (event) => requests.push(event));
+    const requests: DamageSegmentRequestedEvent[] = [];
+    EventBus.instance.subscribe<DamageSegmentRequestedEvent>('DamageSegmentRequestedEvent', (event) => requests.push(event));
     const basic = AbilityFactory.create(projection.defaultAttack!) as ActiveSkill;
     basic.setOwner(enemy);
     beginRuntimeAction(enemy);
@@ -97,16 +129,16 @@ describe('九劫天宫核心战斗语义', () => {
     const { owner, enemy, skill } = setup();
     const secondTarget = unit('second-target');
     cast(skill('heaven-hearing'), owner, enemy);
-    const requests: DamageRequestEvent[] = [];
-    EventBus.instance.subscribe<DamageRequestEvent>('DamageRequestEvent', (event) => requests.push(event));
+    const requests: DamageSegmentRequestedEvent[] = [];
+    EventBus.instance.subscribe<DamageSegmentRequestedEvent>('DamageSegmentRequestedEvent', (event) => requests.push(event));
     const active = skill('thunder-prison-question');
     expect(active.tags.hasTag('Ability.Function.Damage')).toBe(true);
     expect(active.tags.hasTag('Ability.Function.Control')).toBe(false);
     expect(active.tags.hasTag('Ability.Function.Heal')).toBe(false);
     active.setOwner(enemy);
     beginRuntimeAction(enemy);
-    publishSkill(enemy, owner, active);
-    publishSkill(enemy, secondTarget, active);
+    publishSkill(enemy, owner, active, 'jiujie-test:multi-target');
+    publishSkill(enemy, secondTarget, active, 'jiujie-test:multi-target');
     expect(requests.filter((event) => event.damageType === DamageType.DOT)).toHaveLength(1);
     expect(enemy.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_DEBT)?.getLayer()).toBe(1);
     expect(owner.combatResources.getCurrent(JIUJIE_CALAMITY)).toBe(1);
@@ -154,6 +186,7 @@ describe('九劫天宫核心战斗语义', () => {
     active.setOwner(enemy);
     beginRuntimeAction(enemy);
     publishSkill(enemy, owner, active);
+    beginRuntimeAction(enemy);
     publishSkill(enemy, owner, active);
     expect(enemy.buffs.getAllBuffIds()).toEqual(expect.arrayContaining([
       JIUJIE_THUNDER,
@@ -172,11 +205,12 @@ describe('九劫天宫核心战斗语义', () => {
   it('DOT与延迟伤害事件不会触发劫雷', () => {
     const { owner, enemy, skill } = setup();
     cast(skill('heaven-hearing'), owner, enemy);
-    EventBus.instance.publish<DamageRequestEvent>({
-      type: 'DamageRequestEvent',
+    EventBus.instance.publish<DamageSegmentRequestedEvent>({
+      type: 'DamageSegmentRequestedEvent',
       timestamp: Date.now(),
       caster: enemy,
       target: owner,
+      resolution: damageResolution(enemy, owner, 'delayed'),
       damageSource: DamageSource.DELAYED,
       damageType: DamageType.DOT,
       baseDamage: 25,
@@ -189,10 +223,10 @@ describe('九劫天宫核心战斗语义', () => {
   it('承天受劫只降低直接伤害，并在一次攻击行动内只获得一点劫数', () => {
     const { owner, enemy, skill } = setup();
     cast(skill('receive-calamity'), owner, owner);
-    const request: DamageRequestEvent = { type: 'DamageRequestEvent', timestamp: Date.now(), caster: enemy, target: owner, damageSource: DamageSource.DIRECT, damageType: DamageType.PHYSICAL, baseDamage: 100, finalDamage: 100 };
+    const request: DamageSegmentRequestedEvent = { type: 'DamageSegmentRequestedEvent', timestamp: Date.now(), caster: enemy, target: owner, resolution: damageResolution(enemy, owner, 'request'), damageSource: DamageSource.DIRECT, damageType: DamageType.PHYSICAL, baseDamage: 100, finalDamage: 100 };
     beginRuntimeAction(enemy);
     EventBus.instance.publish(request);
-    const taken: DamageTakenEvent = { type: 'DamageTakenEvent', timestamp: Date.now(), caster: enemy, target: owner, damageSource: DamageSource.DIRECT, damageTaken: 80, beforeHp: owner.getCurrentHp(), remainHp: owner.getCurrentHp() - 80, hpReachedZeroBeforeReactions: false };
+    const taken: DamageSegmentAppliedEvent = { type: 'DamageSegmentAppliedEvent', timestamp: Date.now(), caster: enemy, target: owner, resolution: request.resolution, damageSource: DamageSource.DIRECT, damageType: DamageType.PHYSICAL, finalDamage: 80, damageTaken: 80, beforeHp: owner.getCurrentHp(), remainHp: owner.getCurrentHp() - 80, shieldAbsorbed: 0, remainShield: 0, hpReachedZeroBeforeReactions: false };
     EventBus.instance.publish(taken);
     EventBus.instance.publish({ ...taken, timestamp: Date.now() });
     expect(request.damageReductionPctBucket).toBeCloseTo(0.2);
@@ -202,17 +236,39 @@ describe('九劫天宫核心战斗语义', () => {
   it('劫眼期间首次直接受击会给攻击者施加劫雷', () => {
     const { owner, enemy, skill } = setup();
     cast(skill('receive-calamity'), owner, owner);
-    const taken: DamageTakenEvent = { type: 'DamageTakenEvent', timestamp: Date.now(), caster: enemy, target: owner, damageSource: DamageSource.DIRECT, damageTaken: 40, beforeHp: owner.getCurrentHp(), remainHp: owner.getCurrentHp() - 40, hpReachedZeroBeforeReactions: false };
+    const taken: DamageSegmentAppliedEvent = { type: 'DamageSegmentAppliedEvent', timestamp: Date.now(), caster: enemy, target: owner, resolution: damageResolution(enemy, owner, 'first-hit'), damageSource: DamageSource.DIRECT, damageType: DamageType.PHYSICAL, finalDamage: 40, damageTaken: 40, beforeHp: owner.getCurrentHp(), remainHp: owner.getCurrentHp() - 40, shieldAbsorbed: 0, remainShield: 0, hpReachedZeroBeforeReactions: false };
     EventBus.instance.publish(taken);
     expect(enemy.tags.hasTag('Buff.Sect.jiujie.thunder')).toBe(true);
+  });
+
+  it('借劫续门只把已有劫眼与承天受劫各延长一回合', () => {
+    const { owner, skill } = setup(JIUJIE_EYE_PATH_ID, ['eye-return']);
+    expect(resolveSectAbility({
+      sect: state(JIUJIE_EYE_PATH_ID, ['eye-return']), realm: '化神', abilityId: 'borrow-calamity',
+    }).config.effects?.filter((effect) => effect.type === 'apply_buff')).toHaveLength(2);
+    cast(skill('receive-calamity'), owner, owner);
+    owner.combatResources.set(JIUJIE_CALAMITY, 1);
+    cast(skill('borrow-calamity'), owner, owner);
+    expect(owner.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_EYE)?.getMaxDuration()).toBe(3);
+    expect(owner.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_EYE)?.getDuration()).toBe(3);
+    expect(owner.buffs.getAllBuffs().find((buff) => buff.id === 'sect.jiujie.receive-calamity')?.getDuration()).toBe(3);
+
+    owner.buffs.removeBuff(JIUJIE_EYE);
+    owner.buffs.removeBuff('sect.jiujie.receive-calamity');
+    owner.combatResources.set(JIUJIE_CALAMITY, 1);
+    cast(skill('borrow-calamity'), owner, owner);
+    expect(owner.buffs.getAllBuffIds()).not.toContain(JIUJIE_EYE);
+    expect(owner.buffs.getAllBuffIds()).not.toContain('sect.jiujie.receive-calamity');
   });
 
   it('只有劫眼道途记录承劫量，并由九霄清算兑现', () => {
     const eye = setup(JIUJIE_EYE_PATH_ID);
     cast(eye.skill('receive-calamity'), eye.owner, eye.owner);
-    const taken: DamageTakenEvent = {
-      type: 'DamageTakenEvent', timestamp: Date.now(), caster: eye.enemy, target: eye.owner,
+    const taken: DamageSegmentAppliedEvent = {
+      type: 'DamageSegmentAppliedEvent', timestamp: Date.now(), caster: eye.enemy, target: eye.owner,
+      resolution: damageResolution(eye.enemy, eye.owner, 'memory'),
       damageSource: DamageSource.DIRECT, damageTaken: 40, beforeHp: eye.owner.getCurrentHp(),
+      damageType: DamageType.PHYSICAL, finalDamage: 40, shieldAbsorbed: 0, remainShield: 0,
       remainHp: eye.owner.getCurrentHp() - 40, hpReachedZeroBeforeReactions: false,
     };
     EventBus.instance.publish(taken);
@@ -220,8 +276,8 @@ describe('九劫天宫核心战斗语义', () => {
 
     eye.owner.combatResources.set(JIUJIE_CALAMITY, 2);
     cast(eye.skill('heaven-hearing'), eye.owner, eye.enemy);
-    const requests: DamageRequestEvent[] = [];
-    EventBus.instance.subscribe<DamageRequestEvent>('DamageRequestEvent', (event) => requests.push(event));
+    const requests: DamageSegmentRequestedEvent[] = [];
+    EventBus.instance.subscribe<DamageSegmentRequestedEvent>('DamageSegmentRequestedEvent', (event) => requests.push(event));
     cast(eye.skill('nine-sky-settlement'), eye.owner, eye.enemy);
     expect(requests.find((event) => event.damageSource === DamageSource.FOLLOW_UP)?.baseDamage).toBe(14);
     expect(getBattleRuntimeState(eye.owner).memories.has(JIUJIE_EYE)).toBe(false);
@@ -248,8 +304,8 @@ describe('九劫天宫核心战斗语义', () => {
       enemy.buffs.addBuff(debt, owner);
       for (let index = 1; index < layers; index += 1) debt.addLayer(1);
     }
-    const requests: DamageRequestEvent[] = [];
-    EventBus.instance.subscribe<DamageRequestEvent>('DamageRequestEvent', (event) => requests.push(event));
+    const requests: DamageSegmentRequestedEvent[] = [];
+    EventBus.instance.subscribe<DamageSegmentRequestedEvent>('DamageSegmentRequestedEvent', (event) => requests.push(event));
     cast(skill('causal-echo'), owner, enemy);
     expect(requests).toHaveLength(1 + layers);
   });
@@ -292,7 +348,6 @@ describe('九劫天宫核心战斗语义', () => {
     owner.combatResources.set(JIUJIE_CALAMITY, 2);
     const config = resolveSectAbility({ sect: state(), realm: '化神', abilityId: 'nine-sky-settlement' }).config;
     expect(config.castConditions).toEqual(expect.arrayContaining([{ type: 'has_tag', params: expect.objectContaining({ scope: 'target' }) }]));
-    expect(config.effects?.filter((effect) => effect.type === 'consume_status_trigger')).toHaveLength(2);
     const settlements = config.effects?.filter((effect) => effect.type === 'consume_status_trigger') ?? [];
     expect(settlements.find((effect) => effect.type === 'consume_status_trigger' && effect.params.match.id === JIUJIE_DEBT)).toMatchObject({ params: { scaleEffectsByLayer: true, consume: 'all' } });
     expect(settlements.find((effect) => effect.type === 'consume_status_trigger' && effect.params.match.id === JIUJIE_REOFFEND)).toMatchObject({ params: { scaleEffectsByLayer: true, consume: 'all' } });
@@ -308,6 +363,7 @@ describe('九劫天宫核心战斗语义', () => {
     active.setOwner(enemy);
     beginRuntimeAction(enemy);
     publishSkill(enemy, owner, active);
+    beginRuntimeAction(enemy);
     publishSkill(enemy, owner, active);
     expect(enemy.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_SIN_DAMAGE)).toBeDefined();
     expect(enemy.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_REOFFEND)?.getLayer()).toBe(1);
@@ -327,6 +383,131 @@ describe('九劫天宫核心战斗语义', () => {
     beginRuntimeAction(enemy);
     publishSkill(enemy, owner, support);
     expect(enemy.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_SIN_SUPPORT)).toBeDefined();
+  });
+
+  it('庶行有录每回合只延长一次劫雷，两避成罪仍统计连续两次普攻', () => {
+    const { owner, enemy, skill, projection } = setup(JIUJIE_CONDEMNATION_PATH_ID, [
+      'condemnation-heaven-hearing',
+      'condemnation-no-escape',
+    ]);
+    cast(skill('heaven-hearing'), owner, enemy);
+    const basic = AbilityFactory.create(projection.defaultAttack!) as ActiveSkill;
+    basic.setOwner(enemy);
+    publishSkill(enemy, owner, basic);
+    expect(enemy.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_THUNDER)?.getDuration()).toBe(4);
+    publishSkill(enemy, owner, basic);
+    expect(enemy.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_THUNDER)?.getDuration()).toBe(4);
+    expect(enemy.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_DEBT)?.getLayer()).toBe(1);
+  });
+
+  it.each([
+    ['eye-true-record', 'eye-nine-gates', 0.60, DamageType.TRUE, false, false],
+    ['eye-true-record', 'eye-heavenly-shield', 0.45, DamageType.TRUE, false, true],
+    ['eye-true-record', 'eye-calamity-without-end', 0.45, DamageType.TRUE, false, false],
+    ['eye-returning-law', 'eye-nine-gates', 1.00, DamageType.MAGICAL, true, false],
+    ['eye-returning-law', 'eye-heavenly-shield', 0.35, DamageType.MAGICAL, true, true],
+    ['eye-returning-law', 'eye-calamity-without-end', 0.35, DamageType.MAGICAL, true, false],
+    ['eye-after-rain', 'eye-nine-gates', 1.00, DamageType.MAGICAL, false, false],
+    ['eye-after-rain', 'eye-heavenly-shield', 0.35, DamageType.MAGICAL, false, true],
+    ['eye-after-rain', 'eye-calamity-without-end', 0.35, DamageType.MAGICAL, false, false],
+  ] as const)('劫眼第五层%s与终极层%s按既定顺序兑现承劫记忆', (
+    fifthNode, ultimateNode, damageRatio, damageType, heals, shields,
+  ) => {
+    const { owner, enemy, skill } = setup(JIUJIE_EYE_PATH_ID, [fifthNode, ultimateNode]);
+    cast(skill('receive-calamity'), owner, owner);
+    const taken: DamageSegmentAppliedEvent = {
+      type: 'DamageSegmentAppliedEvent', timestamp: Date.now(), caster: enemy, target: owner,
+      resolution: damageResolution(enemy, owner, `${fifthNode}:${ultimateNode}`),
+      damageSource: DamageSource.DIRECT, damageType: DamageType.PHYSICAL,
+      finalDamage: 100, damageTaken: 100, beforeHp: owner.getCurrentHp(),
+      remainHp: owner.getCurrentHp() - 100, shieldAbsorbed: 0, remainShield: 0,
+      hpReachedZeroBeforeReactions: false,
+    };
+    EventBus.instance.publish(taken);
+    owner.buffs.removeBuff(JIUJIE_EYE);
+    owner.buffs.removeBuff('sect.jiujie.receive-calamity');
+    owner.setHp(owner.getMaxHp() - 500);
+    cast(skill('heaven-hearing'), owner, enemy);
+    owner.combatResources.set(JIUJIE_CALAMITY, 3);
+    const requests: DamageSegmentRequestedEvent[] = [];
+    EventBus.instance.subscribe<DamageSegmentRequestedEvent>('DamageSegmentRequestedEvent', (event) => requests.push(event));
+    const hpBefore = owner.getCurrentHp();
+    cast(skill('nine-sky-settlement'), owner, enemy);
+
+    const memoryDamage = requests.find((event) =>
+      event.damageComponents?.some((component) => component.kind === 'memory'));
+    expect(memoryDamage?.baseDamage).toBe(Math.round(100 * damageRatio));
+    expect(memoryDamage?.damageType).toBe(damageType);
+    expect(owner.getCurrentHp() - hpBefore).toBe(heals ? 25 : 0);
+    expect(owner.getCurrentShield()).toBe(shields ? 60 : 0);
+    expect(getBattleRuntimeState(owner).memories.has(JIUJIE_EYE)).toBe(false);
+
+    const reopenedEye = owner.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_EYE);
+    if (ultimateNode === 'eye-calamity-without-end') {
+      expect(reopenedEye?.getDuration()).toBe(2);
+    } else if (fifthNode === 'eye-after-rain') {
+      expect(reopenedEye?.getDuration()).toBe(1);
+    } else {
+      expect(reopenedEye).toBeUndefined();
+    }
+  });
+
+  it.each([
+    ['condemnation-reoffend', 'condemnation-final-verdict'],
+    ['condemnation-reoffend', 'condemnation-nine-crimes'],
+    ['condemnation-reoffend', 'condemnation-heavenly-punishment'],
+    ['condemnation-clear-book', 'condemnation-final-verdict'],
+    ['condemnation-clear-book', 'condemnation-nine-crimes'],
+    ['condemnation-clear-book', 'condemnation-heavenly-punishment'],
+    ['condemnation-no-escape', 'condemnation-final-verdict'],
+    ['condemnation-no-escape', 'condemnation-nine-crimes'],
+    ['condemnation-no-escape', 'condemnation-heavenly-punishment'],
+  ] as const)('天谴第五层%s与终极层%s遵守清算消费和保留优先级', (fifthNode, ultimateNode) => {
+    const { owner, enemy, skill } = setup(JIUJIE_CONDEMNATION_PATH_ID, [fifthNode, ultimateNode]);
+    const addLayered = (id: string, name: string, maxLayers: number, layers: number) => {
+      const buff = BuffFactory.create({
+        id, name, type: BuffType.DEBUFF, duration: 4,
+        stackRule: StackRule.STACK_LAYER, maxLayers, dispelPolicy: 'protected',
+        tags: [jiujieTag(id === JIUJIE_DEBT ? 'debt' : 'reoffend')],
+      });
+      enemy.buffs.addBuff(buff, owner);
+      for (let index = 1; index < layers; index += 1) buff.addLayer(1);
+    };
+    enemy.buffs.addBuff(BuffFactory.create({
+      id: JIUJIE_THUNDER, name: '劫雷', type: BuffType.DEBUFF, duration: 3,
+      dispelPolicy: 'protected', tags: [jiujieTag('thunder'), jiujieTag('calamity')],
+      statusTags: [jiujieTag('thunder'), jiujieTag('calamity')],
+    }), owner);
+    addLayered(JIUJIE_DEBT, '劫债', 3, 3);
+    addLayered(JIUJIE_REOFFEND, '重犯', 2, 2);
+    enemy.buffs.addBuff(BuffFactory.create({
+      id: JIUJIE_SIN_DAMAGE, name: '主罪·伤害', type: BuffType.DEBUFF, duration: 4,
+      dispelPolicy: 'protected', countsAsStatus: false,
+      tags: [JIUJIE_SIN_DAMAGE, jiujieTag('sin')], statusTags: [JIUJIE_SIN_DAMAGE],
+    }), owner);
+    owner.combatResources.set(JIUJIE_CALAMITY, 3);
+    const requests: DamageSegmentRequestedEvent[] = [];
+    EventBus.instance.subscribe<DamageSegmentRequestedEvent>('DamageSegmentRequestedEvent', (event) => requests.push(event));
+    cast(skill('nine-sky-settlement'), owner, enemy);
+
+    expect(owner.combatResources.getCurrent(JIUJIE_CALAMITY)).toBe(
+      ultimateNode === 'condemnation-final-verdict' ? 1 : 0,
+    );
+    expect(requests.filter((event) => event.damageType === DamageType.DOT)).toHaveLength(
+      fifthNode === 'condemnation-reoffend' ? 2 : 0,
+    );
+    expect(enemy.buffs.getAllBuffIds().includes(JIUJIE_SIN_DAMAGE)).toBe(
+      fifthNode === 'condemnation-clear-book',
+    );
+    expect(enemy.buffs.getAllBuffIds().includes(JIUJIE_DAMAGE_SENTENCE)).toBe(
+      ultimateNode === 'condemnation-nine-crimes',
+    );
+    if (ultimateNode === 'condemnation-heavenly-punishment') {
+      expect(enemy.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_THUNDER)?.getDuration()).toBe(2);
+      expect(enemy.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_DEBT)?.getLayer()).toBe(1);
+    } else {
+      expect(enemy.buffs.getAllBuffs().find((buff) => buff.id === JIUJIE_DEBT)).toBeUndefined();
+    }
   });
 
   it('天威裁决以20%概率免疫法术或负面技能，普攻不触发该被动', () => {

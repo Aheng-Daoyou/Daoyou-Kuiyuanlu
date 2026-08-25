@@ -1,5 +1,6 @@
 import type { AbilitySelectionCandidate } from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
 import type { ActiveSkill } from '@shared/engine/battle-v5/abilities/ActiveSkill';
+import { StackRule } from '@shared/engine/battle-v5/buffs/Buff';
 import { AttributeType, BuffType } from '@shared/engine/battle-v5/core/types';
 import { AbilityFactory } from '@shared/engine/battle-v5/factories/AbilityFactory';
 import { BuffFactory } from '@shared/engine/battle-v5/factories/BuffFactory';
@@ -33,7 +34,7 @@ const ALL_ABILITIES = [
   'nine-sky-settlement',
 ] as const;
 
-function state(pathId?: PathId, tacticId?: SectTacticId): CultivatorSectState {
+function state(pathId?: PathId, tacticId?: SectTacticId, nodeIds: string[] = []): CultivatorSectState {
   return {
     membershipId: 'jiujie-strategy',
     sectId: 'jiujie',
@@ -53,7 +54,7 @@ function state(pathId?: PathId, tacticId?: SectTacticId): CultivatorSectState {
       ? [
           {
             pathId,
-            unlockedLayerIds: [],
+            unlockedLayerIds: ['1', '2', '3', '4', '5', 'ultimate'],
             tacticId:
               tacticId ??
               (pathId === JIUJIE_EYE_PATH_ID
@@ -61,7 +62,7 @@ function state(pathId?: PathId, tacticId?: SectTacticId): CultivatorSectState {
                 : 'record-and-judge'),
             activeMeridianSlot: 1,
             meridianLoadouts: [
-              { slot: 1, nodeIds: [], version: 1 },
+              { slot: 1, nodeIds, version: 1 },
               { slot: 2, nodeIds: [], version: 1 },
               { slot: 3, nodeIds: [], version: 1 },
             ],
@@ -99,8 +100,9 @@ function context(
   tacticId: SectTacticId | undefined,
   setup?: (caster: Unit, opponent: Unit) => void,
   abilityIds: readonly string[] = ALL_ABILITIES,
+  nodeIds: string[] = [],
 ) {
-  const sect = state(pathId, tacticId);
+  const sect = state(pathId, tacticId, nodeIds);
   const caster = unit('caster');
   const opponent = unit('opponent');
   caster.combatResources.define({
@@ -246,5 +248,33 @@ describe('九劫天宫自动施法策略', () => {
         context(JIUJIE_CONDEMNATION_PATH_ID, 'listen-to-heaven'),
       )?.ability.id,
     ).toBe('sect.jiujie.heaven-hearing');
+  });
+
+  it('重典战术在满债且劫数未满时优先使用带重法催审语义的因果回响', () => {
+    const battle = context(
+      JIUJIE_CONDEMNATION_PATH_ID,
+      'heavy-statute',
+      (caster, opponent) => {
+        caster.combatResources.set(JIUJIE_CALAMITY, 2);
+        markThunder(opponent);
+        const debt = BuffFactory.create({
+          id: 'sect.jiujie.debt',
+          name: '劫债',
+          type: BuffType.DEBUFF,
+          duration: 4,
+          maxLayers: 3,
+          stackRule: StackRule.STACK_LAYER,
+        });
+        opponent.buffs.addBuff(debt, caster);
+        debt.addLayer(2);
+      },
+      ALL_ABILITIES,
+      ['condemnation-heavy-statute'],
+    );
+
+    expect(
+      new JiujieCondemnationSelectionStrategy('heavy-statute').select(battle)
+        ?.ability.id,
+    ).toBe('sect.jiujie.causal-echo');
   });
 });

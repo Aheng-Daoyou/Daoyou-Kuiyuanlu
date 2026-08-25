@@ -1,4 +1,5 @@
 import type { AbilitySelectionContext } from '@shared/engine/battle-v5/abilities/AbilitySelectionStrategy';
+import { GameplayTags } from '@shared/engine/shared/tag-domain';
 import { SectTacticalSelectionStrategy, type SectTacticId } from '../../core';
 import {
   JIUJIE_CALAMITY,
@@ -135,7 +136,19 @@ export class JiujieEyeSelectionStrategy extends Strategy {
 export class JiujieCondemnationSelectionStrategy extends Strategy {
   protected decide(context: AbilitySelectionContext) {
     const thunder = layers(context, JIUJIE_THUNDER);
+    const debt = layers(context, JIUJIE_DEBT);
     const calamity = context.caster.combatResources.getCurrent(JIUJIE_CALAMITY);
+
+    if (this.tacticId === 'heavy-statute' && debt >= 3 && calamity < 3) {
+      const echo = this.result(context, 'causal-echo', 700);
+      if (
+        echo?.ability.tags.hasTag(
+          GameplayTags.ABILITY.SECT.mechanic(JIUJIE_SECT_ID, 'heavy-statute'),
+        )
+      ) {
+        return this.cast(echo);
+      }
+    }
 
     if (canSettle(context, calamity)) {
       return this.pick(context, ['nine-sky-settlement', 'causal-echo']);

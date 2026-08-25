@@ -194,6 +194,7 @@ export const GameplayTags = {
     DAMAGE_TAKEN: 'DamageSegmentAppliedEvent',
     DAMAGE_REQUEST: 'DamageSegmentRequestedEvent',
     DAMAGE: 'DamageSegmentRequestedEvent',
+    SHIELD_BREAK: 'ShieldBreakEvent',
     ROUND_PRE: 'RoundPreEvent',
     ROUND_POST: 'RoundPostEvent',
     ROUND_START: 'RoundStartEvent',

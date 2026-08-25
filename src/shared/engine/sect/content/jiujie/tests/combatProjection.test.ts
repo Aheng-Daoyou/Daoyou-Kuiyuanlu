@@ -21,6 +21,23 @@ function state(pathId: string, nodeIds: string[] = []): CultivatorSectState {
 }
 
 describe('九劫天宫宗门投影', () => {
+  const expectedEyeNodes = [
+    ['eye-open', '开门迎劫'], ['eye-bear', '承灾留名'], ['eye-first-light', '雷光护心'],
+    ['eye-record', '血甲同书'], ['eye-question', '问劫寻隙'], ['eye-return', '借劫续门'],
+    ['eye-guard', '不退天门'], ['eye-deep-return', '劫威反震'], ['eye-still', '静候雷来'],
+    ['eye-long-gaze', '众劫归一'], ['eye-heavy-thunder', '雷狱追身'], ['eye-shelter', '劫甲回生'],
+    ['eye-true-record', '真劫入簿'], ['eye-returning-law', '劫尽身还'], ['eye-after-rain', '清算留门'],
+    ['eye-nine-gates', '九门归劫'], ['eye-heavenly-shield', '身为天门'], ['eye-calamity-without-end', '劫后再开'],
+  ] as const;
+  const expectedCondemnationNodes = [
+    ['condemnation-record', '天听记名'], ['condemnation-question', '问行取证'], ['condemnation-first-crime', '初罪立案'],
+    ['condemnation-repeat', '伤罪加刑'], ['condemnation-heavy-debt', '援罪断供'], ['condemnation-long-record', '禁罪反照'],
+    ['condemnation-no-pardon', '易罪不赦'], ['condemnation-debt-book', '定罪成册'], ['condemnation-heaven-hearing', '庶行有录'],
+    ['condemnation-heavy-statute', '重法催审'], ['condemnation-quick-record', '疾书追罪'], ['condemnation-three-questions', '三问成案'],
+    ['condemnation-reoffend', '再犯从重'], ['condemnation-clear-book', '清册留案'], ['condemnation-no-escape', '两避成罪'],
+    ['condemnation-final-verdict', '三债终审'], ['condemnation-nine-crimes', '九罪同科'], ['condemnation-heavenly-punishment', '天谴不绝'],
+  ] as const;
+
   it('注册六本心法、两道途与每道途18个节点', () => {
     expect(PRODUCTION_SECT_IDS).toContain('jiujie');
     expect(JIUJIE_BASE_DEFINITION.methods).toHaveLength(6);
@@ -29,6 +46,11 @@ describe('九劫天宫宗门投影', () => {
       expect(path.nodes).toHaveLength(18);
       expect(new Set(path.nodes.map((node) => node.id)).size).toBe(18);
     }
+  });
+
+  it('保留36个稳定节点ID并投影裁定后的节点名称', () => {
+    expect(JIUJIE_EYE_NODES.map((item) => [item.definition.id, item.definition.name])).toEqual(expectedEyeNodes);
+    expect(JIUJIE_CONDEMNATION_NODES.map((item) => [item.definition.id, item.definition.name])).toEqual(expectedCondemnationNodes);
   });
 
   it('五本心法投影到现有面板基础数值，主心法不提供面板加成', () => {
@@ -42,47 +64,50 @@ describe('九劫天宫宗门投影', () => {
     ]);
   });
 
-  it('道途节点的重复方向会累积为可观察的共通技能参数变化', () => {
+  it('构筑门面以语义特性记录节点能力', () => {
     const eyeSettings = createJiujieBuildSettings(JIUJIE_EYE_PATH_ID);
     const eye = new JiujieEyeBuildFacade(eyeSettings);
-    eye.extendReceive();
-    eye.extendReceive();
-    eye.strengthenSettlement();
-    expect(eyeSettings.receiveDuration).toBe(4);
-    expect(eyeSettings.finishMemoryRatio).toBeCloseTo(0.50);
+    eye.enable('openingShield');
+    eye.enable('memoryHeal');
+    expect(eyeSettings.eye.openingShield).toBe(true);
+    expect(eyeSettings.eye.memoryHeal).toBe(true);
 
     const condemnationSettings = createJiujieBuildSettings(JIUJIE_CONDEMNATION_PATH_ID);
     const condemnation = new JiujieCondemnationBuildFacade(condemnationSettings);
-    condemnation.strengthenReoffend();
-    condemnation.strengthenReoffend();
-    condemnation.strengthenSettlement();
-    condemnation.strengthenThunderTrigger();
-    expect(condemnationSettings.reoffendBonus).toBeCloseTo(0.35);
-    expect(condemnationSettings.settlementThunderDuration).toBe(1);
-    expect(condemnationSettings.thunderCoefficient).toBeCloseTo(0.27);
+    condemnation.enable('lockCrime');
+    condemnation.enable('crimeVerdict');
+    expect(condemnationSettings.condemnation.lockCrime).toBe(true);
+    expect(condemnationSettings.condemnation.crimeVerdict).toBe(true);
   });
 
   it('关键节点修改与节点描述一致的编译字段', () => {
     const eyeState = state(JIUJIE_EYE_PATH_ID, ['eye-open']);
     const receive = resolveSectAbility({ sect: eyeState, realm: '化神', abilityId: 'receive-calamity' }).config;
     const receiveBuff = receive.effects?.find((effect) => effect.type === 'apply_buff');
-    expect(receiveBuff).toMatchObject({ params: { buffConfig: { duration: 3 } } });
+    expect(receiveBuff).toMatchObject({ params: { buffConfig: { duration: 2 } } });
+    expect(receive.effects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'shield' }),
+      expect.objectContaining({ type: 'apply_buff' }),
+    ]));
 
     const condemnationState = state(JIUJIE_CONDEMNATION_PATH_ID, ['condemnation-first-crime']);
     const runtime = resolveSectAbility({ sect: condemnationState, realm: '化神', abilityId: 'jiujie-law-runtime' }).config;
     const activeTrigger = runtime.listeners?.find((listener) => listener.id === 'jiujie.law.active-trigger');
     const baselineRuntime = resolveSectAbility({ sect: state(JIUJIE_CONDEMNATION_PATH_ID), realm: '化神', abilityId: 'jiujie-law-runtime' }).config;
     const baselineTrigger = baselineRuntime.listeners?.find((listener) => listener.id === 'jiujie.law.active-trigger');
-    const coefficient = activeTrigger?.effects.find((effect) => effect.type === 'damage');
-    const baselineCoefficient = baselineTrigger?.effects.find((effect) => effect.type === 'damage');
-    expect(coefficient?.type === 'damage' ? coefficient.params.value.coefficient : undefined)
-      .toBeCloseTo((baselineCoefficient?.type === 'damage' ? baselineCoefficient.params.value.coefficient ?? 0 : 0) + 0.02);
+    expect(activeTrigger).not.toEqual(baselineTrigger);
+    expect(JSON.stringify(activeTrigger)).toContain('first-crime-ready');
   });
 
   it.each([
     [JIUJIE_EYE_PATH_ID, JIUJIE_EYE_NODES],
     [JIUJIE_CONDEMNATION_PATH_ID, JIUJIE_CONDEMNATION_NODES],
   ] as const)('%s 的18个节点均会改变共通底板且不更换技能或资源ID', (pathId, nodes) => {
+    const behaviorOnly = (abilities: Record<string, { description?: string }>) =>
+      Object.fromEntries(Object.entries(abilities).map(([id, config]) => [
+        id,
+        { ...config, description: undefined },
+      ]));
     const baseline = productionSectRuntime.compiler.compile(JIUJIE_MODULE, {
       sect: state(pathId),
       realm: '化神',
@@ -93,8 +118,10 @@ describe('九劫天宫宗门投影', () => {
         realm: '化神',
       });
       expect(compiled, node.definition.id).not.toEqual(baseline);
+      expect(behaviorOnly(compiled.abilities), node.definition.id).not.toEqual(behaviorOnly(baseline.abilities));
       expect(Object.keys(compiled.abilities), node.definition.id).toEqual(Object.keys(baseline.abilities));
       expect(compiled.resources.map((resource) => resource.id), node.definition.id).toEqual(baseline.resources.map((resource) => resource.id));
+      expect(JSON.stringify(compiled.abilities), node.definition.id).toContain(`参悟·${node.definition.name}`);
     }
   });
 
