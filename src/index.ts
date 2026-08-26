@@ -29,7 +29,6 @@ process.once('SIGINT', () => void shutdown('SIGINT'));
 
 export default {
   port: Number(process.env.PORT ?? 3000),
-  idleTimeout: 30,
   fetch(request: Request, server: unknown) {
     return app.fetch(request, { server });
   },
