@@ -56,6 +56,7 @@ id: dungeon-settlement
 
 - 所有面向玩家的叙事与名称使用简体中文；内部枚举仅按结构化字段填写，不写入玩家文本。
 - `ending_narrative` 只叙述已经发生的结局，不追加新战斗、新代价或未进入奖励数组的战利品。
+- `reward_tier` 只填写评级枚举。`reward_blueprints` 中每件材料必须填写 `name`、`description`、`material_type` 和 `reward_score`；只有属性明确时才填写 `element`，其值只能为 `金`、`木`、`水`、`火`、`土`、`风`、`雷`、`冰`。
 - 只输出结构化结果，不输出评价标签、字段解释、分析过程或 Markdown。评价展示标签将由服务端生成。
 
 ## user

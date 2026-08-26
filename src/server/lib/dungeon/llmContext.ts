@@ -10,11 +10,11 @@ import type {
   RewardBlueprint,
 } from './types';
 
-const HISTORY_LIMIT = 3;
+const HISTORY_LIMIT = 4;
 const JOURNEY_LIMIT = 5;
-const SCENE_SUMMARY_MAX_CHARS = 80;
-const OUTCOME_SUMMARY_MAX_CHARS = 60;
-const MAP_DESCRIPTION_MAX_CHARS = 72;
+const SCENE_SUMMARY_MAX_CHARS = 140;
+const OUTCOME_SUMMARY_MAX_CHARS = 90;
+const MAP_DESCRIPTION_MAX_CHARS = 100;
 const FALLBACK_TEXT = '未见分明痕迹';
 const DUNGEON_REWARD_BLUEPRINT_LIMIT = 5;
 

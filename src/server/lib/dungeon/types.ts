@@ -19,6 +19,8 @@ const ShortTextSchema = z.string().trim().min(2).max(60);
 
 const NarrativeSchema = z.string().trim().min(12).max(240);
 
+const RoundNarrativeSchema = z.string().trim().min(300).max(900);
+
 const DungeonBattleMetadataSchema = z.object({
   race: z.enum(ENEMY_RACE_VALUES).describe('敌人种族'),
   realm_stage: z.enum(REALM_STAGE_VALUES).describe('敌人境界阶段'),
@@ -167,19 +169,28 @@ export const RewardBlueprintSchema = z.object({
 export type RewardBlueprint = z.infer<typeof RewardBlueprintSchema>;
 
 const RewardBlueprintLlmSchema = z.object({
-  name: ShortTextSchema.max(24),
-  description: NarrativeSchema.max(100),
-  material_type: z.enum([
-    'herb',
-    'ore',
-    'monster',
-    'tcdb',
-    'aux',
-    'gongfa_manual',
-    'skill_manual',
-  ]),
-  element: z.enum(['金', '木', '水', '火', '土', '风', '雷', '冰']).optional(),
-  reward_score: z.number().min(0).max(100),
+  name: ShortTextSchema.max(24).describe('面向玩家的材料名称'),
+  description: NarrativeSchema.max(100).describe('材料外观、性质与用途描述'),
+  material_type: z
+    .enum([
+      'herb',
+      'ore',
+      'monster',
+      'tcdb',
+      'aux',
+      'gongfa_manual',
+      'skill_manual',
+    ])
+    .describe('材料内部分类枚举'),
+  element: z
+    .enum(['金', '木', '水', '火', '土', '风', '雷', '冰'])
+    .optional()
+    .describe('材料属性明确时填写的可选元素枚举'),
+  reward_score: z
+    .number()
+    .min(0)
+    .max(100)
+    .describe('材料本身的稀有度评分，不是副本表现评分'),
 });
 
 // Response from AI for each round
@@ -204,28 +215,43 @@ export const DungeonRoundSchema = z.object({
 });
 
 const DungeonBattleMetadataLlmSchema = z.object({
-  race: z.enum(ENEMY_RACE_VALUES),
-  realm_stage: z.enum(REALM_STAGE_VALUES),
-  enemy_name: ShortTextSchema.max(20),
-  background: NarrativeSchema.max(80).optional(),
-  description: NarrativeSchema.max(80).optional(),
-  is_boss: z.boolean().optional(),
+  race: z.enum(ENEMY_RACE_VALUES).describe('敌人种族内部枚举'),
+  realm_stage: z
+    .enum(REALM_STAGE_VALUES)
+    .describe('敌人境界阶段，不包含炼气、筑基等境界名称'),
+  enemy_name: ShortTextSchema.max(20).describe('面向玩家的敌人名称'),
+  background: NarrativeSchema.max(80)
+    .optional()
+    .describe('可选的敌人来历，用于生成战斗叙事'),
+  description: NarrativeSchema.max(80)
+    .optional()
+    .describe('可选的敌人外观与战斗特点'),
+  is_boss: z.boolean().optional().describe('只有副本首领才为 true'),
 });
 
 const DungeonCostLlmSchema = z
   .object({
-    type: z.enum([
-      'spirit_stones',
-      'lifespan',
-      'cultivation_exp',
-      'comprehension_insight',
-      'material',
-      'hp_loss',
-      'mp_loss',
-      'battle',
-    ]),
-    value: z.number().positive().max(10_000_000),
-    required_quality: z.enum(DUNGEON_QUALITY_VALUES).optional(),
+    type: z
+      .enum([
+        'spirit_stones',
+        'lifespan',
+        'cultivation_exp',
+        'comprehension_insight',
+        'material',
+        'hp_loss',
+        'mp_loss',
+        'battle',
+      ])
+      .describe('玩家选择后真实结算的代价类型'),
+    value: z
+      .number()
+      .positive()
+      .max(10_000_000)
+      .describe('代价数量；气血/法力为 0-1 比例，战斗固定填 1'),
+    required_quality: z
+      .enum(DUNGEON_QUALITY_VALUES)
+      .optional()
+      .describe('仅 material 使用且必须填写，表示被消耗材料的最低品质'),
     required_type: z
       .enum([
         'herb',
@@ -236,8 +262,11 @@ const DungeonCostLlmSchema = z
         'gongfa_manual',
         'skill_manual',
       ])
-      .optional(),
-    metadata: DungeonBattleMetadataLlmSchema.optional(),
+      .optional()
+      .describe('仅 material 使用且必须填写，表示被消耗材料的类别'),
+    metadata: DungeonBattleMetadataLlmSchema.optional().describe(
+      '仅 battle 使用且必须填写；其他代价不要输出 metadata',
+    ),
   })
   .superRefine((cost, ctx) => {
     if (cost.type === 'battle' && !cost.metadata) {
@@ -270,20 +299,42 @@ const DungeonCostLlmSchema = z
   });
 
 const DungeonOptionLlmSchema = z.object({
-  text: ShortTextSchema,
-  costs: z.array(DungeonCostLlmSchema).max(2).optional(),
+  text: ShortTextSchema.describe('面向玩家的行动、手段与目的'),
+  costs: z
+    .array(DungeonCostLlmSchema)
+    .max(2)
+    .describe('选择该行动后真实触发的代价；无代价时为空数组'),
 });
 
 export function createDungeonRoundLlmSchema(maxRewardCount: number) {
-  return z.object({
-    scene_description: NarrativeSchema,
-    options: z.array(DungeonOptionLlmSchema).length(3),
-    acquired_items: z
-      .array(RewardBlueprintLlmSchema)
-      .max(Math.max(0, maxRewardCount))
-      .optional(),
-    internal_danger_score: z.number().int().min(0).max(100),
-  });
+  return z
+    .object({
+      scene_description:
+        RoundNarrativeSchema.describe('承接前情并推进到本轮抉择点的剧情正文'),
+      options: z
+        .array(DungeonOptionLlmSchema)
+        .length(3)
+        .describe('依次为低风险、高风险、中风险的三个行动'),
+      acquired_items: z
+        .array(RewardBlueprintLlmSchema)
+        .max(Math.max(0, maxRewardCount))
+        .optional(),
+      internal_danger_score: z
+        .number()
+        .int()
+        .min(0)
+        .max(100)
+        .describe('进入本轮剧情后的累计危险值'),
+    })
+    .superRefine((round, ctx) => {
+      if ((round.options[1]?.costs.length ?? 0) === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['options', 1, 'costs'],
+          message: '高风险选项必须包含至少一项真实代价',
+        });
+      }
+    });
 }
 
 // Settlement info from AI
@@ -316,11 +367,13 @@ export function createDungeonSettlementLlmSchema(args: {
         : z.enum(['S', 'A', 'B', 'C', 'D']);
 
   return z.object({
-    ending_narrative: NarrativeSchema,
-    reward_tier: rewardTierSchema,
+    ending_narrative:
+      NarrativeSchema.describe('只收束已发生历程的面向玩家结局叙事'),
+    reward_tier: rewardTierSchema.describe('本次副本的内部评级枚举'),
     reward_blueprints: z
       .array(RewardBlueprintLlmSchema)
-      .max(Math.max(0, args.remainingRewardSlots)),
+      .max(Math.max(0, args.remainingRewardSlots))
+      .describe('仅包含结算阶段新增且有剧情依据的材料'),
   });
 }
 
