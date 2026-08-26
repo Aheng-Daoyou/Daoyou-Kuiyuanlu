@@ -1,8 +1,6 @@
 import type { ResourceOperation } from '@shared/engine/resource/types';
-import {
-  ENEMY_RACE_VALUES,
-  REALM_STAGE_VALUES,
-} from '@shared/types/constants';
+import type { DungeonEndDisposition } from '@shared/lib/dungeon/settlementPolicy';
+import { ENEMY_RACE_VALUES, REALM_STAGE_VALUES } from '@shared/types/constants';
 import { z } from 'zod';
 
 // === AI Interaction Schemas ===
@@ -16,6 +14,10 @@ const DUNGEON_QUALITY_VALUES = [
   '天品',
   '仙品',
 ] as const;
+
+const ShortTextSchema = z.string().trim().min(2).max(60);
+
+const NarrativeSchema = z.string().trim().min(12).max(240);
 
 const DungeonBattleMetadataSchema = z.object({
   race: z.enum(ENEMY_RACE_VALUES).describe('敌人种族'),
@@ -33,39 +35,62 @@ const DungeonCostMetadataSchema = z
 /**
  * 副本代价 Schema - 直接使用资源引擎类型
  */
-export const DungeonCostSchema = z.object({
-  type: z.enum([
-    // 资源类型
-    'spirit_stones',
-    'lifespan',
-    'cultivation_exp',
-    'comprehension_insight',
-    'material',
-    // 副本特有类型
-    'hp_loss',
-    'mp_loss',
-    'weak',
-    'battle',
-    'artifact_damage',
-  ]),
-  value: z.number().min(0).refine(Number.isFinite, '数量或强度必须为有限数').describe('数量或强度'),
-  name: z.string().optional().describe('材料名称（material 类型需要，如果未知可省略留给系统匹配）'),
-  required_quality: z.enum(DUNGEON_QUALITY_VALUES).optional().describe('模糊要求时：最低品质'),
-  required_type: z.enum(['herb', 'ore', 'monster', 'tcdb', 'aux', 'gongfa_manual', 'skill_manual']).optional().describe('模糊要求时：材料类型'),
-  desc: z.string().optional().describe('描述信息'),
-  metadata: DungeonCostMetadataSchema.optional().describe('元数据（battle 类型需要 race/realm_stage；其他代价可记录系统反馈）'),
-}).superRefine((cost, ctx) => {
-  if (
-    cost.type === 'battle' &&
-    (!cost.metadata || !cost.metadata.race || !cost.metadata.realm_stage)
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['metadata'],
-      message: 'battle 类型必须提供 metadata',
-    });
-  }
-});
+export const DungeonCostSchema = z
+  .object({
+    type: z.enum([
+      // 资源类型
+      'spirit_stones',
+      'lifespan',
+      'cultivation_exp',
+      'comprehension_insight',
+      'material',
+      // 副本特有类型
+      'hp_loss',
+      'mp_loss',
+      'battle',
+    ]),
+    value: z
+      .number()
+      .min(0)
+      .refine(Number.isFinite, '数量或强度必须为有限数')
+      .describe('数量或强度'),
+    name: z
+      .string()
+      .optional()
+      .describe('材料名称（material 类型需要，如果未知可省略留给系统匹配）'),
+    required_quality: z
+      .enum(DUNGEON_QUALITY_VALUES)
+      .optional()
+      .describe('模糊要求时：最低品质'),
+    required_type: z
+      .enum([
+        'herb',
+        'ore',
+        'monster',
+        'tcdb',
+        'aux',
+        'gongfa_manual',
+        'skill_manual',
+      ])
+      .optional()
+      .describe('模糊要求时：材料类型'),
+    desc: z.string().optional().describe('描述信息'),
+    metadata: DungeonCostMetadataSchema.optional().describe(
+      '元数据（battle 类型需要 race/realm_stage；其他代价可记录系统反馈）',
+    ),
+  })
+  .superRefine((cost, ctx) => {
+    if (
+      cost.type === 'battle' &&
+      (!cost.metadata || !cost.metadata.race || !cost.metadata.realm_stage)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['metadata'],
+        message: 'battle 类型必须提供 metadata',
+      });
+    }
+  });
 
 /**
  * 副本奖励 Schema
@@ -80,7 +105,12 @@ export const DungeonGainSchema = z.object({
     'artifact',
     'consumable',
   ]),
-  value: z.number().min(0).max(10_000_000).refine(Number.isFinite, '数量必须为有限数').describe('数量'),
+  value: z
+    .number()
+    .min(0)
+    .max(10_000_000)
+    .refine(Number.isFinite, '数量必须为有限数')
+    .describe('数量'),
   name: z.string().optional().describe('物品名称'),
   desc: z.string().optional().describe('描述信息'),
   data: z.any().optional().describe('完整物品数据'),
@@ -91,10 +121,11 @@ export const DungeonOptionSchema = z.object({
   id: z.number(),
   text: z.string().describe('选项文本'),
   risk_level: z.enum(['low', 'medium', 'high']).describe('风险等级'),
-  requirement: z.string().optional().describe('选项要求'),
-  potential_cost: z.string().optional().describe('潜在成本(文本描述)'),
   costs: z.array(DungeonCostSchema).optional().describe('成本(结构化成本)'),
-  costPreview: z.array(DungeonCostSchema).optional().describe('服务端归一化后的预计代价'),
+  costPreview: z
+    .array(DungeonCostSchema)
+    .optional()
+    .describe('服务端归一化后的预计代价'),
 });
 
 // 奖励蓝图 Schema - AI 只生成创意内容，数值由程序计算
@@ -136,19 +167,17 @@ export const RewardBlueprintSchema = z.object({
 export type RewardBlueprint = z.infer<typeof RewardBlueprintSchema>;
 
 const RewardBlueprintLlmSchema = z.object({
-  name: z.string().optional(),
-  description: z.string().optional(),
-  material_type: z
-    .enum([
-      'herb',
-      'ore',
-      'monster',
-      'tcdb',
-      'aux',
-      'gongfa_manual',
-      'skill_manual',
-    ])
-    .optional(),
+  name: ShortTextSchema.max(24),
+  description: NarrativeSchema.max(100),
+  material_type: z.enum([
+    'herb',
+    'ore',
+    'monster',
+    'tcdb',
+    'aux',
+    'gongfa_manual',
+    'skill_manual',
+  ]),
   element: z.enum(['金', '木', '水', '火', '土', '风', '雷', '冰']).optional(),
   reward_score: z.number().min(0).max(100),
 });
@@ -161,7 +190,11 @@ export const DungeonRoundSchema = z.object({
       options: z.array(DungeonOptionSchema).length(3).describe('交互选项'),
     })
     .describe('交互'),
-  acquired_items: z.array(RewardBlueprintSchema).max(10).optional().describe('当前轮次探索或战斗获得的战利品（仅在合理情况下发放，勿滥发）'),
+  acquired_items: z
+    .array(RewardBlueprintSchema)
+    .max(10)
+    .optional()
+    .describe('当前轮次探索或战斗获得的战利品（仅在合理情况下发放，勿滥发）'),
   status_update: z
     .object({
       is_final_round: z.boolean(),
@@ -173,9 +206,9 @@ export const DungeonRoundSchema = z.object({
 const DungeonBattleMetadataLlmSchema = z.object({
   race: z.enum(ENEMY_RACE_VALUES),
   realm_stage: z.enum(REALM_STAGE_VALUES),
-  enemy_name: z.string().optional(),
-  background: z.string().optional(),
-  description: z.string().optional(),
+  enemy_name: ShortTextSchema.max(20),
+  background: NarrativeSchema.max(80).optional(),
+  description: NarrativeSchema.max(80).optional(),
   is_boss: z.boolean().optional(),
 });
 
@@ -189,12 +222,9 @@ const DungeonCostLlmSchema = z
       'material',
       'hp_loss',
       'mp_loss',
-      'weak',
       'battle',
-      'artifact_damage',
     ]),
-    value: z.number().min(0).refine(Number.isFinite, '数量或强度必须为有限数'),
-    name: z.string().optional(),
+    value: z.number().positive().max(10_000_000),
     required_quality: z.enum(DUNGEON_QUALITY_VALUES).optional(),
     required_type: z
       .enum([
@@ -207,7 +237,6 @@ const DungeonCostLlmSchema = z
         'skill_manual',
       ])
       .optional(),
-    desc: z.string().optional(),
     metadata: DungeonBattleMetadataLlmSchema.optional(),
   })
   .superRefine((cost, ctx) => {
@@ -218,19 +247,36 @@ const DungeonCostLlmSchema = z
         message: 'battle 类型必须提供 metadata',
       });
     }
+    if (
+      cost.type === 'material' &&
+      (!cost.required_quality || !cost.required_type)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['required_type'],
+        message: 'material 类型必须提供 required_type 和 required_quality',
+      });
+    }
+    if (
+      (cost.type === 'hp_loss' || cost.type === 'mp_loss') &&
+      cost.value > 1
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['value'],
+        message: '气血和法力损失必须是 0-1 的比例',
+      });
+    }
   });
 
 const DungeonOptionLlmSchema = z.object({
-  text: z.string(),
-  risk_level: z.enum(['low', 'medium', 'high']),
-  requirement: z.string().optional(),
-  potential_cost: z.string().optional(),
-  costs: z.array(DungeonCostLlmSchema).optional(),
+  text: ShortTextSchema,
+  costs: z.array(DungeonCostLlmSchema).max(2).optional(),
 });
 
 export function createDungeonRoundLlmSchema(maxRewardCount: number) {
   return z.object({
-    scene_description: z.string(),
+    scene_description: NarrativeSchema,
     options: z.array(DungeonOptionLlmSchema).length(3),
     acquired_items: z
       .array(RewardBlueprintLlmSchema)
@@ -258,24 +304,30 @@ export const DungeonSettlementSchema = z
   })
   .describe('结算信息');
 
-export function createDungeonSettlementLlmSchema(maxRewardCount: number) {
+export function createDungeonSettlementLlmSchema(args: {
+  remainingRewardSlots: number;
+  endDisposition: DungeonEndDisposition;
+}) {
+  const rewardTierSchema =
+    args.endDisposition === 'abandoned_before_battle'
+      ? z.literal('D')
+      : args.endDisposition === 'retreated_after_battle'
+        ? z.enum(['C', 'D'])
+        : z.enum(['S', 'A', 'B', 'C', 'D']);
+
   return z.object({
-    ending_narrative: z.string(),
-    reward_tier: z.enum(['S', 'A', 'B', 'C', 'D']),
+    ending_narrative: NarrativeSchema,
+    reward_tier: rewardTierSchema,
     reward_blueprints: z
       .array(RewardBlueprintLlmSchema)
-      .max(Math.max(0, maxRewardCount)),
-    performance_tags: z.array(z.string()).max(10),
+      .max(Math.max(0, args.remainingRewardSlots)),
   });
 }
 
 export const DungeonSettlementGeneratedSchema = z.object({
-  ending_narrative: z.string(),
-  settlement: z.object({
-    reward_tier: z.enum(['S', 'A', 'B', 'C', 'D']),
-    reward_blueprints: z.array(RewardBlueprintLlmSchema).max(20),
-    performance_tags: z.array(z.string()).max(10),
-  }),
+  ending_narrative: NarrativeSchema,
+  reward_tier: z.enum(['S', 'A', 'B', 'C', 'D']),
+  reward_blueprints: z.array(RewardBlueprintLlmSchema).max(5),
 });
 
 export const PlayerInfoSchema = z.object({
@@ -345,11 +397,7 @@ export type DungeonRunStatus =
   | 'RECOVERABLE_ERROR';
 
 export type DungeonRecoverAction =
-  | 'retry'
-  | 'retry_continue'
-  | 'retry_settle'
-  | 'safe_retreat'
-  | 'force_quit';
+  'retry' | 'retry_continue' | 'retry_settle' | 'safe_retreat' | 'force_quit';
 
 export interface DungeonCostLedgerEntry {
   actionId: string;
@@ -417,17 +465,17 @@ export interface DungeonState {
 }
 
 export interface DungeonRoundLlmContext {
-  round: number;
-  maxRounds: number;
-  dangerScore: number;
-  phase: string;
-  realmGap: number;
-  map: {
+  progress: {
+    round: number;
+    totalRounds: number;
+    dangerScore: number;
+    phase: string;
+  };
+  setting: {
     name: string;
     realmRequirement: string;
-    difficultyTier: string;
-    difficultyLabel: string;
-    enemyDifficulty: number;
+    difficulty: string;
+    realmGap: number;
     allowedEnemyRealmStages: string[];
     tags: string[];
     descriptionSummary: string;
@@ -437,25 +485,31 @@ export interface DungeonRoundLlmContext {
     realm: string;
     age: number;
     lifespan: number;
-    coreTraits: string[];
-    rootsSummary: string[];
-    fatesSummary: string[];
-    techniqueNames: string[];
-    combatStyleSummary: string;
+    traits: string[];
+    combatStyle: string;
   };
-  history: Array<{
+  recentHistory: Array<{
     round: number;
     sceneSummary: string;
     choice?: string;
     outcomeSummary?: string;
     gainedItemNames?: string[];
   }>;
+  pendingChoice?: {
+    text: string;
+    costs: Array<{
+      type: DungeonOptionCost['type'];
+      value: number;
+      requiredQuality?: string;
+      requiredType?: string;
+    }>;
+  };
   battleAftermath?: string;
-  accumulatedRewardNames: string[];
+  securedRewardNames: string[];
 }
 
 export interface DungeonSettlementLlmContext {
-  map: {
+  setting: {
     name: string;
     realmRequirement: string;
   };
@@ -463,23 +517,20 @@ export interface DungeonSettlementLlmContext {
     name: string;
     realm: string;
   };
-  journeySummary: string[];
+  journey: string[];
   dangerScore: number;
-  sacrificeSummary: Array<{
+  committedCosts: Array<{
     type: DungeonOptionCost['type'];
     count: number;
     totalValue: number;
     sample?: string;
   }>;
-  accumulatedRewards: Array<{
+  securedRewards: Array<{
     name?: string;
-    description?: string;
     material_type?: RewardBlueprint['material_type'];
-    element?: RewardBlueprint['element'];
     reward_score?: number;
   }>;
-  rewardBlueprintLimit: number;
-  accumulatedRewardCount: number;
   remainingExtraRewardSlots: number;
-  endDisposition: 'completed' | 'retreated_after_battle' | 'abandoned_before_battle';
+  endDisposition:
+    'completed' | 'retreated_after_battle' | 'abandoned_before_battle';
 }
