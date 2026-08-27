@@ -57,9 +57,9 @@ id: dungeon-round
 - `resources`：元素使用 `{ "type", "rank" }`，`type` 只能为 `spirit_stones`、`lifespan`、`cultivation_exp`、`comprehension_insight`。
 - `materials`：元素使用 `{ "required_type", "rank" }`，两个字段都必填；不得指定具体材料名、品质、数量或填写敌人信息。
 - `stat_losses`：元素使用 `{ "type", "rank" }`，`type` 只能为 `hp_loss` 或 `mp_loss`。
-- `battles`：元素直接填写敌人的 `race`、`realm_stage`、`enemy_name` 等字段，不要再包裹 `type`、`value` 或 `metadata`。
+- `battles`：只能为空数组或包含一个元素；元素直接填写敌人的 `race`、`realm_stage`、`enemy_name` 等字段，不要再包裹 `type`、`value` 或 `metadata`。
 
-一个选项的四个数组合计最多两项代价。若 `battles` 非空，`stat_losses` 必须为空，因为战斗系统会独立结算伤害。
+一个选项的四个数组合计最多两项代价。若 `battles` 非空，`stat_losses` 必须为空，因为战斗系统会独立结算伤害。每个选项最多触发一场战斗。若剧情中存在多名敌人，应将其合并描述为同一支敌方队伍或选择一名主要对手，不得在 `battles` 中拆成多个元素。
 
 ## 代价字段语义
 

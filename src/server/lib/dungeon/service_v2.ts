@@ -454,11 +454,15 @@ export class DungeonService {
       .filter((cost) => cost.value > 0 || cost.type === 'battle');
 
     const hasBattle = costs.some((cost) => cost.type === 'battle');
-    return hasBattle
-      ? costs.filter(
-          (cost) => cost.type !== 'hp_loss' && cost.type !== 'mp_loss',
-        )
-      : costs;
+    let battleSeen = false;
+    return costs.filter((cost) => {
+      if (cost.type === 'battle') {
+        if (battleSeen) return false;
+        battleSeen = true;
+        return true;
+      }
+      return !hasBattle || (cost.type !== 'hp_loss' && cost.type !== 'mp_loss');
+    });
   }
 
   private normalizeRoundOptions(
@@ -489,11 +493,23 @@ export class DungeonService {
       realm,
       stage,
     );
-    state.costLedger ??= [];
+    state.costLedger = (state.costLedger ?? []).map((entry) => ({
+      ...entry,
+      costs: this.normalizeOptionCosts(entry),
+    }));
     state.gainLedger ??= [];
     state.summary_of_sacrifice = state.costLedger.flatMap((entry) =>
       cloneCosts(entry.costs),
     );
+    if (state.pendingAction) {
+      state.pendingAction = {
+        ...state.pendingAction,
+        costs: this.normalizeOptionCosts(state.pendingAction),
+      };
+    }
+    state.costPreview = this.normalizeOptionCosts({
+      costs: state.costPreview,
+    });
     state.currentOptions = state.currentOptions?.map((option) => {
       const costPreview = this.normalizeOptionCosts(option);
       return {

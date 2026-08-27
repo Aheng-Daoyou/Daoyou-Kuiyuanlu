@@ -284,8 +284,8 @@ const DungeonCostsLlmSchema = z
       .describe('气血或法力损失；没有则为空数组'),
     battles: z
       .array(DungeonBattleMetadataLlmSchema)
-      .max(2)
-      .describe('必然触发的战斗；没有则为空数组'),
+      .max(1)
+      .describe('必然触发的单场战斗；没有则为空数组'),
   })
   .superRefine((costs, ctx) => {
     const total =
