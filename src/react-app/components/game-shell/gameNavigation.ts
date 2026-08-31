@@ -75,9 +75,9 @@ export const gameDockGroups: GameNavGroup[] = [
       },
       {
         id: 'spirit-field',
-        sceneLabel: '灵田',
+        sceneLabel: '洞府灵田',
         href: '/game/spirit-field',
-        expandedDockLabel: '🌱 灵田',
+        expandedDockLabel: '🌱 洞府灵田',
       },
       {
         id: 'enlightenment',

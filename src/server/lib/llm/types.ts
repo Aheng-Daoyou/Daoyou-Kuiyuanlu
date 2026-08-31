@@ -21,8 +21,8 @@ export type LlmSceneId =
   | 'material-semantic-enrichment'
   | 'product-naming'
   | 'spirit-seed-generation'
-  | 'spirit-field-interpret'
-  | 'spirit-field-narrative'
+  | 'spirit-field-stage-judgment'
+  | 'spirit-field-finalization'
   | 'yield-story';
 
 export type LlmStructuredFailureKind =

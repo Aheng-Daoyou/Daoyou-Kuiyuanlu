@@ -226,9 +226,9 @@ export const router = createBrowserRouter(
                 {
                   id: 'spirit-field',
                   presentation: 'workflow',
-                  summary: '播种、观察、养护与采收都在这片个人药圃中完成。',
+                  summary: '在个人洞府药圃中播种，并以三阶段培育等待天地造化成型。',
                 },
-                '灵田',
+                '洞府灵田',
               )}
             />
             <Route

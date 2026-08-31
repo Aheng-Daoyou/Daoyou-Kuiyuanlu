@@ -343,6 +343,10 @@ function buildMysteryMask(type: MaterialType) {
     MaterialType,
     { names: string[]; descriptions: string[] }
   > = {
+    seed: {
+      names: ['封存灵种'],
+      descriptions: ['灵种只由灵田专用生成器塑造，不参与通用神秘物品生成。'],
+    },
     herb: {
       names: ['枯萎的灵草束', '封泥药囊', '残叶草根'],
       descriptions: [
@@ -830,7 +834,7 @@ async function generateFromMaterialLibrary(
 }
 
 /**
- * 在普通坊市层固定挂出动态生成灵种；保留 spiritFieldSeed 快照，购买后可直接下田。
+ * 在非黑市层固定挂出动态生成灵种；保留 details.seedSpec 快照，购买后可直接下田。
  * 黑市不注入，避免神秘层剥离 details。
  */
 async function injectSpiritFieldSeedListings(

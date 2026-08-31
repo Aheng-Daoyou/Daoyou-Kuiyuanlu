@@ -1,5 +1,5 @@
 {
-  "id": "e9338f6b-1660-4d3c-8b9e-6d2e6878b4a0",
+  "id": "e261cb72-16d1-43cc-97d3-4863ee90655e",
   "prevId": "4079b6a1-a3ef-4873-9fdd-e6fd0d456033",
   "version": "7",
   "dialect": "postgresql",
@@ -6156,13 +6156,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "level": {
-          "name": "level",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "self_harvest_count": {
           "name": "self_harvest_count",
           "type": "integer",
@@ -6183,13 +6176,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
-        },
-        "proficiency": {
-          "name": "proficiency",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "plots": {
           "name": "plots",
