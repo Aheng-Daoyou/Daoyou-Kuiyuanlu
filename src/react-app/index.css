@@ -472,7 +472,8 @@ body {
 }
 
 .bgi-map {
-  background-image: url('https://lxd-waimao.oss-cn-hangzhou.aliyuncs.com/daoyou/map/map.webp');
+  /* 烬洲底图（自托管，源稿见 docs/窥渊录-烬洲地理志.md 与 scripts/kuiyuanlu-map-gen.py） */
+  background-image: url('/assets/map/kuiyuanlu-map.webp');
 }
 
 /* 移动端适配 */

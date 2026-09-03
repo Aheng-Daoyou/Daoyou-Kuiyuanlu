@@ -155,17 +155,26 @@ export default function MapPage() {
             >
               <div className="bgi-map absolute inset-0 opacity-80" />
 
-              <div className="text-ink/40 pointer-events-none absolute top-[65%] right-[35%] rotate-6 text-6xl tracking-widest select-none">
-                灯外海
+              <div className="text-ink/40 pointer-events-none absolute top-[5%] left-[40%] text-6xl tracking-widest select-none">
+                北荒
               </div>
-              <div className="text-ink/40 pointer-events-none absolute top-[48%] left-[33%] rotate-6 text-6xl tracking-widest select-none">
-                幽都
+              <div className="text-ink/40 writing-vertical pointer-events-none absolute top-[20%] left-[58%] text-6xl tracking-widest select-none">
+                雍州
               </div>
-              <div className="text-ink/40 pointer-events-none absolute right-[15%] bottom-[4%] text-6xl tracking-widest select-none">
+              <div className="text-ink/40 pointer-events-none absolute top-[48%] left-[57%] text-6xl tracking-widest select-none">
+                泽州
+              </div>
+              <div className="text-ink/40 pointer-events-none absolute top-[53%] left-[80%] text-6xl tracking-widest select-none">
                 京畿
               </div>
-              <div className="text-ink/40 writing-vertical pointer-events-none absolute top-[30%] left-[44%] text-6xl tracking-widest select-none">
-                雍州
+              <div className="text-ink/40 pointer-events-none absolute top-[45%] left-[19%] rotate-6 text-6xl tracking-widest select-none">
+                幽都
+              </div>
+              <div className="text-ink/40 pointer-events-none absolute top-[79%] left-[42%] text-6xl tracking-widest select-none">
+                南疆
+              </div>
+              <div className="text-ink/40 pointer-events-none absolute top-[74%] left-[8%] rotate-6 text-6xl tracking-widest select-none">
+                灯外海
               </div>
 
               <svg className="pointer-events-none absolute inset-0 h-full w-full">
