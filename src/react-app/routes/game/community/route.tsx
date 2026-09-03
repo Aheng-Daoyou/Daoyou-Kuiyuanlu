@@ -3,7 +3,9 @@ import { GameSceneAsideSection, GameSceneFrame } from '@app/components/game-shel
 import { InkButton } from '@app/components/ui/InkButton';
 import { useCallback, useEffect, useState } from 'react';
 
-const DEFAULT_GROUP_NUMBER = '1107586928';
+const DEFAULT_GROUP_NUMBER = '';
+const DEFAULT_JOIN_HINT = '请复制群号后前往 QQ 搜索并申请加群';
+const EMPTY_GROUP_HINT = '群号尚未配置（管理员可在后台「QQ交流群」页填写本服群号）';
 
 type CommunityGroupState = {
   groupNumber?: string;
@@ -14,7 +16,7 @@ type CommunityGroupState = {
 export default function CommunityPage() {
   const { pushToast } = useInkUI();
   const [groupNumber, setGroupNumber] = useState(DEFAULT_GROUP_NUMBER);
-  const [joinHint, setJoinHint] = useState('请复制群号后前往 QQ 搜索并申请加群');
+  const [joinHint, setJoinHint] = useState(DEFAULT_JOIN_HINT);
 
   const loadGroupNumber = useCallback(async () => {
     const response = await fetch('/api/community/qq-group');
@@ -22,8 +24,11 @@ export default function CommunityPage() {
     if (!response.ok) {
       throw new Error(data.error ?? '加载 QQ 群号失败');
     }
-    setGroupNumber(data.groupNumber?.trim() || DEFAULT_GROUP_NUMBER);
-    setJoinHint(data.joinHint?.trim() || '请复制群号后前往 QQ 搜索并申请加群');
+    const trimmed = data.groupNumber?.trim() || '';
+    setGroupNumber(trimmed);
+    setJoinHint(
+      data.joinHint?.trim() || (trimmed ? DEFAULT_JOIN_HINT : EMPTY_GROUP_HINT),
+    );
   }, []);
 
   useEffect(() => {
@@ -84,7 +89,11 @@ export default function CommunityPage() {
         </div>
 
         <div className="mt-4 flex justify-center gap-3">
-          <InkButton variant="primary" onClick={() => void handleCopy()}>
+          <InkButton
+            variant="primary"
+            disabled={!groupNumber}
+            onClick={() => void handleCopy()}
+          >
             复制群号
           </InkButton>
         </div>

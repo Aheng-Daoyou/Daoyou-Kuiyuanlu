@@ -914,6 +914,18 @@ export const router = createBrowserRouter(
               )}
             />
             <Route
+              path="codex"
+              lazy={lazyRoute(() => import('@app/routes/game/codex/route'))}
+              handle={scene(
+                {
+                  id: 'codex',
+                  presentation: 'service',
+                  summary: '九境、品相、功法、门派与交易规矩，皆录于此卷。',
+                },
+                '烬洲志',
+              )}
+            />
+            <Route
               path="community"
               lazy={lazyRoute(() => import('@app/routes/game/community/route'))}
               handle={scene(
@@ -1321,6 +1333,11 @@ export const router = createBrowserRouter(
             () => import('@app/routes/admin/community-qrcode/route'),
           )}
           handle={title('QQ交流群')}
+        />
+        <Route
+          path="gm-tools"
+          lazy={lazyRoute(() => import('@app/routes/admin/gm-tools/route'))}
+          handle={title('GM 工具')}
         />
       </Route>
 

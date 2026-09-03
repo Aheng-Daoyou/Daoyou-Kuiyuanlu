@@ -18,7 +18,11 @@ import {
 } from '@shared/lib/game/mapSystem';
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch';
+import {
+  TransformComponent,
+  TransformWrapper,
+  useControls,
+} from 'react-zoom-pan-pinch';
 import {
   buildNodeActions,
   buildSectLandmarkActions,
@@ -46,6 +50,45 @@ type ManualNodeSelection = {
   nodeId: string | null;
   requestedNodeId: string | null;
 };
+
+/** 地图缩放控件：放大 / 缩小 / 复位（须置于 TransformWrapper 内部） */
+function MapZoomControls() {
+  const { zoomIn, zoomOut, resetTransform } = useControls();
+  const buttonClass =
+    'border-ink/25 bg-background/90 text-ink hover:border-crimson/60 hover:text-crimson flex h-9 w-9 items-center justify-center border text-lg leading-none shadow-sm transition-colors';
+
+  return (
+    <div className="border-ink/20 bg-background/70 pointer-events-auto absolute right-3 bottom-3 z-40 flex flex-col gap-1.5 border p-1.5">
+      <button
+        type="button"
+        aria-label="放大地图"
+        title="放大"
+        className={buttonClass}
+        onClick={() => zoomIn(0.4)}
+      >
+        ＋
+      </button>
+      <button
+        type="button"
+        aria-label="缩小地图"
+        title="缩小"
+        className={buttonClass}
+        onClick={() => zoomOut(0.4)}
+      >
+        －
+      </button>
+      <button
+        type="button"
+        aria-label="复位地图视图"
+        title="复位"
+        className={`${buttonClass} text-sm`}
+        onClick={() => resetTransform(0.3)}
+      >
+        复位
+      </button>
+    </div>
+  );
+}
 
 function isSectLandmark(location: WorldMapLocation): location is SectLandmark {
   return 'kind' in location && location.kind === 'sect';
@@ -240,6 +283,7 @@ export default function MapPage() {
               ))}
             </div>
           </TransformComponent>
+          <MapZoomControls />
         </TransformWrapper>
       </div>
 

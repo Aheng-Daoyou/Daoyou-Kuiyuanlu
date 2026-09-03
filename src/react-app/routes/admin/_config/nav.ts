@@ -95,4 +95,9 @@ export const adminNavItems: AdminNavItem[] = [
     description: '玩家社群 QQ 群号配置',
     href: '/admin/community-group',
   },
+  {
+    title: 'GM 工具',
+    description: '按角色名直接发放灯油券/声望/灯韵',
+    href: '/admin/gm-tools',
+  },
 ];

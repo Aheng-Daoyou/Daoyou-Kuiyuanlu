@@ -88,14 +88,14 @@ export default function CommunityQqGroupAdminPage() {
         <h2 className="font-heading text-ink mt-2 text-3xl">QQ 交流群</h2>
         <p className="text-ink-secondary mt-3 max-w-2xl text-sm leading-7">
           在这里维护玩家端展示的 QQ 群号。保存后即时生效，玩家页会直接读取最新配置；
-          若数据库没有配置，则回退为默认群号 `1107586928`。
+          未配置时玩家端会提示「群号尚未配置」。
         </p>
       </header>
 
       <section className="border-ink/15 bg-bgpaper/90 border border-dashed p-6 space-y-4">
         {!customized && !loading ? (
           <p className="text-ink-secondary text-sm">
-            当前尚未写入数据库，玩家端显示的是代码内建默认群号。保存后即可改为后台控制。
+            当前尚未配置群号，玩家端会提示「群号尚未配置」。保存后即可改为后台控制。
           </p>
         ) : null}
 
@@ -103,7 +103,7 @@ export default function CommunityQqGroupAdminPage() {
           label="QQ 群号"
           value={groupNumber}
           onChange={setGroupNumber}
-          placeholder="1107586928"
+          placeholder="填写本服自己的 QQ 群号"
           hint="仅支持 5 到 12 位数字。"
           disabled={loading || saving}
         />
@@ -129,7 +129,9 @@ export default function CommunityQqGroupAdminPage() {
 
         <div className="border-ink/20 bg-paper p-4">
           <p className="text-ink-secondary text-xs tracking-[0.16em]">当前生效群号</p>
-          <p className="text-ink mt-2 text-2xl tracking-[0.18em]">{groupNumber || '1107586928'}</p>
+          <p className="text-ink mt-2 text-2xl tracking-[0.18em]">
+            {groupNumber || '（未配置）'}
+          </p>
         </div>
       </section>
     </div>

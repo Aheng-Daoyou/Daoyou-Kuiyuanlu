@@ -15,7 +15,8 @@ const FEEDBACK_TYPES: { value: FeedbackType; label: string }[] = [
   { value: 'other', label: '其他意见' },
 ];
 
-const GITHUB_ISSUE_URL = 'https://github.com/ChurchTao/Daoyou/issues';
+// 窥渊录为二创项目：反馈进入本服数据库（管理员后台可查），Issue 入口指向二创仓库
+const GITHUB_ISSUE_URL = 'https://github.com/zihengzhao55-code/Daoyou-Kuiyuanlu/issues';
 
 export default function FeedbackPage() {
   const [type, setType] = useState<FeedbackType>('bug');

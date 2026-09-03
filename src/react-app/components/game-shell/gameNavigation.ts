@@ -257,6 +257,12 @@ export const gameDockGroups: GameNavGroup[] = [
     title: '见闻',
     scenes: [
       {
+        id: 'codex',
+        sceneLabel: '烬洲志',
+        href: '/game/codex',
+        expandedDockLabel: '📖 烬洲志',
+      },
+      {
         id: 'mail',
         sceneLabel: '道友传音',
         href: '/game/mail',

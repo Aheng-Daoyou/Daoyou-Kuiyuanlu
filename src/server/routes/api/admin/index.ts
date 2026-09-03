@@ -6,6 +6,7 @@ import battleSimulatorRouter from '@server/routes/api/admin/battle-simulator.rou
 import broadcastRouter from '@server/routes/api/admin/broadcast.router';
 import communityGroupRouter from '@server/routes/api/admin/community-qrcode.router';
 import feedbackRouter from '@server/routes/api/admin/feedback.router';
+import gmRouter from '@server/routes/api/admin/gm.router';
 import invitationLampsRouter from '@server/routes/api/admin/invitation-lamps.router';
 import itemLibraryRouter from '@server/routes/api/admin/item-library.router';
 import llmMetricsRouter from '@server/routes/api/admin/llm-metrics.router';
@@ -33,6 +34,7 @@ router.get('/session', requireAdmin(), (c) => {
 router.route('/accounts', accountsRouter);
 router.route('/templates', templatesRouter);
 router.route('/feedback', feedbackRouter);
+router.route('/gm', gmRouter);
 router.route('/broadcast', broadcastRouter);
 router.route('/announcement', announcementRouter);
 router.route('/item-library', itemLibraryRouter);
