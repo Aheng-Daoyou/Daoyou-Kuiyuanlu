@@ -362,12 +362,12 @@ export function useInventoryViewModel(): UseInventoryViewModelReturn {
           }),
         );
 
-        pushToast({ message: '封灵器灵性已调顺。', tone: 'success' });
+        pushToast({ message: '封灵灯魂已调顺。', tone: 'success' });
       } catch (error) {
         pushToast({
           message:
             error instanceof Error
-              ? `此法有违天道：${error.message}`
+              ? `此法有违守灯之约：${error.message}`
               : '操作失败，请稍后重试。',
           tone: 'danger',
         });

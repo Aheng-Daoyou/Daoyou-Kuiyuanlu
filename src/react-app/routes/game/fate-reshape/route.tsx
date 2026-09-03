@@ -412,7 +412,7 @@ export default function FateReshapePage() {
             </div>
             <div className="space-y-2 text-sm leading-6">
               <p>点击下方按钮后，会立刻消耗 1 张天机逆命符。</p>
-              <p>天道会为你重塑 8 个新命格，你要从里面选 3 个</p>
+              <p>天翁会为你重演 8 个新命格，你要从里面选 3 个</p>
               <p>
                 确认后，你现在的 3 个命格会被这 3
                 个新命格直接替换，也可以直接放弃，消耗不会返还。

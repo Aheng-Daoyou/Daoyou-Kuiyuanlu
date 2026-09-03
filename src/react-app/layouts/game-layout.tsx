@@ -452,8 +452,8 @@ function resolveGenesisSceneDescriptor(
   }
 
   return {
-    sceneLabel: '凝气篇',
-    subtitle: '以心念唤道，凝气成形，择定此世的根基与气数。',
+    sceneLabel: '守灯篇',
+    subtitle: '以心念唤灯，燃灯定形，择定此世的根基与气数。',
     backAction: {
       label: '返回主界',
       href: '/game',

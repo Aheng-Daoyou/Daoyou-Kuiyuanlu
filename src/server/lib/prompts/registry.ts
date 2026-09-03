@@ -22,6 +22,7 @@ import sampleScenariosPrompt from '@server/prompts/sample-scenarios.md?raw';
 import spiritFieldStageJudgmentPrompt from '@server/prompts/spirit-field-stage-judgment.md?raw';
 import spiritFieldFinalizationPrompt from '@server/prompts/spirit-field-finalization.md?raw';
 import yieldStoryPrompt from '@server/prompts/yield-story.md?raw';
+import kuiyuanluWorldBible from '@server/prompts/kuiyuanlu-worldbible.md?raw';
 import { renderTemplate, type TemplateVariableMap } from '../template/render';
 
 export interface PromptTemplateFile {
@@ -63,6 +64,22 @@ const bundledPromptSources: Record<string, string> = {
   'spirit-field-finalization.md': spiritFieldFinalizationPrompt,
   'yield-story.md': yieldStoryPrompt,
 };
+
+/**
+ * 窥渊录（烬洲题材）全局世界观约束。
+ * 注入到每一个 AI 请求的 system 段尾部，保证术语一致、禁区词不外泄、
+ * 讳名与命名遵循总纲算法（docs/窥渊录-世界观设定总纲.md）。
+ */
+const KUIYUANLU_WORLD_BIBLE =
+  parsePromptTemplateMarkdown(
+    kuiyuanluWorldBible,
+    'kuiyuanlu-worldbible.md',
+  ).system ?? '';
+
+function withWorldBible(section: PromptSectionKey, content: string): string {
+  if (section !== 'system' || !content) return content;
+  return `${content}\n\n${KUIYUANLU_WORLD_BIBLE}`;
+}
 
 export function parsePromptTemplateMarkdown(
   raw: string,
@@ -158,7 +175,7 @@ export function renderPromptSectionTemplate(
   variables: TemplateVariableMap = {},
 ): string {
   const content = template[section];
-  return content ? renderTemplate(content, variables) : '';
+  return content ? renderTemplate(withWorldBible(section, content), variables) : '';
 }
 
 export function renderPrompt(

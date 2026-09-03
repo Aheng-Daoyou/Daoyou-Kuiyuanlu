@@ -298,7 +298,7 @@ export function WorldChatMessageItem({
               <span className="text-wood font-semibold">
                 {message.senderName}
               </span>
-              <InkBadge tone="warning">「天道」</InkBadge>
+              <InkBadge tone="warning">「天翁」</InkBadge>
             </>
           ) : (
             <>

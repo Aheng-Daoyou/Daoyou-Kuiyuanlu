@@ -99,7 +99,7 @@ function buildInfoRows(product: ProductDisplayModel) {
   if (spirit?.name) {
     rows.push({
       key: 'spirit-name',
-      label: spirit.sealTier ?? '器灵',
+      label: spirit.sealTier ?? '灯魂',
       value: spirit.name,
     });
   }
@@ -141,7 +141,7 @@ function getExtraInfo(product: ProductDisplayModel) {
       ))}
       {whisper ? (
         <div className="border-border/50 border-b pb-2">
-          <div className="text-ink-secondary mb-1">器灵低语</div>
+          <div className="text-ink-secondary mb-1">灯魂低语</div>
           <div className="text-ink italic leading-relaxed">{whisper}</div>
         </div>
       ) : null}

@@ -199,7 +199,7 @@ export function DungeonRunPanel({
           }),
         );
 
-        pushToast({ message: '封灵器灵性已调顺。', tone: 'success' });
+        pushToast({ message: '封灵灯魂已调顺。', tone: 'success' });
       } catch (error) {
         pushToast({
           message:

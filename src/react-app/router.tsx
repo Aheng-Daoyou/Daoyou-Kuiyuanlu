@@ -134,7 +134,7 @@ export const router = createBrowserRouter(
           <Route
             path="create"
             lazy={lazyRoute(() => import('@app/routes/game/create/route'))}
-            handle={title('凝气篇')}
+            handle={title('守灯篇')}
           />
           <Route
             path="reincarnate"

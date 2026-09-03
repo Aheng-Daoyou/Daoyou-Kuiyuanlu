@@ -57,7 +57,7 @@ export const FALLBACK_FORTUNES: DivineFortune[] = [
     hint: '今日宜闭关，忌多言',
   },
   {
-    fortune: '天道酬勤，厚德载物',
+    fortune: '天翁酬勤，厚德载物',
     hint: '今日宜勤修，忌惰性',
   },
   {
