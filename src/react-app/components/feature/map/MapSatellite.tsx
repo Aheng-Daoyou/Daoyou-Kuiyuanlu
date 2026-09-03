@@ -19,7 +19,7 @@ const mapSatelliteVariants = cva(
   },
 );
 
-const satelliteMarkerVariants = cva('h-3 w-3 rotate-45 border', {
+const satelliteMarkerVariants = cva('h-3.5 w-3.5 rotate-45 border', {
   variants: {
     selected: {
       true: 'bg-crimson border-bgpaper',
@@ -32,7 +32,7 @@ const satelliteMarkerVariants = cva('h-3 w-3 rotate-45 border', {
 });
 
 const satelliteLabelVariants = cva(
-  'absolute top-4 left-1/2 -translate-x-1/2 whitespace-nowrap px-1.5 py-0.5 text-[10px] leading-4',
+  'absolute top-5 left-1/2 -translate-x-1/2 whitespace-nowrap px-2 py-0.5 text-sm leading-5',
   {
     variants: {
       selected: {

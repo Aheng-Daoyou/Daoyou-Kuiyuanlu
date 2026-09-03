@@ -20,7 +20,7 @@ const mapNodeVariants = cva(
   },
 );
 
-const markerVariants = cva('w-4 h-4 rounded-full border-2', {
+const markerVariants = cva('w-5 h-5 rounded-full border-2', {
   variants: {
     selected: {
       true: 'bg-crimson border-bgpaper ring-4 ring-crimson/20',
@@ -33,7 +33,7 @@ const markerVariants = cva('w-4 h-4 rounded-full border-2', {
 });
 
 const labelVariants = cva(
-  'absolute top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs font-bold px-2 py-0.5 rounded',
+  'absolute top-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-xl font-bold px-2.5 py-0.5 rounded',
   {
     variants: {
       selected: {
@@ -91,7 +91,7 @@ function MapNodeComponent({
         )}
       />
       {marketEnabled && (
-        <div className="bg-emerald-600 text-bgpaper absolute -top-2 -right-2 rounded px-1 text-[9px] leading-4">
+        <div className="bg-emerald-600 text-bgpaper absolute -top-2.5 -right-2.5 rounded px-1 text-[11px] leading-4 font-bold">
           市
         </div>
       )}

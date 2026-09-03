@@ -49,7 +49,7 @@ function MapSectLandmarkComponent({
       </span>
       <span
         className={cn(
-          'bg-background text-crimson absolute top-7 left-1/2 -translate-x-1/2 border px-2 py-0.5 text-xs font-bold whitespace-nowrap shadow-sm',
+          'bg-background text-crimson absolute top-8 left-1/2 -translate-x-1/2 border px-2.5 py-0.5 text-lg font-bold whitespace-nowrap shadow-sm',
           selected || emphasized ? 'border-crimson/45' : 'border-ink/10',
         )}
       >

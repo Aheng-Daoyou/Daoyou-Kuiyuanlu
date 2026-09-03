@@ -474,6 +474,10 @@ body {
 .bgi-map {
   /* 烬洲底图（自托管，源稿见 docs/窥渊录-烬洲地理志.md 与 scripts/kuiyuanlu-map-gen.py） */
   background-image: url('/assets/map/kuiyuanlu-map.webp');
+  /* 画布 3056×2143 与底图比例几乎一致，拉伸铺满保证百分比坐标零偏移；禁止平铺 */
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  background-position: center;
 }
 
 /* 移动端适配 */
