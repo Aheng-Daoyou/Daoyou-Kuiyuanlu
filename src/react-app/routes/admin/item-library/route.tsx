@@ -1,4 +1,5 @@
 import { useInkUI } from '@app/components/providers/InkUIProvider';
+import { InkModal } from '@app/components/layout/InkModal';
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkInput } from '@app/components/ui/InkInput';
 import { InkNotice } from '@app/components/ui/InkNotice';
@@ -173,7 +174,14 @@ export default function ItemLibraryAdminPage() {
   const [affixQuery, setAffixQuery] = useState('');
   const [affixSlotFilter, setAffixSlotFilter] = useState('');
   const [affixRarityFilter, setAffixRarityFilter] = useState('');
-  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogModalOpen, setCatalogModalOpen] = useState(false);
+  const [catalogTab, setCatalogTab] = useState<'preset' | 'library'>('preset');
+  const [catalogLibraryQuery, setCatalogLibraryQuery] = useState('');
+  const [catalogLibraryType, setCatalogLibraryType] = useState('');
+  const [catalogLibraryItems, setCatalogLibraryItems] = useState<
+    ItemLibraryEntry[]
+  >([]);
+  const [catalogLibraryLoading, setCatalogLibraryLoading] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogGroups, setCatalogGroups] = useState<
     NonNullable<CatalogResponse['groups']>
@@ -357,6 +365,40 @@ export default function ItemLibraryAdminPage() {
       });
     } finally {
       setCatalogImporting('');
+    }
+  };
+
+  /** 目录弹层「已入库道具」页签：拉取道具库全量（轻量分页，一次最多 200 条） */
+  const loadCatalogLibrary = useCallback(async () => {
+    setCatalogLibraryLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (catalogLibraryQuery.trim()) params.set('q', catalogLibraryQuery.trim());
+      if (catalogLibraryType) params.set('type', catalogLibraryType);
+      params.set('pageSize', '200');
+      const response = await fetch(`/api/admin/item-library?${params.toString()}`);
+      const data = (await response.json()) as ItemLibraryResponse;
+      if (!response.ok) {
+        throw new Error(data.error ?? '加载道具库失败');
+      }
+      setCatalogLibraryItems(data.items ?? []);
+    } catch (error) {
+      pushToast({
+        message: error instanceof Error ? error.message : '加载道具库失败',
+        tone: 'danger',
+      });
+    } finally {
+      setCatalogLibraryLoading(false);
+    }
+  }, [catalogLibraryQuery, catalogLibraryType, pushToast]);
+
+  /** 点击复制 itemId（GM 发放 / 兑换码 / 邮件引用用） */
+  const copyItemId = async (itemId: string) => {
+    try {
+      await navigator.clipboard.writeText(itemId);
+      pushToast({ message: `已复制：${itemId}`, tone: 'success' });
+    } catch {
+      pushToast({ message: '复制失败，请手动选择复制', tone: 'warning' });
     }
   };
 
@@ -701,13 +743,25 @@ export default function ItemLibraryAdminPage() {
                 </option>
               </InkSelect>
             </div>
-            <InkButton
-              type="button"
-              variant="secondary"
-              onClick={() => setDraft(createEmptyDraft())}
-            >
-              新建道具
-            </InkButton>
+            <div className="grid grid-cols-2 gap-3">
+              <InkButton
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setCatalogModalOpen(true);
+                  if (catalogGroups.length === 0) void loadCatalog();
+                }}
+              >
+                材料目录
+              </InkButton>
+              <InkButton
+                type="button"
+                variant="secondary"
+                onClick={() => setDraft(createEmptyDraft())}
+              >
+                新建道具
+              </InkButton>
+            </div>
           </div>
 
           <div className="border-ink/15 bg-paper/70 space-y-3 border border-dashed p-3">
@@ -1821,176 +1875,260 @@ export default function ItemLibraryAdminPage() {
         </section>
       </section>
 
-      <section className="border-ink/15 bg-bgpaper/90 border border-dashed p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-ink text-lg font-bold">内置材料目录</h3>
-            <p className="text-ink-secondary mt-1 text-sm leading-6">
-              坊市预设池全部 420 条材料（7 类 × 5 品阶 × 12 条），已入库{' '}
-              {catalogImportedTotal} / {catalogTotal} 条。入库后即可在兑换码、
-              游戏邮件、声望商店中按 itemId 引用发放。
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {catalogOpen ? (
+      <InkModal
+        isOpen={catalogModalOpen}
+        onClose={() => setCatalogModalOpen(false)}
+        title="道具总目录（香品 / 灵器）"
+        className="max-w-5xl"
+        footer={
+          catalogTab === 'preset' ? (
+            <div className="flex w-full items-center justify-between gap-3">
+              <span className="text-ink-secondary text-xs">
+                已入库 {catalogImportedTotal} / {catalogTotal} 条 · 点击条目中的 ID 可复制
+              </span>
               <InkButton
                 type="button"
-                variant="secondary"
-                disabled={catalogLoading}
-                onClick={() => setCatalogOpen(false)}
+                variant="primary"
+                disabled={catalogImporting !== '' || catalogTotal === 0}
+                onClick={() => void importCatalog({ all: true })}
               >
-                收起目录
+                {catalogImporting === 'all'
+                  ? '入库中…'
+                  : `一键全量入库（剩余 ${catalogTotal - catalogImportedTotal} 条）`}
               </InkButton>
-            ) : (
-              <InkButton
-                type="button"
-                variant="secondary"
-                disabled={catalogLoading}
-                onClick={() => {
-                  setCatalogOpen(true);
-                  if (catalogGroups.length === 0) void loadCatalog();
-                }}
-              >
-                {catalogLoading ? '加载中…' : '浏览内置目录'}
-              </InkButton>
-            )}
+            </div>
+          ) : (
+            <span className="text-ink-secondary text-xs">
+              共 {catalogLibraryItems.length} 条（最多展示 200 条，可用关键字与类型筛选）· 点击 ID 可复制
+            </span>
+          )
+        }
+      >
+        <div className="space-y-4">
+          <div className="border-ink/15 bg-paper/60 flex gap-2 border border-dashed p-1">
             <InkButton
               type="button"
-              variant="primary"
-              disabled={catalogImporting !== '' || catalogTotal === 0}
-              onClick={() => void importCatalog({ all: true })}
+              variant={catalogTab === 'preset' ? 'primary' : 'secondary'}
+              onClick={() => setCatalogTab('preset')}
             >
-              {catalogImporting === 'all'
-                ? '入库中…'
-                : `一键全量入库（剩余 ${catalogTotal - catalogImportedTotal} 条）`}
+              内置预设目录
+            </InkButton>
+            <InkButton
+              type="button"
+              variant={catalogTab === 'library' ? 'primary' : 'secondary'}
+              onClick={() => {
+                setCatalogTab('library');
+                void loadCatalogLibrary();
+              }}
+            >
+              已入库道具
             </InkButton>
           </div>
-        </div>
 
-        {catalogOpen ? (
-          <div className="mt-5 space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <InkSelect
-                label="类目筛选"
-                value={catalogTypeFilter}
-                onChange={setCatalogTypeFilter}
-              >
-                <option value="">全部类目</option>
-                {catalogGroups.map((group) => (
-                  <option key={group.materialType} value={group.materialType}>
-                    {getMaterialTypeLabel(group.materialType as MaterialType)}
-                  </option>
-                ))}
-              </InkSelect>
-              <InkSelect
-                label="品阶筛选"
-                value={catalogQualityFilter}
-                onChange={setCatalogQualityFilter}
-              >
-                <option value="">全部品阶</option>
-                {catalogGroups[0]?.qualities.map((qualityGroup) => (
-                  <option key={qualityGroup.quality} value={qualityGroup.quality}>
-                    {qualityGroup.quality}
-                  </option>
-                ))}
-              </InkSelect>
-            </div>
-
-            {catalogGroups
-              .filter(
-                (group) =>
-                  !catalogTypeFilter ||
-                  group.materialType === catalogTypeFilter,
-              )
-              .map((group) => (
-                <div
-                  key={group.materialType}
-                  className="border-ink/15 bg-paper/70 border border-dashed p-4"
+          {catalogTab === 'preset' ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InkSelect
+                  label="类目筛选"
+                  value={catalogTypeFilter}
+                  onChange={setCatalogTypeFilter}
                 >
-                  <p className="text-ink font-semibold">
-                    {getMaterialTypeLabel(group.materialType as MaterialType)}
-                    <span className="text-ink-secondary ml-2 text-xs font-normal">
-                      {group.materialType}
-                    </span>
-                  </p>
-                  <div className="mt-3 space-y-3">
-                    {group.qualities
-                      .filter(
-                        (qualityGroup) =>
-                          !catalogQualityFilter ||
-                          qualityGroup.quality === catalogQualityFilter,
-                      )
-                      .map((qualityGroup) => {
-                        const key = `${group.materialType}:${qualityGroup.quality}`;
-                        const importedCount = qualityGroup.entries.filter(
-                          (entry) => entry.imported,
-                        ).length;
-                        return (
-                          <div
-                            key={key}
-                            className="border-ink/10 bg-bgpaper/60 p-3"
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="text-ink text-sm font-semibold">
-                                {qualityGroup.quality}
-                                <span className="text-ink-secondary ml-2 text-xs font-normal">
-                                  {importedCount}/{qualityGroup.entries.length}{' '}
-                                  已入库
-                                </span>
-                              </p>
-                              <InkButton
-                                type="button"
-                                variant="secondary"
-                                disabled={
-                                  catalogImporting !== '' ||
-                                  importedCount === qualityGroup.entries.length
-                                }
-                                onClick={() =>
-                                  void importCatalog({
-                                    materialType: group.materialType,
-                                    quality: qualityGroup.quality,
-                                  })
-                                }
+                  <option value="">全部类目</option>
+                  {catalogGroups.map((group) => (
+                    <option key={group.materialType} value={group.materialType}>
+                      {getMaterialTypeLabel(group.materialType as MaterialType)}
+                    </option>
+                  ))}
+                </InkSelect>
+                <InkSelect
+                  label="品阶筛选"
+                  value={catalogQualityFilter}
+                  onChange={setCatalogQualityFilter}
+                >
+                  <option value="">全部品阶</option>
+                  {catalogGroups[0]?.qualities.map((qualityGroup) => (
+                    <option key={qualityGroup.quality} value={qualityGroup.quality}>
+                      {qualityGroup.quality}
+                    </option>
+                  ))}
+                </InkSelect>
+              </div>
+
+              <div className="max-h-[55vh] space-y-4 overflow-y-auto pr-1">
+                {catalogGroups
+                  .filter(
+                    (group) =>
+                      !catalogTypeFilter ||
+                      group.materialType === catalogTypeFilter,
+                  )
+                  .map((group) => (
+                    <div
+                      key={group.materialType}
+                      className="border-ink/15 bg-paper/70 border border-dashed p-4"
+                    >
+                      <p className="text-ink font-semibold">
+                        {getMaterialTypeLabel(group.materialType as MaterialType)}
+                        <span className="text-ink-secondary ml-2 text-xs font-normal">
+                          {group.materialType}
+                        </span>
+                      </p>
+                      <div className="mt-3 space-y-3">
+                        {group.qualities
+                          .filter(
+                            (qualityGroup) =>
+                              !catalogQualityFilter ||
+                              qualityGroup.quality === catalogQualityFilter,
+                          )
+                          .map((qualityGroup) => {
+                            const key = `${group.materialType}:${qualityGroup.quality}`;
+                            const importedCount = qualityGroup.entries.filter(
+                              (entry) => entry.imported,
+                            ).length;
+                            return (
+                              <div
+                                key={key}
+                                className="border-ink/10 bg-bgpaper/60 p-3"
                               >
-                                {catalogImporting === key
-                                  ? '入库中…'
-                                  : importedCount === qualityGroup.entries.length
-                                    ? '已全部入库'
-                                    : '本组入库'}
-                              </InkButton>
-                            </div>
-                            <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                              {qualityGroup.entries.map((entry) => (
-                                <div
-                                  key={entry.itemId}
-                                  className={`border px-2.5 py-1.5 text-xs ${
-                                    entry.imported
-                                      ? 'border-crimson/30 bg-crimson/5'
-                                      : 'border-ink/10 bg-paper/60'
-                                  }`}
-                                >
-                                  <p className="text-ink font-semibold">
-                                    {entry.name}
-                                    <span className="text-ink-secondary ml-1.5 font-normal">
-                                      {entry.element}
-                                      {entry.imported ? ' · 已入库' : ''}
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="text-ink text-sm font-semibold">
+                                    {qualityGroup.quality}
+                                    <span className="text-ink-secondary ml-2 text-xs font-normal">
+                                      {importedCount}/{qualityGroup.entries.length}{' '}
+                                      已入库
                                     </span>
                                   </p>
-                                  <p className="text-ink-secondary mt-0.5 line-clamp-2 leading-4">
-                                    {entry.description}
-                                  </p>
+                                  <InkButton
+                                    type="button"
+                                    variant="secondary"
+                                    disabled={
+                                      catalogImporting !== '' ||
+                                      importedCount === qualityGroup.entries.length
+                                    }
+                                    onClick={() =>
+                                      void importCatalog({
+                                        materialType: group.materialType,
+                                        quality: qualityGroup.quality,
+                                      })
+                                    }
+                                  >
+                                    {catalogImporting === key
+                                      ? '入库中…'
+                                      : importedCount === qualityGroup.entries.length
+                                        ? '已全部入库'
+                                        : '本组入库'}
+                                  </InkButton>
                                 </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              ))}
-          </div>
-        ) : null}
-      </section>
+                                <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                                  {qualityGroup.entries.map((entry) => (
+                                    <button
+                                      key={entry.itemId}
+                                      type="button"
+                                      title={`点击复制 ID：${entry.itemId}`}
+                                      onClick={() => void copyItemId(entry.itemId)}
+                                      className={`cursor-pointer border px-2.5 py-1.5 text-left text-xs transition-colors hover:border-crimson/50 ${
+                                        entry.imported
+                                          ? 'border-crimson/30 bg-crimson/5'
+                                          : 'border-ink/10 bg-paper/60'
+                                      }`}
+                                    >
+                                      <p className="text-ink font-semibold">
+                                        {entry.name}
+                                        <span className="text-ink-secondary ml-1.5 font-normal">
+                                          {entry.element}
+                                          {entry.imported ? ' · 已入库' : ''}
+                                        </span>
+                                      </p>
+                                      <p className="text-ink-secondary font-mono mt-0.5 text-[10px] break-all leading-3 opacity-70">
+                                        {entry.itemId}
+                                      </p>
+                                      <p className="text-ink-secondary mt-0.5 line-clamp-2 leading-4">
+                                        {entry.description}
+                                      </p>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-[2fr_1fr_auto] sm:items-end">
+                <InkInput
+                  label="关键字（名称或 ID）"
+                  value={catalogLibraryQuery}
+                  onChange={setCatalogLibraryQuery}
+                  placeholder="如：丹、灵器、herb"
+                />
+                <InkSelect
+                  label="类型"
+                  value={catalogLibraryType}
+                  onChange={setCatalogLibraryType}
+                >
+                  <option value="">全部</option>
+                  <option value="material">
+                    {ITEM_LIBRARY_TYPE_LABELS.material}
+                  </option>
+                  <option value="consumable">
+                    {ITEM_LIBRARY_TYPE_LABELS.consumable}
+                  </option>
+                  <option value="artifact">
+                    {ITEM_LIBRARY_TYPE_LABELS.artifact}
+                  </option>
+                </InkSelect>
+                <InkButton
+                  type="button"
+                  variant="primary"
+                  disabled={catalogLibraryLoading}
+                  onClick={() => void loadCatalogLibrary()}
+                >
+                  {catalogLibraryLoading ? '查询中…' : '查询'}
+                </InkButton>
+              </div>
+
+              <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+                {catalogLibraryItems.length === 0 &&
+                !catalogLibraryLoading ? (
+                  <p className="text-ink-secondary py-6 text-center text-sm">
+                    暂无已入库道具，可先在「内置预设目录」中一键入库，或用上方表单新建。
+                  </p>
+                ) : null}
+                {catalogLibraryItems.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    title={`点击复制 ID：${entry.itemId}`}
+                    onClick={() => void copyItemId(entry.itemId)}
+                    className="border-ink/10 bg-paper/60 hover:border-crimson/50 block w-full cursor-pointer border px-3 py-2 text-left transition-colors"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-ink text-sm font-semibold">
+                        {entry.name}
+                      </span>
+                      <span className="text-ink-secondary text-xs">
+                        {getEntryMeta(entry)} ·{' '}
+                        {ITEM_LIBRARY_STATUS_LABELS[entry.status]}
+                      </span>
+                    </div>
+                    <p className="text-ink-secondary font-mono mt-0.5 text-[10px] break-all leading-3 opacity-70">
+                      {entry.itemId}
+                    </p>
+                    {entry.description ? (
+                      <p className="text-ink-secondary mt-1 line-clamp-2 text-xs leading-4">
+                        {entry.description}
+                      </p>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </InkModal>
     </div>
   );
 }

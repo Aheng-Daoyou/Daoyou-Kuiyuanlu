@@ -5,9 +5,9 @@ import type {
   GmGrantResponse,
   GmPlayerSummary,
 } from '@shared/contracts/gmTools';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-/** GM 工具：按角色名搜索并直接发放灯油券/声望/灯韵/寿元/窥悟（测试与补偿用） */
+/** GM 工具：按角色名实时模糊搜索并直接发放灯油券/声望/灯韵/寿元/窥悟/道具（测试与补偿用） */
 export default function GmToolsPage() {
   const { pushToast } = useInkUI();
   const [query, setQuery] = useState('');
@@ -19,44 +19,82 @@ export default function GmToolsPage() {
   const [cultivationExp, setCultivationExp] = useState('');
   const [lifespan, setLifespan] = useState('');
   const [comprehensionInsight, setComprehensionInsight] = useState('');
+  const [itemIds, setItemIds] = useState('');
+  const [itemQuantity, setItemQuantity] = useState('');
   const [note, setNote] = useState('');
   const [granting, setGranting] = useState(false);
   const [lastResult, setLastResult] = useState<GmGrantResponse | null>(null);
   const searchSeq = useRef(0);
 
-  const search = useCallback(async () => {
+  const search = useCallback(
+    async (keyword: string) => {
+      const trimmed = keyword.trim();
+      if (!trimmed) {
+        setPlayers([]);
+        return;
+      }
+      const seq = ++searchSeq.current;
+      setSearching(true);
+      try {
+        const response = await fetch(
+          `/api/admin/gm/players?query=${encodeURIComponent(trimmed)}`,
+        );
+        const data = (await response.json()) as {
+          players?: GmPlayerSummary[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(data.error ?? '搜索失败');
+        if (seq === searchSeq.current) {
+          setPlayers(data.players ?? []);
+          setSelected((current) =>
+            current && data.players?.some((p) => p.id === current.id)
+              ? current
+              : null,
+          );
+        }
+      } catch {
+        // 实时输入过程中静默失败，避免每个按键都弹提示
+      } finally {
+        if (seq === searchSeq.current) setSearching(false);
+      }
+    },
+    [],
+  );
+
+  // 输入即搜：300ms 防抖实时检索，名字包含关键字即可命中
+  useEffect(() => {
     const trimmed = query.trim();
     if (!trimmed) {
-      pushToast({ message: '请输入角色名关键字', tone: 'warning' });
+      setPlayers([]);
+      setSelected(null);
       return;
     }
-    const seq = ++searchSeq.current;
-    setSearching(true);
-    try {
-      const response = await fetch(
-        `/api/admin/gm/players?query=${encodeURIComponent(trimmed)}`,
-      );
-      const data = (await response.json()) as {
-        players?: GmPlayerSummary[];
-        error?: string;
-      };
-      if (!response.ok) throw new Error(data.error ?? '搜索失败');
-      if (seq === searchSeq.current) {
-        setPlayers(data.players ?? []);
-        setSelected(null);
-      }
-    } catch (error) {
-      pushToast({
-        message: error instanceof Error ? error.message : '搜索失败',
-        tone: 'danger',
-      });
-    } finally {
-      if (seq === searchSeq.current) setSearching(false);
-    }
-  }, [pushToast, query]);
+    const timer = window.setTimeout(() => void search(trimmed), 300);
+    return () => window.clearTimeout(timer);
+  }, [query, search]);
 
   const grant = async () => {
     if (!selected) return;
+    const items = itemIds
+      .split(/[\n,，;；\s]+/)
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .map((itemId) => ({
+        itemId,
+        quantity: Math.max(1, Math.floor(Number(itemQuantity) || 1)),
+      }));
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (seen.has(item.itemId)) {
+        pushToast({ message: `道具 ID 重复：${item.itemId}`, tone: 'warning' });
+        return;
+      }
+      seen.add(item.itemId);
+    }
+    if (items.length > 5) {
+      pushToast({ message: '单次最多发放 5 种道具', tone: 'warning' });
+      return;
+    }
     const payload = {
       cultivatorId: selected.id,
       spiritStones: Number(spiritStones) || undefined,
@@ -64,6 +102,7 @@ export default function GmToolsPage() {
       cultivationExp: Number(cultivationExp) || undefined,
       lifespan: Number(lifespan) || undefined,
       comprehensionInsight: Number(comprehensionInsight) || undefined,
+      items: items.length ? items : undefined,
       note: note.trim() || undefined,
     };
     if (
@@ -71,9 +110,10 @@ export default function GmToolsPage() {
       !payload.reputation &&
       !payload.cultivationExp &&
       !payload.lifespan &&
-      !payload.comprehensionInsight
+      !payload.comprehensionInsight &&
+      !payload.items
     ) {
-      pushToast({ message: '至少填写一项发放数额', tone: 'warning' });
+      pushToast({ message: '至少填写一项发放内容', tone: 'warning' });
       return;
     }
 
@@ -96,6 +136,8 @@ export default function GmToolsPage() {
       setCultivationExp('');
       setLifespan('');
       setComprehensionInsight('');
+      setItemIds('');
+      setItemQuantity('');
       setNote('');
     } catch (error) {
       pushToast({
@@ -129,9 +171,9 @@ export default function GmToolsPage() {
         <p className="text-ink-secondary text-xs tracking-[0.22em]">GM TOOLS</p>
         <h2 className="font-heading text-ink mt-2 text-3xl">GM 工具</h2>
           <p className="text-ink-secondary mt-3 max-w-2xl text-sm leading-7">
-            按角色名搜索在线角色，直接发放灯油券 / 声望 / 灯韵 / 寿元 / 窥悟，用于测试与客诉补偿。
-            大额发放会由服务端自动拆批结算；发放即时到账并记录操作日志。
-            物品类发放请使用「游戏邮件」广播页。
+            输入角色名关键字即时模糊检索（如输入「测试」即可命中所有含测试的名字），
+            点选角色后直接发放灯油券 / 声望 / 灯韵 / 寿元 / 窥悟 / 道具库物品。
+            发放即时到账，玩家客户端实时刷新；大额发放由服务端自动拆批结算。
           </p>
       </header>
 
@@ -139,20 +181,20 @@ export default function GmToolsPage() {
         <div className="flex items-end gap-3">
           <div className="flex-1">
             <InkInput
-              label="角色名搜索"
+              label="角色名搜索（输入即搜）"
               value={query}
               onChange={setQuery}
-              placeholder="输入角色名关键字，如：测试守灯人"
+              placeholder="输入关键字，如：测试"
               disabled={searching}
             />
           </div>
           <InkButton
             type="button"
             variant="primary"
-            disabled={searching}
-            onClick={() => void search()}
+            disabled={searching || !query.trim()}
+            onClick={() => void search(query)}
           >
-            {searching ? '搜索中…' : '搜索'}
+            {searching ? '搜索中…' : '刷新'}
           </InkButton>
         </div>
 
@@ -199,7 +241,25 @@ export default function GmToolsPage() {
             {numberInput('声望', reputation, setReputation, '天骄宝阁兑换用，上限 100 万')}
             {numberInput('灯韵', cultivationExp, setCultivationExp, '修为进度，单次最高 10 亿')}
             {numberInput('寿元（年）', lifespan, setLifespan, '续命用，上限 1000 万年')}
-            {numberInput('窥悟值', comprehensionInsight, setComprehensionInsight, '悟性进度 0~100，直接累加')}
+            {numberInput('窥悟值', comprehensionInsight, setComprehensionInsight, '悟性进度 0~100，超出自动封顶')}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
+            <InkInput
+              label="道具发放（可选）"
+              value={itemIds}
+              onChange={setItemIds}
+              placeholder="粘贴道具库 itemId，多个用逗号或换行分隔（最多 5 个）"
+              hint="ID 可在「道具库 → 目录」中点击复制"
+              disabled={!selected || granting}
+            />
+            <InkInput
+              label="道具数量"
+              value={itemQuantity}
+              onChange={setItemQuantity}
+              placeholder="1"
+              hint="每种道具的数量，默认 1"
+              disabled={!selected || granting}
+            />
           </div>
           <InkInput
             label="备注（可选）"
@@ -240,6 +300,11 @@ export default function GmToolsPage() {
                   : ''}
                 {lastResult.granted.comprehensionInsight
                   ? `，+${lastResult.granted.comprehensionInsight} 窥悟`
+                  : ''}
+                {lastResult.granted.items?.length
+                  ? `，道具：${lastResult.granted.items
+                      .map((item) => `${item.name}×${item.quantity}`)
+                      .join('、')}`
                   : ''}
               </p>
               <p className="text-ink-secondary mt-1 text-xs">

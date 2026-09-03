@@ -14,6 +14,7 @@ import {
   QiServiceError,
 } from '@server/lib/services/QiService';
 import { streamAiText } from '@server/utils/aiClient';
+import { StoryTextGuard } from '@server/utils/storyTextGuard';
 import {
   getBreakthroughStoryPrompt,
   getLifespanExhaustedStoryPrompt,
@@ -84,12 +85,19 @@ function createRetreatStreamResponse(
             ? 'breakthrough-story'
             : 'lifespan-exhausted',
       });
-      for await (const chunk of aiStreamResult.textStream) {
-        accumulatedStory += chunk;
+      // 模型偶尔会把正文包成 {"answer": "..."} 或 ``` 代码块输出，
+      // StoryTextGuard 在流式过程中识别并剥壳，客户端只见正文。
+      const guard = new StoryTextGuard(async (text) => {
+        if (!text) return;
+        accumulatedStory += text;
         await stream.writeSSE({
-          data: JSON.stringify({ type: 'chunk', text: chunk }),
+          data: JSON.stringify({ type: 'chunk', text }),
         });
+      });
+      for await (const chunk of aiStreamResult.textStream) {
+        await guard.push(chunk);
       }
+      await guard.end();
     } catch (error) {
       console.error('Retreat story stream error:', error);
       await stream.writeSSE({

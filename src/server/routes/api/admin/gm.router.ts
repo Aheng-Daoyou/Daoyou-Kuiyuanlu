@@ -1,7 +1,9 @@
 import { getExecutor } from '@server/lib/drizzle/db';
-import { cultivators } from '@server/lib/drizzle/schema';
+import { cultivators, itemLibrary } from '@server/lib/drizzle/schema';
 import { requireAdmin } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
+import { resourceEventCommitter } from '@server/lib/services/ResourceEventCommitter';
+import { publishResourceEvents } from '@server/lib/services/playerStateBroadcaster';
 import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
 import {
   GmGrantRequestSchema,
@@ -10,14 +12,16 @@ import {
   type GmGrantResponse,
   type GmPlayerSummary,
 } from '@shared/contracts/gmTools';
+import type { ResourceChange } from '@shared/contracts/resources';
 import type { ResourceOperation } from '@shared/engine/resource/types';
-import { and, eq, ilike, sql } from 'drizzle-orm';
+import { and, eq, ilike, inArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 
 /**
  * GM 工具路由（requireAdmin 全程把关）：
- * - GET  /api/admin/gm/players?query=  按名字搜索角色
- * - POST /api/admin/gm/grant           向角色直接发放灯油券/声望/灯韵
+ * - GET  /api/admin/gm/players?query=  按名字模糊搜索角色
+ * - POST /api/admin/gm/grant           向角色直接发放灯油券/声望/灯韵/寿元/窥悟/道具库物品
+ *                                      发放走与玩法相同的资源事件通道，客户端实时刷新
  */
 
 const router = new Hono<AppEnv>();
@@ -87,6 +91,61 @@ router.post('/grant', requireAdmin(), async (c) => {
     return c.json({ error: '角色不存在' }, 404);
   }
 
+  // 物品类发放：按 itemId 从道具库取 payload 构造资源操作
+  const grantedItems: Array<{
+    itemId: string;
+    name: string;
+    quantity: number;
+  }> = [];
+  const itemOps: ResourceOperation[] = [];
+  let inventoryTopic: 'inventory.materials' | 'inventory.consumables' | 'inventory.artifacts' | null =
+    null;
+  if (input.items?.length) {
+    const rows = await q
+      .select({
+        itemId: itemLibrary.itemId,
+        type: itemLibrary.type,
+        name: itemLibrary.name,
+        payload: itemLibrary.payload,
+      })
+      .from(itemLibrary)
+      .where(inArray(itemLibrary.itemId, input.items.map((item) => item.itemId)));
+    const byId = new Map(rows.map((row) => [row.itemId, row]));
+    for (const item of input.items) {
+      const row = byId.get(item.itemId);
+      if (!row) {
+        return c.json({ error: `道具不存在：${item.itemId}` }, 404);
+      }
+      if (
+        row.type !== 'material' &&
+        row.type !== 'consumable' &&
+        row.type !== 'artifact'
+      ) {
+        return c.json(
+          { error: `道具 ${row.name}（${item.itemId}）类型不支持直接发放` },
+          400,
+        );
+      }
+      itemOps.push({
+        type: row.type,
+        value: item.quantity,
+        name: row.name,
+        data: row.payload as ResourceOperation['data'],
+      });
+      grantedItems.push({
+        itemId: row.itemId,
+        name: row.name,
+        quantity: item.quantity,
+      });
+      inventoryTopic =
+        row.type === 'material'
+          ? 'inventory.materials'
+          : row.type === 'consumable'
+            ? 'inventory.consumables'
+            : 'inventory.artifacts';
+    }
+  }
+
   // 大额发放按引擎单次安全上限自动拆批（同一事务内多次小步结算，最终结果一致）
   const chunked = (value: number, chunkSize: number): number[] => {
     const ops: number[] = [];
@@ -131,15 +190,49 @@ router.post('/grant', requireAdmin(), async (c) => {
   if (input.comprehensionInsight) {
     gain.push({ type: 'comprehension_insight', value: input.comprehensionInsight });
   }
+  gain.push(...itemOps);
 
-  const result = await q.transaction(async (tx) =>
-    resourceEngine.applyInTransaction({
+  // 与正常玩法同一套资源事件通道：事务内落库变更事件 + 提交后广播，
+  // 目标玩家的客户端会实时收到失效通知并自动重拉（无需手动强刷）。
+  const { result, events } = await q.transaction(async (tx) => {
+    const r = await resourceEngine.applyInTransaction({
       userId: cultivator.userId,
       cultivatorId: cultivator.id,
       gain,
       tx,
-    }),
-  );
+    });
+    if (!r.success || !r.settlement) {
+      return { result: r, events: [] as ResourceChange[] };
+    }
+    const commit = await resourceEventCommitter.commit(tx, {
+      actor: { userId: admin.id },
+      source: 'gm-grant',
+      changes: [
+        {
+          resourceTopic: 'player.currency',
+          eventType: 'gm.grant',
+          operation: 'invalidate',
+        },
+        {
+          resourceTopic: 'player.progress',
+          eventType: 'gm.grant',
+          operation: 'invalidate',
+        },
+        ...(inventoryTopic
+          ? [
+              {
+                resourceTopic: inventoryTopic,
+                eventType: 'gm.grant',
+                operation: 'invalidate' as const,
+              },
+            ]
+          : []),
+      ],
+      scopeDefaults: { accountId: cultivator.userId, cultivatorId: cultivator.id },
+    });
+    return { result: r, events: commit.changes };
+  });
+  if (events.length) publishResourceEvents(events);
 
   if (!result.success || !result.settlement) {
     return c.json(
@@ -165,6 +258,7 @@ router.post('/grant', requireAdmin(), async (c) => {
       cultivationExp: input.cultivationExp,
       lifespan: input.lifespan,
       comprehensionInsight: input.comprehensionInsight,
+      items: grantedItems.length ? grantedItems : undefined,
     },
     balances: {
       spiritStones: result.settlement.spiritStones ?? 0,

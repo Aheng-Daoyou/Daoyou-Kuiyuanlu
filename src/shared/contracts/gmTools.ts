@@ -29,6 +29,19 @@ export const GM_GRANT_CHUNK_SIZES = {
   lifespan: 100_000,
 } as const;
 
+/** 道具库 itemId 规则与 itemLibrary 保持一致（字母数字_-，便于直接粘贴） */
+const GmGrantItemItemIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120)
+  .regex(/^[a-z0-9][a-z0-9_-]*$/i, '道具 ID 仅支持字母、数字、_ 和 -');
+
+export const GmGrantItemSchema = z.object({
+  itemId: GmGrantItemItemIdSchema,
+  quantity: z.number().int().min(1).max(999),
+});
+
 export const GmGrantRequestSchema = z
   .object({
     cultivatorId: z.string().uuid(),
@@ -36,7 +49,9 @@ export const GmGrantRequestSchema = z
     reputation: z.number().int().min(0).max(1_000_000).optional(),
     cultivationExp: z.number().int().min(0).max(1_000_000_000).optional(),
     lifespan: z.number().int().min(0).max(10_000_000).optional(),
-    comprehensionInsight: z.number().int().min(1).max(100).optional(),
+    // 引擎会把窥悟自动封顶在 0~100，这里放开录入上限，超出部分自动截断
+    comprehensionInsight: z.number().int().min(1).max(100_000).optional(),
+    items: z.array(GmGrantItemSchema).max(5).optional(),
     note: z.string().trim().max(200).optional(),
   })
   .refine(
@@ -46,12 +61,14 @@ export const GmGrantRequestSchema = z
           value.reputation ||
           value.cultivationExp ||
           value.lifespan ||
-          value.comprehensionInsight,
+          value.comprehensionInsight ||
+          (value.items && value.items.length > 0),
       ),
-    { message: '至少填写一项发放数额' },
+    { message: '至少填写一项发放内容' },
   );
 
 export type GmGrantRequest = z.infer<typeof GmGrantRequestSchema>;
+export type GmGrantItem = z.infer<typeof GmGrantItemSchema>;
 
 export interface GmGrantResponse {
   success: true;
@@ -63,6 +80,7 @@ export interface GmGrantResponse {
     cultivationExp?: number;
     lifespan?: number;
     comprehensionInsight?: number;
+    items?: Array<{ itemId: string; name: string; quantity: number }>;
   };
   balances: {
     spiritStones: number;
