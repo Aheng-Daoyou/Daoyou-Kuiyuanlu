@@ -6,6 +6,8 @@ export const APP_SETTING_KEYS = {
   authPageAnnouncement: 'auth_page_announcement',
   itemLibraryDailyMaterialGeneration: 'item_library_daily_material_generation',
   afdianSponsorship: 'sponsorship_afdian_config_v1',
+  /** 灯引强制开关：开启后注册必须持有效灯引，关闭则灯引选填 */
+  invitationLampRequired: 'invitation_lamp_required',
 } as const;
 
 /** Bundled fallback when DB has no row or row is empty. 窥渊录：默认留空，由管理员在后台「QQ交流群」配置自己的群号 */

@@ -1,7 +1,8 @@
 import { getExecutor } from '@server/lib/drizzle/db';
-import { cultivators, itemLibrary } from '@server/lib/drizzle/schema';
+import { cultivators, itemLibrary, sectMemberships } from '@server/lib/drizzle/schema';
 import { requireAdmin } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
+import { findMembership } from '@server/lib/repositories/sectRepository';
 import { resourceEventCommitter } from '@server/lib/services/ResourceEventCommitter';
 import { publishResourceEvents } from '@server/lib/services/playerStateBroadcaster';
 import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
@@ -20,7 +21,7 @@ import { Hono } from 'hono';
 /**
  * GM 工具路由（requireAdmin 全程把关）：
  * - GET  /api/admin/gm/players?query=  按名字模糊搜索角色
- * - POST /api/admin/gm/grant           向角色直接发放灯油券/声望/灯韵/寿元/窥悟/道具库物品
+ * - POST /api/admin/gm/grant           向角色直接发放灯油券/声望/灯韵/寿元/窥悟/宗门贡献/道具库物品
  *                                      发放走与玩法相同的资源事件通道，客户端实时刷新
  */
 
@@ -194,7 +195,8 @@ router.post('/grant', requireAdmin(), async (c) => {
 
   // 与正常玩法同一套资源事件通道：事务内落库变更事件 + 提交后广播，
   // 目标玩家的客户端会实时收到失效通知并自动重拉（无需手动强刷）。
-  const { result, events } = await q.transaction(async (tx) => {
+  const { result, events, sectContribution } = await q.transaction(async (tx) => {
+    // 先走资源引擎结算，失败即返回（事务内无写入，提交为空事务不影响数据）
     const r = await resourceEngine.applyInTransaction({
       userId: cultivator.userId,
       cultivatorId: cultivator.id,
@@ -202,8 +204,57 @@ router.post('/grant', requireAdmin(), async (c) => {
       tx,
     });
     if (!r.success || !r.settlement) {
-      return { result: r, events: [] as ResourceChange[] };
+      return {
+        result: r,
+        events: [] as ResourceChange[],
+        sectContribution: undefined,
+      };
     }
+
+    // 宗门贡献不走资源引擎：挂在宗门成员表上，带符号增量直接调整。
+    // 正数=发放（当期与终身贡献同加）；负数=扣减当期（自动截断到 0，终身不动）。
+    let sectContributionResult:
+      | { before: number; after: number; lifetimeContribution: number }
+      | undefined;
+    if (input.sectContribution) {
+      const membership = await findMembership(input.cultivatorId, tx);
+      if (!membership) {
+        return {
+          result: {
+            success: false as const,
+            errors: ['该角色尚未加入宗门，无法调整宗门贡献'],
+          },
+          events: [] as ResourceChange[],
+          sectContribution: undefined,
+        };
+      }
+      const [updated] = await tx
+        .update(sectMemberships)
+        .set(
+          input.sectContribution > 0
+            ? {
+                contribution: sql`${sectMemberships.contribution} + ${input.sectContribution}`,
+                lifetimeContribution:
+                  sql`${sectMemberships.lifetimeContribution} + ${input.sectContribution}`,
+                updatedAt: new Date(),
+              }
+            : {
+                contribution: sql`greatest(0, ${sectMemberships.contribution} + ${input.sectContribution})`,
+                updatedAt: new Date(),
+              },
+        )
+        .where(eq(sectMemberships.id, membership.id))
+        .returning({
+          contribution: sectMemberships.contribution,
+          lifetimeContribution: sectMemberships.lifetimeContribution,
+        });
+      sectContributionResult = {
+        before: membership.contribution,
+        after: updated.contribution,
+        lifetimeContribution: updated.lifetimeContribution,
+      };
+    }
+
     const commit = await resourceEventCommitter.commit(tx, {
       actor: { userId: admin.id },
       source: 'gm-grant',
@@ -218,19 +269,30 @@ router.post('/grant', requireAdmin(), async (c) => {
           eventType: 'gm.grant',
           operation: 'invalidate',
         },
-        ...(inventoryTopic
+        // 只发一类物品栏/宗门失效即可：有物品发对应物品栏，只有贡献则发宗门商店
+        ...(inventoryTopic || input.sectContribution
           ? [
-              {
-                resourceTopic: inventoryTopic,
-                eventType: 'gm.grant',
-                operation: 'invalidate' as const,
-              },
+              inventoryTopic
+                ? {
+                    resourceTopic: inventoryTopic,
+                    eventType: 'gm.grant',
+                    operation: 'invalidate' as const,
+                  }
+                : {
+                    resourceTopic: 'sect.shop' as const,
+                    eventType: 'gm.grant',
+                    operation: 'invalidate' as const,
+                  },
             ]
           : []),
       ],
       scopeDefaults: { accountId: cultivator.userId, cultivatorId: cultivator.id },
     });
-    return { result: r, events: commit.changes };
+    return {
+      result: r,
+      events: commit.changes,
+      sectContribution: sectContributionResult,
+    };
   });
   if (events.length) publishResourceEvents(events);
 
@@ -245,6 +307,7 @@ router.post('/grant', requireAdmin(), async (c) => {
     `[GM] ${admin.email ?? admin.id} 向角色 ${cultivator.name}(${cultivator.id}) 发放` +
       ` 灯油券=${input.spiritStones ?? 0} 声望=${input.reputation ?? 0} 灯韵=${input.cultivationExp ?? 0}` +
       ` 寿元=${input.lifespan ?? 0} 窥悟=${input.comprehensionInsight ?? 0}` +
+      ` 宗门贡献=${input.sectContribution ?? 0}` +
       (input.note ? ` 备注：${input.note}` : ''),
   );
 
@@ -259,6 +322,7 @@ router.post('/grant', requireAdmin(), async (c) => {
       lifespan: input.lifespan,
       comprehensionInsight: input.comprehensionInsight,
       items: grantedItems.length ? grantedItems : undefined,
+      sectContribution,
     },
     balances: {
       spiritStones: result.settlement.spiritStones ?? 0,

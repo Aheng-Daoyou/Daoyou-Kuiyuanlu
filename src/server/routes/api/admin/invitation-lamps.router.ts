@@ -3,6 +3,10 @@ import { invitationLamps } from '@server/lib/drizzle/schema';
 import { requireAdmin } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
 import {
+  getInvitationLampRequired,
+  upsertInvitationLampRequired,
+} from '@server/lib/repositories/appSettingsRepository';
+import {
   generateInvitationCode,
   isValidInvitationCodeFormat,
   normalizeInvitationCode,
@@ -183,6 +187,38 @@ router.post('/:id/toggle', requireAdmin(), async (c) => {
     .returning();
 
   return c.json({ success: true, invitationLamp: updated });
+});
+
+// 灯引强制开关：开启后注册必须持有效灯引（后台可随时切换强制/选填）
+router.get('/settings', requireAdmin(), async (c) => {
+  const required = await getInvitationLampRequired();
+  return c.json({ success: true, required });
+});
+
+const UpdateLampSettingsSchema = z.object({
+  required: z.boolean(),
+});
+
+router.put('/settings', requireAdmin(), async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ error: '未授权访问' }, 401);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = UpdateLampSettingsSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: '参数错误', details: parsed.error.flatten() }, 400);
+  }
+
+  await upsertInvitationLampRequired({
+    required: parsed.data.required,
+    updatedBy: user.id,
+  });
+  console.log(
+    `[灯引] ${user.email ?? user.id} 将注册灯引门槛切换为${parsed.data.required ? '强制' : '选填'}`,
+  );
+  return c.json({ success: true, required: parsed.data.required });
 });
 
 export default router;

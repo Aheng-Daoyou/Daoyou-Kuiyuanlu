@@ -12,6 +12,7 @@ import {
 import { InkButton } from '@app/components/ui/InkButton';
 import { InkInput } from '@app/components/ui/InkInput';
 import { useAuth, type AuthActionError } from '@app/lib/auth/authContext';
+import { useInvitationLampRequired } from '@app/lib/hooks/useInvitationLampRequired';
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 
@@ -33,6 +34,7 @@ export default function SignupPasswordRoute() {
   );
   const [email, setEmail] = useState(searchParams.get('email') ?? '');
   const [inviteCode, setInviteCode] = useState(searchParams.get('invite') ?? '');
+  const lampRequired = useInvitationLampRequired();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -52,7 +54,9 @@ export default function SignupPasswordRoute() {
       inviteCode:
         trimmedInvite && !/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(trimmedInvite.toUpperCase())
           ? '灯引格式错误（如 ABCD-EFGH）'
-          : undefined,
+          : lampRequired && !trimmedInvite
+            ? '入道须持有效灯引，请填写邀请码'
+            : undefined,
       password: validateRequiredField(password, '请输入密码'),
       confirmPassword: validatePasswordConfirmation(password, confirmPassword),
     };
@@ -186,14 +190,18 @@ export default function SignupPasswordRoute() {
           disabled={loading}
         />
         <InkInput
-          label="灯引（选填）"
+          label={lampRequired ? '灯引（必填）' : '灯引（选填）'}
           value={inviteCode}
           onChange={(value) => {
             setInviteCode(value);
             setErrors((current) => ({ ...current, inviteCode: undefined }));
           }}
           placeholder="例：ABCD-EFGH"
-          hint="持灯人引荐之信物。填写则须为有效灯引，方可入道；未填写亦可注册。"
+          hint={
+            lampRequired
+              ? '入道须持有效灯引：请向引荐人索取邀请码后方可注册。'
+              : '持灯人引荐之信物。填写则须为有效灯引，方可入道；未填写亦可注册。'
+          }
           error={errors.inviteCode}
           disabled={loading}
         />

@@ -59,6 +59,23 @@ export async function getResolvedCommunityQqGroupNumber(): Promise<string> {
   return DEFAULT_COMMUNITY_QQ_GROUP_NUMBER;
 }
 
+/** 灯引是否强制：开启后注册必须持有效灯引。默认关闭（选填）。 */
+export async function getInvitationLampRequired(): Promise<boolean> {
+  const raw = await getAppSetting(APP_SETTING_KEYS.invitationLampRequired);
+  return raw === 'true' || raw === '1';
+}
+
+export async function upsertInvitationLampRequired(params: {
+  required: boolean;
+  updatedBy: string;
+}): Promise<void> {
+  await upsertAppSetting({
+    key: APP_SETTING_KEYS.invitationLampRequired,
+    value: params.required ? 'true' : 'false',
+    updatedBy: params.updatedBy,
+  });
+}
+
 export async function getAuthPageAnnouncement(): Promise<string | null> {
   return getAppSetting(APP_SETTING_KEYS.authPageAnnouncement);
 }

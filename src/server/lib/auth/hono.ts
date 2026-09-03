@@ -6,6 +6,8 @@ import {
   type AltchaAction,
 } from '@server/lib/auth/altcha';
 import { db } from '@server/lib/drizzle/db';
+import { getInvitationLampRequired } from '@server/lib/repositories/appSettingsRepository';
+import { normalizeInvitationCode } from '@server/lib/invitation/code';
 import {
   consumeInvitationLamp,
   invitationErrorMessage,
@@ -113,11 +115,12 @@ async function validateOtpSignUpName(context: Context): Promise<Response | null>
   return null;
 }
 
-// 持灯引荐：注册时校验可选的「灯引」邀请码。
+// 持灯引荐：注册时校验「灯引」邀请码。
 // 只作用于真正「创建账号」的请求点：
 //   - /api/auth/sign-up/email（密码注册）
 //   - /api/auth/sign-in/email-otp（邮箱验证码验证，首次邮箱在此创建账号）
-// 未填写灯引则直接放行（选填门槛）；填写则原子校验并消耗，无效即拒绝注册。
+// 灯引门槛由后台开关控制：关闭时未填写直接放行（选填门槛）；开启时必须
+// 填写有效灯引，无效或未填写均拒绝注册。
 async function validateInvitationOnSignUp(context: Context): Promise<Response | null> {
   const path = context.req.path;
   if (path !== '/api/auth/sign-up/email' && path !== '/api/auth/sign-in/email-otp') {
@@ -131,6 +134,11 @@ async function validateInvitationOnSignUp(context: Context): Promise<Response | 
       : typeof body.invitationCode === 'string'
         ? body.invitationCode
         : '';
+
+  const required = await getInvitationLampRequired();
+  if (required && !normalizeInvitationCode(inviteCode)) {
+    return authError('入道须持有效灯引：请在注册时填写灯引邀请码');
+  }
 
   const result = await consumeInvitationLamp(inviteCode);
   if (result.status === 'invalid') {
@@ -146,6 +154,14 @@ export async function handleAuthRequest(context: Context): Promise<Response> {
     context.req.path.startsWith(`${ADMIN_AUTH_PATH}/`)
   ) {
     return authError('未找到该接口', 404);
+  }
+
+  // 公开端点：注册页据此展示「灯引（必填/选填）」与前端校验
+  if (context.req.method === 'GET' && context.req.path === '/api/auth/invitation-requirement') {
+    const required = await getInvitationLampRequired();
+    return new Response(JSON.stringify({ success: true, required }), {
+      headers: { 'content-type': 'application/json' },
+    });
   }
 
   if (context.req.method === 'POST') {
