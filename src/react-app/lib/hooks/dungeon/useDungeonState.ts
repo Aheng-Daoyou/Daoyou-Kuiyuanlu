@@ -28,7 +28,7 @@ export function useDungeonState(hasCultivator: boolean) {
 
       setState(data.state);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '获取副本状态失败');
+      setError(e instanceof Error ? e.message : '获取渊隙状态失败');
       setState(null);
     } finally {
       setLoading(false);
@@ -58,7 +58,7 @@ export function useDungeonState(hasCultivator: boolean) {
         setError(null);
       } catch (e) {
         if (cancelled) return;
-        setError(e instanceof Error ? e.message : '获取副本状态失败');
+        setError(e instanceof Error ? e.message : '获取渊隙状态失败');
         setState(null);
       } finally {
         if (!cancelled) {

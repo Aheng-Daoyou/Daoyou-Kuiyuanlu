@@ -1195,7 +1195,7 @@ export function ListItemModal({
                 value={targetCultivatorId}
                 onChange={setTargetCultivatorId}
                 disabled={friendsLoading}
-                hint="专属交易上架会消耗拍卖行贵宾符，可在天骄宝阁购买"
+                hint="专属交易上架会消耗鬼市竞珍贵宾符，可在天骄宝阁购买"
               >
                 <option value="">
                   {friendsLoading ? '读取好友名录中...' : '选择好友'}
@@ -1219,7 +1219,7 @@ export function ListItemModal({
             <p>· 成交后按单件价格适用 3%～15% 超额累进税率</p>
             <p>
               ·
-              专属交易只向指定好友展示，并额外消耗拍卖行贵宾符，可在天骄宝阁购买
+              专属交易只向指定好友展示，并额外消耗鬼市竞珍贵宾符，可在天骄宝阁购买
             </p>
             <p>· 未售出的物品将通过邮件返还</p>
           </div>

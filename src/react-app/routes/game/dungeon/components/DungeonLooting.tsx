@@ -50,7 +50,7 @@ export function DungeonLooting({
           <div className="border-ink/20 bg-paper flex flex-col gap-2 border border-dashed p-4 text-center">
             <h4 className="font-bold">继续深入</h4>
             <p className="text-ink-secondary mb-4 text-xs">
-              向秘境更深处进发，寻找更大的机缘。
+              向渊隙更深处潜行，寻找更大的机缘。
             </p>
             <InkButton
               variant="primary"
@@ -66,7 +66,7 @@ export function DungeonLooting({
           <div className="border-ink/20 bg-paper flex flex-col gap-2 border border-dashed p-4 text-center">
             <h4 className="font-bold">见好就收</h4>
             <p className="text-ink-secondary mb-4 text-xs">
-              带着当前的收获直接离开秘境。
+              带着当前的收获直接离开渊隙。
             </p>
             <InkButton
               variant="outline"
@@ -75,7 +75,7 @@ export function DungeonLooting({
               onClick={onEscape}
               className="mt-auto"
             >
-              离开秘境
+              离开渊隙
             </InkButton>
           </div>
         </div>

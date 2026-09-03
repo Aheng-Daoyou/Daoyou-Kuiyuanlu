@@ -27,7 +27,7 @@ async function readDungeonMutation<T>(
   }
 
   if (!data.success || !data.state) {
-    throw new Error('副本状态响应协议无效');
+    throw new Error('渊隙状态响应协议无效');
   }
   return consumeResourceMutation<T>(data);
 }
@@ -46,7 +46,7 @@ async function readDungeonStreamResult<T>(
     throw new Error(payload.message || payload.error);
   }
   if (!payload?.success || !payload?.state) {
-    throw new Error('副本状态响应协议无效');
+    throw new Error('渊隙状态响应协议无效');
   }
   return consumeResourceMutation<T>(payload as never);
 }
@@ -85,22 +85,22 @@ export function useDungeonActions() {
           raw,
         );
         if ('conflict' in data) {
-          throw new Error(data.message ?? '启动秘境失败');
+          throw new Error(data.message ?? '启动渊隙失败');
         }
-        pushToast({ message: '秘境已开启', tone: 'success' });
+        pushToast({ message: '渊隙已开启', tone: 'success' });
         return data.state;
       }
 
       const data = await readDungeonMutation<{ state?: DungeonState }>(res);
       if ('conflict' in data) {
-        throw new Error(data.message ?? '启动秘境失败');
+        throw new Error(data.message ?? '启动渊隙失败');
       }
 
-      pushToast({ message: '秘境已开启', tone: 'success' });
+      pushToast({ message: '渊隙已开启', tone: 'success' });
       return data.state;
     } catch (e) {
       pushToast({
-        message: e instanceof Error ? e.message : '启动秘境失败',
+        message: e instanceof Error ? e.message : '启动渊隙失败',
         tone: 'danger',
       });
       return null;
@@ -252,7 +252,7 @@ export function useDungeonActions() {
       return await readDungeonMutation(res);
     } catch (e) {
       pushToast({
-        message: e instanceof Error ? e.message : '副本恢复失败',
+        message: e instanceof Error ? e.message : '渊隙恢复失败',
         tone: 'danger',
       });
       return null;

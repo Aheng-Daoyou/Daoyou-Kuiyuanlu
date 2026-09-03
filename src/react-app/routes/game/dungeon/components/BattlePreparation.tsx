@@ -45,7 +45,7 @@ export function BattlePreparation({
     openDialog({
       title: '放弃战斗',
       content:
-        '确定要放弃此战吗？你将狼狈退出，但不会受伤。放弃后会直接进入秘境结算。',
+        '确定要放弃此战吗？你将狼狈退出，但不会受伤。放弃后会直接进入渊隙结算。',
       confirmLabel: '确认放弃',
       cancelLabel: '取消',
       onConfirm: async () => {

@@ -402,7 +402,7 @@ function assertDungeonRealmEligible(
 ) {
   if (!canChallengeDungeonRealm(playerRealm, dungeonRealm)) {
     throw new Error(
-      `当前境界${playerRealm}不可挑战${dungeonRealm}秘境，请先提升大境界`,
+      `当前境界${playerRealm}不可挑战${dungeonRealm}渊隙，请先提升大境界`,
     );
   }
 }
@@ -633,7 +633,7 @@ export class DungeonService {
       }
       throw new DungeonFlowError(
         DungeonFlowErrorCode.INVALID_STATE,
-        '副本操作正在处理中，请稍后重试',
+        '渊隙操作正在处理中，请稍后重试',
         409,
       );
     }
@@ -824,7 +824,7 @@ export class DungeonService {
         '遭遇战数据不存在或已失效',
         ['safe_retreat', 'force_quit'],
       );
-      throw new Error('遭遇战数据不存在或已失效，可选择安全撤退或放弃副本');
+      throw new Error('遭遇战数据不存在或已失效，可选择安全撤退或放弃渊隙');
     }
 
     if (battlePayload.session.cultivatorId !== cultivatorId) {
@@ -918,12 +918,12 @@ export class DungeonService {
     try {
       const existingSession = await this.loadActiveRun(cultivatorId);
       if (existingSession) {
-        throw new Error('当前已有正在进行的副本，请先完成或放弃');
+        throw new Error('当前已有正在进行的渊隙，请先完成或放弃');
       }
 
       // 只有卫星地图节点可以进行副本挑战
       if (!isSatelliteNode(mapNodeId)) {
-        throw new Error('只有秘境节点可以进行副本挑战');
+        throw new Error('只有渊隙节点可以进行潜渊挑战');
       }
 
       // 1. 获取玩家与地图数据 (逻辑同你之前)
@@ -1004,7 +1004,7 @@ export class DungeonService {
           roundData,
           persist: async (tx: DbTransaction) => {
             if (!qiActionInstanceId) {
-              throw new Error('副本灯油预扣标识缺失');
+              throw new Error('渊隙灯油预扣标识缺失');
             }
             const reservation = await QiService.reserveQi({
               cultivatorId,
@@ -1081,7 +1081,7 @@ export class DungeonService {
     options: DungeonFlowOptions = {},
   ) {
     const state = await this.getState(cultivatorId);
-    if (!state) throw new Error('副本已失效');
+    if (!state) throw new Error('渊隙已失效');
     if (this.hasCommittedAction(state, actionId)) {
       return { actionId, state, isFinished: state.isFinished };
     }
@@ -1133,7 +1133,7 @@ export class DungeonService {
               : '材料';
             const qualStr = reqQual ? reqQual + '以上的' : '';
             throw new Error(
-              `储物袋中没有符合条件的材料（需要：${qualStr}${typeStr}），请重新选择或退出副本。`,
+              `储物袋中没有符合条件的材料（需要：${qualStr}${typeStr}），请重新选择或退出渊隙。`,
             );
           }
 
@@ -1561,7 +1561,7 @@ export class DungeonService {
 
     // 战斗失败处理：生成伤势状态
     if (!isWin) {
-      const outcomeText = `你终究不敌 ${enemyName}，在其重击下狼狈遁走，侥幸捡回一条命。但你已无力再战，只得退出秘境。`;
+      const outcomeText = `你终究不敌 ${enemyName}，在其重击下狼狈遁走，侥幸捡回一条命。但你已无力再战，只得退出渊隙。`;
       lastHistory.outcome = outcomeText;
 
       const settled = await this.settleDungeon(state, {
@@ -1797,14 +1797,14 @@ export class DungeonService {
     if (!state) {
       throw new DungeonFlowError(
         DungeonFlowErrorCode.NOT_FOUND,
-        '副本已失效',
+        '渊隙已失效',
         404,
       );
     }
     if (state.status !== 'LOOTING') {
       throw new DungeonFlowError(
         DungeonFlowErrorCode.INVALID_STATE,
-        '当前副本状态已变化，请刷新后重试',
+        '当前渊隙状态已变化，请刷新后重试',
         409,
       );
     }
@@ -1908,14 +1908,14 @@ export class DungeonService {
     if (!state) {
       throw new DungeonFlowError(
         DungeonFlowErrorCode.NOT_FOUND,
-        '副本已失效',
+        '渊隙已失效',
         404,
       );
     }
     if (state.status !== 'LOOTING') {
       throw new DungeonFlowError(
         DungeonFlowErrorCode.INVALID_STATE,
-        '当前副本状态已变化，请刷新后重试',
+        '当前渊隙状态已变化，请刷新后重试',
         409,
       );
     }
@@ -1966,7 +1966,7 @@ export class DungeonService {
 
     if (!isWin) {
       if (lastHistory) {
-        lastHistory.outcome = `你不敌 ${enemyName}，被迫退出秘境。${reason ? `（天机紊乱：${reason}）` : ''}`;
+        lastHistory.outcome = `你不敌 ${enemyName}，被迫退出渊隙。${reason ? `（天机紊乱：${reason}）` : ''}`;
       }
 
       const settled = await this.settleDungeon(state, {
@@ -2045,7 +2045,7 @@ export class DungeonService {
       const recoverable = await this.markRecoverable(
         state.cultivatorId,
         state,
-        error instanceof Error ? error.message : '副本结算失败',
+        error instanceof Error ? error.message : '渊隙结算失败',
         recoverableActions,
         { deferPersistence: options?.deferPersistence },
       );
@@ -2881,7 +2881,7 @@ return {
     if (!run) {
       throw new DungeonFlowError(
         DungeonFlowErrorCode.NOT_FOUND,
-        '副本已失效',
+        '渊隙已失效',
         404,
       );
     }
@@ -3064,7 +3064,7 @@ return {
   ) {
     const state = await this.getState(cultivatorId);
     if (!state) {
-      throw new Error('副本已失效');
+      throw new Error('渊隙已失效');
     }
 
     if (action === 'force_quit') {

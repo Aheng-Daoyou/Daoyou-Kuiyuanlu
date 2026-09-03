@@ -75,9 +75,9 @@ export const gameDockGroups: GameNavGroup[] = [
       },
       {
         id: 'spirit-field',
-        sceneLabel: '灯宅灯田',
+        sceneLabel: '灯宅涎田',
         href: '/game/spirit-field',
-        expandedDockLabel: '🌱 灯宅灯田',
+        expandedDockLabel: '🌱 灯宅涎田',
       },
       {
         id: 'enlightenment',
@@ -123,7 +123,7 @@ export const gameDockGroups: GameNavGroup[] = [
       { id: 'sect-alchemy', sceneLabel: '宗门闻香房' },
       { id: 'sect-refinery', sceneLabel: '宗门器坊' },
       { id: 'sect-spirit-vein', sceneLabel: '宗门灯脉' },
-      { id: 'sect-herb-garden', sceneLabel: '宗门药田' },
+      { id: 'sect-herb-garden', sceneLabel: '宗门涎田' },
       { id: 'sect-cave', sceneLabel: '弟子居所' },
       { id: 'sect-gate', sceneLabel: '宗门山门' },
       { id: 'sect-gate-sweep', sceneLabel: '清扫山门' },
@@ -148,9 +148,9 @@ export const gameDockGroups: GameNavGroup[] = [
       },
       {
         id: 'dungeon-history',
-        sceneLabel: '探险札记',
+        sceneLabel: '结案卷宗',
         href: '/game/dungeon/history',
-        expandedDockLabel: '🗂️ 探险札记',
+        expandedDockLabel: '🗂️ 结案卷宗',
       },
       {
         id: 'gongfa-enlightenment',
@@ -172,9 +172,9 @@ export const gameDockGroups: GameNavGroup[] = [
     scenes: [
       {
         id: 'dungeon',
-        sceneLabel: '云游探秘',
+        sceneLabel: '渊隙',
         href: '/game/dungeon',
-        expandedDockLabel: '🏔️ 云游探秘',
+        expandedDockLabel: '🕳️ 渊隙',
       },
       {
         id: 'tower',
@@ -246,9 +246,9 @@ export const gameDockGroups: GameNavGroup[] = [
       },
       {
         id: 'auction',
-        sceneLabel: '拍卖行',
+        sceneLabel: '鬼市竞珍',
         href: '/game/auction',
-        expandedDockLabel: '⚖️ 拍卖行',
+        expandedDockLabel: '⚖️ 鬼市竞珍',
       },
     ],
   },

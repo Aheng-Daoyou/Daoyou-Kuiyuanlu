@@ -103,7 +103,7 @@ export function getNextNoviceHomeAction(
 
     return {
       title: '📜 低危探秘',
-      summary: '状态已备好，去低危秘境学会查探、撤退与结算。入门套装建议穿戴，但不强制。',
+      summary: '状态已备好，去低危渊隙学会查探、撤退与结算。入门套装建议穿戴，但不强制。',
       href: '/game/dungeon',
       label: '探秘',
     };

@@ -28,7 +28,7 @@ const dungeonSceneDescriptors: Record<
   DungeonSceneDescriptor
 > = {
   loading: {
-    sceneLabel: '云游探秘',
+    sceneLabel: '渊隙',
     subtitle: '天机混沌，正在重整历练轨迹。',
     backAction: {
       label: '返回灯宅',
@@ -38,7 +38,7 @@ const dungeonSceneDescriptors: Record<
     loadingMessage: '天机混沌，正在解析……',
   },
   not_authenticated: {
-    sceneLabel: '云游探秘',
+    sceneLabel: '渊隙',
     subtitle: '此处机缘需真身在场方可接引。',
     backAction: {
       label: '返回灯宅',
@@ -48,14 +48,14 @@ const dungeonSceneDescriptors: Record<
     loadingMessage: '请先凝聚真身。',
   },
   map_selection: {
-    sceneLabel: '云游探秘',
-    subtitle: '择一处秘境，定此行的起点与气数。',
+    sceneLabel: '渊隙',
+    subtitle: '择一处渊隙，熄灯而入，定此行的起点与气数。',
     backAction: {
       label: '返回灯宅',
       href: '/game',
     },
     density: 'wide',
-    loadingMessage: '正在搜寻可入秘境……',
+    loadingMessage: '正在搜寻可入渊隙……',
   },
   exploring: {
     sceneLabel: '历练途中',
@@ -78,7 +78,7 @@ const dungeonSceneDescriptors: Record<
     loadingMessage: '正在探查敌手……',
   },
   in_battle: {
-    sceneLabel: '秘境战斗',
+    sceneLabel: '渊隙战斗',
     subtitle: '此战胜负，直接改写此行所获。',
     backAction: {
       label: '结束历练',

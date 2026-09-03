@@ -106,7 +106,7 @@ function renderPreparationNotice(
   const reminder = readiness?.shouldBlock
     ? readiness.reasons[0]
     : realmRisk === 'danger'
-      ? `秘境要求${nodeRealm}，高于当前${cultivator.realm}境界。`
+      ? `渊隙要求${nodeRealm}，高于当前${cultivator.realm}境界。`
       : statusNames
         ? `当前有${statusNames}状态，出行前可先调息。`
         : hpPercent < 60 || mpPercent < 60
@@ -117,10 +117,10 @@ function renderPreparationNotice(
     <GameSceneSection
       title="出行准备"
       help={{
-        title: '秘境探索说明',
+        title: '渊隙探索说明',
         content: (
           <div className="space-y-3 text-sm leading-7">
-            <p>秘境推进以当前轮次、选项代价、危险度和结算结果为准。</p>
+            <p>渊隙推进以当前轮次、选项代价、危险度和结算结果为准。</p>
             <p>
               气血、灯焰、异常状态用于出行前判断，不作为探索选项的通过条件。
             </p>

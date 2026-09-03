@@ -386,7 +386,7 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
       content: (
         <div className="space-y-3 text-sm leading-7">
           <p>
-            境界代表当前道途层级，由大境界与小阶段共同组成。它会影响角色成长、玩法门槛、秘境匹配与突破目标。
+            境界代表当前道途层级，由大境界与小阶段共同组成。它会影响角色成长、玩法门槛、渊隙匹配与突破目标。
           </p>
           <InfoTable
             rows={[
@@ -471,7 +471,7 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
         <div className="space-y-3 text-sm leading-7">
           <p>
             {cultivationLabel}
-            是当前小阶段内的积累。闭关、秘境、任务与部分香品都可能带来
+            是当前小阶段内的积累。闭关、渊隙、任务与部分香品都可能带来
             {cultivationLabel}
             增长；突破成功后会扣除当前阶段所需窥悟，溢出的积累会带入下一阶段。
           </p>
@@ -561,7 +561,7 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
               },
               {
                 label: '获取途径',
-                value: '闭关窥真、秘境历练、任务或香品',
+                value: '闭关窥真、渊隙历练、任务或香品',
               },
               {
                 label: '主要用途',
@@ -581,7 +581,7 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
       title: `${qiInfo.icon} ${qiInfo.label}`,
       content: (
         <div className="space-y-3 text-sm leading-7">
-          <p>进入秘境、闭关修行、突破与造物时需要消耗的一定的灯油。</p>
+          <p>进入渊隙、闭关修行、突破与造物时需要消耗的一定的灯油。</p>
           <div className="border-ink/10 bg-bgpaper/70 space-y-1 border border-dashed px-3 py-2">
             <p>
               当前{qiInfo.label}：
@@ -612,7 +612,7 @@ export function GameTopHud({ snapshot }: { snapshot: GameHudSnapshot | null }) {
               </thead>
               <tbody className="divide-ink/10 divide-y">
                 <tr>
-                  <td className="px-3 py-1.5">秘境探索</td>
+                  <td className="px-3 py-1.5">渊隙探索</td>
                   <td className="text-ink px-3 py-1.5 text-right font-mono">
                     {QI_ACTION_COSTS.dungeon_start}
                   </td>

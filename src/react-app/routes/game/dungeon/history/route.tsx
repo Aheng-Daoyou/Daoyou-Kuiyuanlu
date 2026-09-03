@@ -234,7 +234,7 @@ export default function DungeonHistoryPage() {
       <GameSceneFrame
         variant="lite"
         title="探案卷宗"
-        description="秘境骨架仍保持沉浸式，这页则作为掌灯司卷宗，专门整理已经发生过的探案过程与收获。"
+        description="渊隙骨架仍保持沉浸式，这页则作为掌灯司卷宗，专门整理已经发生过的探案过程与收获。"
       >
         <GameLoadingState message="正在翻阅旧事……" variant="inline" />
       </GameSceneFrame>
@@ -246,7 +246,7 @@ export default function DungeonHistoryPage() {
       <GameSceneFrame
         variant="lite"
         title="探案卷宗"
-        description="秘境骨架仍保持沉浸式，这页则作为掌灯司卷宗，专门整理已经发生过的探案过程与收获。"
+        description="渊隙骨架仍保持沉浸式，这页则作为掌灯司卷宗，专门整理已经发生过的探案过程与收获。"
       >
         <InkCard className="p-6 text-center">
           <p className="text-ink-secondary">尚无探险记录</p>
@@ -258,7 +258,7 @@ export default function DungeonHistoryPage() {
   return (
     <GameSceneFrame
       title="探案卷宗"
-      description="秘境骨架仍保持沉浸式，这页则作为掌灯司卷宗，专门整理已经发生过的探案过程与收获。"
+      description="渊隙骨架仍保持沉浸式，这页则作为掌灯司卷宗，专门整理已经发生过的探案过程与收获。"
       aside={
         <>
           <GameSceneAsideSection title="札记摘要">

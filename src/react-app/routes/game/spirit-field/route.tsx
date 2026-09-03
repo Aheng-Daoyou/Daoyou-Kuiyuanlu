@@ -35,7 +35,7 @@ function duration(ms: number) { const minutes = Math.max(1, Math.ceil(ms / 60_00
 async function readSnapshot(): Promise<Snapshot> {
   const response = await fetch('/api/spirit-field', { cache: 'no-store' });
   const payload = await response.json() as Envelope<Snapshot>;
-  if (!response.ok || !payload.success || !payload.data) throw new Error(payload.error || payload.message || '灯宅灯田暂时无法查看');
+  if (!response.ok || !payload.success || !payload.data) throw new Error(payload.error || payload.message || '灯宅涎田暂时无法查看');
   return payload.data;
 }
 
@@ -52,7 +52,7 @@ export default function SpiritFieldPage() {
 
   const refresh = useCallback(async () => {
     try { setSnapshot(await readSnapshot()); setError(null); }
-    catch (next) { setError(next instanceof Error ? next.message : '灯宅灯田暂时无法查看'); }
+    catch (next) { setError(next instanceof Error ? next.message : '灯宅涎田暂时无法查看'); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => {
@@ -67,7 +67,7 @@ export default function SpiritFieldPage() {
       .catch((next: unknown) => {
         if (!active) return;
         setError(
-          next instanceof Error ? next.message : '灯宅灯田暂时无法查看',
+          next instanceof Error ? next.message : '灯宅涎田暂时无法查看',
         );
       })
       .finally(() => {

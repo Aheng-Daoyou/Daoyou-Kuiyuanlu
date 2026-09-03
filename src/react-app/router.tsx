@@ -226,9 +226,9 @@ export const router = createBrowserRouter(
                 {
                   id: 'spirit-field',
                   presentation: 'workflow',
-                  summary: '在个人灯宅药圃中播种，并以三阶段培育等待天地造化成型。',
+                  summary: '在个人灯宅涎田中播种梦涎诡植，以三阶段培育等待天地造化成型。',
                 },
-                '灯宅灯田',
+                '灯宅涎田',
               )}
             />
             <Route
@@ -648,9 +648,9 @@ export const router = createBrowserRouter(
                 {
                   id: 'sect-herb-garden',
                   presentation: 'service',
-                  summary: '查看药田等级、每周灯草产出与灯植长势。',
+                  summary: '查看涎田等级、每周灯草产出与灯植长势。',
                 },
-                '宗门药田',
+                '宗门涎田',
               )}
             />
             <Route
@@ -829,9 +829,9 @@ export const router = createBrowserRouter(
                 {
                   id: 'auction',
                   presentation: 'service',
-                  summary: '观市、寄售与竞拍合为一案。',
+                  summary: '鬼市竞珍：观市、寄售与竞拍合为一案。',
                 },
-                '拍卖行',
+                '鬼市竞珍',
               )}
             />
             <Route
@@ -894,9 +894,9 @@ export const router = createBrowserRouter(
                 {
                   id: 'dungeon-history',
                   presentation: 'archive',
-                  summary: '一路遭逢与所得在此翻卷。',
+                  summary: '历次潜渊的遭逢与所得在此翻卷，逐案归档。',
                 },
-                '探险札记',
+                '结案卷宗',
               )}
             />
             <Route
@@ -1192,7 +1192,7 @@ export const router = createBrowserRouter(
                   chrome: 'immersive',
                   dock: 'hidden',
                 },
-                '云游探秘',
+                '渊隙',
               )}
             />
           </Route>

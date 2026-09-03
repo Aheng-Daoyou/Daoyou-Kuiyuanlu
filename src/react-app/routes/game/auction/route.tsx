@@ -935,7 +935,7 @@ export default function AuctionPage() {
   return (
     <GameSceneFrame
       variant="workflow"
-      title="【拍卖行】"
+      title="【鬼市竞珍】"
       description="各路道友寄售珍材封灵器，按类检索后再议价成交。"
       aside={
         <>
@@ -956,7 +956,7 @@ export default function AuctionPage() {
             title="成交规则"
             className="text-sm leading-7"
             help={{
-              title: '拍卖行成交规则',
+              title: '鬼市竞珍成交规则',
               content: (
                 <div className="space-y-2 text-sm leading-7">
                   <p>自己的货单不可回购；专属交易仅指定道友可见。</p>

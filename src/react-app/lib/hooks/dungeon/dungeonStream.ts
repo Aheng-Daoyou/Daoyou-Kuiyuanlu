@@ -23,7 +23,7 @@ export async function consumeDungeonStream<T>(
   handlers: DungeonStreamHandlers = {},
 ): Promise<T> {
   if (!response.body) {
-    throw new Error('副本响应流为空');
+    throw new Error('渊隙响应流为空');
   }
 
   const reader = response.body.getReader();
@@ -43,7 +43,7 @@ export async function consumeDungeonStream<T>(
       result = event.data as T;
       return;
     }
-    streamError = event.error || '副本推演失败';
+    streamError = event.error || '渊隙推演失败';
     handlers.onError?.(streamError);
   };
 
@@ -79,7 +79,7 @@ export async function consumeDungeonStream<T>(
     throw new Error(streamError);
   }
   if (!receivedResult) {
-    throw new Error('副本推演结果解析失败');
+    throw new Error('渊隙推演结果解析失败');
   }
   return result as T;
 }

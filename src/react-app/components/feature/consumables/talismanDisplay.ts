@@ -34,7 +34,7 @@ const TALISMAN_SCENARIO_LABELS: Record<string, string> = {
   draw_gongfa: '问法寻卷·功法抽取',
   draw_skill: '问法寻卷·神通抽取',
   [FRIEND_MAIL_TALISMAN_SCENARIO]: '传音灯笺·好友传音',
-  [AUCTION_PRIVATE_LISTING_TALISMAN_SCENARIO]: '拍卖行·专属交易',
+  [AUCTION_PRIVATE_LISTING_TALISMAN_SCENARIO]: '鬼市竞珍·专属交易',
 };
 
 const TALISMAN_SCENARIO_HREFS: Record<string, string> = {
@@ -72,7 +72,7 @@ const TALISMAN_USAGE_HINTS: Record<string, string> = {
   [FRIEND_MAIL_TALISMAN_SCENARIO]:
     '【前往传音灯笺，给好友发送传音时消耗；不足时可去天骄宝阁购买】',
   [AUCTION_PRIVATE_LISTING_TALISMAN_SCENARIO]:
-    '【前往拍卖行，上架专属交易时消耗；不足时可去天骄宝阁购买】',
+    '【前往鬼市竞珍，上架专属交易时消耗；不足时可去天骄宝阁购买】',
 };
 
 function getQiRestoreEffectText(scenario: string): string | null {

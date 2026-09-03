@@ -87,7 +87,7 @@ id: dungeon-round
 - 不得输出任何代价的精确数值、百分比或材料品质。程序会根据 `setting.realmRequirement`、`setting.difficulty` 和 `rank` 确定真实结算值。
 - `materials` 表示消耗玩家已有的一类材料，不是获得材料。`required_type` 使用下方材料类型枚举；最低品质和数量由程序计算。
 - `battles` 中的 `race` 只能为 `人族`、`妖族`、`鬼魂`、`魔族`、`古兽`、`灵族`、`诡异`；`realm_stage` 只能为 `初期`、`中期`、`后期`、`圆满`，并且必须符合 `setting.allowedEnemyRealmStages`。
-- `battles` 中的 `enemy_name` 是必填的敌人名称；`background`、`description` 和 `is_boss` 可按剧情需要填写。只有真正的诡异本体或副本首领才能设置 `is_boss: true`。
+- `battles` 中的 `enemy_name` 是必填的敌人名称；`background`、`description` 和 `is_boss` 可按剧情需要填写。只有真正的诡异本体或渊隙首领才能设置 `is_boss: true`。
 - 当 `race` 为 `诡异` 时：`enemy_name` 优先用「讳名」形式（残缺、错位、不可完整读出，如「无面者」「彼物」「回声」），避免「XX王、XX尊、XX真人」等修仙封号；`background` 与 `description` 应围绕一个「执念」或「残缺记忆」展开，并暗示与其对峙会侵蚀心智，但不得写玩家侧的数值或规则。
 
 ## 代价结构示例

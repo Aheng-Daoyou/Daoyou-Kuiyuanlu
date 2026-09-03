@@ -213,7 +213,7 @@ export function useDungeonViewModel(
    */
   const handleStartDungeon = async (nodeId: string) => {
     openQiActionConfirm({
-      actionName: '秘境探索',
+      actionName: '渊隙探索',
       qiCost: QI_ACTION_COSTS.dungeon_start,
       confirmLabel: '开始探索',
       onConfirm: async () => {
