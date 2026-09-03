@@ -51,6 +51,8 @@ export const GmGrantRequestSchema = z
     lifespan: z.number().int().min(0).max(10_000_000).optional(),
     // 引擎会把窥悟自动封顶在 0~100，这里放开录入上限，超出部分自动截断
     comprehensionInsight: z.number().int().min(1).max(100_000).optional(),
+    // 灯油走 QiService.restoreQi（source=gm），自动封顶在溢出上限（QI_OVERFLOW_MAX）
+    qi: z.number().int().min(1).max(10_000).optional(),
     // 宗门贡献带符号增量：正数=发放（当期与终身贡献同加），负数=扣减（仅当期，自动截断到 0）
     sectContribution: z.number().int().min(-1_000_000).max(1_000_000).optional(),
     items: z.array(GmGrantItemSchema).max(5).optional(),
@@ -64,6 +66,7 @@ export const GmGrantRequestSchema = z
           value.cultivationExp ||
           value.lifespan ||
           value.comprehensionInsight ||
+          value.qi ||
           value.sectContribution ||
           (value.items && value.items.length > 0),
       ),
@@ -83,6 +86,11 @@ export interface GmGrantResponse {
     cultivationExp?: number;
     lifespan?: number;
     comprehensionInsight?: number;
+    qi?: {
+      before: number;
+      after: number;
+      restored: number;
+    };
     items?: Array<{ itemId: string; name: string; quantity: number }>;
     sectContribution?: {
       before: number;

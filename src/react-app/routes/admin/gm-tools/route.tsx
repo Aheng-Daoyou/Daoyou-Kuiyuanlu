@@ -7,7 +7,7 @@ import type {
 } from '@shared/contracts/gmTools';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-/** GM 工具：按角色名实时模糊搜索并直接发放灯油券/声望/灯韵/寿元/窥悟/宗门贡献/道具（测试与补偿用） */
+/** GM 工具：按角色名实时模糊搜索并直接发放灯油券/声望/灯韵/寿元/窥悟/灯油/宗门贡献/道具（测试与补偿用） */
 export default function GmToolsPage() {
   const { pushToast } = useInkUI();
   const [query, setQuery] = useState('');
@@ -19,6 +19,7 @@ export default function GmToolsPage() {
   const [cultivationExp, setCultivationExp] = useState('');
   const [lifespan, setLifespan] = useState('');
   const [comprehensionInsight, setComprehensionInsight] = useState('');
+  const [qi, setQi] = useState('');
   const [sectContribution, setSectContribution] = useState('');
   const [itemIds, setItemIds] = useState('');
   const [itemQuantity, setItemQuantity] = useState('');
@@ -103,6 +104,7 @@ export default function GmToolsPage() {
       cultivationExp: Number(cultivationExp) || undefined,
       lifespan: Number(lifespan) || undefined,
       comprehensionInsight: Number(comprehensionInsight) || undefined,
+      qi: Number(qi) || undefined,
       sectContribution:
         sectContribution.trim() && Number(sectContribution) !== 0
           ? Math.trunc(Number(sectContribution))
@@ -116,6 +118,7 @@ export default function GmToolsPage() {
       !payload.cultivationExp &&
       !payload.lifespan &&
       !payload.comprehensionInsight &&
+      !payload.qi &&
       !payload.sectContribution &&
       !payload.items
     ) {
@@ -142,6 +145,7 @@ export default function GmToolsPage() {
       setCultivationExp('');
       setLifespan('');
       setComprehensionInsight('');
+      setQi('');
       setItemIds('');
       setItemQuantity('');
       setNote('');
@@ -178,7 +182,7 @@ export default function GmToolsPage() {
         <h2 className="font-heading text-ink mt-2 text-3xl">GM 工具</h2>
           <p className="text-ink-secondary mt-3 max-w-2xl text-sm leading-7">
             输入角色名关键字即时模糊检索（如输入「测试」即可命中所有含测试的名字），
-            点选角色后直接发放灯油券 / 声望 / 灯韵 / 寿元 / 窥悟 / 宗门贡献 / 道具库物品。
+            点选角色后直接发放灯油券 / 声望 / 灯韵 / 寿元 / 窥悟 / 灯油 / 宗门贡献 / 道具库物品。
             发放即时到账，玩家客户端实时刷新；大额发放由服务端自动拆批结算。
           </p>
       </header>
@@ -248,6 +252,7 @@ export default function GmToolsPage() {
             {numberInput('灯韵', cultivationExp, setCultivationExp, '修为进度，单次最高 10 亿')}
             {numberInput('寿元（年）', lifespan, setLifespan, '续命用，上限 1000 万年')}
             {numberInput('窥悟值', comprehensionInsight, setComprehensionInsight, '悟性进度 0~100，超出自动封顶')}
+            {numberInput('灯油', qi, setQi, '行动体力，最高补到 300，超出自动封顶')}
             <InkInput
               label="宗门贡献（可选）"
               value={sectContribution}
@@ -314,6 +319,9 @@ export default function GmToolsPage() {
                   : ''}
                 {lastResult.granted.comprehensionInsight
                   ? `，+${lastResult.granted.comprehensionInsight} 窥悟`
+                  : ''}
+                {lastResult.granted.qi
+                  ? `，灯油 ${lastResult.granted.qi.before} → ${lastResult.granted.qi.after}（实际 +${lastResult.granted.qi.restored}）`
                   : ''}
                 {lastResult.granted.sectContribution
                   ? `，宗门贡献 ${lastResult.granted.sectContribution.before.toLocaleString()} → ${lastResult.granted.sectContribution.after.toLocaleString()}`

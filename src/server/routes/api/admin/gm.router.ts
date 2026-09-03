@@ -4,6 +4,8 @@ import { requireAdmin } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
 import { findMembership } from '@server/lib/repositories/sectRepository';
 import { resourceEventCommitter } from '@server/lib/services/ResourceEventCommitter';
+import { QiService, QiServiceError } from '@server/lib/services/QiService';
+import { qiCurrencyChange } from '@server/lib/services/QiResourceChanges';
 import { publishResourceEvents } from '@server/lib/services/playerStateBroadcaster';
 import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
 import {
@@ -16,12 +18,13 @@ import {
 import type { ResourceChange } from '@shared/contracts/resources';
 import type { ResourceOperation } from '@shared/engine/resource/types';
 import { and, eq, ilike, inArray, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 
 /**
  * GM 工具路由（requireAdmin 全程把关）：
  * - GET  /api/admin/gm/players?query=  按名字模糊搜索角色
- * - POST /api/admin/gm/grant           向角色直接发放灯油券/声望/灯韵/寿元/窥悟/宗门贡献/道具库物品
+ * - POST /api/admin/gm/grant           向角色直接发放灯油券/声望/灯韵/寿元/窥悟/灯油/宗门贡献/道具库物品
  *                                      发放走与玩法相同的资源事件通道，客户端实时刷新
  */
 
@@ -195,7 +198,7 @@ router.post('/grant', requireAdmin(), async (c) => {
 
   // 与正常玩法同一套资源事件通道：事务内落库变更事件 + 提交后广播，
   // 目标玩家的客户端会实时收到失效通知并自动重拉（无需手动强刷）。
-  const { result, events, sectContribution } = await q.transaction(async (tx) => {
+  const { result, events, sectContribution, qiResult } = await q.transaction(async (tx) => {
     // 先走资源引擎结算，失败即返回（事务内无写入，提交为空事务不影响数据）
     const r = await resourceEngine.applyInTransaction({
       userId: cultivator.userId,
@@ -208,7 +211,42 @@ router.post('/grant', requireAdmin(), async (c) => {
         result: r,
         events: [] as ResourceChange[],
         sectContribution: undefined,
+        qiResult: undefined,
       };
+    }
+
+    // 灯油不走资源引擎：复用 QiService.restoreQi（source=gm），
+    // 带自然恢复投影与 qi_logs 流水，数量自动封顶在溢出上限。
+    let qiRestoreResult:
+      | { before: number; after: number; restored: number; qiLastRefreshedAt: string | null }
+      | undefined;
+    if (input.qi) {
+      try {
+        const restored = await QiService.restoreQi({
+          cultivatorId: cultivator.id,
+          amount: input.qi,
+          source: 'gm',
+          actionInstanceId: randomUUID(),
+          metadata: { source: 'gm-grant', note: input.note ?? null },
+          tx,
+        });
+        qiRestoreResult = {
+          before: restored.qiBefore,
+          after: restored.qiAfter,
+          restored: restored.restored,
+          qiLastRefreshedAt: restored.qiLastRefreshedAt,
+        };
+      } catch (error) {
+        if (error instanceof QiServiceError) {
+          return {
+            result: { success: false as const, errors: [error.message] },
+            events: [] as ResourceChange[],
+            sectContribution: undefined,
+            qiResult: undefined,
+          };
+        }
+        throw error;
+      }
     }
 
     // 宗门贡献不走资源引擎：挂在宗门成员表上，带符号增量直接调整。
@@ -226,6 +264,7 @@ router.post('/grant', requireAdmin(), async (c) => {
           },
           events: [] as ResourceChange[],
           sectContribution: undefined,
+          qiResult: undefined,
         };
       }
       const [updated] = await tx
@@ -285,6 +324,15 @@ router.post('/grant', requireAdmin(), async (c) => {
                   },
             ]
           : []),
+        // 灯油变动走 player.currency 的 merge 事件（qi + qiLastRefreshedAt 成对），客户端顶栏实时刷新
+        ...(qiRestoreResult
+          ? [
+              qiCurrencyChange('gm.grant', {
+                qiAfter: qiRestoreResult.after,
+                qiLastRefreshedAt: qiRestoreResult.qiLastRefreshedAt,
+              }),
+            ]
+          : []),
       ],
       scopeDefaults: { accountId: cultivator.userId, cultivatorId: cultivator.id },
     });
@@ -292,6 +340,13 @@ router.post('/grant', requireAdmin(), async (c) => {
       result: r,
       events: commit.changes,
       sectContribution: sectContributionResult,
+      qiResult: qiRestoreResult
+        ? {
+            before: qiRestoreResult.before,
+            after: qiRestoreResult.after,
+            restored: qiRestoreResult.restored,
+          }
+        : undefined,
     };
   });
   if (events.length) publishResourceEvents(events);
@@ -306,7 +361,7 @@ router.post('/grant', requireAdmin(), async (c) => {
   console.log(
     `[GM] ${admin.email ?? admin.id} 向角色 ${cultivator.name}(${cultivator.id}) 发放` +
       ` 灯油券=${input.spiritStones ?? 0} 声望=${input.reputation ?? 0} 灯韵=${input.cultivationExp ?? 0}` +
-      ` 寿元=${input.lifespan ?? 0} 窥悟=${input.comprehensionInsight ?? 0}` +
+      ` 寿元=${input.lifespan ?? 0} 窥悟=${input.comprehensionInsight ?? 0} 灯油=${input.qi ?? 0}` +
       ` 宗门贡献=${input.sectContribution ?? 0}` +
       (input.note ? ` 备注：${input.note}` : ''),
   );
@@ -321,6 +376,7 @@ router.post('/grant', requireAdmin(), async (c) => {
       cultivationExp: input.cultivationExp,
       lifespan: input.lifespan,
       comprehensionInsight: input.comprehensionInsight,
+      qi: qiResult,
       items: grantedItems.length ? grantedItems : undefined,
       sectContribution,
     },
