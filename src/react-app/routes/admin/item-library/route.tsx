@@ -33,6 +33,7 @@ import {
   ELEMENT_VALUES,
   EQUIPMENT_SLOT_VALUES,
   MATERIAL_TYPE_VALUES,
+  type MaterialType,
   QUALITY_VALUES,
   REALM_STAGE_VALUES,
   REALM_VALUES,
@@ -77,6 +78,31 @@ interface ItemLibraryResponse {
 interface DailyMaterialGenerationSettingsResponse {
   success?: boolean;
   settings?: ItemLibraryDailyMaterialGenerationSettings;
+  error?: string;
+}
+
+interface CatalogPresetEntryView {
+  itemId: string;
+  index: number;
+  name: string;
+  description: string;
+  element: string;
+  imported: boolean;
+}
+
+interface CatalogResponse {
+  groups?: Array<{
+    materialType: string;
+    qualities: Array<{
+      quality: string;
+      entries: CatalogPresetEntryView[];
+    }>;
+  }>;
+  total?: number;
+  importedTotal?: number;
+  success?: boolean;
+  imported?: number;
+  skipped?: number;
   error?: string;
 }
 
@@ -147,6 +173,16 @@ export default function ItemLibraryAdminPage() {
   const [affixQuery, setAffixQuery] = useState('');
   const [affixSlotFilter, setAffixSlotFilter] = useState('');
   const [affixRarityFilter, setAffixRarityFilter] = useState('');
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogGroups, setCatalogGroups] = useState<
+    NonNullable<CatalogResponse['groups']>
+  >([]);
+  const [catalogImportedTotal, setCatalogImportedTotal] = useState(0);
+  const [catalogTotal, setCatalogTotal] = useState(0);
+  const [catalogTypeFilter, setCatalogTypeFilter] = useState('');
+  const [catalogQualityFilter, setCatalogQualityFilter] = useState('');
+  const [catalogImporting, setCatalogImporting] = useState('');
 
   const selectedAffixSet = useMemo(
     () => new Set(draft.artifactAffixIds),
@@ -265,6 +301,64 @@ export default function ItemLibraryAdminPage() {
       cancelled = true;
     };
   }, [pushToast]);
+
+  const loadCatalog = useCallback(async () => {
+    setCatalogLoading(true);
+    try {
+      const response = await fetch('/api/admin/item-library/catalog');
+      const data = (await response.json()) as CatalogResponse;
+      if (!response.ok || !data.groups) {
+        throw new Error(data.error ?? '加载内置目录失败');
+      }
+      setCatalogGroups(data.groups);
+      setCatalogImportedTotal(data.importedTotal ?? 0);
+      setCatalogTotal(data.total ?? 0);
+    } catch (error) {
+      pushToast({
+        message: error instanceof Error ? error.message : '加载内置目录失败',
+        tone: 'danger',
+      });
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [pushToast]);
+
+  const importCatalog = async (input: {
+    materialType?: string;
+    quality?: string;
+    all?: boolean;
+  }) => {
+    const key = input.all
+      ? 'all'
+      : `${input.materialType}:${input.quality}`;
+    setCatalogImporting(key);
+    try {
+      const response = await fetch('/api/admin/item-library/catalog/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = (await response.json()) as CatalogResponse;
+      if (!response.ok || !data.success) {
+        throw new Error(data.error ?? '导入内置材料失败');
+      }
+      pushToast({
+        message: `已入库 ${data.imported ?? 0} 条${
+          data.skipped ? `，跳过已存在 ${data.skipped} 条` : ''
+        }`,
+        tone: 'success',
+      });
+      await loadCatalog();
+      await loadItems();
+    } catch (error) {
+      pushToast({
+        message: error instanceof Error ? error.message : '导入内置材料失败',
+        tone: 'danger',
+      });
+    } finally {
+      setCatalogImporting('');
+    }
+  };
 
   const setDraftField = <K extends keyof ItemLibraryDraft>(
     key: K,
@@ -1725,6 +1819,177 @@ export default function ItemLibraryAdminPage() {
             ) : null}
           </div>
         </section>
+      </section>
+
+      <section className="border-ink/15 bg-bgpaper/90 border border-dashed p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-ink text-lg font-bold">内置材料目录</h3>
+            <p className="text-ink-secondary mt-1 text-sm leading-6">
+              坊市预设池全部 420 条材料（7 类 × 5 品阶 × 12 条），已入库{' '}
+              {catalogImportedTotal} / {catalogTotal} 条。入库后即可在兑换码、
+              游戏邮件、声望商店中按 itemId 引用发放。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {catalogOpen ? (
+              <InkButton
+                type="button"
+                variant="secondary"
+                disabled={catalogLoading}
+                onClick={() => setCatalogOpen(false)}
+              >
+                收起目录
+              </InkButton>
+            ) : (
+              <InkButton
+                type="button"
+                variant="secondary"
+                disabled={catalogLoading}
+                onClick={() => {
+                  setCatalogOpen(true);
+                  if (catalogGroups.length === 0) void loadCatalog();
+                }}
+              >
+                {catalogLoading ? '加载中…' : '浏览内置目录'}
+              </InkButton>
+            )}
+            <InkButton
+              type="button"
+              variant="primary"
+              disabled={catalogImporting !== '' || catalogTotal === 0}
+              onClick={() => void importCatalog({ all: true })}
+            >
+              {catalogImporting === 'all'
+                ? '入库中…'
+                : `一键全量入库（剩余 ${catalogTotal - catalogImportedTotal} 条）`}
+            </InkButton>
+          </div>
+        </div>
+
+        {catalogOpen ? (
+          <div className="mt-5 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <InkSelect
+                label="类目筛选"
+                value={catalogTypeFilter}
+                onChange={setCatalogTypeFilter}
+              >
+                <option value="">全部类目</option>
+                {catalogGroups.map((group) => (
+                  <option key={group.materialType} value={group.materialType}>
+                    {getMaterialTypeLabel(group.materialType as MaterialType)}
+                  </option>
+                ))}
+              </InkSelect>
+              <InkSelect
+                label="品阶筛选"
+                value={catalogQualityFilter}
+                onChange={setCatalogQualityFilter}
+              >
+                <option value="">全部品阶</option>
+                {catalogGroups[0]?.qualities.map((qualityGroup) => (
+                  <option key={qualityGroup.quality} value={qualityGroup.quality}>
+                    {qualityGroup.quality}
+                  </option>
+                ))}
+              </InkSelect>
+            </div>
+
+            {catalogGroups
+              .filter(
+                (group) =>
+                  !catalogTypeFilter ||
+                  group.materialType === catalogTypeFilter,
+              )
+              .map((group) => (
+                <div
+                  key={group.materialType}
+                  className="border-ink/15 bg-paper/70 border border-dashed p-4"
+                >
+                  <p className="text-ink font-semibold">
+                    {getMaterialTypeLabel(group.materialType as MaterialType)}
+                    <span className="text-ink-secondary ml-2 text-xs font-normal">
+                      {group.materialType}
+                    </span>
+                  </p>
+                  <div className="mt-3 space-y-3">
+                    {group.qualities
+                      .filter(
+                        (qualityGroup) =>
+                          !catalogQualityFilter ||
+                          qualityGroup.quality === catalogQualityFilter,
+                      )
+                      .map((qualityGroup) => {
+                        const key = `${group.materialType}:${qualityGroup.quality}`;
+                        const importedCount = qualityGroup.entries.filter(
+                          (entry) => entry.imported,
+                        ).length;
+                        return (
+                          <div
+                            key={key}
+                            className="border-ink/10 bg-bgpaper/60 p-3"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-ink text-sm font-semibold">
+                                {qualityGroup.quality}
+                                <span className="text-ink-secondary ml-2 text-xs font-normal">
+                                  {importedCount}/{qualityGroup.entries.length}{' '}
+                                  已入库
+                                </span>
+                              </p>
+                              <InkButton
+                                type="button"
+                                variant="secondary"
+                                disabled={
+                                  catalogImporting !== '' ||
+                                  importedCount === qualityGroup.entries.length
+                                }
+                                onClick={() =>
+                                  void importCatalog({
+                                    materialType: group.materialType,
+                                    quality: qualityGroup.quality,
+                                  })
+                                }
+                              >
+                                {catalogImporting === key
+                                  ? '入库中…'
+                                  : importedCount === qualityGroup.entries.length
+                                    ? '已全部入库'
+                                    : '本组入库'}
+                              </InkButton>
+                            </div>
+                            <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                              {qualityGroup.entries.map((entry) => (
+                                <div
+                                  key={entry.itemId}
+                                  className={`border px-2.5 py-1.5 text-xs ${
+                                    entry.imported
+                                      ? 'border-crimson/30 bg-crimson/5'
+                                      : 'border-ink/10 bg-paper/60'
+                                  }`}
+                                >
+                                  <p className="text-ink font-semibold">
+                                    {entry.name}
+                                    <span className="text-ink-secondary ml-1.5 font-normal">
+                                      {entry.element}
+                                      {entry.imported ? ' · 已入库' : ''}
+                                    </span>
+                                  </p>
+                                  <p className="text-ink-secondary mt-0.5 line-clamp-2 leading-4">
+                                    {entry.description}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              ))}
+          </div>
+        ) : null}
       </section>
     </div>
   );

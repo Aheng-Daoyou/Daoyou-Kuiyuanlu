@@ -7,7 +7,7 @@ import type {
 } from '@shared/contracts/gmTools';
 import { useCallback, useRef, useState } from 'react';
 
-/** GM 工具：按角色名搜索并直接发放灯油券/声望/灯韵（测试与补偿用） */
+/** GM 工具：按角色名搜索并直接发放灯油券/声望/灯韵/寿元/窥悟（测试与补偿用） */
 export default function GmToolsPage() {
   const { pushToast } = useInkUI();
   const [query, setQuery] = useState('');
@@ -17,6 +17,8 @@ export default function GmToolsPage() {
   const [spiritStones, setSpiritStones] = useState('');
   const [reputation, setReputation] = useState('');
   const [cultivationExp, setCultivationExp] = useState('');
+  const [lifespan, setLifespan] = useState('');
+  const [comprehensionInsight, setComprehensionInsight] = useState('');
   const [note, setNote] = useState('');
   const [granting, setGranting] = useState(false);
   const [lastResult, setLastResult] = useState<GmGrantResponse | null>(null);
@@ -60,9 +62,17 @@ export default function GmToolsPage() {
       spiritStones: Number(spiritStones) || undefined,
       reputation: Number(reputation) || undefined,
       cultivationExp: Number(cultivationExp) || undefined,
+      lifespan: Number(lifespan) || undefined,
+      comprehensionInsight: Number(comprehensionInsight) || undefined,
       note: note.trim() || undefined,
     };
-    if (!payload.spiritStones && !payload.reputation && !payload.cultivationExp) {
+    if (
+      !payload.spiritStones &&
+      !payload.reputation &&
+      !payload.cultivationExp &&
+      !payload.lifespan &&
+      !payload.comprehensionInsight
+    ) {
       pushToast({ message: '至少填写一项发放数额', tone: 'warning' });
       return;
     }
@@ -84,6 +94,8 @@ export default function GmToolsPage() {
       setSpiritStones('');
       setReputation('');
       setCultivationExp('');
+      setLifespan('');
+      setComprehensionInsight('');
       setNote('');
     } catch (error) {
       pushToast({
@@ -116,10 +128,11 @@ export default function GmToolsPage() {
       <header className="border-ink/15 bg-bgpaper/90 border border-dashed p-6">
         <p className="text-ink-secondary text-xs tracking-[0.22em]">GM TOOLS</p>
         <h2 className="font-heading text-ink mt-2 text-3xl">GM 工具</h2>
-        <p className="text-ink-secondary mt-3 max-w-2xl text-sm leading-7">
-          按角色名搜索在线角色，直接发放灯油券 / 声望 / 灯韵，用于测试与客诉补偿。
-          发放即时到账并记录操作日志；物品类发放请使用「游戏邮件」广播页。
-        </p>
+          <p className="text-ink-secondary mt-3 max-w-2xl text-sm leading-7">
+            按角色名搜索在线角色，直接发放灯油券 / 声望 / 灯韵 / 寿元 / 窥悟，用于测试与客诉补偿。
+            大额发放会由服务端自动拆批结算；发放即时到账并记录操作日志。
+            物品类发放请使用「游戏邮件」广播页。
+          </p>
       </header>
 
       <section className="border-ink/15 bg-bgpaper/90 space-y-4 border border-dashed p-6">
@@ -182,9 +195,11 @@ export default function GmToolsPage() {
             </span>
           </h3>
           <div className="grid gap-4 sm:grid-cols-3">
-            {numberInput('灯油券', spiritStones, setSpiritStones, '通用货币')}
-            {numberInput('声望', reputation, setReputation, '天骄宝阁兑换用')}
-            {numberInput('灯韵', cultivationExp, setCultivationExp, '修为进度')}
+            {numberInput('灯油券', spiritStones, setSpiritStones, '通用货币，单次最高 10 亿')}
+            {numberInput('声望', reputation, setReputation, '天骄宝阁兑换用，上限 100 万')}
+            {numberInput('灯韵', cultivationExp, setCultivationExp, '修为进度，单次最高 10 亿')}
+            {numberInput('寿元（年）', lifespan, setLifespan, '续命用，上限 1000 万年')}
+            {numberInput('窥悟值', comprehensionInsight, setComprehensionInsight, '悟性进度 0~100，直接累加')}
           </div>
           <InkInput
             label="备注（可选）"
@@ -220,10 +235,19 @@ export default function GmToolsPage() {
                 {lastResult.name}：+{(lastResult.granted.spiritStones ?? 0).toLocaleString()}{' '}
                 灯油券，+{(lastResult.granted.reputation ?? 0).toLocaleString()} 声望，+
                 {(lastResult.granted.cultivationExp ?? 0).toLocaleString()} 灯韵
+                {lastResult.granted.lifespan
+                  ? `，+${lastResult.granted.lifespan.toLocaleString()} 寿元`
+                  : ''}
+                {lastResult.granted.comprehensionInsight
+                  ? `，+${lastResult.granted.comprehensionInsight} 窥悟`
+                  : ''}
               </p>
               <p className="text-ink-secondary mt-1 text-xs">
                 当前余额：灯油券 {lastResult.balances.spiritStones.toLocaleString()} · 声望{' '}
                 {lastResult.balances.reputation.toLocaleString()}
+                {lastResult.balances.lifespan !== undefined
+                  ? ` · 寿元 ${lastResult.balances.lifespan.toLocaleString()}`
+                  : ''}
               </p>
             </div>
           )}

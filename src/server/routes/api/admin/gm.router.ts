@@ -6,6 +6,7 @@ import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
 import {
   GmGrantRequestSchema,
   GmPlayerQuerySchema,
+  GM_GRANT_CHUNK_SIZES,
   type GmGrantResponse,
   type GmPlayerSummary,
 } from '@shared/contracts/gmTools';
@@ -86,10 +87,50 @@ router.post('/grant', requireAdmin(), async (c) => {
     return c.json({ error: '角色不存在' }, 404);
   }
 
+  // 大额发放按引擎单次安全上限自动拆批（同一事务内多次小步结算，最终结果一致）
+  const chunked = (value: number, chunkSize: number): number[] => {
+    const ops: number[] = [];
+    let remaining = value;
+    while (remaining > 0) {
+      const step = Math.min(chunkSize, remaining);
+      ops.push(step);
+      remaining -= step;
+    }
+    return ops;
+  };
+
   const gain: ResourceOperation[] = [];
-  if (input.spiritStones) gain.push({ type: 'spirit_stones', value: input.spiritStones });
-  if (input.reputation) gain.push({ type: 'reputation', value: input.reputation });
-  if (input.cultivationExp) gain.push({ type: 'cultivation_exp', value: input.cultivationExp });
+  if (input.spiritStones) {
+    gain.push(
+      ...chunked(input.spiritStones, GM_GRANT_CHUNK_SIZES.spiritStones).map(
+        (value): ResourceOperation => ({ type: 'spirit_stones', value }),
+      ),
+    );
+  }
+  if (input.reputation) {
+    gain.push(
+      ...chunked(input.reputation, GM_GRANT_CHUNK_SIZES.reputation).map(
+        (value): ResourceOperation => ({ type: 'reputation', value }),
+      ),
+    );
+  }
+  if (input.cultivationExp) {
+    gain.push(
+      ...chunked(input.cultivationExp, GM_GRANT_CHUNK_SIZES.cultivationExp).map(
+        (value): ResourceOperation => ({ type: 'cultivation_exp', value }),
+      ),
+    );
+  }
+  if (input.lifespan) {
+    gain.push(
+      ...chunked(input.lifespan, GM_GRANT_CHUNK_SIZES.lifespan).map(
+        (value): ResourceOperation => ({ type: 'lifespan', value }),
+      ),
+    );
+  }
+  if (input.comprehensionInsight) {
+    gain.push({ type: 'comprehension_insight', value: input.comprehensionInsight });
+  }
 
   const result = await q.transaction(async (tx) =>
     resourceEngine.applyInTransaction({
@@ -110,6 +151,7 @@ router.post('/grant', requireAdmin(), async (c) => {
   console.log(
     `[GM] ${admin.email ?? admin.id} 向角色 ${cultivator.name}(${cultivator.id}) 发放` +
       ` 灯油券=${input.spiritStones ?? 0} 声望=${input.reputation ?? 0} 灯韵=${input.cultivationExp ?? 0}` +
+      ` 寿元=${input.lifespan ?? 0} 窥悟=${input.comprehensionInsight ?? 0}` +
       (input.note ? ` 备注：${input.note}` : ''),
   );
 
@@ -121,10 +163,13 @@ router.post('/grant', requireAdmin(), async (c) => {
       spiritStones: input.spiritStones,
       reputation: input.reputation,
       cultivationExp: input.cultivationExp,
+      lifespan: input.lifespan,
+      comprehensionInsight: input.comprehensionInsight,
     },
     balances: {
       spiritStones: result.settlement.spiritStones ?? 0,
       reputation: result.settlement.reputation ?? 0,
+      lifespan: result.settlement.lifespan,
     },
   };
   return c.json(response);

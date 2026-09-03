@@ -1299,6 +1299,20 @@ export const router = createBrowserRouter(
           handle={title('新建兑换码')}
         />
         <Route
+          path="invitation-lamps"
+          lazy={lazyRoute(
+            () => import('@app/routes/admin/invitation-lamps/route'),
+          )}
+          handle={title('灯引管理')}
+        />
+        <Route
+          path="invitation-lamps/new"
+          lazy={lazyRoute(
+            () => import('@app/routes/admin/invitation-lamps/new/route'),
+          )}
+          handle={title('新建灯引')}
+        />
+        <Route
           path="sponsorship"
           lazy={lazyRoute(() => import('@app/routes/admin/sponsorship/route'))}
           handle={title('功德簿管理')}

@@ -1,5 +1,8 @@
 import { requireAdmin } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
+import { getExecutor } from '@server/lib/drizzle/db';
+import { itemLibrary } from '@server/lib/drizzle/schema';
+import { computeItemLibrarySampleKey } from '@server/lib/services/itemLibrarySampleKey';
 import {
   getItemLibraryDailyMaterialGenerationSettings,
   upsertItemLibraryDailyMaterialGenerationSettings,
@@ -17,6 +20,7 @@ import {
   generateSpiritSeedLibraryEntries,
 } from '@server/lib/services/MaterialLibraryService';
 import { buildPresetArtifact } from '@shared/engine/cultivator/creation/presetProducts';
+import { MARKET_PRESET_POOL } from '@shared/engine/material/creation/marketPresets';
 import { DEFAULT_AFFIX_REGISTRY } from '@shared/engine/creation-v2/affixes';
 import {
   rehydrateStoredProductModel,
@@ -35,10 +39,182 @@ import {
   type CreateItemLibraryEntry,
   type UpdateItemLibraryEntry,
 } from '@shared/lib/itemLibrary';
+import {
+  MATERIAL_TYPE_VALUES,
+  type ElementType,
+  type MaterialType,
+  type Quality,
+} from '@shared/types/constants';
+import { and, eq, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { z } from 'zod';
 
 const router = new Hono<AppEnv>();
+
+// ===== 内置坊市材料目录（marketPresets 预设池，7 类 × 5 品阶 × 12 条 = 420 条） =====
+
+interface CatalogPresetEntry {
+  itemId: string;
+  materialType: MaterialType;
+  quality: Quality;
+  index: number;
+  name: string;
+  description: string;
+  element: ElementType;
+}
+
+function buildPresetItemId(
+  materialType: MaterialType,
+  quality: Quality,
+  index: number,
+): string {
+  const qualityPart = encodeURIComponent(quality)
+    .replace(/%/g, '')
+    .toLowerCase();
+  return `mat_${materialType}_preset_${qualityPart}_${index}`;
+}
+
+function flattenPresetPool(): CatalogPresetEntry[] {
+  const entries: CatalogPresetEntry[] = [];
+  for (const materialType of MATERIAL_TYPE_VALUES) {
+    const qualityMap = MARKET_PRESET_POOL[materialType];
+    if (!qualityMap) continue;
+    for (const [quality, presets] of Object.entries(qualityMap)) {
+      presets.forEach((preset, index) => {
+        entries.push({
+          itemId: buildPresetItemId(materialType, quality as Quality, index),
+          materialType,
+          quality: quality as Quality,
+          index,
+          name: preset.name,
+          description: preset.description,
+          element: preset.element,
+        });
+      });
+    }
+  }
+  return entries;
+}
+
+router.get('/catalog', requireAdmin(), async (c) => {
+  const entries = flattenPresetPool();
+  const importedRows = await getExecutor()
+    .select({ itemId: itemLibrary.itemId })
+    .from(itemLibrary)
+    .where(
+      and(
+        eq(itemLibrary.type, 'material'),
+        inArray(
+          itemLibrary.itemId,
+          entries.map((entry) => entry.itemId),
+        ),
+      ),
+    );
+  const importedSet = new Set(importedRows.map((row) => row.itemId));
+
+  const groups = MATERIAL_TYPE_VALUES.filter(
+    (materialType) => MARKET_PRESET_POOL[materialType],
+  ).map((materialType) => ({
+    materialType,
+    qualities: Object.entries(MARKET_PRESET_POOL[materialType]).map(
+      ([quality, presets]) => ({
+        quality,
+        entries: presets.map((preset, index) => ({
+          itemId: buildPresetItemId(materialType, quality as Quality, index),
+          index,
+          name: preset.name,
+          description: preset.description,
+          element: preset.element,
+          imported: importedSet.has(
+            buildPresetItemId(materialType, quality as Quality, index),
+          ),
+        })),
+      }),
+    ),
+  }));
+
+  return c.json({
+    groups,
+    total: entries.length,
+    importedTotal: entries.filter((entry) => importedSet.has(entry.itemId))
+      .length,
+  });
+});
+
+router.post('/catalog/import', requireAdmin(), async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ error: '未授权访问' }, 401);
+  }
+
+  const body = (await c.req.json().catch(() => null)) as {
+    materialType?: string;
+    quality?: string;
+    all?: boolean;
+  } | null;
+  if (!body) {
+    return c.json({ error: '参数错误' }, 400);
+  }
+
+  let entries = flattenPresetPool();
+  if (!body.all) {
+    if (!body.materialType || !body.quality) {
+      return c.json({ error: '请指定要导入的类目与品阶，或传 all=true 全量导入' }, 400);
+    }
+    entries = entries.filter(
+      (entry) =>
+        entry.materialType === body.materialType &&
+        entry.quality === body.quality,
+    );
+  } else if (body.materialType || body.quality) {
+    entries = entries.filter(
+      (entry) =>
+        (!body.materialType || entry.materialType === body.materialType) &&
+        (!body.quality || entry.quality === body.quality),
+    );
+  }
+
+  if (entries.length === 0) {
+    return c.json({ success: true, imported: 0, skipped: 0 });
+  }
+
+  const generatedAt = new Date().toISOString();
+  const values = entries.map((entry) => ({
+    itemId: entry.itemId,
+    type: 'material' as const,
+    status: 'published' as const,
+    name: entry.name,
+    description: entry.description,
+    quality: entry.quality,
+    element: entry.element,
+    category: entry.materialType,
+    sampleKey: computeItemLibrarySampleKey(
+      `preset:${entry.materialType}:${entry.quality}:${entry.index}`,
+    ),
+    payload: {
+      name: entry.name,
+      type: entry.materialType,
+      rank: entry.quality,
+      element: entry.element,
+      description: entry.description,
+    },
+    editorConfig: { source: 'market_preset', generatedAt },
+    createdBy: user.id,
+    updatedBy: user.id,
+  }));
+
+  const inserted = await getExecutor()
+    .insert(itemLibrary)
+    .values(values)
+    .onConflictDoNothing({ target: itemLibrary.itemId })
+    .returning({ id: itemLibrary.id });
+
+  return c.json({
+    success: true,
+    imported: inserted.length,
+    skipped: entries.length - inserted.length,
+  });
+});
 
 function isUniqueViolation(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
