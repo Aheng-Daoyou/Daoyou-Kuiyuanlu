@@ -559,6 +559,10 @@ export interface DungeonRoundLlmContext {
     outcomeSummary?: string;
     gainedItemNames?: string[];
   }>;
+  /** 连续性锚点：最近一段叙事的结尾原文摘录，本幕必须从这里续写。 */
+  continuity?: {
+    lastSceneEnding: string;
+  };
   pendingChoice?: {
     text: string;
     costs: Array<{

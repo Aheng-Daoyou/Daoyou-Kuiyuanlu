@@ -119,17 +119,30 @@ function buildPreHeavenFateInsertValues(
 ) {
   const normalizedFates = FateEngine.normalizeFates(fates);
 
-  return normalizedFates.map((fate) => ({
-    cultivatorId,
-    name: fate.name,
-    quality: fate.quality || null,
-    details: {
-      effects: fate.effects ?? [],
-      generationModel: fate.generationModel ?? null,
-      namingMetadata: fate.namingMetadata ?? null,
-    },
-    description: fate.description || null,
-  }));
+  return normalizedFates.map((fate) => {
+    if (!fate.effects?.length) {
+      // 正常链路（FateEngine.generateCandidatePool）产出的候选必有 effects；
+      // 出现空 effects 说明上游传入了异常构造的命数，其描述往往是不可读的
+      // 脏文本（如历史遗留的「命数 probe」），这里留下定位日志。
+      console.warn(
+        '[CultivatorProfileRepository] 写入空 effects 命数（疑似脏数据）:',
+        fate.name,
+        fate.quality,
+        `desc=${fate.description ?? 'null'}`,
+      );
+    }
+    return {
+      cultivatorId,
+      name: fate.name,
+      quality: fate.quality || null,
+      details: {
+        effects: fate.effects ?? [],
+        generationModel: fate.generationModel ?? null,
+        namingMetadata: fate.namingMetadata ?? null,
+      },
+      description: fate.description || null,
+    };
+  });
 }
 
 /**

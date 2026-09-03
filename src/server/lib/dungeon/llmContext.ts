@@ -12,8 +12,11 @@ import type {
 
 const HISTORY_LIMIT = 4;
 const JOURNEY_LIMIT = 5;
-const SCENE_SUMMARY_MAX_CHARS = 140;
+/** 更早段落的场景只保留开头大意，避免给模型大段可搬运的旧文。 */
+const SCENE_SUMMARY_MAX_CHARS = 60;
 const OUTCOME_SUMMARY_MAX_CHARS = 90;
+/** 上一段结尾原文摘录长度：模型据此无缝续写，拿不到结尾就只能另起炉灶。 */
+const LAST_SCENE_ENDING_MAX_CHARS = 180;
 const MAP_DESCRIPTION_MAX_CHARS = 100;
 const FALLBACK_TEXT = '未见分明痕迹';
 const DUNGEON_REWARD_BLUEPRINT_LIMIT = 6;
@@ -30,6 +33,14 @@ function uniqueStrings(values: Array<string | undefined | null>): string[] {
 
 function stripParenthetical(text: string): string {
   return text.replace(/（.*?）|\(.*?\)/g, '').trim();
+}
+
+/** 保留文本结尾（不加省略号），用于向模型提供上一段的收束画面。 */
+function tailText(input: string | null | undefined, maxChars: number): string {
+  const normalized = (input ?? '').replace(/\s+/g, ' ').trim();
+  if (!normalized || maxChars <= 0) return '';
+  if (normalized.length <= maxChars) return normalized;
+  return normalized.slice(-maxChars);
 }
 
 function summarizeHistoryEntry(entry: History) {
@@ -53,6 +64,20 @@ function summarizeHistoryEntry(entry: History) {
         }
       : {}),
   };
+}
+
+/**
+ * 连续性锚点：取最近一段叙事的结尾原文。
+ * 提示词要求本幕从这一悬停点直接续写，保证前后轮因果与画面衔接。
+ */
+function buildContinuityAnchor(
+  history: History[],
+): DungeonRoundLlmContext['continuity'] {
+  const last = history[history.length - 1];
+  if (!last) return undefined;
+  const lastSceneEnding = tailText(last.scene, LAST_SCENE_ENDING_MAX_CHARS);
+  if (!lastSceneEnding) return undefined;
+  return { lastSceneEnding };
 }
 
 function summarizeJourney(history: History[]): string[] {
@@ -223,6 +248,7 @@ export function buildDungeonRoundLlmContext(args: {
     recentHistory: state.history
       .slice(-HISTORY_LIMIT)
       .map(summarizeHistoryEntry),
+    ...(buildContinuityAnchor(state.history) ?? {}),
     ...(pendingChoice ? { pendingChoice } : {}),
     ...(battleAftermath ? { battleAftermath } : {}),
     securedRewardNames: summarizeRewardNames(state.accumulatedRewards),
