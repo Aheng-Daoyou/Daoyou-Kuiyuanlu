@@ -216,3 +216,10 @@ cookies.txt
 backups/
 /daoyou/
 overview.md
+
+# E2E 回归临时产物：本地 fixture 会话 token 永不提交；tmp 脚本与证据 json 留盘复跑用
+scripts/.test-accounts.json
+scripts/.player-sweep.json
+scripts/.loop-stress.json
+scripts/tmp-*.ts
+.e2e-tmp/

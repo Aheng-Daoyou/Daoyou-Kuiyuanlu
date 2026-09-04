@@ -97,6 +97,12 @@ export async function getSpiritFieldSnapshot(actor: SpiritFieldActor) {
 }
 
 export async function claimSpiritFieldStarterSeeds(actor: SpiritFieldActor) {
+  // 前置判重：已领取者立即返回 409，避免为重复领取跑一轮 LLM 种子生成（10~40s）。
+  await loadCultivator(actor);
+  const preflight = await getOrCreateSpiritField(actor.cultivatorId);
+  if (preflight.starterClaimed) {
+    throw new SpiritFieldServiceError('初始灯种已经领取过了', 409);
+  }
   const starterMaterials = await SpiritSeedGenerator.generateBatches(SPIRIT_FIELD_STARTER_BATCHES);
   return playerCommandExecutor.executeWithLock({ userId: actor.userId, cultivatorId: actor.cultivatorId, source: 'spirit_field_starter', command: async (tx) => {
     await loadCultivator(actor, tx);

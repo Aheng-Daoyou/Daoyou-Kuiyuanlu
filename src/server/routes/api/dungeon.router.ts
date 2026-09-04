@@ -46,6 +46,26 @@ const RecoverSchema = z.object({
   ]),
 });
 
+/**
+ * 统一入参解析：schema 失败返回结构化 400（与全局 jsonError 语义一致），
+ * 成功则返回解析后的数据。避免 ZodError 落进各 handler 的兜底 catch 变成 500。
+ */
+function bodyOr400<T>(c: { json: (body: unknown, status?: number) => unknown }, schema: z.ZodType<T>, raw: unknown): T | Response {
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return c.json(
+      {
+        success: false,
+        error: issue?.message ?? '参数错误',
+        ...(issue ? { details: [issue] } : {}),
+      },
+      400,
+    ) as Response;
+  }
+  return parsed.data;
+}
+
 const router = new Hono<AppEnv>();
 const historyRouter = new Hono<AppEnv>();
 const limitRouter = new Hono<AppEnv>();
@@ -143,7 +163,9 @@ router.post('/start', requireActiveCultivatorRef(), async (c) => {
     return c.json({ error: '未授权访问' }, 401);
   }
 
-  const { mapNodeId } = StartSchema.parse(await c.req.json());
+  const startBody = bodyOr400(c, StartSchema, await c.req.json());
+  if (startBody instanceof Response) return startBody;
+  const { mapNodeId } = startBody;
 
   if (wantsSse(c.req.header('accept'))) {
     return executeDungeonCommandSse(
@@ -219,7 +241,9 @@ router.post('/action', requireActiveCultivatorRef(), async (c) => {
       return c.json({ error: '未授权访问' }, 401);
     }
 
-    const { choiceId, actionId } = ActionSchema.parse(await c.req.json());
+    const actionBody = bodyOr400(c, ActionSchema, await c.req.json());
+    if (actionBody instanceof Response) return actionBody;
+    const { choiceId, actionId } = actionBody;
 
     if (wantsSse(c.req.header('accept'))) {
       return executeDungeonCommandSse(
@@ -261,7 +285,9 @@ router.post('/recover', requireActiveCultivatorRef(), async (c) => {
       return c.json({ error: '未授权访问' }, 401);
     }
 
-    const { action } = RecoverSchema.parse(await c.req.json());
+    const recoverBody = bodyOr400(c, RecoverSchema, await c.req.json());
+    if (recoverBody instanceof Response) return recoverBody;
+    const { action } = recoverBody;
 
     if (wantsSse(c.req.header('accept'))) {
       return executeDungeonCommandSse(
@@ -475,9 +501,11 @@ battleRouter.get('/probe', requireActiveCultivatorRef(), async (c) => {
       return c.json({ error: '未授权访问' }, 401);
     }
 
-    const { battleId } = BattleIdQuerySchema.parse({
+    const queryBody = bodyOr400(c, BattleIdQuerySchema, {
       battleId: c.req.query('battleId'),
     });
+    if (queryBody instanceof Response) return queryBody;
+    const { battleId } = queryBody;
     const enemy = await dungeonService.probeBattleEnemy(
       cultivator.cultivatorId,
       battleId,
@@ -501,7 +529,9 @@ battleRouter.post('/abandon', requireActiveCultivatorRef(), async (c) => {
       return c.json({ error: '未授权访问' }, 401);
     }
 
-    const { battleId } = BattleIdBodySchema.parse(await c.req.json());
+    const abandonBody = bodyOr400(c, BattleIdBodySchema, await c.req.json());
+    if (abandonBody instanceof Response) return abandonBody;
+    const { battleId } = abandonBody;
     return c.json(
       await executeDungeonCommand({
         userId: user.id,
@@ -533,9 +563,9 @@ battleRouter.post('/execute/v5', requireActiveCultivatorRef(), async (c) => {
       return c.json({ error: '未授权访问' }, 401);
     }
 
-    const { battleId, requestId } = BattleIdBodySchema.parse(
-      await c.req.json(),
-    );
+    const execBody = bodyOr400(c, BattleIdBodySchema, await c.req.json());
+    if (execBody instanceof Response) return execBody;
+    const { battleId, requestId } = execBody;
     const responsePayload = await executeDungeonCommand({
       userId: user.id,
       cultivatorId: cultivator.cultivatorId,

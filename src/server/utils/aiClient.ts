@@ -357,16 +357,26 @@ function getValidationIssues(error: NoObjectGeneratedError): string[] {
     return [];
   }
 
-  const validationCause = error.cause.cause;
-  if (validationCause instanceof z.ZodError) {
-    return validationCause.issues.slice(0, 8).map((issue) => {
-      const path = issue.path.length > 0 ? issue.path.join('.') : 'root';
-      return `${path}: ${truncateText(issue.message, 240)}`;
-    });
+  // 无 structuredOutputs 的 provider 上，SDK 的类型校验链可能不止一层
+  // （TypeValidationError → … → ZodError），逐级向上追溯，尽量取出 ZodError
+  // 的具体字段问题，供重试提示使用；取不到时回退到外层错误消息。
+  let cause: unknown = error.cause;
+  const seen = new Set<unknown>();
+  while (cause && typeof cause === 'object' && !seen.has(cause)) {
+    seen.add(cause);
+    if (cause instanceof z.ZodError) {
+      return cause.issues.slice(0, 8).map((issue) => {
+        const path = issue.path.length > 0 ? issue.path.join('.') : 'root';
+        return `${path}: ${truncateText(issue.message, 240)}`;
+      });
+    }
+    const next = (cause as { cause?: unknown }).cause;
+    if (next === undefined) break;
+    cause = next;
   }
 
-  if (validationCause instanceof Error) {
-    return [truncateText(validationCause.message, 1_200)];
+  if (error.cause instanceof Error) {
+    return [truncateText(error.cause.message, 1_200)];
   }
 
   return [];
@@ -449,9 +459,10 @@ function buildStructuredRetryPrompt(
     '【结构化输出纠错重试】',
     `上一次响应未通过结构化校验，失败类型：${failure.kind}。`,
     '请基于原始任务重新生成，不要只解释错误。',
+    '不要逐字重复上一次输出：其中被判非法的字段/取值必须改正，其余内容可保留。',
     '',
     '必须遵守：',
-    '1. 仅返回一个完整、非空的 JSON 对象。',
+    '1. 仅返回一个完整、非空的 JSON 数据：若任务要求单条结果则返回对象；若要求多条并列结果则返回数组，数组元素顺序与任务输入一一对应。',
     '2. 不要输出 Markdown 代码块、注释、解释或任何 JSON 前后缀。',
     '3. 严格满足系统提供的 JSON Schema，包括必填字段、字段类型、枚举、数组长度和数值范围。',
   ];

@@ -1,6 +1,6 @@
 # 端到端验收报告 — 渊隙叙事 / 坊市·黑市 / GM 管理台全工具
 
-- 验收日期：2026-09-03 ~ 09-04（跨两轮会话）
+- 验收日期：2026-09-03 ~ 09-04（跨三轮会话）
 - 测试环境：本地 3100 干净实例（`PORT=3100 bun --env-file=.env.local src/index.ts`，无 watch），真实 PostgreSQL / Redis / NATS / 战斗 worker，真实 LLM 调用（glm-4.5-air 系）
 - 测试账号（保留于 `scripts/.test-accounts.json`）：
   - A = 灯下客甲 / 林默（闻腥），邮箱 `qinguan-e2e-a@qq.test`，**在 `.env.local` 的 `ADMIN_USER_IDS` 白名单内**（本地专用，未提交）
@@ -115,3 +115,59 @@
 - `.env.local` 含本地专用 `ADMIN_USER_IDS=aaaf2f8e…`（A 提权为 admin），**未提交、不提交**；测试角色 B 的境界（蚀体）为 fixture 直改，非正常流程产物。
 - 3100 实例当前为含全部修复的最新代码；后台进程随本会话结束需用户 `PORT=3100 bun --env-file=.env.local src/index.ts` 自行重启。
 - git 工作树：4 个源码修改文件（第六节）+ 历史遗留未跟踪 `docs/assets-src/*` 与底图提示词 md（是否入库待拍板）。
+
+---
+
+## 八、增补轮（2026-09-04 第二轮）：涎田灯种链路修复 + 渊隙入参 400 + 全模块循环/压力收官
+
+### 8.1 涎田（spirit-field）starter 真实灯种链路修复
+
+背景：`GET /api/spirit-field` 与 `POST /api/spirit-field/starter` 此前在本轮回归中一度返回 500「灯田灯机暂乱」。逐层根因：
+
+1. **fixture DB 缺表**：`wanjiedaoyou_spirit_fields` 未建（迁移 0033 未应用到本地库）→ 以 `.e2e-tmp/apply-0033.ts` 对本地实例补 DDL（含 `spirit_field_user_uq` 唯一索引），此后 GET 200。
+2. **LLM 3 次 schema-validation 全败 → 40s+ 延迟 + 通用兜底灯种**，根因三条：
+   - prompt 元素口径沿用旧五行（金木水火土 / 阴阳寒热），与代码 `ELEMENT_VALUES`（烛/尸/星/渊/梦/噬/帘/疫 烬洲八窍）错位 → schema 必败；
+   - prompt 未声明顶层为 JSON 数组，glm-4.5-air 稳定输出单对象（或 `{elements:[…]}` 包裹）→ 数组校验必败；
+   - SDK `Output.array` 模式失败时不向前透传 Zod issue 明细 → 模型重试无法定位错误、反复照抄非法输出。
+
+修复（starter 产物已为合法个性化灯种，服务日志 fallback=0）：
+
+| 文件 | 变更 |
+|---|---|
+| `src/server/prompts/spirit-seed-generation.md` | 元素口径改烬洲八窍并禁用旧五行/冷暖称；硬性声明「顶层必须返回 JSON 数组、数量与骨架一一对应且顺序对齐、禁止对象包裹/单对象」 |
+| `src/shared/engine/spirit-field/SpiritSeedGenerator.ts` | 弃 `generateAiArray`，改 `generateAiText` + 本地 JSON 提取 + Zod `safeParse` 逐项校验重试（≤3 次）；注入「允许值字典」（8 元素 / 生长形态 / 收获部位 / 手法 / 栖息 / 性状 / 用途 / 结果全量锚点 + 27 个 `CREATION_MATERIAL_SEMANTIC_TAGS` 全量候选，「末段即语义、原样逐字复制」）；`suggestCreationTagFix` 对非法 tag 别名映射（Fire→Flame、Healing→Sustain…）/后段匹配/删除建议，把含条目下标的精确 issue 回写下一轮 prompt |
+| `src/server/utils/aiClient.ts` | 重试提示首条区分「单条结果返对象 / 多条并列返数组且顺序与输入对应」；新增「不要逐字重复上一次输出，非法字段必须改正」；`getValidationIssues` 改 while 链穿透多层 TypeValidationError/ZodError |
+| `src/server/lib/services/spirit-field/SpiritFieldService.ts` | `claimSpiritFieldStarterSeeds` 在 LLM 生成前插入读库 preflight，`starterClaimed` 直接 409（毫秒级，杜绝重复领取空跑 10–40s LLM）；事务内原 409 分支保留为原子兜底 |
+
+### 8.2 渊隙路由入参 ZodError → 结构化 400
+
+根因：`dungeon.router.ts` 多处直接 `.parse(await c.req.json())`，parse 抛错落入 handler 内层 catch 被当通用错误转 500（绕过全局 jsonError）。
+
+修复：新增 `bodyOr400(c, schema, raw)`（safeParse 失败 → `{success:false, error, details:[issues[0]]}` HTTP 400），替换 **6 处**解析出口：dungeon `/start`、`/action`、`/recover`、battle `/probe`(query)、`/abandon`(body)、`/execute/v5`(body)。实测 `POST /api/dungeon/start {}` 由 500「服务器内部错误」→ **400** `Invalid input: expected string, received undefined`。
+
+### 8.3 全模块循环 + 压力收官（A/B 真实会话 + 真实 LLM，3100 最新代码实例）
+
+方法（`scripts/tmp-loop-stress.ts`，不引入新依赖）：
+- **阶段一 · 循环 ×3 轮**：25 项跨模块读矩阵 + 可逆写动作（好友 add→remove、押注 create→cancel），前后抓不变量（starterClaimed / 押注列表数）；
+- **阶段二 · 压力**：6 读端点 ×10 并发突刺；starter 双领竞态 ×4；好友并发 add/remove ×4；渊隙重复开局 ×3（A 有活跃 run）。
+
+| 段 | 样本 | 结果 |
+|---|---|---|
+| 循环 3 轮读矩阵 | 75 | 每轮 **20 OK + 5 GUARD**（稳态语义守卫，见注①），3 轮零漂移 |
+| 可逆写动作 + 各并发段 | 80 | OK/GUARD，无 5xx / 无超时 |
+| 读接口并发 ×10（6 端点） | 60 | p95 2.3–48.4ms；`products.list` 缺 type 参数 → 恒定结构化 400 |
+| starter 双领竞态 ×4 | 4 | **全部 409**，avg 8.7ms / p95 9.4ms（修复前：触发 LLM 10–40s 或 20s NET_ERR） |
+| 好友并发 add/remove ×4 | 4 | OK×4，终态好友关系干净（无残留 / 无脏数据） |
+| 渊隙重复开局 ×3 | 3 | 全部结构化 GUARD（400/409），avg 3.4ms（修复前 3×500） |
+| 不变量 | — | `spiritStarter` true→true（无重复发放）、押注列表 null→null |
+
+**汇总：total=155，OK=120，GUARD=35，DEFECT_5XX=0，NET_ERR=0，defects=0。**
+对比：修复前同脚本同实例 6 缺陷（DEFECT_5XX×3 + NET_ERR×3）→ 现已全部转为预期守卫 4xx，无任何 5xx/超时/脏状态。
+
+注①（每轮 GUARD=5 的构成，非缺陷）：`craft.home`/`products.list` 缺 `type` 参数 → 400「请指定…类型」；`sects.current/context` → 404「尚未拜入宗门」；`sects.current/shop` → 409「尚未拜入宗门」；`tower.leaderboard` 缺 type 枚举参数 → 400 `invalid_value`。B 为无宗门账号，属预期状态语义。
+
+### 8.4 本轮提交
+
+- 生产代码 5 文件（上表 8.1/8.2 所列）+ 本报告。
+- 质量门禁：`tsc -b tsconfig.node.json` 0 错误 / `scan:terms` 过 / vitest 全量过。
+- 环境收尾（新增 `.gitignore` 规则，工作树不脏）：`scripts/.test-accounts.json`（含本地会话 token，**永不提交**）、`scripts/tmp-*.ts`、`scripts/.loop-stress.json`、`.e2e-tmp/` 均加入 gitignore 并保留于磁盘，供同一本地库上复跑 `bun scripts/tmp-loop-stress.ts` 回归；3100 后台实例随会话结束由用户自行重启。
