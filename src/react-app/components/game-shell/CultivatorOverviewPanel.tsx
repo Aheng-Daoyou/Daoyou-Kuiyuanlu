@@ -35,6 +35,7 @@ import { AttributeType } from '@shared/engine/battle-v5/core/types';
 import { attrLabel } from '@shared/engine/battle-v5/effects/affixText/attributes';
 import { cn } from '@shared/lib/cn';
 import { getEquipmentSlotInfo } from '@shared/lib/gameConceptDisplay';
+import { skillTierFromQuality } from '@shared/lib/skillTier';
 import type { Cultivator } from '@shared/types/cultivator';
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
@@ -446,6 +447,11 @@ export function CultivatorOverviewPanel() {
                   icon="📘"
                   name={technique.name}
                   quality={technique.quality}
+                  qualityLabel={
+                    technique.quality
+                      ? skillTierFromQuality(technique.quality)
+                      : undefined
+                  }
                   badgeExtra={
                     technique.element ? (
                       <InkBadge tone="default">{technique.element}</InkBadge>
@@ -474,6 +480,9 @@ export function CultivatorOverviewPanel() {
                   icon="📜"
                   name={skill.name}
                   quality={skill.quality}
+                  qualityLabel={
+                    skill.quality ? skillTierFromQuality(skill.quality) : undefined
+                  }
                   badgeExtra={
                     <InkBadge tone="default">{skill.element}</InkBadge>
                   }

@@ -1,8 +1,11 @@
 import { GameSceneAsideSection, GameSceneFrame } from '@app/components/game-shell';
 import {
+  CODEX_APERTURE_RULES,
   CODEX_AUCTION_RULES,
   CODEX_BREAKTHROUGH_RULES,
+  CODEX_CONCEPTS,
   CODEX_CURRENCIES,
+  CODEX_ELEMENT_NOTES,
   CODEX_QUALITIES,
   CODEX_QUALITY_CAP_MAP,
   CODEX_REALMS,
@@ -10,13 +13,17 @@ import {
   CODEX_SECTS,
   CODEX_SKILL_GRADES,
   CODEX_SKILL_TIER_NOTES,
+  CODEX_SKILL_TIER_RULES,
   CODEX_TAX_TABLE,
   CODEX_VAULT_RULES,
 } from '@shared/lib/game/kuiyuanluCodex';
+import { ELEMENT_VALUES } from '@shared/types/constants';
+import { getElementInfo } from '@shared/lib/gameConceptDisplay';
 import { useState } from 'react';
 
 const SECTIONS = [
   { key: 'realms', label: '九境' },
+  { key: 'apertures', label: '八窍' },
   { key: 'qualities', label: '品相' },
   { key: 'skills', label: '功法' },
   { key: 'sects', label: '门派' },
@@ -37,7 +44,7 @@ export default function CodexPage() {
   return (
     <GameSceneFrame
       title="烬洲志"
-      description="灯途指要：九境、品相、功法、门派与交易规矩，皆录于此卷。"
+      description="灯途指要：九境、八窍、品相、功法、门派与交易规矩，皆录于此卷。"
       aside={
         <>
           <GameSceneAsideSection title="本卷条目">
@@ -107,6 +114,66 @@ export default function CodexPage() {
         </div>
       )}
 
+      {active === 'apertures' && (
+        <div className="space-y-5">
+          <section>
+            <h3 className="text-ink mb-2 text-lg font-bold">窍 · 守灯人之本</h3>
+            <ul className="text-ink-secondary space-y-1.5 text-sm leading-6">
+              {CODEX_APERTURE_RULES.map((rule) => (
+                <li key={rule}>· {rule}</li>
+              ))}
+            </ul>
+          </section>
+          <section>
+            <h3 className="text-ink mb-2 text-lg font-bold">八窍系别</h3>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {ELEMENT_VALUES.map((element) => {
+                const info = getElementInfo(element);
+                return (
+                  <div
+                    key={element}
+                    className="border-ink/15 bg-background/60 flex items-baseline gap-3 rounded border p-3"
+                  >
+                    <span className="w-8 shrink-0 text-center text-lg">
+                      {info.icon}
+                    </span>
+                    <span className="text-crimson w-10 shrink-0 font-bold">
+                      {element}
+                    </span>
+                    <p className="text-ink-secondary flex-1 text-sm leading-6">
+                      {CODEX_ELEMENT_NOTES[element]}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+          <section>
+            <h3 className="text-ink mb-2 text-lg font-bold">名词渊释</h3>
+            <div className="space-y-2.5">
+              {CODEX_CONCEPTS.map((concept) => (
+                <div
+                  key={concept.term}
+                  className="border-ink/15 bg-background/60 rounded border p-3"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-crimson text-base font-bold">
+                      「{concept.term}」
+                    </span>
+                    <span className="text-ink-secondary text-xs">
+                      {concept.brief}
+                    </span>
+                  </div>
+                  <p className="text-ink-secondary mt-1 text-sm leading-6">
+                    {concept.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
       {active === 'qualities' && (
         <div className="space-y-2.5">
           <h3 className="text-ink text-lg font-bold">品相八阶 · 凡品至神品</h3>
@@ -137,6 +204,16 @@ export default function CodexPage() {
       {active === 'skills' && (
         <div className="space-y-5">
           <h3 className="text-ink text-lg font-bold">功法十二品阶</h3>
+          <section className="border-crimson/25 bg-crimson/5 rounded border p-4">
+            <h4 className="text-crimson mb-2 text-sm font-bold">
+              阶位与品相 · 折算口径
+            </h4>
+            <ul className="text-ink-secondary space-y-1.5 text-sm leading-6">
+              {CODEX_SKILL_TIER_RULES.map((rule) => (
+                <li key={rule}>· {rule}</li>
+              ))}
+            </ul>
+          </section>
           {(['天阶', '地阶', '玄阶', '黄阶'] as const).map((tier) => (
             <section key={tier}>
               <div className="flex items-baseline gap-3">

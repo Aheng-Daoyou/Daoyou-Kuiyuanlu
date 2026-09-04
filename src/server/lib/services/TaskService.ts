@@ -641,6 +641,9 @@ function resolveStageLinks(
       case 'challenge':
         return { label: link.label, href: `/game/tasks/${taskId}/challenge` };
       case 'tasks':
+        return { label: link.label, href: '/game/tasks' };
+      case 'techniques':
+        return { label: link.label, href: '/game/techniques' };
       default:
         return { label: link.label, href: '/game/tasks' };
     }

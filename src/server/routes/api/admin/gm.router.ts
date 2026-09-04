@@ -1,8 +1,10 @@
 import { getExecutor } from '@server/lib/drizzle/db';
+import { publishTransactionalMessageBestEffort } from '@server/lib/mq/transactionalMessagePublisher';
 import { cultivators, itemLibrary, sectMemberships } from '@server/lib/drizzle/schema';
 import { requireAdmin } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
 import { findMembership } from '@server/lib/repositories/sectRepository';
+import { MailService } from '@server/lib/services/MailService';
 import { resourceEventCommitter } from '@server/lib/services/ResourceEventCommitter';
 import { QiService, QiServiceError } from '@server/lib/services/QiService';
 import { qiCurrencyChange } from '@server/lib/services/QiResourceChanges';
@@ -198,7 +200,7 @@ router.post('/grant', requireAdmin(), async (c) => {
 
   // 与正常玩法同一套资源事件通道：事务内落库变更事件 + 提交后广播，
   // 目标玩家的客户端会实时收到失效通知并自动重拉（无需手动强刷）。
-  const { result, events, sectContribution, qiResult } = await q.transaction(async (tx) => {
+  const { result, events, sectContribution, qiResult, mailDomainEventId } = await q.transaction(async (tx) => {
     // 先走资源引擎结算，失败即返回（事务内无写入，提交为空事务不影响数据）
     const r = await resourceEngine.applyInTransaction({
       userId: cultivator.userId,
@@ -212,6 +214,7 @@ router.post('/grant', requireAdmin(), async (c) => {
         events: [] as ResourceChange[],
         sectContribution: undefined,
         qiResult: undefined,
+        mailDomainEventId: undefined,
       };
     }
 
@@ -243,6 +246,7 @@ router.post('/grant', requireAdmin(), async (c) => {
             events: [] as ResourceChange[],
             sectContribution: undefined,
             qiResult: undefined,
+            mailDomainEventId: undefined,
           };
         }
         throw error;
@@ -265,6 +269,7 @@ router.post('/grant', requireAdmin(), async (c) => {
           events: [] as ResourceChange[],
           sectContribution: undefined,
           qiResult: undefined,
+          mailDomainEventId: undefined,
         };
       }
       const [updated] = await tx
@@ -336,10 +341,50 @@ router.post('/grant', requireAdmin(), async (c) => {
       ],
       scopeDefaults: { accountId: cultivator.userId, cultivatorId: cultivator.id },
     });
+
+    // 站内信实时通知：与发放同事务落库（mail.created 领域事件走事务性消息通道，
+    // 提交后由 projectMailCreated 投影为 player.mail-summary 推送，客户端实时收到）
+    const grantLines: string[] = [];
+    if (input.spiritStones) grantLines.push(`灯油券 +${input.spiritStones}`);
+    if (input.reputation) grantLines.push(`声望 +${input.reputation}`);
+    if (input.cultivationExp) grantLines.push(`灯韵 +${input.cultivationExp}`);
+    if (input.lifespan) grantLines.push(`寿元 +${input.lifespan} 年`);
+    if (input.comprehensionInsight) grantLines.push(`窥悟 +${input.comprehensionInsight}`);
+    if (qiRestoreResult) {
+      grantLines.push(
+        `灯油 +${qiRestoreResult.restored}（${qiRestoreResult.before} → ${qiRestoreResult.after}）`,
+      );
+    }
+    if (input.sectContribution && sectContributionResult) {
+      const signed =
+        input.sectContribution > 0
+          ? `+${input.sectContribution}`
+          : `${input.sectContribution}`;
+      grantLines.push(
+        `宗门贡献 ${signed}（${sectContributionResult.before} → ${sectContributionResult.after}）`,
+      );
+    }
+    for (const item of grantedItems) {
+      grantLines.push(`${item.name} x${item.quantity}`);
+    }
+    const mail = grantLines.length
+      ? await MailService.sendMail(
+          cultivator.id,
+          '灯下传书',
+          `${cultivator.name}：\n有人自灯影中递来一份包裹，内含：\n${grantLines
+            .map((line) => `· ${line}`)
+            .join('\n')}${input.note ? `\n附言：${input.note}` : ''}`,
+          [],
+          'system',
+          tx,
+        )
+      : null;
+
     return {
       result: r,
       events: commit.changes,
       sectContribution: sectContributionResult,
+      mailDomainEventId: mail?.domainEventId,
       qiResult: qiRestoreResult
         ? {
             before: qiRestoreResult.before,
@@ -350,6 +395,13 @@ router.post('/grant', requireAdmin(), async (c) => {
     };
   });
   if (events.length) publishResourceEvents(events);
+  // 事务已提交，尽力即时推送邮件领域事件（失败由事务性消息中继兜底重试）
+  if (mailDomainEventId) {
+    publishTransactionalMessageBestEffort(mailDomainEventId, {
+      source: 'gm_grant',
+      cultivatorId: cultivator.id,
+    });
+  }
 
   if (!result.success || !result.settlement) {
     return c.json(

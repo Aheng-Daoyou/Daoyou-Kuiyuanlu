@@ -16,6 +16,8 @@ export interface ItemCardProps {
   nameMark?: ReactNode;
   cornerMeta?: ReactNode;
   quality?: Quality;
+  /** 徽记显示文案覆盖（如功法/神通以「阶位」替代品相展示，颜色仍取品相档） */
+  qualityLabel?: string;
   badgeExtra?: ReactNode;
   description?: string;
   meta?: ReactNode;
@@ -31,6 +33,7 @@ export function ItemCard({
   nameMark,
   cornerMeta,
   quality,
+  qualityLabel,
   badgeExtra,
   description,
   meta,
@@ -54,7 +57,7 @@ export function ItemCard({
               <span className="absolute -top-2 right-0">{nameMark}</span>
             )}
           </span>
-          {quality && <InkBadge tier={quality} />}
+          {quality && <InkBadge tier={quality} tierText={qualityLabel} />}
           {badgeExtra}
         </div>
       }

@@ -56,6 +56,7 @@ type TaskLinkKind =
   | 'retreat'
   | 'challenge'
   | 'tasks'
+  | 'techniques'
   | 'training'
   | 'ranking';
 
@@ -301,7 +302,7 @@ const breakthroughDefinitions: BreakthroughTaskDefinition[] = [
         links: [
           { label: '去闻香房', kind: 'alchemy' },
           { label: '去灯下坊市', kind: 'market' },
-          { label: '看所修功法', kind: 'tasks' },
+          { label: '看所修功法', kind: 'techniques' },
         ],
         objectives: [
           {
@@ -314,8 +315,8 @@ const breakthroughDefinitions: BreakthroughTaskDefinition[] = [
           {
             id: 'quality-threshold',
             kind: 'technique_quality_at_least',
-            title: '功法至少达玄品',
-            description: '窥渊更看道基深浅，所修最高功法需达到玄品。',
+            title: '功法至少达玄阶',
+            description: '窥渊更看道基深浅，所修最高功法阶位需达到玄阶（功法以天、地、玄、黄四阶论高下，玄品、真品皆计入玄阶）。',
             threshold: '玄品',
           },
         ],

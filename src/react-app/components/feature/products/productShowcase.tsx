@@ -2,6 +2,7 @@ import type { ItemShowcaseModalProps } from '@app/components/ui/ItemShowcaseModa
 import { InkBadge } from '@app/components/ui/InkBadge';
 import { getGameConceptInfo } from '@shared/lib/gameConceptDisplay';
 import { getResourceLabel } from '@shared/lib/gameConceptDisplay';
+import { skillTierFromQuality } from '@shared/lib/skillTier';
 import type { EquipmentSlot } from '@shared/types/constants';
 import { getEquipmentSlotInfo } from '@shared/lib/gameConceptDisplay';
 import { AffixChip } from './AffixChip';
@@ -177,12 +178,22 @@ export function getProductShowcaseProps(
       ? getEquipmentSlotInfo((product.slot as EquipmentSlot) ?? 'weapon')
       : null;
 
+  // 功法 / 神通以「阶位」展示（灵器仍用品相）
+  const qualityTierText =
+    product.quality && product.productType !== 'artifact'
+      ? skillTierFromQuality(product.quality)
+      : undefined;
+
   return {
     icon: getProductIcon(product),
     name: product.name,
     badges: [
       product.quality ? (
-        <InkBadge key="quality" tier={product.quality}>
+        <InkBadge
+          key="quality"
+          tier={product.quality}
+          tierText={qualityTierText}
+        >
           {kindLabel}
         </InkBadge>
       ) : (

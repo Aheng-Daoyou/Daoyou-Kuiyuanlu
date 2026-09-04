@@ -1,4 +1,5 @@
 import { getGameConceptIcon } from '@shared/lib/gameConceptDisplay';
+import { skillTierFromQuality } from '@shared/lib/skillTier';
 import type { ReactNode } from 'react';
 import { AbilityMetaLine } from './AbilityMetaLine';
 import { AffixInlineList } from './AffixInlineList';
@@ -61,11 +62,18 @@ export function AbilityListCard({
         ? '已启用'
         : undefined;
 
+  // 功法 / 神通以「阶位」（天/地/玄/黄）论高下，灵器仍按品相展示
+  const qualityLabel =
+    product.quality && product.productType !== 'artifact'
+      ? skillTierFromQuality(product.quality)
+      : undefined;
+
   return (
     <ProductListRow
       icon={getAbilityIcon(product)}
       name={product.name}
       quality={product.quality}
+      qualityLabel={qualityLabel}
       element={product.element}
       score={product.score}
       state={state}

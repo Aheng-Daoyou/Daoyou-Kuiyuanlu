@@ -1,9 +1,11 @@
 import { AUCTION_TAX_BRACKETS, AUCTION_QUALITY_UNIT_PRICE_CAPS } from '@shared/config/auctionConfig';
 import {
+  ELEMENT_VALUES,
   QUALITY_ORDER,
   REALM_STAGE_VALUES,
   REALM_VALUES,
   SKILL_GRADE_VALUES,
+  type ElementType,
 } from '@shared/types/constants';
 
 /**
@@ -106,6 +108,13 @@ export const CODEX_SKILL_TIER_NOTES: Record<string, string> = {
   黄阶: '入门功法，胜在稳，不易练出问题。',
 };
 
+/** 功法/神通阶位与品相的折算口径（与 skillTierFromQuality 一致） */
+export const CODEX_SKILL_TIER_RULES: string[] = [
+  '功法与神通不以「品相」论高下，而以天、地、玄、黄四阶论。',
+  '卷面所记的品相是内里火候，折算成阶位即：凡品、灵品为黄阶；玄品、真品为玄阶；地品、天品为地阶；仙品、神品为天阶。',
+  '因此一部「真品功法」即是玄阶功法，可满足「功法至少玄阶」一类的晋升要求。',
+];
+
 export interface CodexSectEntry {
   id: string;
   name: string;
@@ -188,3 +197,59 @@ export const CODEX_TAX_TABLE = AUCTION_TAX_BRACKETS.map((bracket) => ({
 }));
 
 export const CODEX_QUALITY_CAP_MAP = AUCTION_QUALITY_UNIT_PRICE_CAPS;
+
+/* ============================== 八窍渊释 ============================== */
+
+/** 窍的总纲（与角色页【窍】说明一致） */
+export const CODEX_APERTURE_RULES: string[] = [
+  '窍是守灯人感应灯油、被灯外之物窥见的根本，觉醒道身时先天而定。',
+  '属性：决定可修习的功法与神通系别，施展同系灯律时伤害提升。',
+  '强度：窍越纯净（强度越高），燃灯越快、感应灯油越易；单一属性的纯窍最快，多属性杂窍较慢。',
+  '八窍皆为先祖纳秽（吸收梦涎）遗下的感官异化之果，洗髓可后天增强窍的强度。',
+];
+
+/** 八窍系别一览（icon 复用元素展示映射） */
+export const CODEX_ELEMENT_NOTES: Record<ElementType, string> = {
+  烛: '锋锐之窍。灯下开锋，其芒毕露。',
+  尸: '荣枯之窍。纳秽生肌，死中得活。',
+  星: '澄澈之窍。夜承星光，映照流转。',
+  渊: '燃渊之窍。灯焰所似，焚炽难驯。',
+  梦: '承梦之窍。梦涎凝壤，厚重能承。',
+  噬: '吞风之窍。噬风而行，来去无踪。',
+  帘: '裂帘之窍。幕裂惊雷，破空而至。',
+  疫: '凝疫之窍。疫气凝霜，消磨迟滞。',
+};
+
+export interface CodexConceptEntry {
+  term: string;
+  brief: string;
+  description: string;
+}
+
+/** 核心概念词条：窍 / 渊 / 噬 / 渊隙 */
+export const CODEX_CONCEPTS: CodexConceptEntry[] = [
+  {
+    term: '窍',
+    brief: '守灯人的根本感官，分八系',
+    description:
+      '窍是守灯人感应灯油、被灯外之物窥见的根本。窍的「属性」决定你能修习哪些系别的功法与神通，施展同系灯律威力更高；「强度」越高燃灯越快。角色页【窍】一栏所列即你的先天窍位——「渊 · 强度 50」即意为拥有强度 50 的渊窍。',
+  },
+  {
+    term: '渊',
+    brief: '世界之底，亦是八窍之一',
+    description:
+      '烬洲的大地在尽头裂开深渊，世人只称「渊」。梦涎自渊中渗出，诡异由渊中生，九境（闻腥至渡渊）皆以渊为标尺。同时「渊」也是八窍之一——窍位上的渊只代表燃焰一系的属性，与世界之底的渊是两回事，尽管没人说得清哪个更危险。',
+  },
+  {
+    term: '噬',
+    brief: '八窍之一，吞风之窍',
+    description:
+      '噬系多主迅捷与侵削。功法、神通或材料名旁的「噬」字徽记表示它属于噬系——与噬窍相合方能发挥全部威力，系别不合则修行事倍功半。',
+  },
+  {
+    term: '渊隙',
+    brief: '通往渊面的裂隙',
+    description:
+      '渊面在烬洲各处撕开的裂隙，守灯人可独自或结伴探入，携梦涎与机缘而归——也可能把不该带的东西一并带出来。',
+  },
+];

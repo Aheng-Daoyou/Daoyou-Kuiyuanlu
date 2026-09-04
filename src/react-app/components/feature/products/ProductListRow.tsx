@@ -68,6 +68,8 @@ export interface ProductListRowProps {
   icon: string;
   name: string;
   quality?: Quality;
+  /** 徽记显示文案覆盖（如功法/神通以「阶位」替代品相展示，颜色仍取品相档） */
+  qualityLabel?: string;
   element?: ElementType;
   score?: number;
   state?: ProductListRowState;
@@ -83,6 +85,7 @@ export function ProductListRow({
   icon,
   name,
   quality,
+  qualityLabel,
   element,
   score,
   state = 'normal',
@@ -116,7 +119,11 @@ export function ProductListRow({
             {name}
           </span>
           {quality ? (
-            <InkBadge tier={quality} className="px-0 text-base leading-6" />
+            <InkBadge
+              tier={quality}
+              tierText={qualityLabel}
+              className="px-0 text-base leading-6"
+            />
           ) : null}
         </div>
 
