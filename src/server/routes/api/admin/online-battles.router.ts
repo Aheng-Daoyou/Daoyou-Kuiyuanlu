@@ -16,16 +16,35 @@ router.get('/metrics', requireAdmin(), (c) => c.json({
   data: getOnlineBattleMetricsSnapshot(),
 }));
 
+function isUnknownMatchError(error: unknown): boolean {
+  return error instanceof Error && /Unknown battle match/.test(error.message);
+}
+
 router.get('/:matchId', requireAdmin(), async (c) => {
   const matchId = MatchIdSchema.parse(c.req.param('matchId'));
-  const diagnostic = await getOnlineBattleCoordinator().runtimeDiagnostic(matchId);
-  return c.json({ success: true, data: diagnostic });
+  try {
+    const diagnostic = await getOnlineBattleCoordinator().runtimeDiagnostic(matchId);
+    return c.json({ success: true, data: diagnostic });
+  } catch (error) {
+    if (isUnknownMatchError(error)) {
+      return c.json({ error: '对局不存在或已过期' }, 404);
+    }
+    throw error;
+  }
 });
 
 router.post('/:matchId/retry-resolution', requireAdmin(), async (c) => {
   const matchId = MatchIdSchema.parse(c.req.param('matchId'));
   const coordinator = getOnlineBattleCoordinator();
-  const before = await coordinator.runtimeDiagnostic(matchId);
+  let before;
+  try {
+    before = await coordinator.runtimeDiagnostic(matchId);
+  } catch (error) {
+    if (isUnknownMatchError(error)) {
+      return c.json({ error: '对局不存在或已过期' }, 404);
+    }
+    throw error;
+  }
   const changed = await coordinator.retryResolution(matchId);
   recordOperatorAction(c, {
     action: 'retry_resolution',
@@ -46,7 +65,15 @@ router.post('/:matchId/retry-resolution', requireAdmin(), async (c) => {
 router.post('/:matchId/technical-abort', requireAdmin(), async (c) => {
   const matchId = MatchIdSchema.parse(c.req.param('matchId'));
   const coordinator = getOnlineBattleCoordinator();
-  const before = await coordinator.runtimeDiagnostic(matchId);
+  let before;
+  try {
+    before = await coordinator.runtimeDiagnostic(matchId);
+  } catch (error) {
+    if (isUnknownMatchError(error)) {
+      return c.json({ error: '对局不存在或已过期' }, 404);
+    }
+    throw error;
+  }
   const changed = await coordinator.technicalAbort(matchId);
   recordOperatorAction(c, {
     action: 'technical_abort',

@@ -631,7 +631,10 @@ async function generateStructured<
             ? { finishReason: failure.finishReason }
             : {}),
         });
-        if (attempt === 0 && failure.retryable) {
+        // 初次失败与第一次修复仍失败时（attempt 0/1）都允许针对性重试，
+        // 共 3 次调用（初次 + 2 次修复），与上方注释一致；每次修复都以原始任务
+        // 为基础，仅附带上一次（最新）的结构化校验问题与失败输出，保持自包含。
+        if (attempt < 2 && failure.retryable) {
           retryFailure = failure;
           generationAttempt = {
             prompt: buildStructuredRetryPrompt(

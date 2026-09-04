@@ -918,12 +918,20 @@ export class DungeonService {
     try {
       const existingSession = await this.loadActiveRun(cultivatorId);
       if (existingSession) {
-        throw new Error('当前已有正在进行的渊隙，请先完成或放弃');
+        throw new DungeonFlowError(
+          DungeonFlowErrorCode.INVALID_STATE,
+          '当前已有正在进行的渊隙，请先完成或放弃',
+          409,
+        );
       }
 
       // 只有卫星地图节点可以进行副本挑战
       if (!isSatelliteNode(mapNodeId)) {
-        throw new Error('只有渊隙节点可以进行潜渊挑战');
+        throw new DungeonFlowError(
+          DungeonFlowErrorCode.INVALID_STATE,
+          '只有渊隙节点可以进行潜渊挑战',
+          409,
+        );
       }
 
       // 1. 获取玩家与地图数据 (逻辑同你之前)
