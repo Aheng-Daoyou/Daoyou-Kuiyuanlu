@@ -348,3 +348,44 @@
 - 与第 11 节结论一致：门机制既不卡死玩家、不与其它环节冲突，又严格守住了"必须先真正具备
   突破前置才能大境界跃迁"的规则。
 - 本轮零代码改动（纯验证）；测试产生的虚假破境任务/状态已清理还原，scan:terms 通过。
+
+---
+
+## 13. 增补：守灯→窥渊 破境任务「真实副本通关」端到端闭环（2026-09-05 凌晨）
+
+第 12 节验证了纯状态型破境任务；但守灯→窥渊档（`major_breakthrough_守灯_窥渊`「凝香之机」）含一个
+**无法注入、只能靠真实副本通关触发**的客观条件 `complete_dungeon`（通关 `SAT_TN_04` 烛京·旧署试炼场）。
+本轮专门把这条此前从未端到端跑通的「真实打副本 → 领域事件 → 任务标绿 → 解门 → 真实破境」闭环打通。
+
+### 13.1 被测机制与数据链路
+
+- 任务含 3 个客观条件（2 个 stage）：`core-prep`(破境凝神 status_active + 功法≥玄品 technique_quality_at_least)
+  与 `core-trial`(通关 SAT_TN_04 副本 complete_dungeon，`mapNodeId='SAT_TN_04'`)。
+- `complete_dungeon` 无法靠 DB 置数/注入达成，只能经**真实副本结算**：打副本 → dungeon service
+  `createDomainEvent('dungeon.run.settled', {outcome:'completed'})` 写 transactional_messages →
+  `startTransactionalMessageRelay` 投递 NATS → taskProjector 消费 → `recordDungeonCompletion(mapNodeId)`
+  把对应 complete_dungeon 标绿。中间件健康检查 `/api/health-check` 返回 `nats:up / messaging:up`。
+- 前置（境界推进/功法品级/破境凝神状态）为置数预置——这些机制在第 11/12 节已充分验证，非本轮缺口；
+  本轮真正且唯一要打通的是**副本通关 → 任务判定**这一事件闭环。
+
+### 13.2 实测链路与结果（全真实 HTTP，林默 3100 实例）
+
+| 步骤 | 实测结果 |
+|---|---|
+| 建档与判定 | 置守灯圆满触发门 → 建档 active；GET /:id 同步显示功法=玄品**已完成**、破境凝神**未具备**、副本**未通关**，missingReq 只列破境凝神（判定正确） |
+| stage 推进 | 注入破境凝神 → 同步 → core-prep completed、推进到 core-trial，missingReq 变为「尚未通过烛京·旧署试炼场」 |
+| **真实通关副本** | 真实驱动 SAT_TN_04（探索轮 + battle execute 引擎），强角色 `outcome=completed` 结算 |
+| **事件闭环** | `dungeon.run.settled`(completed) 事件落库并 published；25ms 内被消费 → `clear-trial` objective 标绿 |
+| 任务完成 | 3 个 objective 全绿 → 任务 status=completed、isCompleted=true、**missingReq=[]** |
+| 解门+真实破境 | 真实 retreat 突破 → SSE result `success:true`，守灯·圆满 → **窥渊·初期**（+500 寿元） |
+| 防绕过回归 | 窥渊圆满再突破 → 命中**新门** `major_breakthrough_窥渊_蚀体`(active)，旧的守灯→窥渊已归档 completed——无任务串档/绕过 |
+
+### 13.3 结论
+
+- 守灯→窥渊档的 `complete_dungeon` 条件经**真实副本通关的事件闭环**能正确触发、标绿并推动任务 completed、
+  门禁解除、真实破境——全程无 500 / 无卡死 / 无误判。
+- 任务完成是**按实时上下文正确推进**：建档时判定读取准确（功法达成/状态未达成/副本未达成三者判然有别），
+  通关后正确跨 stage 收束；跨大境界后旧任务归档、新门建档，无残留串扰。
+- 本轮**零代码改动**（纯验证）；测试产生的副本结算事件/破境任务/功法改动已全部清理，林默已还原至
+  测试前干净态（闻腥·初期、凡品功法、无残留任务），scan:terms 通过。
+
