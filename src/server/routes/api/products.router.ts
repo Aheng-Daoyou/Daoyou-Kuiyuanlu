@@ -94,7 +94,11 @@ router.post('/equip', requireActiveCultivatorRef(), async (c) => {
     return c.json({ error: '未授权访问' }, 401);
   }
 
-  const { productId } = EquipSchema.parse(await c.req.json());
+  const equipParsed = EquipSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!equipParsed.success) {
+    return c.json({ success: false, error: '参数错误', details: equipParsed.error.issues }, 400);
+  }
+  const { productId } = equipParsed.data;
   try {
     const committed = await toggleCreationProduct({
       userId: user.id,

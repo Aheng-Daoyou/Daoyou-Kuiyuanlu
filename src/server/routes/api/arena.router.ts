@@ -34,6 +34,16 @@ const rooms = new ArenaRoomService();
 const starts = new ArenaBattleStartOrchestrator(rooms);
 const EmptyCommandSchema = z.object({}).strict();
 
+// 路径参数校验失败必须就地返回 400：中间件/处理器抛出的 ZodError 在本 Hono
+// 版本会绕过上游 jsonError 直接落 app.onError 变成 500。
+function parseRoomIdOr400(c: Context<AppEnv>): string | Response {
+  const parsed = RoomIdSchema.safeParse(c.req.param('roomId'));
+  if (!parsed.success) {
+    return c.json({ success: false, error: '擂台房间 ID 无效' }, 400);
+  }
+  return parsed.data;
+}
+
 router.get('/room', requireActiveCultivatorRef(), async (c) => {
   const identity = await requireArenaIdentity(c);
   if (identity instanceof Response) return identity;
@@ -43,7 +53,8 @@ router.get('/room', requireActiveCultivatorRef(), async (c) => {
 });
 
 router.get('/rooms/:roomId', requireActiveCultivatorRef(), async (c) => {
-  const roomId = RoomIdSchema.parse(c.req.param('roomId'));
+  const roomId = parseRoomIdOr400(c);
+  if (roomId instanceof Response) return roomId;
   const identity = await requireArenaIdentity(c);
   if (identity instanceof Response) return identity;
   const room = await rooms.getRoom(roomId);
@@ -110,7 +121,8 @@ router.post(
   requireActiveCultivatorRef(),
   validateJson(ArenaReadyCommandSchema),
   async (c) => {
-    const roomId = RoomIdSchema.parse(c.req.param('roomId'));
+    const roomId = parseRoomIdOr400(c);
+  if (roomId instanceof Response) return roomId;
     const identity = await requireArenaMember(c, roomId);
     if (identity instanceof Response) return identity;
     const { ready } = getValidatedJson<{ ready: boolean }>(c);
@@ -129,7 +141,8 @@ router.post(
   requireActiveCultivatorRef(),
   validateJson(EmptyCommandSchema),
   async (c) => {
-    const roomId = RoomIdSchema.parse(c.req.param('roomId'));
+    const roomId = parseRoomIdOr400(c);
+  if (roomId instanceof Response) return roomId;
     const identity = await requireArenaMember(c, roomId);
     if (identity instanceof Response) return identity;
     try {
@@ -147,7 +160,8 @@ router.post(
   requireActiveCultivatorRef(),
   validateJson(EmptyCommandSchema),
   async (c) => {
-    const roomId = RoomIdSchema.parse(c.req.param('roomId'));
+    const roomId = parseRoomIdOr400(c);
+  if (roomId instanceof Response) return roomId;
     const identity = await requireArenaMember(c, roomId);
     if (identity instanceof Response) return identity;
     try {
@@ -165,7 +179,8 @@ router.post(
   requireActiveCultivatorRef(),
   validateJson(ArenaStartCommandSchema),
   async (c) => {
-    const roomId = RoomIdSchema.parse(c.req.param('roomId'));
+    const roomId = parseRoomIdOr400(c);
+  if (roomId instanceof Response) return roomId;
     const identity = await requireArenaMember(c, roomId);
     if (identity instanceof Response) return identity;
     const { requestId } = getValidatedJson<{ requestId: string }>(c);
@@ -211,7 +226,8 @@ router.post(
   requireActiveCultivatorRef(),
   validateJson(EmptyCommandSchema),
   async (c) => {
-    const roomId = RoomIdSchema.parse(c.req.param('roomId'));
+    const roomId = parseRoomIdOr400(c);
+  if (roomId instanceof Response) return roomId;
     const identity = await requireArenaMember(c, roomId);
     if (identity instanceof Response) return identity;
     try {

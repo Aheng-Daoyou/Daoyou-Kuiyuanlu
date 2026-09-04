@@ -379,8 +379,20 @@ export function requireActiveCultivatorRef(): MiddlewareHandler<AppEnv> {
 export function validateJson<TSchema extends ZodType>(schema: TSchema) {
   return (async (context: Context<AppEnv>, next) => {
     const rawBody = await context.req.json().catch(() => undefined);
-    const parsed = schema.parse(rawBody);
-    context.set('validatedJson', parsed);
+    // 注意：本 Hono 版本中，中间件抛出的错误不会进入上游 try/catch(jsonError)，
+    // 而是直接落 app.onError 变成 500。因此这里必须自行捕获 ZodError 返回 400。
+    const parsed = schema.safeParse(rawBody);
+    if (!parsed.success) {
+      return context.json(
+        {
+          success: false as const,
+          error: parsed.error.issues[0]?.message || '参数错误',
+          details: parsed.error.issues,
+        },
+        400,
+      );
+    }
+    context.set('validatedJson', parsed.data);
     await next();
   }) satisfies MiddlewareHandler<AppEnv>;
 }
@@ -388,8 +400,19 @@ export function validateJson<TSchema extends ZodType>(schema: TSchema) {
 export function validateQuery<TSchema extends ZodType>(schema: TSchema) {
   return (async (context: Context<AppEnv>, next) => {
     const query = context.req.query();
-    const parsed = schema.parse(query);
-    context.set('validatedQuery', parsed);
+    // 同 validateJson：中间件内抛错会绕过 jsonError 直接 500，必须就地转 400。
+    const parsed = schema.safeParse(query);
+    if (!parsed.success) {
+      return context.json(
+        {
+          success: false as const,
+          error: parsed.error.issues[0]?.message || '参数错误',
+          details: parsed.error.issues,
+        },
+        400,
+      );
+    }
+    context.set('validatedQuery', parsed.data);
     await next();
   }) satisfies MiddlewareHandler<AppEnv>;
 }
