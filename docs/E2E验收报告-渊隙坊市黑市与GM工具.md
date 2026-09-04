@@ -213,3 +213,51 @@
 - 变更文件：`src/index.ts`、`src/server/lib/services/shopDefaults.ts`（新）、`src/server/lib/services/MarketService.ts`、`src/shared/lib/game/marketConfig.ts`、`src/shared/lib/game/marketConfig.test.ts`、本报告。
 - 数据面收尾：两商店 archived 残留行已清理（清理脚本 `.e2e-tmp/clear-shop-archive.ts`，gitignored）；言游晋升 youdu 外门为本地测试所需（可再降回 registered 复原）。
 - 提示：3000 常驻 dev 实例需重启方可加载新权重与播种逻辑；两表已有行时重启不会再播种（幂等跳过），如需重新播种可清空两表后重启。
+
+---
+
+## 10. 增补：全玩法模块彻底遍历测试 + 校验错误统一 4xx 修复（2026-09-04 晚）
+
+### 10.1 覆盖范围与结论
+
+按用户要求「所有玩法模块/游戏相关选项彻底测一遍」，编写全模块 E2E 脚本
+`.e2e-tmp/full-sweep.ts`（真实 OTP 会话 + altcha），覆盖 **65 个玩法/子系统模块、
+122 个断言**（正常流 + 守卫流 + 伪装入参）。修复后在 3100 新实例成绩：
+
+| 指标 | 数量 | 说明 |
+|---|---|---|
+| PASS | 69 | 正常流返回 200 且结构符合预期 |
+| GUARD | 53 | 资源/境界/资格不足等按设计 4xx/409 拦截 |
+| FAIL | 0 | 修复后无真实缺陷 |
+
+覆盖模块（节选）：坊市/黑市/高等级坊市、天骄宝阁、宗门宝库（含幂等购买）、宗门
+（俸禄/晋升/建设捐资/转让/流派/功法/任务/成员/聊天/贡献榜）、灵田（领种/播种/培育/
+采摘）、秘境（开始/行动/撤退/退出）、试炼塔、拍卖行（挂单/撤单/购买）、手动抽卡、
+天命重塑、身份重塑、炼器、丹方、消耗品、装备、称号、兑换码、属性分配/重置、背包鉴定、
+好友、邮件、押注斗法、在线匹配、比武场、排行榜（总榜/物品/财富/我的排名/挑战）、
+世界聊天、客栈恢复、闭关、收成、社区/赞助/反馈、账号、生命周期（建角/删号守卫）等。
+
+### 10.2 初轮 7 个 FAIL 的根因与修复（commit `1fa5b98`）
+
+初轮扫描 PASS=71/GUARD=44/FAIL=7，其中 6 个为真实缺陷（5 个 500 + 1 个坊市超时，
+超时已证为冷启动瞬时抖动、复现 8ms 正常）。500 的共同根因：**校验错误未捕获**，
+经 `app.onError` 一律变 500，本应为规范 400。
+
+| 模块 | 触发 | 根因 | 修复 |
+|---|---|---|---|
+| 通用（系统性） | equip / donate / transfer / world-chat / auction 等伪入参 | `validateJson`/`validateQuery` 裸 `schema.parse`；本 Hono 版本**中间件抛错不经上游 jsonError，直接落 onError 500** | 中间件改 `safeParse` 就地捕获返 400（覆盖全部走校验中间件的路由） |
+| 装备 | `POST /api/v2/products/equip` 伪 id | handler 内 `EquipSchema.parse` | 改 `safeParse` 返 400 |
+| 比武场 | `GET /api/arena/rooms/:伪id` | 6 处 `RoomIdSchema.parse` | 抽 `parseRoomIdOr400` 返 400「擂台房间 ID 无效」 |
+| 账号 | `POST /api/account/password` 短密码 | better-auth `APIError`（自带 400 状态码）未捕获 → 500 | try/catch 映射状态码为 4xx |
+
+### 10.3 脚本路径笔误修正（非缺陷）
+
+首轮将 `sect-social` 误记为独立前缀、`rankings` 挑战子路径多套一层 `challenge`；
+实测正确前缀为 `/api/sects/current/chat|contribution-ranking` 与 `/api/rankings/
+{my-rank|probe}`。修正测试脚本后均 PASS/符合守卫（GET 200，POST 400 缺 targetId）。
+
+### 10.4 质量门禁
+
+`tsc -b` 0 错误；`scan:terms` 通过；vitest 1820/1821（唯一失败 `combatProjection`
+为全量并发 worker 抖动，单独重跑 22/22 通过，与本改动无关）。变更文件 4 个
+（middleware/account/arena/products），已提交推送 `1fa5b98`。
