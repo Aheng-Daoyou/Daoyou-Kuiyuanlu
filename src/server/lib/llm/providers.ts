@@ -25,6 +25,12 @@ const ZHIPU_BASE_URL =
   process.env.ZHIPU_BASE_URL?.trim() ||
   'https://open.bigmodel.cn/api/paas/v4';
 
+// Gemini 通过 OpenAI 兼容中转站接入（默认 https://wawapii.com）。
+// 中转站将 /v1/chat/completions 转发到 Gemini 原生接口，所以可直接用
+// @ai-sdk/openai-compatible；模型 id 透传到中转站自定义字段。
+const GEMINI_BASE_URL =
+  process.env.GEMINI_BASE_URL?.trim() || 'https://wawapii.com/v1';
+
 export const LLM_PROVIDERS: Record<LlmProviderId, LlmProviderDef> = {
   deepseek: {
     id: 'deepseek',
@@ -79,6 +85,20 @@ export const LLM_PROVIDERS: Record<LlmProviderId, LlmProviderDef> = {
           }
           return next;
         },
+      });
+      return (modelId: string) => provider(modelId);
+    },
+  },
+  gemini: {
+    id: 'gemini',
+    defaultModel: LLM_PROVIDER_DEFAULT_MODELS.gemini,
+    apiKeyEnv: 'GEMINI_API_KEY',
+    create: ({ apiKey, fetch }) => {
+      const provider = createOpenAICompatible({
+        name: 'gemini',
+        baseURL: GEMINI_BASE_URL,
+        apiKey,
+        fetch,
       });
       return (modelId: string) => provider(modelId);
     },

@@ -18,6 +18,7 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   deepseek: 'DeepSeek',
   alibaba: '阿里云百炼（Qwen）',
   zhipu: '智谱（GLM）',
+  gemini: 'Google Gemini（wawapii 中转）',
 };
 
 export function ModelConfigTab() {
@@ -90,6 +91,7 @@ export function ModelConfigTab() {
         <option value="deepseek">{PROVIDER_LABELS.deepseek}</option>
         <option value="alibaba">{PROVIDER_LABELS.alibaba}</option>
         <option value="zhipu">{PROVIDER_LABELS.zhipu}</option>
+        <option value="gemini">{PROVIDER_LABELS.gemini}</option>
       </InkSelect>
 
       <InkInput

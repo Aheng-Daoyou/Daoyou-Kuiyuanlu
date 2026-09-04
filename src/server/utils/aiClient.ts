@@ -174,6 +174,7 @@ function listConfiguredServerRoutes(): LlmRoute[] {
       alibaba: Boolean(process.env.ALIBABA_API_KEY?.trim()),
       deepseek: Boolean(process.env.DEEPSEEK_API_KEY?.trim()),
       zhipu: Boolean(process.env.ZHIPU_API_KEY?.trim()),
+      gemini: Boolean(process.env.GEMINI_API_KEY?.trim()),
     },
   });
 }
@@ -187,7 +188,8 @@ export function hasAnyServerLlmProviderConfigured(): boolean {
   return Boolean(
     process.env.ALIBABA_API_KEY?.trim() ||
       process.env.DEEPSEEK_API_KEY?.trim() ||
-      process.env.ZHIPU_API_KEY?.trim(),
+      process.env.ZHIPU_API_KEY?.trim() ||
+      process.env.GEMINI_API_KEY?.trim(),
   );
 }
 

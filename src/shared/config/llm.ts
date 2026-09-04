@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const LLM_PROVIDER_IDS = ['deepseek', 'alibaba', 'zhipu'] as const;
+export const LLM_PROVIDER_IDS = ['deepseek', 'alibaba', 'zhipu', 'gemini'] as const;
 
 export const LlmProviderIdSchema = z.enum(LLM_PROVIDER_IDS);
 
@@ -10,6 +10,7 @@ export const LLM_PROVIDER_DEFAULT_MODELS: Record<LlmProviderId, string> = {
   deepseek: 'deepseek-v4-flash',
   alibaba: 'qwen3.7-flash',
   zhipu: 'glm-4.5-air',
+  gemini: 'gemini-3.7-flash',
 };
 
 export const LlmByokConfigSchema = z
