@@ -20,7 +20,10 @@ const ShortTextSchema = z.string().trim().min(2).max(60);
 
 const NarrativeSchema = z.string().trim().min(12).max(240);
 
-const RoundNarrativeSchema = z.string().trim().min(300).max(900);
+// 宽松口径：LLM schema 只做「结构」校验。字数下限不在此处强卡——
+// glm-4.5-air 实测对 380-650 字要求只写约 250 字（finish_reason=stop），
+// min(300) 会把合法 AI 叙事整轮判死；叙事过短由 prompt 约束 + service_v2 容忍。
+const RoundNarrativeSchema = z.string().trim().min(12).max(1600);
 
 const DungeonBattleMetadataSchema = z.object({
   clan: z.enum(ENEMY_CLAN_VALUES).describe('敌人三族（腌物/遗种/投影）'),

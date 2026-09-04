@@ -327,7 +327,7 @@ const tasks: readonly SectTaskDefinition[] = [
     fulfillment: [],
     presentation: taskPresentation(
       '宗门小比',
-      '与本周演武名册中同境或低一境的同门切磋。',
+      '宗门依演武名册凝出同门幻影（同境或低一境），登台切磋的并非同门本人。',
       '参加宗门小比',
       {
         offeredReply: '本周小比，我来应战',
@@ -335,7 +335,7 @@ const tasks: readonly SectTaskDefinition[] = [
         claimableReply: '本周小比已经结束，请执事查验',
         claimedReply: '请替我查查本周小比的功簿',
         instruction: {
-          text: '去演武场的宗门擂台核对已锁定的同门对手，取胜后再回来复命。',
+          text: '去演武场的宗门擂台，与名册凝成的同门幻影切磋取胜，再回来复命。',
         },
       },
     ),
@@ -363,7 +363,7 @@ const tasks: readonly SectTaskDefinition[] = [
     fulfillment: [],
     presentation: taskPresentation(
       '悬赏令·讨伐',
-      '追缉一名与自身同境或低一境的外宗修士。',
+      '循悬赏缉拿一名同境或低一境的外宗修士——宗门以秘术凝出其影认幻身，对垒的并非本人。',
       '前往讨伐',
       {
         offeredReply: '这份讨伐悬赏由我来办',
@@ -371,7 +371,7 @@ const tasks: readonly SectTaskDefinition[] = [
         claimableReply: '讨伐悬赏已经办妥，请执事查验',
         claimedReply: '请替我查查讨伐悬赏的功簿',
         instruction: {
-          text: '循悬赏令前往目标宗门，在山门外找到目标并取胜，再回来复命。',
+          text: '循悬赏令前往目标宗门山门，与影认幻身交锋取胜，再回来复命。',
         },
       },
     ),
@@ -548,9 +548,14 @@ function createRealmNpcOpponent(
 function createLockedCultivatorOpponent(
   target: CultivatorCombatInput,
   opponentId: string,
+  /** 幻身称谓：战斗界面以「前缀·原名」明示对手是凝出的幻身，不是真人登台 */
+  shadeLabel?: string,
 ): CultivatorCombatInput {
   const opponent = structuredClone(target);
   opponent.id = opponentId;
+  if (shadeLabel && !opponent.name.startsWith(`${shadeLabel}·`)) {
+    opponent.name = `${shadeLabel}·${opponent.name}`;
+  }
   return opponent;
 }
 
@@ -726,9 +731,10 @@ class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
           create({ target, opponentId }) {
             if (!target) throw new Error('宗门小比缺少已锁定对手');
             return {
-              opponent: createLockedCultivatorOpponent(target, opponentId),
+              opponent: createLockedCultivatorOpponent(target, opponentId, '幻影'),
               title: '宗门小比',
-              description: '本周演武名册中与你同境或低一境的同门。',
+              description:
+                '宗门依演武名册凝成的同门幻影（同境或低一境），并非同门本人。',
             };
           },
         },
@@ -741,9 +747,10 @@ class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
           create({ target, opponentId }) {
             if (!target) throw new Error('战斗悬赏缺少已锁定目标');
             return {
-              opponent: createLockedCultivatorOpponent(target, opponentId),
+              opponent: createLockedCultivatorOpponent(target, opponentId, '影身'),
               title: '悬赏令·讨伐',
-              description: '悬赏令上与你同境或低一境的外宗目标。',
+              description:
+                '悬赏令所记外宗目标的影认幻身（同境或低一境），并非其本人。',
             };
           },
         },

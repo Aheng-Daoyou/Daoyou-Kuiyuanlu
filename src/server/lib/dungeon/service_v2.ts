@@ -2446,8 +2446,8 @@ export class DungeonService {
       name: 'DungeonRound',
       sceneId: 'dungeon-round' as const,
       // 硬性输出上限：glm-4-flash 等模型可能无视字数约束放飞（实测输出过 1.5 万字/回合），
-      // 上限设为可容纳 480 字叙事 + 3 选项 + 战利品蓝图的合理量级。
-      maxOutputTokens: 2400,
+      // 上限需容纳 380-650 字叙事 + 3 选项（含代价）+ 战利品蓝图；2400 时余量不足易截断。
+      maxOutputTokens: 3200,
     };
     // 使用「宽松文本模式」（无 schema 校验）：
     // glm-4-flash 等模型对复杂 Zod schema 的 AI SDK 结构化输出（Output.object）实测 100% 校验失败，
@@ -2493,6 +2493,21 @@ export class DungeonService {
         '[DungeonService] callAI 输出为空或非对象，降级模板回合',
       );
       return this.buildTemplateRound(state);
+    }
+
+    // 结构归一：先用 LLM schema safeParse 应用 zod 默认值（costs 四数组、acquired_items）。
+    // 宽松文本模式下 `as` 强转不会应用 default——模型省略空数组时
+    // option.costs.resources.map 会 TypeError 直接掉模板（实测 r2-r5 全模板的真实根因）。
+    const schemaResult = createDungeonRoundLlmSchema(
+      remainingRewardSlots,
+    ).safeParse(aiOutput);
+    if (schemaResult.success) {
+      aiOutput = schemaResult.data;
+    } else {
+      console.warn(
+        '[DungeonService] callAI LLM schema 归一未通过，交由宽容修复兜底:',
+        JSON.stringify(schemaResult.error.issues.slice(0, 5)),
+      );
     }
 
     // 宽容修复：模型输出结构"差不多"时补齐/截断，尽量保留 AI 叙事。
@@ -2578,25 +2593,164 @@ return {
   }
 
   /**
-   * 宽容修复：模型输出结构"差不多"时补齐/截断，尽量保留 AI 叙事。
-   * - scene_description 剥离 Markdown 代码块标记（```json{...}```），避免当正文渲染
-   * - options 不足 3 个用模板选项补齐；高风险选项（index 1）零代价时注入标准代价
-   * - internal_danger_score 越界/非整数时夹取到 [0,100] 整数
-   * - acquired_items 超出剩余槽位时截断
+   * 宽容修复：模型输出结构"差不多"时归一/补齐/截断，尽量保留 AI 叙事。
+   * 输入为 unknown（宽松文本模式提取的原始 JSON，可能缺字段、错枚举）：
+   * - scene_description：非空字符串即可（字数不作硬性要求，避免把合法短叙事判死）
+   * - options：逐个归一，text 非空字符串；costs 四数组缺省补 []，非法条目过滤
+   * - battles：兼容模型旧口径 `race`（人族/妖族/…）并映射到引擎三族 `clan`（腌物/遗种/投影）
+   * - battles 非空时剔除 stat_losses（战斗独立结算，二者互斥）
+   * - 高风险选项（index 1）零代价时注入标准灵石代价
+   * - 每选项代价合计最多两项，超出截断
+   * - internal_danger_score 夹取到 [0,100] 整数；acquired_items 超出剩余槽位时截断
    * 返回 null 表示结构损坏不可救，调用方应降级模板回合。
    */
   private repairDungeonRoundOutput(
-    output: DungeonRoundLlmOutput,
+    output: unknown,
     opts: { maxRewardSlots: number },
   ): DungeonRoundLlmOutput | null {
     if (!output || typeof output !== 'object') return null;
+    const raw = output as Record<string, unknown>;
     const scene =
-      typeof output.scene_description === 'string'
-        ? output.scene_description
-        : '';
+      typeof raw.scene_description === 'string' ? raw.scene_description : '';
     if (!scene.trim()) return null;
 
-    let options = Array.isArray(output.options) ? output.options : [];
+    const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+    const asStr = (v: unknown): string =>
+      typeof v === 'string' ? v.trim() : '';
+    const pickRank = (v: unknown): 'minor' | 'standard' | 'major' => {
+      const s = asStr(v);
+      return s === 'minor' || s === 'standard' || s === 'major' ? s : 'standard';
+    };
+
+    // 模型可能按旧口径输出 race（人族/妖族/鬼魂/魔族/古兽/灵族/诡异），
+    // 统一映射到引擎敌人三族 clan（腌物/遗种/投影）。
+    const RACE_TO_CLAN: Record<string, string> = {
+      人族: '投影',
+      灵族: '投影',
+      妖族: '遗种',
+      古兽: '遗种',
+      鬼魂: '腌物',
+      魔族: '腌物',
+      诡异: '腌物',
+    };
+    const CLAN_VALUES = ['腌物', '遗种', '投影'] as const;
+    const STAGE_VALUES = ['初期', '中期', '后期', '圆满'] as const;
+
+    const normalizeBattle = (
+      entry: unknown,
+    ): DungeonRoundLlmOutput['options'][number]['costs']['battles'][number] | null => {
+      if (!entry || typeof entry !== 'object') return null;
+      const e = entry as Record<string, unknown>;
+      const rawClan = asStr(e.clan) || asStr(e.race);
+      const mapped = RACE_TO_CLAN[rawClan];
+      const name = (asStr(e.enemy_name) || '拦路之物').slice(0, 20);
+      const clan: (typeof CLAN_VALUES)[number] = mapped
+        ? (mapped as (typeof CLAN_VALUES)[number])
+        : (CLAN_VALUES as readonly string[]).includes(rawClan)
+          ? (rawClan as (typeof CLAN_VALUES)[number])
+          : CLAN_VALUES[name.length % CLAN_VALUES.length];
+      const stageRaw = asStr(e.realm_stage);
+      const realm_stage = (STAGE_VALUES as readonly string[]).includes(
+        stageRaw,
+      )
+        ? (stageRaw as (typeof STAGE_VALUES)[number])
+        : '初期';
+      const background = asStr(e.background).slice(0, 80);
+      const description = asStr(e.description).slice(0, 80);
+      return {
+        clan,
+        realm_stage,
+        enemy_name: name,
+        ...(background ? { background } : {}),
+        ...(description ? { description } : {}),
+        ...(typeof e.is_boss === 'boolean' ? { is_boss: e.is_boss } : {}),
+      };
+    };
+
+    // 单个选项归一：text 非空；costs 四数组缺省补 []，逐条过滤非法条目
+    const normalizeOption = (
+      entry: unknown,
+    ): DungeonRoundLlmOutput['options'][number] | null => {
+        if (!entry || typeof entry !== 'object') return null;
+        const e = entry as Record<string, unknown>;
+        const text = asStr(e.text).slice(0, 60);
+        if (!text) return null;
+        const costsRaw = (
+          e.costs && typeof e.costs === 'object' ? e.costs : {}
+        ) as Record<string, unknown>;
+        const resources = asArray(costsRaw.resources)
+          .map((item) => {
+            if (!item || typeof item !== 'object') return null;
+            const c = item as Record<string, unknown>;
+            const type = asStr(c.type);
+            const valid = [
+              'spirit_stones',
+              'lifespan',
+              'cultivation_exp',
+              'comprehension_insight',
+            ].includes(type);
+            return valid
+              ? { type: type as 'spirit_stones', rank: pickRank(c.rank) }
+              : null;
+          })
+          .filter((v) => v !== null)
+          .slice(0, 2);
+        const materials = asArray(costsRaw.materials)
+          .map((item) => {
+            if (!item || typeof item !== 'object') return null;
+            const c = item as Record<string, unknown>;
+            const required_type = asStr(c.required_type);
+            const valid = [
+              'herb',
+              'ore',
+              'monster',
+              'tcdb',
+              'aux',
+              'gongfa_manual',
+              'skill_manual',
+            ].includes(required_type);
+            return valid
+              ? {
+                  required_type: required_type as 'herb',
+                  rank: pickRank(c.rank),
+                }
+              : null;
+          })
+          .filter((v) => v !== null)
+          .slice(0, 2);
+        const stat_losses = asArray(costsRaw.stat_losses)
+          .map((item) => {
+            if (!item || typeof item !== 'object') return null;
+            const c = item as Record<string, unknown>;
+            const type = asStr(c.type);
+            if (type !== 'hp_loss' && type !== 'mp_loss') return null;
+            return {
+              type: type as 'hp_loss',
+              rank: pickRank(c.rank),
+            };
+          })
+          .filter((v): v is NonNullable<typeof v> => v !== null)
+          .slice(0, 2);
+        const battles = asArray(costsRaw.battles)
+          .map(normalizeBattle)
+          .filter((v): v is NonNullable<typeof v> => v !== null)
+          .slice(0, 1);
+        // 战斗独立结算伤害，与 stat_losses 互斥
+        if (battles.length > 0) stat_losses.length = 0;
+        return {
+          text,
+          costs: {
+            resources,
+            materials,
+            stat_losses,
+            battles,
+          },
+        };
+      };
+
+    let options = asArray(raw.options)
+      .map(normalizeOption)
+      .filter((v): v is NonNullable<typeof v> => v !== null);
     if (options.length === 0) return null;
     // 不足 3 个：用模板选项补齐（复用 buildTemplateRound 的语义，简单注入标准代价）
     while (options.length < 3) {
@@ -2655,26 +2809,59 @@ return {
     }
 
     // internal_danger_score 夹取到 [0,100] 整数
+    const rawDanger = raw.internal_danger_score;
     let danger =
-      typeof output.internal_danger_score === 'number' &&
-      Number.isFinite(output.internal_danger_score)
-        ? Math.round(output.internal_danger_score)
+      typeof rawDanger === 'number' && Number.isFinite(rawDanger)
+        ? Math.round(rawDanger)
         : 30;
-    if (!Number.isFinite(danger)) danger = 30;
     danger = Math.min(100, Math.max(0, danger));
 
-    // acquired_items 超出剩余槽位时截断
-    let acquired = Array.isArray(output.acquired_items)
-      ? output.acquired_items
-      : [];
-    if (acquired.length > Math.max(0, opts.maxRewardSlots)) {
-      acquired = acquired.slice(0, Math.max(0, opts.maxRewardSlots));
-    }
+    // acquired_items 归一：仅保留带名称的对象条目，枚举非法置空，分数夹取到 [0,100]
+    const MATERIAL_TYPES = [
+      'herb',
+      'ore',
+      'monster',
+      'tcdb',
+      'aux',
+      'gongfa_manual',
+      'skill_manual',
+    ];
+    const ELEMENT_VALUES = ['烛', '尸', '星', '渊', '梦', '噬', '帘', '疫'];
+    const acquired = asArray(raw.acquired_items)
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const e = item as Record<string, unknown>;
+        const name = asStr(e.name).slice(0, 24);
+        if (!name) return null;
+        const description = asStr(e.description).slice(0, 100);
+        const material_type = asStr(e.material_type);
+        const element = asStr(e.element);
+        const reward_score =
+          typeof e.reward_score === 'number' && Number.isFinite(e.reward_score)
+            ? Math.min(100, Math.max(0, Math.round(e.reward_score)))
+            : undefined;
+        return {
+          name,
+          ...(description ? { description } : {}),
+          ...(MATERIAL_TYPES.includes(material_type)
+            ? { material_type: material_type as 'herb' }
+            : {}),
+          ...(ELEMENT_VALUES.includes(element)
+            ? { element: element as '烛' }
+            : {}),
+          ...(reward_score !== undefined ? { reward_score } : {}),
+        };
+      })
+      .filter((v): v is NonNullable<typeof v> => v !== null)
+      .slice(0, Math.max(0, opts.maxRewardSlots));
 
     return {
       scene_description: scene,
       options: options as DungeonRoundLlmOutput['options'],
-      acquired_items: acquired,
+      // 宽松路径下条目可能缺省 description/material_type/reward_score；
+      // 下游 DungeonRoundSchema 的 RewardBlueprintSchema 字段全可选，可直接透传。
+      acquired_items:
+        acquired as DungeonRoundLlmOutput['acquired_items'],
       internal_danger_score: danger,
     };
   }
@@ -2725,10 +2912,22 @@ return {
         }),
       },
     ];
+    // 高风险选项直接触发战斗（战斗独立结算伤害，不再叠加气血损失）。
+    // 敌人三族/名称与三个场景意象一一对应，保证模板回合同样有战斗可选。
+    const templateBattle = [
+      { clan: '腌物' as const, enemy_name: '循水上爬的腌骸' },
+      { clan: '投影' as const, enemy_name: '倒影里的注视者' },
+      { clan: '遗种' as const, enemy_name: '门后低语的旧物' },
+    ][(roundIdx - 1) % 3];
     const highRisk: DungeonOptionCost[] = [
       {
-        type: 'hp_loss',
-        value: calculateDungeonStatLoss({ realm, difficulty, rank: 'major' }),
+        type: 'battle',
+        value: 1,
+        metadata: {
+          clan: templateBattle.clan,
+          realm_stage: '初期',
+          enemy_name: templateBattle.enemy_name,
+        },
       },
       {
         type: 'cultivation_exp',

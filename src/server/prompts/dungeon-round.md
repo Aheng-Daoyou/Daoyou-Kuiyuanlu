@@ -75,7 +75,7 @@ id: dungeon-round
 - `resources`：元素使用 `{ "type", "rank" }`，`type` 只能为 `spirit_stones`、`lifespan`、`cultivation_exp`、`comprehension_insight`。
 - `materials`：元素使用 `{ "required_type", "rank" }`，两个字段都必填；不得指定具体材料名、品质、数量或填写敌人信息。
 - `stat_losses`：元素使用 `{ "type", "rank" }`，`type` 只能为 `hp_loss` 或 `mp_loss`。
-- `battles`：只能为空数组或包含一个元素；元素直接填写敌人的 `race`、`realm_stage`、`enemy_name` 等字段，不要再包裹 `type`、`value` 或 `metadata`。
+- `battles`：只能为空数组或包含一个元素；元素直接填写敌人的 `clan`、`realm_stage`、`enemy_name` 等字段，不要再包裹 `type`、`value` 或 `metadata`，也不要把族别字段写成 `race`。
 
 一个选项的四个数组合计最多两项代价。若 `battles` 非空，`stat_losses` 必须为空，因为战斗系统会独立结算伤害。每个选项最多触发一场战斗。若剧情中存在多名敌人，应将其合并描述为同一支敌方队伍或选择一名主要对手，不得在 `battles` 中拆成多个元素。
 
@@ -87,7 +87,7 @@ id: dungeon-round
 - 常规试探、小额媒介或轻度损耗使用 `minor`；明显的资源投入或承伤使用 `standard`；只有燃烧寿元、强行破阵等不可逆的极端行动才使用 `major`。
 - 不得输出任何代价的精确数值、百分比或材料品质。程序会根据 `setting.realmRequirement`、`setting.difficulty` 和 `rank` 确定真实结算值。
 - `materials` 表示消耗玩家已有的一类材料，不是获得材料。`required_type` 使用下方材料类型枚举；最低品质和数量由程序计算。
-- `battles` 中的 `race` 只能为 `人族`、`妖族`、`鬼魂`、`魔族`、`古兽`、`灵族`、`诡异`；`realm_stage` 只能为 `初期`、`中期`、`后期`、`圆满`，并且必须符合 `setting.allowedEnemyRealmStages`。
+- `battles` 中的 `clan` 只能为敌人三族枚举：`腌物`（被梦涎腌坏的凡人与尸体，保留生前执念，最常见）、`遗种`（泡影之夜幸存的旧纪元残留物，自带规则特性）、`投影`（天翁梦中渗出的影子，倒影般难以捉摸）；`realm_stage` 只能为 `初期`、`中期`、`后期`、`圆满`，并且必须符合 `setting.allowedEnemyRealmStages`。不得使用 `人族`、`妖族`、`鬼魂`、`魔族`、`古兽`、`灵族`、`诡异` 等旧口径。
 - `battles` 中的 `enemy_name` 是必填的敌人名称；`background`、`description` 和 `is_boss` 可按剧情需要填写。只有真正的诡异本体或渊隙首领才能设置 `is_boss: true`。
 - 当 `race` 为 `诡异` 时：`enemy_name` 优先用「讳名」形式（残缺、错位、不可完整读出，如「无面者」「彼物」「回声」），避免「XX王、XX尊、XX真人」等修仙封号；`background` 与 `description` 应围绕一个「执念」或「残缺记忆」展开，并暗示与其对峙会侵蚀心智，但不得写玩家侧的数值或规则。
 
@@ -145,7 +145,7 @@ id: dungeon-round
     "materials": [],
     "stat_losses": [],
     "battles": [
-      { "race": "诡异", "realm_stage": "初期", "enemy_name": "拦路的无面者" }
+      { "clan": "腌物", "realm_stage": "初期", "enemy_name": "拦路的无面者" }
     ]
   }
 }

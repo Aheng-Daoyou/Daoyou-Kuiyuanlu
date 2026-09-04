@@ -261,6 +261,9 @@ describe('LingxiaoOrganizationModule', () => {
         sectId: 'lingxiao',
         opponentId: `npc-${taskId}`,
       });
+      // 小比对垒的是名册凝成的同门幻影，悬赏讨伐对垒的是外宗修士影身；
+      // 数据仍是锁定时的真实玩家快照（防改名/换装后缩放）。
+      const shadeLabel = taskId === 'weekly_tournament' ? '幻影' : '影身';
 
       expect(LINGXIAO_ORGANIZATION.battles.get(taskId)?.acquisition).toBe(
         acquisition,
@@ -269,10 +272,11 @@ describe('LingxiaoOrganizationModule', () => {
       expect(result?.opponent).toEqual({
         ...target,
         id: `npc-${taskId}`,
+        name: `${shadeLabel}·锁定对手`,
       });
       target.name = '领取后改名';
       target.attributes.vitality = 1;
-      expect(result?.opponent.name).toBe('锁定对手');
+      expect(result?.opponent.name).toBe(`${shadeLabel}·锁定对手`);
       expect(result?.opponent.attributes.vitality).toBe(99);
     },
   );
