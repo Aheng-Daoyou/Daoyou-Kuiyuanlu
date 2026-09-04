@@ -647,7 +647,12 @@ function generateFromPresets(
 
   for (let i = 0; i < layerConfig.count; i++) {
     const type = weightedPickType(profile);
-    const rank = rollQualityInRange(layerConfig.rankRange);
+    // 与材料库主路径一致，传入显式 qualityWeights（treasure 已配置），
+    // 避免兜底路径回落到 QUALITY_CHANCE_MAP 在 rankRange 内归一化导致高端重尾。
+    const rank = rollQualityInRange(
+      layerConfig.rankRange,
+      layerConfig.qualityWeights,
+    );
     const pool = MARKET_PRESET_POOL[type]?.[rank];
 
     if (!pool || pool.length === 0) continue;

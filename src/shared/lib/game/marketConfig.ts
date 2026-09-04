@@ -23,11 +23,44 @@ export const MYSTERY_MAPPING_TTL_SEC = 72 * 60 * 60;
 export const DEFAULT_BLACK_MYSTERY_CHANCE = 0.7;
 export const BLACK_MARKET_MIN_HIGH_TIER_COUNT = 2;
 export const BLACK_MARKET_HIGH_TIER_MIN: Quality = '地品';
+
+/**
+ * 黑市品质权重（坊市黑市层 + NPC 诡市共用）。
+ *
+ * 低档层只承载 地品~神品，若沿用全局品质表在范围内归一化会把天品+推到
+ * 54%+、神品 7%+（神品泛滥到"每轮都有"）。这里显式压低高端占比：
+ * 地品为走量主力（≈62%），天品≈24%，仙品≈10%，神品≈4%（仅约每 3 轮见 1 件）。
+ */
 export const BLACK_MARKET_QUALITY_WEIGHTS: Partial<Record<Quality, number>> = {
-  地品: 25,
-  天品: 17,
-  仙品: 9,
+  地品: 62,
+  天品: 24,
+  仙品: 10,
   神品: 4,
+};
+
+/**
+ * 珍宝阁(坊市 treasure 层)品质权重：默认 玄品~地品。
+ * 显式权重替代"全局表在范围内归一化"——原实现使地品 ≈11.8%（15 分钟一轮，
+ * 全天近百件地品），此处将地品压到 ≈6%，玄品/真品回归主走量。
+ * 天品权重仅为雍州大晋节点(真品~天品覆盖)保留少量出现，默认范围不生效。
+ */
+export const TREASURE_QUALITY_WEIGHTS: Partial<Record<Quality, number>> = {
+  玄品: 62,
+  真品: 30,
+  地品: 6,
+  天品: 2,
+};
+
+/**
+ * 天宝殿(坊市 heaven 层)品质权重：地品~神品。
+ * 原实现归一化后天品+ ≈60%、神品 ≈10%——顶级货几乎成了常规补给。
+ * 此处天品+ 压至 ≈36%，神品收至 ≈3%（约每 4 轮 1 件），地品成为该层主流。
+ */
+export const HEAVEN_QUALITY_WEIGHTS: Partial<Record<Quality, number>> = {
+  地品: 64,
+  天品: 24,
+  仙品: 9,
+  神品: 3,
 };
 
 const FALLBACK_NODE_ID = 'TN_YUE_01';
@@ -74,11 +107,13 @@ export const MARKET_LAYER_CONFIG: Record<MarketLayer, LayerConfig> = {
     count: MARKET_ITEM_COUNT,
     rankRange: { min: '玄品', max: '地品' },
     access: { minRealm: '守灯', entryFee: 0 },
+    qualityWeights: TREASURE_QUALITY_WEIGHTS,
   },
   heaven: {
     count: MARKET_ITEM_COUNT,
     rankRange: { min: '地品', max: '神品' },
     access: { minRealm: '蚀体' },
+    qualityWeights: HEAVEN_QUALITY_WEIGHTS,
   },
   black: {
     count: MARKET_ITEM_COUNT,

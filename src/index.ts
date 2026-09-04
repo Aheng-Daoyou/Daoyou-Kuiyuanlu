@@ -9,9 +9,12 @@ import {
   startOnlineBattleRuntime,
   stopOnlineBattleRuntime,
 } from './server/lib/services/onlineBattleRuntime';
+import { ensureDefaultShopCatalog } from './server/lib/services/shopDefaults';
 
 await registerMessageInfrastructure();
 await startOnlineBattleRuntime();
+// 商店默认货架播种（幂等：商店表已有任意行则跳过，见 shopDefaults.ts）
+await ensureDefaultShopCatalog();
 registerInternalCronJobs({ enabled: import.meta.env.PROD });
 
 let shuttingDown = false;

@@ -59,15 +59,44 @@ describe('marketConfig display helpers', () => {
 
     expect(black.rankRange).toEqual({ min: '地品', max: '神品' });
     expect(black.minHighTierCount).toBe(2);
+    // 高阶占比收敛：地品走量为主，神品仅为≈4% 的稀见货（避免旧配置神品≈7%+泛滥）
     expect(black.qualityWeights).toMatchObject({
-      地品: 25,
-      天品: 17,
-      仙品: 9,
+      地品: 62,
+      天品: 24,
+      仙品: 10,
       神品: 4,
     });
     expect(black.qualityWeights).not.toHaveProperty('灵品');
     expect(black.qualityWeights).not.toHaveProperty('玄品');
     expect(black.qualityWeights).not.toHaveProperty('真品');
+  });
+
+  it('gives treasure & heaven explicit quality weights to suppress top-heavy tails', () => {
+    const treasure = getLayerConfig('treasure');
+    const heaven = getLayerConfig('heaven');
+
+    // 珍宝阁：默认 玄~地品，地品权重显著低于玄/真（归一化地品≈11.8% → ≈6%）
+    expect(treasure.rankRange).toEqual({ min: '玄品', max: '地品' });
+    expect(treasure.qualityWeights).toMatchObject({
+      玄品: 62,
+      真品: 30,
+      地品: 6,
+    });
+    // 天品权重仅为雍州大晋节点（真品~天品覆盖）保留微量出现
+    expect(treasure.qualityWeights).toHaveProperty('天品', 2);
+    expect(treasure.qualityWeights).not.toHaveProperty('仙品');
+    expect(treasure.qualityWeights).not.toHaveProperty('神品');
+
+    // 天宝殿：地品为主流，天品+ 合计 ≈36%（旧归一化 60%），神品 ≈3%
+    expect(heaven.rankRange).toEqual({ min: '地品', max: '神品' });
+    expect(heaven.qualityWeights).toMatchObject({
+      地品: 64,
+      天品: 24,
+      仙品: 9,
+      神品: 3,
+    });
+    expect(heaven.qualityWeights).not.toHaveProperty('真品');
+    expect(heaven.qualityWeights).not.toHaveProperty('玄品');
   });
 
   it('shows black market risk hint without exact probability', () => {

@@ -171,3 +171,45 @@
 - 生产代码 5 文件（上表 8.1/8.2 所列）+ 本报告。
 - 质量门禁：`tsc -b tsconfig.node.json` 0 错误 / `scan:terms` 过 / vitest 全量过。
 - 环境收尾（新增 `.gitignore` 规则，工作树不脏）：`scripts/.test-accounts.json`（含本地会话 token，**永不提交**）、`scripts/tmp-*.ts`、`scripts/.loop-stress.json`、`.e2e-tmp/` 均加入 gitignore 并保留于磁盘，供同一本地库上复跑 `bun scripts/tmp-loop-stress.ts` 回归；3100 后台实例随会话结束由用户自行重启。
+
+---
+
+## 9. 增补：天骄宝阁/宗门宝库空架修复 + 坊市黑市高品质概率收敛（2026-09-04）
+
+### 9.1 核实结论（玩家视角，3100 真实会话）
+
+- **商店确实空架**：`GET /api/reputation-shop` 与 `GET /api/sects/current/shop` 此前均返回 `items: []`；
+  DB 核查两商店表仅各 1 条 `archived` 历史残留行（GM 清货遗留），`active` 行数 = 0 → 玩家无货可买。
+- **宗门商店守卫复验正常**：非宗门弟子/记名弟子（`registered`）访问返回 403「须晋升外门弟子后开放」（`SECT_ORGANIZATION_INVALID`）——守卫按设计拦截，非缺陷；言游晋升 `outer`（外门）后 200。
+
+### 9.2 修复一：商店默认货架播种（新文件 `src/server/lib/services/shopDefaults.ts`）
+
+根因：商店属**配置驱动的货架**，DB 无任何默认数据；两表曾由 GM 清货留下 archived 行（表非空），且种子逻辑若按「表无行才播种」启动即被 archived 残留挡住。
+
+- 启动序列 `src/index.ts` 在 `startOnlineBattleRuntime()` 后接入 `await ensureDefaultShopCatalog()`；
+- 幂等：仅当对应商店表**完全无行**（含 archived）时写入；唯一索引 `onConflictDoNothing` 抗并发；播种者为全零 uuid（无外键依赖）；
+- 选件规则：目录槽位声明「材料族+品质」，从道具库 `published`（444 条材料预设）按 item_id 稳定取首件，缺料槽位跳过并告警；
+- 天骄宝阁 10 槽（声望，榜上珍藏：真品战技/功法、地品天材等）；宗门宝库 12 槽（贡献，凡~灵品日常材料 + 玄品功法/技能 + 真品）。
+
+**实测（重启用例即验收）**：清理两表 archived 残留后重启 → 启动日志「天骄宝阁播种 10 件 / 宗门宝库播种 12 件，零缺料」；玩家视角 HTTP 均 200，货架与槽位逐项对应（价/量/限购可见，宗门侧含本周已购 0）。
+
+### 9.3 修复二：坊市/黑市高品质概率收敛（`marketConfig.ts` + `MarketService.ts`）
+
+根因：`treasure`/`heaven` 未配置显式品质权重，`rollQualityInRange` 把全局表 `QUALITY_CHANCE_MAP` 在 `rankRange` **内归一化** → 高端重尾；`black` 权重表本身过肥。兜底路径 `generateFromPresets` 也未传权重（同病）。
+
+| 层 | 旧（归一化/权重） | 新（显式权重） | 变化 |
+|---|---|---|---|
+| treasure 珍宝阁 | 地品 ≈11.8% | 玄62/真30/地6（+天2 仅雍州用） | 地品 ≈5.8%（-51%） |
+| heaven 天宝殿 | 地40/天30/仙20/神10 → 天品+ 60% | 地64/天24/仙9/神3 | 天品+ 36%（-40%）、神品 3%（-70%） |
+| black 坊市黑市+NPC 诡市 | 地25/天17/仙9/神4 → 天品+ 54.6% | 地62/天24/仙10/神4 | 天品+ 37%（-32%）、神品 4.4%（-40%） |
+| common | — | 不变 | 凡/灵/玄 ≈38/38/24 |
+
+- 取样验证（`.e2e-tmp/verify-quality.ts`，400 轮 ×8 槽 = 3200 次/层，命中材料库主路径采样器）与上表一致；
+- 黑市 NPC 诡市（`BlackMarketService`）与坊市黑市层共用 `BLACK_MARKET_QUALITY_WEIGHTS`，一处生效两处收敛。
+
+### 9.4 质量门禁与提交
+
+- `tsc -b tsconfig.json` 0 错误；`scan:terms` 通过；vitest `marketConfig` + `blackMarketRules` 13/13 通过（测试断言已同步新权重，并新增 treasure/heaven 显式权重断言）。
+- 变更文件：`src/index.ts`、`src/server/lib/services/shopDefaults.ts`（新）、`src/server/lib/services/MarketService.ts`、`src/shared/lib/game/marketConfig.ts`、`src/shared/lib/game/marketConfig.test.ts`、本报告。
+- 数据面收尾：两商店 archived 残留行已清理（清理脚本 `.e2e-tmp/clear-shop-archive.ts`，gitignored）；言游晋升 youdu 外门为本地测试所需（可再降回 registered 复原）。
+- 提示：3000 常驻 dev 实例需重启方可加载新权重与播种逻辑；两表已有行时重启不会再播种（幂等跳过），如需重新播种可清空两表后重启。
