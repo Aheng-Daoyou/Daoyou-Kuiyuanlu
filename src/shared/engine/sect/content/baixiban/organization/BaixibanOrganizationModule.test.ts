@@ -281,6 +281,34 @@ describe('BaixibanOrganizationModule', () => {
     },
   );
 
+  it.each([
+    ['weekly_tournament', '宗门小比', '演武同门·幻影'],
+    ['weekly_bounty_battle', '悬赏令·讨伐', '悬赏令·影身'],
+  ] as const)(
+    'falls back to a same-realm %s phantom when no live target is locked',
+    (taskId, title, expectedName) => {
+      const result = BAIXIBAN_ORGANIZATION.battles.get(taskId)?.create({
+        player: playerFixture(),
+        target: null,
+        sectId: 'baixiban',
+        opponentId: `npc-${taskId}-phantom`,
+      });
+      expect(result?.title).toBe(title);
+      expect(result?.opponent.name).toBe(expectedName);
+      // 幻影随玩家同境同阶段凝出，而非低一境
+      expect(result?.opponent.realm).toBe('守灯');
+      expect(result?.opponent.realm_stage).toBe('中期');
+      // 幻影以约九成境界预算凝出属性，保证可切磋却不至于白送
+      const budget = getRealmStageAttributeBudget('守灯', '中期');
+      expect(result?.opponent.attributes.vitality).toBeGreaterThan(0);
+      expect(result?.opponent.attributes.vitality).toBeLessThanOrEqual(
+        Math.floor(budget / 6),
+      );
+      // 幻影带 presetId，便于后续以 preset 语义持久化快照
+      expect(result?.presetId).toMatch(/weekly-(tournament|bounty)-/);
+    },
+  );
+
   it('builds the fixed Baixiban elder combat loadout', () => {
     const result = BAIXIBAN_ORGANIZATION.battles.get('elder_trial')?.create({
       player: playerFixture(),

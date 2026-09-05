@@ -728,13 +728,24 @@ class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
         {
           acquisition: 'same-sect',
           stateStrategy: 'standard_full',
-          create({ target, opponentId }) {
-            if (!target) throw new Error('宗门小比缺少已锁定对手');
+          create({ player, target, opponentId }) {
+            // 演武需一位对手：优先锁定真实同门；本服没有可排到的同境同门时，
+            // 由演武场凝出一个同境「同门幻影」顶上，绝不把这条周常路卡死。
+            const opponent = target
+              ? createLockedCultivatorOpponent(target, opponentId, '幻影')
+              : createRealmNpcOpponent(
+                  player,
+                  opponentId,
+                  '演武同门·幻影',
+                  0.9,
+                );
             return {
-              opponent: createLockedCultivatorOpponent(target, opponentId, '幻影'),
+              opponent,
+              presetId: target ? undefined : 'weekly-tournament-spirit-v1',
               title: '宗门小比',
-              description:
-                '宗门依演武名册凝成的同门幻影（同境或低一境），并非同门本人。',
+              description: target
+                ? '宗门依演武名册凝成的同门幻影（同境或低一境），并非同门本人。'
+                : '演武名册本期未排到可切磋的同门真人，宗门便以名册凝出一个同境同门幻影供你切磋。',
             };
           },
         },
@@ -744,13 +755,24 @@ class StandardSectBattleScenarioCatalog implements SectBattleScenarioCatalog {
         {
           acquisition: 'other-sect',
           stateStrategy: 'persistent_world',
-          create({ target, opponentId }) {
-            if (!target) throw new Error('战斗悬赏缺少已锁定目标');
+          create({ player, target, opponentId }) {
+            // 讨伐需一位目标：优先锁定真实外宗修士；本服没有可排到的外宗目标时，
+            // 以悬赏令影认凝出一个同境影身顶上，绝不把这条周常路卡死。
+            const opponent = target
+              ? createLockedCultivatorOpponent(target, opponentId, '影身')
+              : createRealmNpcOpponent(
+                  player,
+                  opponentId,
+                  '悬赏令·影身',
+                  0.9,
+                );
             return {
-              opponent: createLockedCultivatorOpponent(target, opponentId, '影身'),
+              opponent,
+              presetId: target ? undefined : 'weekly-bounty-shadow-v1',
               title: '悬赏令·讨伐',
-              description:
-                '悬赏令所记外宗目标的影认幻身（同境或低一境），并非其本人。',
+              description: target
+                ? '悬赏令所记外宗目标的影认幻身（同境或低一境），并非其本人。'
+                : '近日悬赏册上没有可排到的外宗目标，悬赏令便以影认凝出一个同境影身供你讨伐。',
             };
           },
         },

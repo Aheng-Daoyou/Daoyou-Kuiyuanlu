@@ -526,21 +526,14 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
           ),
           relation: factory.acquisition,
         })) ?? undefined;
-      if (!source)
-        invalid(
-          factory.acquisition === 'same-sect'
-            ? '本周演武名册尚未排到与你同境或低一境的同门，不妨过些时候再来问问。'
-            : '近日悬赏册上没有与你同境或低一境的外宗目标，这份令暂时不能揭。',
-          409,
+      if (source) {
+        const live = await context.ports.cultivators.loadRuntime(
+          source.cultivatorId,
         );
-      target = await context.ports.cultivators.loadRuntime(source.cultivatorId);
-      if (!target)
-        invalid(
-          factory.acquisition === 'same-sect'
-            ? '本周演武名册尚未排到与你同境或低一境的同门，不妨过些时候再来问问。'
-            : '近日悬赏册上没有与你同境或低一境的外宗目标，这份令暂时不能揭。',
-          409,
-        );
+        if (live) target = live;
+      }
+      // 找不到可匹配的真人（同门/外宗）时不再卡死：target 保持 null，
+      // 交由 battle scenario 凝出同境 NPC 幻影顶上，保证单人/低活跃服也能完成周常。
     }
     const scenario = factory.create({
       player,
@@ -548,35 +541,36 @@ export class BattleTaskExecutor extends BaseTaskExecutor<
       sectId: context.membership.sectId,
       opponentId: `sect-target-${context.requestId}`,
     });
-    const battleTarget =
-      factory.acquisition === 'preset'
-        ? SectBattleTargetSnapshotSchema.parse({
-            schemaVersion: SECT_BATTLE_TARGET_SCHEMA_VERSION,
-            kind: 'preset',
-            presetId:
-              scenario.presetId ?? `sect-task-${context.definition.id}-v1`,
-            rulesVersion: 1,
-            challengeTitle: scenario.title,
-            name: scenario.opponent.name,
-            description: scenario.description,
-            realm: scenario.opponent.realm,
-            realmStage: scenario.opponent.realm_stage,
-            combatant: scenario.opponent,
-          })
-        : SectBattleTargetSnapshotSchema.parse({
-            schemaVersion: SECT_BATTLE_TARGET_SCHEMA_VERSION,
-            kind: 'cultivator',
-            sourceCultivatorId: source!.cultivatorId,
-            sourceSectId: source!.sectId,
-            sourceSectName: source!.sectName,
-            lockedAt: context.ports.clock.now().toISOString(),
-            challengeTitle: scenario.title,
-            name: scenario.opponent.name,
-            description: scenario.description,
-            realm: scenario.opponent.realm,
-            realmStage: scenario.opponent.realm_stage,
-            combatant: scenario.opponent,
-          });
+    // 只有真实目标被锁定（target 非空）时才用 cultivator 快照；否则一律记为 preset 幻影快照。
+    const isLiveLocked = target !== null && !!source;
+    const battleTarget = !isLiveLocked
+      ? SectBattleTargetSnapshotSchema.parse({
+          schemaVersion: SECT_BATTLE_TARGET_SCHEMA_VERSION,
+          kind: 'preset',
+          presetId:
+            scenario.presetId ?? `sect-task-${context.definition.id}-v1`,
+          rulesVersion: 1,
+          challengeTitle: scenario.title,
+          name: scenario.opponent.name,
+          description: scenario.description,
+          realm: scenario.opponent.realm,
+          realmStage: scenario.opponent.realm_stage,
+          combatant: scenario.opponent,
+        })
+      : SectBattleTargetSnapshotSchema.parse({
+          schemaVersion: SECT_BATTLE_TARGET_SCHEMA_VERSION,
+          kind: 'cultivator',
+          sourceCultivatorId: source!.cultivatorId,
+          sourceSectId: source!.sectId,
+          sourceSectName: source!.sectName,
+          lockedAt: context.ports.clock.now().toISOString(),
+          challengeTitle: scenario.title,
+          name: scenario.opponent.name,
+          description: scenario.description,
+          realm: scenario.opponent.realm,
+          realmStage: scenario.opponent.realm_stage,
+          combatant: scenario.opponent,
+        });
     return SectTaskRecordPayloadSchema.parse({
       ...context.payload,
       executorData: {
