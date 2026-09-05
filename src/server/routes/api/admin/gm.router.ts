@@ -1,5 +1,6 @@
 import { getExecutor } from '@server/lib/drizzle/db';
 import { publishTransactionalMessageBestEffort } from '@server/lib/mq/transactionalMessagePublisher';
+import { redisLockKeys, withRedisLock } from '@server/lib/redis/lock';
 import { cultivators, itemLibrary, sectMemberships } from '@server/lib/drizzle/schema';
 import { requireAdmin } from '@server/lib/hono/middleware';
 import type { AppEnv } from '@server/lib/hono/types';
@@ -13,9 +14,11 @@ import { resourceEngine } from '@server/lib/services/resource/ResourceEngine';
 import {
   GmGrantRequestSchema,
   GmPlayerQuerySchema,
+  GmSetAttributesRequestSchema,
   GM_GRANT_CHUNK_SIZES,
   type GmGrantResponse,
   type GmPlayerSummary,
+  type GmSetAttributesResponse,
 } from '@shared/contracts/gmTools';
 import type { ResourceChange } from '@shared/contracts/resources';
 import type { ResourceOperation } from '@shared/engine/resource/types';
@@ -47,6 +50,13 @@ router.get('/players', requireAdmin(), async (c) => {
       realmStage: cultivators.realm_stage,
       spiritStones: cultivators.spirit_stones,
       reputation: cultivators.reputation,
+      vitality: cultivators.vitality,
+      strength: cultivators.strength,
+      spirit: cultivators.spirit,
+      endurance: cultivators.endurance,
+      speed: cultivators.speed,
+      willpower: cultivators.willpower,
+      unallocatedAttributePoints: cultivators.unallocatedAttributePoints,
       userId: cultivators.userId,
     })
     .from(cultivators)
@@ -63,6 +73,13 @@ router.get('/players', requireAdmin(), async (c) => {
     realmStage: row.realmStage,
     spiritStones: row.spiritStones,
     reputation: row.reputation,
+    vitality: row.vitality,
+    strength: row.strength,
+    spirit: row.spirit,
+    endurance: row.endurance,
+    speed: row.speed,
+    willpower: row.willpower,
+    unallocatedAttributePoints: row.unallocatedAttributePoints,
     userId: row.userId,
   }));
 
@@ -437,6 +454,165 @@ router.post('/grant', requireAdmin(), async (c) => {
       reputation: result.settlement.reputation ?? 0,
       lifespan: result.settlement.lifespan,
     },
+  };
+  return c.json(response);
+});
+
+/**
+ * GM 修改角色根基六维（直接设定绝对目标值，不受境界自然值下限 / 属性预算约束）。
+ * - 与正常玩法分配同用一把 cultivator redis 锁，避免并发覆盖。
+ * - 通过 player.profile 的 merge 事件让目标玩家端实时刷新六维。
+ */
+router.post('/attributes', requireAdmin(), async (c) => {
+  const admin = c.get('user');
+  if (!admin) {
+    return c.json({ error: '未授权访问' }, 401);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = GmSetAttributesRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: '参数错误', details: parsed.error.flatten() }, 400);
+  }
+  const input = parsed.data;
+
+  const q = getExecutor();
+  const [existing] = await q
+    .select({
+      id: cultivators.id,
+      userId: cultivators.userId,
+      name: cultivators.name,
+      realm: cultivators.realm,
+      realmStage: cultivators.realm_stage,
+      vitality: cultivators.vitality,
+      strength: cultivators.strength,
+      spirit: cultivators.spirit,
+      endurance: cultivators.endurance,
+      speed: cultivators.speed,
+      willpower: cultivators.willpower,
+      unallocatedAttributePoints: cultivators.unallocatedAttributePoints,
+    })
+    .from(cultivators)
+    .where(eq(cultivators.id, input.cultivatorId))
+    .limit(1);
+
+  if (!existing) {
+    return c.json({ error: '角色不存在' }, 404);
+  }
+
+  const before = {
+    vitality: existing.vitality,
+    strength: existing.strength,
+    spirit: existing.spirit,
+    endurance: existing.endurance,
+    speed: existing.speed,
+    willpower: existing.willpower,
+    unallocatedAttributePoints: existing.unallocatedAttributePoints,
+  };
+
+  const { after, changes: committedChanges } = await withRedisLock(
+    {
+      key: redisLockKeys.cultivatorMutation(input.cultivatorId),
+      context: 'gm-attributes',
+      timeoutMs: 10_000,
+      retries: 0,
+    },
+    async () => {
+      const updateSet: Record<string, number> = {};
+      if (input.vitality !== undefined) updateSet.vitality = input.vitality;
+      if (input.strength !== undefined) updateSet.strength = input.strength;
+      if (input.spirit !== undefined) updateSet.spirit = input.spirit;
+      if (input.endurance !== undefined) updateSet.endurance = input.endurance;
+      if (input.speed !== undefined) updateSet.speed = input.speed;
+      if (input.willpower !== undefined) updateSet.willpower = input.willpower;
+      if (input.unallocatedAttributePoints !== undefined) {
+        updateSet.unallocatedAttributePoints = input.unallocatedAttributePoints;
+      }
+
+      return q.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(cultivators)
+          .set({ ...updateSet, updatedAt: new Date() })
+          .where(eq(cultivators.id, input.cultivatorId))
+          .returning({
+            vitality: cultivators.vitality,
+            strength: cultivators.strength,
+            spirit: cultivators.spirit,
+            endurance: cultivators.endurance,
+            speed: cultivators.speed,
+            willpower: cultivators.willpower,
+            unallocatedAttributePoints: cultivators.unallocatedAttributePoints,
+          });
+
+        const result = {
+          vitality: updated.vitality,
+          strength: updated.strength,
+          spirit: updated.spirit,
+          endurance: updated.endurance,
+          speed: updated.speed,
+          willpower: updated.willpower,
+          unallocatedAttributePoints: updated.unallocatedAttributePoints,
+        };
+
+        // 与玩法侧 profile 事件一致的 merge 载荷：六维挂 attributes、未分配点置顶。
+        const commit = await resourceEventCommitter.commit(tx, {
+          actor: { userId: admin.id },
+          source: 'gm-set-attributes',
+          changes: [
+            {
+              resourceTopic: 'player.profile',
+              eventType: 'profile.attributes.gm',
+              operation: 'merge',
+              payload: {
+                cultivator: {
+                  attributes: {
+                    vitality: result.vitality,
+                    strength: result.strength,
+                    spirit: result.spirit,
+                    endurance: result.endurance,
+                    speed: result.speed,
+                    willpower: result.willpower,
+                  },
+                  unallocated_attribute_points:
+                    result.unallocatedAttributePoints,
+                },
+              },
+            },
+          ],
+          scopeDefaults: {
+            accountId: existing.userId,
+            cultivatorId: existing.id,
+          },
+        });
+
+        return { after: result, changes: commit.changes };
+      });
+    },
+  );
+
+  if (committedChanges.length) publishResourceEvents(committedChanges);
+
+  console.log(
+    `[GM] ${admin.email ?? admin.id} 修改角色 ${existing.name}(${existing.id}) 根基六维` +
+      ` 灯红/灯锋/梦涎/灯骨/灯影/灯芯=` +
+      `[${before.vitality}→${after.vitality}] ` +
+      `[${before.strength}→${after.strength}] ` +
+      `[${before.spirit}→${after.spirit}] ` +
+      `[${before.endurance}→${after.endurance}] ` +
+      `[${before.speed}→${after.speed}] ` +
+      `[${before.willpower}→${after.willpower}]` +
+      ` 未分配点=${before.unallocatedAttributePoints}→${after.unallocatedAttributePoints}` +
+      (input.note ? ` 备注：${input.note}` : ''),
+  );
+
+  const response: GmSetAttributesResponse = {
+    success: true,
+    cultivatorId: existing.id,
+    name: existing.name,
+    realm: existing.realm,
+    realmStage: existing.realmStage,
+    before,
+    after,
   };
   return c.json(response);
 });

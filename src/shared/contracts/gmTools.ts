@@ -16,6 +16,79 @@ export interface GmPlayerSummary {
   spiritStones: number;
   reputation: number;
   userId: string;
+  /** 当前根基六维（absolute 存储值，含自然成长 + 已分配点） */
+  vitality: number;
+  strength: number;
+  spirit: number;
+  endurance: number;
+  speed: number;
+  willpower: number;
+  /** 当前未分配属性点 */
+  unallocatedAttributePoints: number;
+}
+
+/**
+ * GM 修改角色根基六维请求。六个维度均为「直接设定目标值」的覆盖语义：
+ * 与 /grant 的增量发放不同，这里 GM 可把某维精确设到任意 >=0 值（用于测试极端配置），
+ * 不受该境界自然值下限 / 属性预算约束；额外可选覆盖 unallocatedAttributePoints。
+ * 至少提供一项六维值或未分配点。
+ */
+export const GmSetAttributesRequestSchema = z
+  .object({
+    cultivatorId: z.string().uuid(),
+    vitality: z.number().int().min(0).max(1_000_000_000).optional(),
+    strength: z.number().int().min(0).max(1_000_000_000).optional(),
+    spirit: z.number().int().min(0).max(1_000_000_000).optional(),
+    endurance: z.number().int().min(0).max(1_000_000_000).optional(),
+    speed: z.number().int().min(0).max(1_000_000_000).optional(),
+    willpower: z.number().int().min(0).max(1_000_000_000).optional(),
+    unallocatedAttributePoints: z
+      .number()
+      .int()
+      .min(0)
+      .max(1_000_000_000)
+      .optional(),
+    note: z.string().trim().max(200).optional(),
+  })
+  .refine(
+    (value) =>
+      value.vitality !== undefined ||
+      value.strength !== undefined ||
+      value.spirit !== undefined ||
+      value.endurance !== undefined ||
+      value.speed !== undefined ||
+      value.willpower !== undefined ||
+      value.unallocatedAttributePoints !== undefined,
+    { message: '至少填写一个要修改的六维项或未分配属性点' },
+  );
+
+export type GmSetAttributesRequest = z.infer<typeof GmSetAttributesRequestSchema>;
+
+/** GM 修改六维后的返回：六项均回传修改前与修改后的值，便于 GM 页面回显。 */
+export interface GmSetAttributesResponse {
+  success: true;
+  cultivatorId: string;
+  name: string;
+  realm: string;
+  realmStage: string;
+  before: {
+    vitality: number;
+    strength: number;
+    spirit: number;
+    endurance: number;
+    speed: number;
+    willpower: number;
+    unallocatedAttributePoints: number;
+  };
+  after: {
+    vitality: number;
+    strength: number;
+    spirit: number;
+    endurance: number;
+    speed: number;
+    willpower: number;
+    unallocatedAttributePoints: number;
+  };
 }
 
 /**

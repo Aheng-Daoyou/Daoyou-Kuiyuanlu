@@ -4,7 +4,10 @@ import { InkInput } from '@app/components/ui/InkInput';
 import type {
   GmGrantResponse,
   GmPlayerSummary,
+  GmSetAttributesResponse,
 } from '@shared/contracts/gmTools';
+import { ATTRIBUTE_DISPLAY_MAP } from '@shared/lib/gameConceptDisplay';
+import type { Attributes } from '@shared/types/cultivator';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /** GM 工具：按角色名实时模糊搜索并直接发放灯油券/声望/灯韵/寿元/窥悟/灯油/宗门贡献/道具（测试与补偿用） */
@@ -27,6 +30,44 @@ export default function GmToolsPage() {
   const [granting, setGranting] = useState(false);
   const [lastResult, setLastResult] = useState<GmGrantResponse | null>(null);
   const searchSeq = useRef(0);
+
+  // —— 根基六维覆盖编辑状态（以字符串承载，选中角色后预填当前值）——
+  const SIX_ATTR_KEYS: (keyof Attributes)[] = [
+    'vitality',
+    'strength',
+    'spirit',
+    'endurance',
+    'speed',
+    'willpower',
+  ];
+  const [attrFields, setAttrFields] = useState<Record<keyof Attributes, string>>({
+    vitality: '',
+    strength: '',
+    spirit: '',
+    endurance: '',
+    speed: '',
+    willpower: '',
+  });
+  const [unallocatedPoints, setUnallocatedPoints] = useState('');
+  const [savingAttributes, setSavingAttributes] = useState(false);
+  const [lastAttrResult, setLastAttrResult] =
+    useState<GmSetAttributesResponse | null>(null);
+
+  // 选中角色变化时，预填六维当前值（来自搜索返回的当前值）
+  useEffect(() => {
+    if (!selected) return;
+    setAttrFields({
+      vitality: String(selected.vitality ?? 0),
+      strength: String(selected.strength ?? 0),
+      spirit: String(selected.spirit ?? 0),
+      endurance: String(selected.endurance ?? 0),
+      speed: String(selected.speed ?? 0),
+      willpower: String(selected.willpower ?? 0),
+    });
+    setUnallocatedPoints(String(selected.unallocatedAttributePoints ?? 0));
+    setLastAttrResult(null);
+  }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   const search = useCallback(
     async (keyword: string) => {
@@ -156,6 +197,85 @@ export default function GmToolsPage() {
       });
     } finally {
       setGranting(false);
+    }
+  };
+
+  const setAttributes = async () => {
+    if (!selected) return;
+    const parseToInt = (value: string): number | undefined => {
+      const trimmed = value.trim();
+      if (!trimmed) return undefined;
+      const n = Math.floor(Number(trimmed));
+      return Number.isFinite(n) && n >= 0 ? n : undefined;
+    };
+    // 空字段 = 不修改该项；显式填 0 会被提交（GM 覆盖语义允许设到 0）
+    const body: Record<string, unknown> = { cultivatorId: selected.id };
+    const sixValues: Record<keyof Attributes, number | undefined> = {
+      vitality: parseToInt(attrFields.vitality),
+      strength: parseToInt(attrFields.strength),
+      spirit: parseToInt(attrFields.spirit),
+      endurance: parseToInt(attrFields.endurance),
+      speed: parseToInt(attrFields.speed),
+      willpower: parseToInt(attrFields.willpower),
+    };
+    for (const key of SIX_ATTR_KEYS) {
+      if (sixValues[key] !== undefined) body[key] = sixValues[key];
+    }
+    const unalloc = parseToInt(unallocatedPoints);
+    if (unalloc !== undefined) body.unallocatedAttributePoints = unalloc;
+    if (Object.keys(body).length === 1) {
+      pushToast({ message: '至少填写一项要修改的六维或未分配点', tone: 'warning' });
+      return;
+    }
+
+    setSavingAttributes(true);
+    try {
+      const response = await fetch('/api/admin/gm/attributes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = (await response.json()) as GmSetAttributesResponse & {
+        error?: string;
+      };
+      if (!response.ok) throw new Error(data.error ?? '修改六维失败');
+      setLastAttrResult(data);
+      // 同步 selected 与回填字段，使「恢复当前值」/后续修改以最新服务端值为准
+      setSelected((current) =>
+        current
+          ? {
+              ...current,
+              vitality: data.after.vitality,
+              strength: data.after.strength,
+              spirit: data.after.spirit,
+              endurance: data.after.endurance,
+              speed: data.after.speed,
+              willpower: data.after.willpower,
+              unallocatedAttributePoints: data.after.unallocatedAttributePoints,
+            }
+          : current,
+      );
+      // 回填最新服务端值，便于连续编辑
+      setAttrFields({
+        vitality: String(data.after.vitality),
+        strength: String(data.after.strength),
+        spirit: String(data.after.spirit),
+        endurance: String(data.after.endurance),
+        speed: String(data.after.speed),
+        willpower: String(data.after.willpower),
+      });
+      setUnallocatedPoints(String(data.after.unallocatedAttributePoints));
+      pushToast({
+        message: `已将「${data.name}」根基六维调整为灯红${data.after.vitality}/灯锋${data.after.strength}/梦涎${data.after.spirit}/灯骨${data.after.endurance}/灯影${data.after.speed}/灯芯${data.after.willpower}`,
+        tone: 'success',
+      });
+    } catch (error) {
+      pushToast({
+        message: error instanceof Error ? error.message : '修改六维失败',
+        tone: 'danger',
+      });
+    } finally {
+      setSavingAttributes(false);
     }
   };
 
@@ -338,6 +458,92 @@ export default function GmToolsPage() {
                 {lastResult.balances.lifespan !== undefined
                   ? ` · 寿元 ${lastResult.balances.lifespan.toLocaleString()}`
                   : ''}
+              </p>
+            </div>
+          )}
+        </section>
+      )}
+
+      {selected && (
+        <section className="border-crimson/25 bg-bgpaper/90 space-y-4 border border-dashed p-6">
+          <h3 className="text-ink text-lg font-bold">
+            根基六维修改
+            <span className="text-ink-secondary ml-2 text-sm font-normal">
+              覆盖式设定绝对值，不受境界自然值下限 / 属性预算约束
+            </span>
+          </h3>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {SIX_ATTR_KEYS.map((key) => {
+              const info = ATTRIBUTE_DISPLAY_MAP[key];
+              return (
+                <InkInput
+                  key={key}
+                  label={`${info.label}（${key}）`}
+                  value={attrFields[key]}
+                  onChange={(next) =>
+                    setAttrFields((current) => ({ ...current, [key]: next }))
+                  }
+                  placeholder="留空则不修改"
+                  hint={info.description}
+                  disabled={!selected || savingAttributes}
+                />
+              );
+            })}
+            <InkInput
+              label="未分配属性点（可选）"
+              value={unallocatedPoints}
+              onChange={setUnallocatedPoints}
+              placeholder="留空则不修改"
+              hint="角色当前可自由分配的点数；填 0 可清空"
+              disabled={!selected || savingAttributes}
+            />
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <InkButton
+              type="button"
+              variant="primary"
+              disabled={savingAttributes}
+              onClick={() => void setAttributes()}
+            >
+              {savingAttributes ? '修改中…' : '确认修改六维'}
+            </InkButton>
+            <InkButton
+              type="button"
+              variant="secondary"
+              disabled={savingAttributes}
+              onClick={() => {
+                if (!selected) return;
+                setAttrFields({
+                  vitality: String(selected.vitality ?? 0),
+                  strength: String(selected.strength ?? 0),
+                  spirit: String(selected.spirit ?? 0),
+                  endurance: String(selected.endurance ?? 0),
+                  speed: String(selected.speed ?? 0),
+                  willpower: String(selected.willpower ?? 0),
+                });
+                setUnallocatedPoints(String(selected.unallocatedAttributePoints ?? 0));
+              }}
+            >
+              恢复当前值
+            </InkButton>
+          </div>
+          {lastAttrResult && (
+            <div className="border-ink/20 bg-paper p-4 text-sm">
+              <p className="text-ink-secondary text-xs tracking-[0.16em]">
+                最近一次六维修改
+              </p>
+              <p className="text-ink mt-2">
+                {lastAttrResult.name}（{lastAttrResult.realm}·{lastAttrResult.realmStage}）：
+                灯红 {lastAttrResult.before.vitality} → {lastAttrResult.after.vitality} ·
+                灯锋 {lastAttrResult.before.strength} → {lastAttrResult.after.strength} ·
+                梦涎 {lastAttrResult.before.spirit} → {lastAttrResult.after.spirit} ·
+                灯骨 {lastAttrResult.before.endurance} → {lastAttrResult.after.endurance} ·
+                灯影 {lastAttrResult.before.speed} → {lastAttrResult.after.speed} ·
+                灯芯 {lastAttrResult.before.willpower} → {lastAttrResult.after.willpower}
+              </p>
+              <p className="text-ink-secondary mt-1 text-xs">
+                未分配点 {lastAttrResult.before.unallocatedAttributePoints} →{' '}
+                {lastAttrResult.after.unallocatedAttributePoints}
               </p>
             </div>
           )}
